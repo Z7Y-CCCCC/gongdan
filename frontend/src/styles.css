@@ -1643,3 +1643,32 @@ tr.drag-over {
   max-height: 240px;
   overflow-y: auto;
 }
+
+/* ===== Toast 提示 ===== */
+@keyframes toastSlideIn {
+  from { transform: translate(-50%, -20px); opacity: 0; }
+  to   { transform: translate(-50%, 0); opacity: 1; }
+}
+.action-toast {
+  position: fixed;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 28px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  box-shadow: 0 6px 24px rgba(0,0,0,.15);
+  animation: toastSlideIn .3s ease;
+  cursor: pointer;
+  max-width: 600px;
+  word-break: break-all;
+}
+.action-toast svg { flex-shrink: 0; }
+.success-toast { background: linear-gradient(135deg, #2dba6e, #28a660); }
+.error-toast   { background: linear-gradient(135deg, #e04848, #d43434); }

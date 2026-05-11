@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import {
   createUser,
   exportUsersCsv,
@@ -55,6 +55,11 @@ const users = ref<UserInfo[]>([])
 const loading = ref(false)
 const usersLoading = ref(false)
 const errorMessage = ref('')
+let errorTimer: ReturnType<typeof setTimeout> | null = null
+watch(errorMessage, (v) => {
+  if (errorTimer) clearTimeout(errorTimer)
+  if (v) errorTimer = setTimeout(() => { errorMessage.value = '' }, 5000)
+})
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showPermissionModal = ref(false)
@@ -71,6 +76,11 @@ const confirmState = reactive({
 const successUser = ref<UserInfo | null>(null)
 const successUserPassword = ref('')
 const actionMessage = ref('')
+let actionTimer: ReturnType<typeof setTimeout> | null = null
+watch(actionMessage, (v) => {
+  if (actionTimer) clearTimeout(actionTimer)
+  if (v) actionTimer = setTimeout(() => { actionMessage.value = '' }, 3000)
+})
 const editingUser = ref<UserInfo | null>(null)
 const permissionUser = ref<UserInfo | null>(null)
 const permissionRole = ref<Role>('ADMIN')
@@ -2587,18 +2597,15 @@ const formatDateTime = (val: string) => {
   </div>
 
   <!-- 操作成功提示 -->
-  <div v-if="actionMessage" class="action-toast">{{ actionMessage }}</div>
+  <div v-if="actionMessage" class="action-toast success-toast">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/></svg>
+    <span>{{ actionMessage }}</span>
+  </div>
 
-  <!-- 错误弹窗 -->
-  <div v-if="errorMessage" class="modal-backdrop">
-    <section class="modal confirm-modal">
-      <div class="error-icon">
-        <svg viewBox="0 0 24 24" width="48" height="48" stroke="#d74434" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-      </div>
-      <h2>操作失败</h2>
-      <p style="color:#6d7775; word-break:break-all">{{ errorMessage }}</p>
-      <button class="primary-btn wide" type="button" @click="errorMessage = ''" style="background:#d74434;border-color:#d74434;margin-top:8px">关闭</button>
-    </section>
+  <!-- 错误提示 -->
+  <div v-if="errorMessage" class="action-toast error-toast" @click="errorMessage = ''">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+    <span>{{ errorMessage }}</span>
   </div>
 
   <!-- 部门弹窗 -->
