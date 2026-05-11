@@ -1,0 +1,2697 @@
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import {
+  createUser,
+  exportUsersCsv,
+  fetchUsers,
+  importUsersCsv,
+  login,
+  resetUserPassword,
+  unbindUserPhone,
+  updateUser,
+  updateUserPermission,
+  updateUserStatus,
+  fetchDepartments,
+  createDepartment,
+  updateDepartment,
+  deleteDepartment,
+  fetchUnits,
+  createUnit,
+  updateUnit,
+  deleteUnit,
+  fetchDefects,
+  createDefect,
+  updateDefect,
+  deleteDefect,
+  fetchProcesses,
+  createProcess,
+  updateProcess,
+  deleteProcess,
+  fetchProcessRoutes,
+  createProcessRoute,
+  updateProcessRoute,
+  deleteProcessRoute,
+  type CreateUserPayload,
+  type LoginResponse,
+  type Role,
+  type UpdateUserPayload,
+  type UserInfo,
+  type DepartmentInfo,
+  type CreateDepartmentPayload,
+  type UpdateDepartmentPayload,
+  type UnitInfo,
+  type UnitPayload,
+  type DefectInfo,
+  type DefectPayload,
+  type ProcessInfo,
+  type ProcessPayload,
+  type ProcessRouteInfo,
+  type ProcessRoutePayload
+} from './api'
+
+const token = ref(localStorage.getItem('heihu_token') || '')
+const currentUser = ref<UserInfo | null>(readStoredUser())
+const users = ref<UserInfo[]>([])
+const loading = ref(false)
+const usersLoading = ref(false)
+const errorMessage = ref('')
+const showCreateModal = ref(false)
+const showEditModal = ref(false)
+const showPermissionModal = ref(false)
+const selectedUserIds = ref<number[]>([])
+const fileInput = ref<HTMLInputElement | null>(null)
+const importLogs = ref<{ time: string; fileName: string; total: number; success: number; fail: number; errors: string[] }[]>([])
+const showImportLogModal = ref(false)
+const confirmState = reactive({
+  show: false,
+  title: '',
+  message: '',
+  action: () => {}
+})
+const successUser = ref<UserInfo | null>(null)
+const successUserPassword = ref('')
+const actionMessage = ref('')
+const editingUser = ref<UserInfo | null>(null)
+const permissionUser = ref<UserInfo | null>(null)
+const permissionRole = ref<Role>('ADMIN')
+const isSidebarCollapsed = ref(false)
+const showResetPasswordModal = ref(false)
+const resetPasswordUser = ref<UserInfo | null>(null)
+const resetPasswordForm = reactive({
+  password: '',
+  confirmPassword: ''
+})
+const showUserDropdown = ref(false)
+const showNewPassword = ref(false)
+const showConfirmPassword = ref(false)
+const activeConfigMenu = ref('department') // default to department based on user request
+const activeMainMenu = ref('sysconfig') // 'sysconfig' | 'basedata'
+const activeBasedataMenu = ref('unit') // default to unit
+
+// 单位管理
+const units = ref<UnitInfo[]>([])
+const unitFilterForm = reactive({ name: '', remark: '' })
+const unitFilteredList = computed(() =>
+  units.value.filter(u => {
+    const nameOk = !unitFilterForm.name || u.name.includes(unitFilterForm.name)
+    const remarkOk = !unitFilterForm.remark || !u.remark || u.remark.includes(unitFilterForm.remark)
+    return nameOk && remarkOk
+  })
+)
+const showUnitModal = ref(false)
+const editingUnit = ref<UnitInfo | null>(null)
+const unitForm = reactive({ name: '', remark: '' })
+
+async function loadUnits() {
+  try {
+    const res = await fetchUnits(token.value)
+    units.value = res.items
+  } catch (e) { console.error('加载单位失败', e) }
+}
+function openCreateUnit() {
+  editingUnit.value = null
+  unitForm.name = ''
+  unitForm.remark = ''
+  showUnitModal.value = true
+}
+function openEditUnit(unit: UnitInfo) {
+  editingUnit.value = unit
+  unitForm.name = unit.name
+  unitForm.remark = unit.remark || ''
+  showUnitModal.value = true
+}
+async function handleSaveUnit() {
+  if (!unitForm.name.trim()) return
+  try {
+    if (editingUnit.value) {
+      const updated = await updateUnit(token.value, editingUnit.value.id, { name: unitForm.name, remark: unitForm.remark })
+      const idx = units.value.findIndex(u => u.id === editingUnit.value!.id)
+      if (idx !== -1) units.value[idx] = updated
+    } else {
+      const created = await createUnit(token.value, { name: unitForm.name, remark: unitForm.remark })
+      units.value.unshift(created)
+    }
+    showUnitModal.value = false
+  } catch (e: any) { errorMessage.value = e.message || '保存单位失败' }
+}
+async function handleDeleteUnit(unit: UnitInfo) {
+  try {
+    await deleteUnit(token.value, unit.id)
+    units.value = units.value.filter(u => u.id !== unit.id)
+  } catch (e: any) { errorMessage.value = e.message || '删除单位失败' }
+}
+
+// 不良品项管理
+const defects = ref<DefectInfo[]>([])
+const defectFilterForm = reactive({ code: '', name: '' })
+const defectFilteredList = computed(() =>
+  defects.value.filter(d => {
+    const codeOk = !defectFilterForm.code || d.code.includes(defectFilterForm.code)
+    const nameOk = !defectFilterForm.name || d.name.includes(defectFilterForm.name)
+    return codeOk && nameOk
+  })
+)
+const showDefectModal = ref(false)
+const editingDefect = ref<DefectInfo | null>(null)
+const defectForm = reactive({ code: '', name: '' })
+
+async function loadDefects() {
+  try {
+    const res = await fetchDefects(token.value)
+    defects.value = res.items
+  } catch (e) { console.error('加载不良品项失败', e) }
+}
+function openCreateDefect() {
+  editingDefect.value = null
+  defectForm.code = ''
+  defectForm.name = ''
+  showDefectModal.value = true
+}
+function openEditDefect(d: DefectInfo) {
+  editingDefect.value = d
+  defectForm.code = d.code
+  defectForm.name = d.name
+  showDefectModal.value = true
+}
+async function handleSaveDefect() {
+  if (!defectForm.name.trim()) return
+  try {
+    if (editingDefect.value) {
+      const updated = await updateDefect(token.value, editingDefect.value.id, { code: defectForm.code, name: defectForm.name })
+      const idx = defects.value.findIndex(d => d.id === editingDefect.value!.id)
+      if (idx !== -1) defects.value[idx] = updated
+    } else {
+      const created = await createDefect(token.value, { code: defectForm.code || undefined, name: defectForm.name })
+      defects.value.unshift(created)
+    }
+    showDefectModal.value = false
+  } catch (e: any) { errorMessage.value = e.message || '保存不良品项失败' }
+}
+async function handleDeleteDefect(d: DefectInfo) {
+  try {
+    await deleteDefect(token.value, d.id)
+    defects.value = defects.value.filter(item => item.id !== d.id)
+  } catch (e: any) { errorMessage.value = e.message || '删除不良品项失败' }
+}
+
+// 工序管理
+interface CollectDataRow {
+  type: string
+  name: string
+}
+interface ProcessItem {
+  id: number
+  code: string
+  name: string
+  reportPermission: string[]
+  reportRatio: number
+  defectItemIds: number[]
+  taskPunchIn: boolean
+  goodQuantity: string
+  machineName: string
+  feedCount: string
+  correspondingMachine: string
+  requirements: string
+  collectData: CollectDataRow[]
+}
+const processes = ref<ProcessItem[]>([])
+const processFilterForm = reactive({ code: '', name: '', creator: '' })
+const processFilteredList = computed(() =>
+  processes.value.filter(p => {
+    const codeOk = !processFilterForm.code || p.code.includes(processFilterForm.code)
+    const nameOk = !processFilterForm.name || p.name.includes(processFilterForm.name)
+    return codeOk && nameOk
+  })
+)
+// 'list' | 'create' | 'edit'
+const processView = ref<'list' | 'create' | 'edit'>('list')
+const editingProcess = ref<ProcessItem | null>(null)
+const processNextId = ref(1)
+const processForm = reactive<{
+  code: string
+  name: string
+  reportPermission: string[]
+  reportRatio: number
+  defectItemIds: number[]
+  taskPunchIn: boolean
+  goodQuantity: string
+  machineName: string
+  feedCount: string
+  correspondingMachine: string
+  requirements: string
+  collectData: CollectDataRow[]
+}>({
+  code: '',
+  name: '',
+  reportPermission: ['所有人'],
+  reportRatio: 1,
+  defectItemIds: [],
+  taskPunchIn: false,
+  goodQuantity: '',
+  machineName: '',
+  feedCount: '',
+  correspondingMachine: '',
+  requirements: '',
+  collectData: []
+})
+
+// ===== 工艺路线管理 =====
+interface RouteStep {
+  id: number          // 行内唯一id，用于拖拽key
+  type: 'process' | 'route'
+  processId: number | null  // 选中的工序 id
+  reportRatio: number
+  remark: string
+}
+interface RouteItem {
+  id: number
+  code: string
+  name: string
+  steps: RouteStep[]
+  creator: string
+  createdAt: string
+}
+const routes = ref<RouteItem[]>([])
+const routeFilterForm = reactive({ code: '', name: '', processId: '' })
+const routeFilteredList = computed(() =>
+  routes.value.filter(r => {
+    const codeOk = !routeFilterForm.code || r.code.includes(routeFilterForm.code)
+    const nameOk = !routeFilterForm.name || r.name.includes(routeFilterForm.name)
+    return codeOk && nameOk
+  })
+)
+const routeView = ref<'list' | 'create' | 'edit'>('list')
+const editingRoute = ref<RouteItem | null>(null)
+const routeNextId = ref(1)
+const routeStepNextId = ref(1)
+const routeForm = reactive<{ code: string; name: string; steps: RouteStep[] }>({
+  code: '',
+  name: '',
+  steps: []
+})
+
+// 工序下拉搜索（每行独立）
+const routeStepSearchText = ref<Record<number, string>>({})
+const routeStepDropdownOpen = ref<Record<number, boolean>>({})
+
+function filteredProcessesForStep(stepId: number) {
+  const s = (routeStepSearchText.value[stepId] || '').trim().toLowerCase()
+  if (!s) return processes.value
+  return processes.value.filter(p => p.name.toLowerCase().includes(s) || p.code.toLowerCase().includes(s))
+}
+function openRouteStepDropdown(stepId: number) {
+  // 关闭其他
+  Object.keys(routeStepDropdownOpen.value).forEach(k => {
+    routeStepDropdownOpen.value[Number(k)] = false
+  })
+  routeStepDropdownOpen.value[stepId] = true
+}
+function closeAllRouteStepDropdowns() {
+  Object.keys(routeStepDropdownOpen.value).forEach(k => {
+    routeStepDropdownOpen.value[Number(k)] = false
+  })
+}
+function selectRouteStepProcess(step: RouteStep, processId: number) {
+  step.processId = processId
+  const p = processes.value.find(x => x.id === processId)
+  step.reportRatio = p ? p.reportRatio : 1
+  routeStepDropdownOpen.value[step.id] = false
+}
+function getProcessName(pid: number | null) {
+  if (!pid) return ''
+  const p = processes.value.find(x => x.id === pid)
+  return p ? p.name : ''
+}
+
+function addRouteStep() {
+  const id = routeStepNextId.value++
+  routeForm.steps.push({ id, type: 'process', processId: null, reportRatio: 1, remark: '' })
+  routeStepSearchText.value[id] = ''
+  routeStepDropdownOpen.value[id] = false
+}
+function removeRouteStep(idx: number) {
+  const step = routeForm.steps[idx]
+  delete routeStepSearchText.value[step.id]
+  delete routeStepDropdownOpen.value[step.id]
+  routeForm.steps.splice(idx, 1)
+}
+
+// 拖拽排序
+const routeDragIdx = ref<number | null>(null)
+const routeDragOverIdx = ref<number | null>(null)
+function onRouteDragStart(idx: number, e: DragEvent) {
+  routeDragIdx.value = idx
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+}
+function onRouteDragOver(idx: number, e: DragEvent) {
+  e.preventDefault()
+  routeDragOverIdx.value = idx
+}
+function onRouteDrop(idx: number) {
+  if (routeDragIdx.value === null || routeDragIdx.value === idx) {
+    routeDragIdx.value = null
+    routeDragOverIdx.value = null
+    return
+  }
+  const moved = routeForm.steps.splice(routeDragIdx.value, 1)[0]
+  routeForm.steps.splice(idx, 0, moved)
+  routeDragIdx.value = null
+  routeDragOverIdx.value = null
+}
+function onRouteDragEnd() {
+  routeDragIdx.value = null
+  routeDragOverIdx.value = null
+}
+
+function openCreateRoute() {
+  editingRoute.value = null
+  routeForm.code = ''
+  routeForm.name = ''
+  routeForm.steps = []
+  routeStepSearchText.value = {}
+  routeStepDropdownOpen.value = {}
+  routeView.value = 'create'
+}
+function openEditRoute(r: RouteItem) {
+  editingRoute.value = r
+  routeForm.code = r.code
+  routeForm.name = r.name
+  routeForm.steps = r.steps.map(s => ({ ...s }))
+  routeStepSearchText.value = {}
+  routeStepDropdownOpen.value = {}
+  routeForm.steps.forEach(s => {
+    routeStepSearchText.value[s.id] = ''
+    routeStepDropdownOpen.value[s.id] = false
+  })
+  routeView.value = 'edit'
+}
+async function handleSaveRoute() {
+  if (!routeForm.name.trim()) { errorMessage.value = '工艺路线名称不能为空'; return }
+  if (!token.value) return
+  const payload: ProcessRoutePayload = {
+    code: routeForm.code.trim() || undefined,
+    name: routeForm.name.trim(),
+    steps: routeForm.steps.map(s => ({
+      type: s.type,
+      processId: s.processId,
+      reportRatio: s.reportRatio,
+      remark: s.remark
+    }))
+  }
+  try {
+    if (editingRoute.value) {
+      await updateProcessRoute(token.value, editingRoute.value.id, payload)
+    } else {
+      await createProcessRoute(token.value, payload)
+    }
+    await loadRoutes()
+    routeView.value = 'list'
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : '保存失败'
+  }
+}
+function confirmDeleteRoute(r: RouteItem) {
+  confirmState.title = '删除确认'
+  confirmState.message = `是否确要删除工艺路线「${r.name}」？`
+  confirmState.action = async () => {
+    if (!token.value) return
+    try {
+      await deleteProcessRoute(token.value, r.id)
+      await loadRoutes()
+    } catch (e) {
+      errorMessage.value = e instanceof Error ? e.message : '删除失败'
+    }
+  }
+  confirmState.show = true
+}
+async function loadRoutes() {
+  if (!token.value) return
+  try {
+    const res = await fetchProcessRoutes(token.value, { size: 999 })
+    routes.value = res.items.map(r => ({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      steps: (r.steps || []).map((s, i) => ({
+        id: i + 1,
+        type: (s.type as 'process' | 'route') || 'process',
+        processId: s.processId,
+        reportRatio: s.reportRatio ?? 1,
+        remark: s.remark || ''
+      })),
+      creator: r.creator || '',
+      createdAt: r.createdAt ? r.createdAt.slice(0, 10) : ''
+    }))
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : '工艺路线加载失败'
+  }
+}
+
+// 部门数据（提前声明，供报工权限树使用）
+const departments = ref<DepartmentInfo[]>([])
+const departmentTotal = ref(0)
+const departmentsLoading = ref(false)
+const departmentFilterForm = reactive({ code: '', name: '', page: 1, size: 10 })
+
+// 报工权限选项 - 树形结构（部门 + 员工，动态从 departments & users 生成）
+interface PermEmployee { id: string; name: string }
+interface PermDept { id: string; name: string; employees: PermEmployee[] }
+const permTree = computed<PermDept[]>(() =>
+  departments.value.map(dept => ({
+    id: `dept-${dept.id}`,
+    name: dept.name,
+    employees: users.value
+      .filter(u => u.departmentId === dept.id && u.enabled)
+      .map(u => ({ id: `emp-${u.id}`, name: u.name }))
+  }))
+)
+const permSearchText = ref('')
+const permExpandedDepts = ref<Set<string>>(new Set())
+const filteredPermTree = computed(() => {
+  const s = permSearchText.value.trim().toLowerCase()
+  if (!s) return permTree.value
+  return permTree.value.map(dept => ({
+    ...dept,
+    employees: dept.employees.filter(e => e.name.toLowerCase().includes(s))
+  })).filter(dept => dept.name.toLowerCase().includes(s) || dept.employees.length > 0)
+})
+function togglePermDeptExpand(deptId: string) {
+  if (permExpandedDepts.value.has(deptId)) permExpandedDepts.value.delete(deptId)
+  else permExpandedDepts.value.add(deptId)
+}
+function isDeptExpanded(deptId: string) { return permExpandedDepts.value.has(deptId) }
+// 判断 key 是否选中（key = 'all' | deptId | employeeId）
+function isPermSelected(key: string) { return processForm.reportPermission.includes(key) }
+function isDeptPartialSelected(dept: PermDept) {
+  const anySelected = dept.employees.some(e => processForm.reportPermission.includes(e.id))
+  const allSelected = dept.employees.every(e => processForm.reportPermission.includes(e.id))
+  return anySelected && !allSelected
+}
+function isDeptAllSelected(dept: PermDept) {
+  return dept.employees.length > 0 && dept.employees.every(e => processForm.reportPermission.includes(e.id))
+}
+function togglePermAll() {
+  if (processForm.reportPermission.includes('all')) {
+    processForm.reportPermission = []
+  } else {
+    processForm.reportPermission = ['all']
+  }
+}
+function togglePermDept(dept: PermDept) {
+  // 取消"所有人"
+  const allIdx = processForm.reportPermission.indexOf('all')
+  if (allIdx !== -1) processForm.reportPermission.splice(allIdx, 1)
+  const deptIdx = processForm.reportPermission.indexOf(dept.id)
+  if (deptIdx !== -1) {
+    // 已选部门 → 取消部门和所有员工
+    processForm.reportPermission.splice(deptIdx, 1)
+    dept.employees.forEach(e => {
+      const i = processForm.reportPermission.indexOf(e.id)
+      if (i !== -1) processForm.reportPermission.splice(i, 1)
+    })
+  } else {
+    // 未选部门 → 选中部门（代表全员工）
+    processForm.reportPermission.push(dept.id)
+    dept.employees.forEach(e => {
+      if (!processForm.reportPermission.includes(e.id)) processForm.reportPermission.push(e.id)
+    })
+  }
+}
+function togglePermEmployee(dept: PermDept, emp: PermEmployee) {
+  const allIdx = processForm.reportPermission.indexOf('all')
+  if (allIdx !== -1) processForm.reportPermission.splice(allIdx, 1)
+  const empIdx = processForm.reportPermission.indexOf(emp.id)
+  if (empIdx !== -1) {
+    processForm.reportPermission.splice(empIdx, 1)
+    // 移除部门选中
+    const dIdx = processForm.reportPermission.indexOf(dept.id)
+    if (dIdx !== -1) processForm.reportPermission.splice(dIdx, 1)
+  } else {
+    processForm.reportPermission.push(emp.id)
+    // 如果部门全员都选了，同时标记部门
+    if (dept.employees.every(e => processForm.reportPermission.includes(e.id))) {
+      if (!processForm.reportPermission.includes(dept.id)) processForm.reportPermission.push(dept.id)
+    }
+  }
+}
+function getPermLabel(key: string): string {
+  if (key === 'all') return '所有人'
+  for (const dept of permTree.value) {
+    if (dept.id === key) return dept.name
+    const emp = dept.employees.find(e => e.id === key)
+    if (emp) return emp.name
+  }
+  return key
+}
+function removeProcessPermission(key: string) {
+  processForm.reportPermission = processForm.reportPermission.filter(x => x !== key)
+}
+
+// 工序不良品项下拉
+const showProcessDefectDropdown = ref(false)
+// 工序报工权限下拉
+const showProcessPermDropdown = ref(false)
+
+function openCreateProcess() {
+  editingProcess.value = null
+  processForm.code = ''
+  processForm.name = ''
+  processForm.reportPermission = ['all']
+  processForm.reportRatio = 1
+  processForm.defectItemIds = []
+  processForm.taskPunchIn = false
+  processForm.goodQuantity = ''
+  processForm.machineName = ''
+  processForm.feedCount = ''
+  processForm.correspondingMachine = ''
+  processForm.requirements = ''
+  processForm.collectData = []
+  permSearchText.value = ''
+  permExpandedDepts.value = new Set()
+  processView.value = 'create'
+}
+function openEditProcess(p: ProcessItem) {
+  editingProcess.value = p
+  processForm.code = p.code
+  processForm.name = p.name
+  processForm.reportPermission = [...p.reportPermission]
+  processForm.reportRatio = p.reportRatio
+  processForm.defectItemIds = [...p.defectItemIds]
+  processForm.taskPunchIn = p.taskPunchIn
+  processForm.goodQuantity = p.goodQuantity
+  processForm.machineName = p.machineName
+  processForm.feedCount = p.feedCount
+  processForm.correspondingMachine = p.correspondingMachine
+  processForm.requirements = p.requirements
+  processForm.collectData = p.collectData.map(r => ({ ...r }))
+  processView.value = 'edit'
+}
+async function handleSaveProcess() {
+  if (!processForm.name.trim()) { errorMessage.value = '工序名称不能为空'; return }
+  if (!token.value) return
+  const payload: ProcessPayload = {
+    code: processForm.code.trim() || undefined,
+    name: processForm.name.trim(),
+    reportPermission: [...processForm.reportPermission],
+    reportRatio: processForm.reportRatio,
+    defectItemIds: [...processForm.defectItemIds],
+    taskPunchIn: processForm.taskPunchIn,
+    goodQuantity: processForm.goodQuantity,
+    machineName: processForm.machineName,
+    feedCount: processForm.feedCount,
+    correspondingMachine: processForm.correspondingMachine,
+    requirements: processForm.requirements,
+    collectData: processForm.collectData.map(r => ({ type: r.type, name: r.name }))
+  }
+  try {
+    if (editingProcess.value) {
+      await updateProcess(token.value, editingProcess.value.id, payload)
+    } else {
+      await createProcess(token.value, payload)
+    }
+    await loadProcesses()
+    processView.value = 'list'
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : '保存失败'
+  }
+}
+async function handleDeleteProcess(p: ProcessItem) {
+  if (!token.value) return
+  try {
+    await deleteProcess(token.value, p.id)
+    await loadProcesses()
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : '删除失败'
+  }
+}
+async function loadProcesses() {
+  if (!token.value) return
+  try {
+    const res = await fetchProcesses(token.value, { size: 999 })
+    processes.value = res.items.map(p => ({
+      id: p.id,
+      code: p.code,
+      name: p.name,
+      reportPermission: p.reportPermission || ['所有人'],
+      reportRatio: p.reportRatio ?? 1,
+      defectItemIds: p.defectItemIds || [],
+      taskPunchIn: p.taskPunchIn ?? false,
+      goodQuantity: p.goodQuantity || '',
+      machineName: p.machineName || '',
+      feedCount: p.feedCount || '',
+      correspondingMachine: p.correspondingMachine || '',
+      requirements: p.requirements || '',
+      collectData: (p.collectData || []).map(c => ({ type: c.type, name: c.name }))
+    }))
+  } catch (e) {
+    errorMessage.value = e instanceof Error ? e.message : '工序加载失败'
+  }
+}
+function addCollectDataRow() {
+  if (processForm.collectData.length < 50) {
+    processForm.collectData.push({ type: '', name: '' })
+  }
+}
+function removeCollectDataRow(idx: number) {
+  processForm.collectData.splice(idx, 1)
+}
+function toggleProcessDefect(id: number) {
+  const pos = processForm.defectItemIds.indexOf(id)
+  if (pos !== -1) processForm.defectItemIds.splice(pos, 1)
+  else processForm.defectItemIds.push(id)
+}
+function getDefectLabel(id: number) {
+  const d = defects.value.find(x => x.id === id)
+  return d ? `${d.code} | ${d.name}` : String(id)
+}
+
+// 菜单展开状态，默认系统配置展开
+const expandedMenus = reactive<Record<string, boolean>>({
+  production: false,
+  upstream: false,
+  inventory: false,
+  basedata: false,
+  custom: false,
+  report: false,
+  sysconfig: true
+})
+
+function toggleMenu(key: string) {
+  expandedMenus[key] = !expandedMenus[key]
+}
+const showDepartmentModal = ref(false)
+const editingDepartment = ref<DepartmentInfo | null>(null)
+const departmentForm = reactive<CreateDepartmentPayload>({ code: '', name: '', userIds: [] })
+const allUsersList = ref<UserInfo[]>([]) // Used for selecting users when creating a department
+const showUserSelectDropdown = ref(false)
+const userSelectTriggerRef = ref<HTMLElement | null>(null)
+const dropdownStyle = ref<{ top: string; left: string; width: string }>({
+  top: '0px',
+  left: '0px',
+  width: '200px'
+})
+
+function openUserSelectDropdown() {
+  if (userSelectTriggerRef.value) {
+    const rect = userSelectTriggerRef.value.getBoundingClientRect()
+    dropdownStyle.value = {
+      top: rect.bottom + 4 + 'px',
+      left: rect.left + 'px',
+      width: rect.width + 'px'
+    }
+  }
+  showUserSelectDropdown.value = !showUserSelectDropdown.value
+}
+
+const selectedUserNames = computed(() => {
+  if (!departmentForm.userIds || departmentForm.userIds.length === 0) return '请选择部门人员'
+  return allUsersList.value
+    .filter(u => departmentForm.userIds!.includes(u.id))
+    .map(u => u.name)
+    .join('\u3001')
+})
+
+const loginForm = reactive({
+  factoryCode: 'HHGD',
+  username: 'admin',
+  password: ''
+})
+
+const filterForm = reactive({
+  name: '',
+  status: '启用中',
+  account: '',
+  role: '全部',
+  department: '',
+  virtual: '全部'
+})
+
+const createForm = reactive<CreateUserPayload>({
+  username: '',
+  phone: '',
+  name: '',
+  password: '',
+  role: 'ADMIN',
+  departmentName: '',
+  virtualUser: false
+})
+
+const editForm = reactive<UpdateUserPayload>({
+  username: '',
+  phone: '',
+  name: '',
+  role: 'ADMIN',
+  departmentName: '',
+  virtualUser: false
+})
+
+const isLoggedIn = computed(() => Boolean(token.value && currentUser.value))
+const filteredUsers = computed(() => {
+  return users.value.filter((item) => {
+    const matchName = !filterForm.name || item.name.includes(filterForm.name)
+    const matchAccount = !filterForm.account || item.username.includes(filterForm.account)
+    const matchRole = filterForm.role === '全部' || item.roleLabel === filterForm.role
+    const matchDepartment =
+      filterForm.department === '全部' || item.departmentName === filterForm.department
+    const matchStatus =
+      filterForm.status === '全部' ||
+      (filterForm.status === '全部' ? true : filterForm.status === '启用中' ? item.enabled : !item.enabled)
+    const matchVirtual =
+      filterForm.virtual === '全部' ||
+      (filterForm.virtual === '全部' ? true : filterForm.virtual === '是' ? item.virtualUser : !item.virtualUser)
+    return matchName && matchAccount && matchRole && matchDepartment && matchStatus && matchVirtual
+  })
+})
+
+const isAllSelected = computed({
+  get() {
+    return filteredUsers.value.length > 0 && selectedUserIds.value.length === filteredUsers.value.length
+  },
+  set(val) {
+    if (val) {
+      selectedUserIds.value = filteredUsers.value.map(u => u.id)
+    } else {
+      selectedUserIds.value = []
+    }
+  }
+})
+
+function readStoredUser() {
+  const raw = localStorage.getItem('heihu_user')
+  if (!raw) {
+    return null
+  }
+  try {
+    return JSON.parse(raw) as UserInfo
+  } catch {
+    return null
+  }
+}
+
+function persistSession(response: LoginResponse) {
+  token.value = response.token
+  currentUser.value = response.user
+  localStorage.setItem('heihu_token', response.token)
+  localStorage.setItem('heihu_user', JSON.stringify(response.user))
+}
+
+async function handleLogin() {
+  errorMessage.value = ''
+  loading.value = true
+  try {
+    const response = await login(loginForm)
+    persistSession(response)
+    await loadUsers()
+    await loadDepartments()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '登录失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadUsers() {
+  if (!token.value) {
+    return
+  }
+  usersLoading.value = true
+  try {
+    users.value = await fetchUsers(token.value)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '用户列表加载失败'
+  } finally {
+    usersLoading.value = false
+  }
+}
+
+async function loadDepartments() {
+  if (!token.value) return
+  departmentsLoading.value = true
+  try {
+    const res = await fetchDepartments(token.value, departmentFilterForm)
+    departments.value = res.items
+    departmentTotal.value = res.total
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '部门加载失败'
+  } finally {
+    departmentsLoading.value = false
+  }
+}
+
+async function loadAllUsersForDepartment() {
+  if (!token.value) return
+  try {
+    const allUsers = await fetchUsers(token.value)
+    allUsersList.value = allUsers
+  } catch (error) {
+    console.error('Failed to load all users', error)
+  }
+}
+
+function handleDepartmentPageChange(dir: number) {
+  const newPage = departmentFilterForm.page + dir
+  if (newPage < 1) return
+  const maxPage = Math.ceil(departmentTotal.value / departmentFilterForm.size) || 1
+  if (newPage > maxPage) return
+  departmentFilterForm.page = newPage
+  loadDepartments()
+}
+
+function resetDepartmentFilter() {
+  departmentFilterForm.code = ''
+  departmentFilterForm.name = ''
+  departmentFilterForm.page = 1
+  loadDepartments()
+}
+
+function openCreateDepartmentModal() {
+  editingDepartment.value = null
+  departmentForm.code = ''
+  departmentForm.name = ''
+  departmentForm.userIds = []
+  showDepartmentModal.value = true
+  loadAllUsersForDepartment()
+}
+
+function openEditDepartmentModal(dept: DepartmentInfo) {
+  editingDepartment.value = dept
+  departmentForm.code = dept.code
+  departmentForm.name = dept.name
+  // We need the user IDs in this department. 
+  // Since DepartmentInfo only has userNames string, we fetch all users and map them.
+  loadAllUsersForDepartment().then(() => {
+    departmentForm.userIds = allUsersList.value
+      .filter(u => u.departmentId === dept.id)
+      .map(u => u.id)
+    showDepartmentModal.value = true
+  })
+}
+
+async function handleSaveDepartment() {
+  if (!token.value) return
+  loading.value = true
+  try {
+    if (editingDepartment.value) {
+      await updateDepartment(token.value, editingDepartment.value.id, departmentForm)
+    } else {
+      await createDepartment(token.value, departmentForm)
+    }
+    showDepartmentModal.value = false
+    loadDepartments()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function confirmDeleteDepartment(dept: DepartmentInfo) {
+  confirmState.title = '删除确认'
+  confirmState.message = `是否确要删除「${dept.name}」？其下用户的部门信息将被清空。`
+  confirmState.action = async () => {
+    if (!token.value) return
+    loading.value = true
+    try {
+      await deleteDepartment(token.value, dept.id)
+      loadDepartments()
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '删除失败'
+    } finally {
+      loading.value = false
+      confirmState.show = false
+    }
+  }
+  confirmState.show = true
+}
+
+function resetCreateForm() {
+  createForm.username = ''
+  createForm.phone = ''
+  createForm.name = ''
+  createForm.password = ''
+  createForm.role = 'ADMIN'
+  createForm.departmentName = ''
+  createForm.virtualUser = false
+}
+
+async function handleCreateUser() {
+  if (!token.value) {
+    return
+  }
+  errorMessage.value = ''
+  loading.value = true
+  try {
+    const created = await createUser(token.value, {
+      ...createForm,
+      username: createForm.username.trim(),
+      phone: createForm.phone?.trim(),
+      name: createForm.name.trim(),
+      password: createForm.password,
+      role: createForm.role as Role,
+      departmentName: createForm.departmentName?.trim(),
+      virtualUser: Boolean(createForm.virtualUser)
+    })
+    await loadUsers()
+    successUser.value = created
+    successUserPassword.value = createForm.password
+    showCreateModal.value = false
+    resetCreateForm()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '创建用户失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function syncCurrentUser(updated: UserInfo) {
+  if (currentUser.value?.id === updated.id) {
+    currentUser.value = updated
+    localStorage.setItem('heihu_user', JSON.stringify(updated))
+  }
+}
+
+async function copySuccessUser() {
+  if (!successUser.value) return
+  const text = `账号：${successUser.value.username}\n姓名：${successUser.value.name}\n角色：${successUser.value.roleLabel}\n部门：${successUser.value.departmentName || '无'}\n密码：${successUserPassword.value}`
+  try {
+    await navigator.clipboard.writeText(text)
+    showAction('账号信息已复制到剪贴板')
+  } catch (err) {
+    window.alert('复制失败，请手动复制')
+  }
+}
+
+function showAction(message: string) {
+  actionMessage.value = message
+}
+
+function openEditUser(user: UserInfo) {
+  editingUser.value = user
+  editForm.username = user.username
+  editForm.phone = user.phone || ''
+  editForm.name = user.name
+  editForm.role = user.role
+  editForm.departmentName = user.departmentName || ''
+  editForm.virtualUser = user.virtualUser
+  showEditModal.value = true
+}
+
+async function handleUpdateUser() {
+  if (!token.value || !editingUser.value) {
+    return
+  }
+  errorMessage.value = ''
+  loading.value = true
+  try {
+    const updated = await updateUser(token.value, editingUser.value.id, {
+      username: editForm.username.trim(),
+      phone: editForm.phone?.trim(),
+      name: editForm.name.trim(),
+      role: editForm.role,
+      departmentName: editForm.departmentName?.trim(),
+      virtualUser: Boolean(editForm.virtualUser)
+    })
+    syncCurrentUser(updated)
+    await loadUsers()
+    showEditModal.value = false
+    showAction(`用户「${updated.name}」已更新`)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '更新用户失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function openPermissionConfig(user: UserInfo) {
+  permissionUser.value = user
+  permissionRole.value = user.role
+  showPermissionModal.value = true
+}
+
+async function handleUpdatePermission() {
+  if (!token.value || !permissionUser.value) {
+    return
+  }
+  errorMessage.value = ''
+  loading.value = true
+  try {
+    const updated = await updateUserPermission(token.value, permissionUser.value.id, permissionRole.value)
+    syncCurrentUser(updated)
+    await loadUsers()
+    showPermissionModal.value = false
+    showAction(`用户「${updated.name}」权限已更新为${updated.roleLabel}`)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '权限配置失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function openResetPassword(user: UserInfo) {
+  resetPasswordUser.value = user
+  resetPasswordForm.password = ''
+  resetPasswordForm.confirmPassword = ''
+  showNewPassword.value = false
+  showConfirmPassword.value = false
+  showResetPasswordModal.value = true
+}
+
+async function handleResetPassword() {
+  if (!token.value || !resetPasswordUser.value) {
+    return
+  }
+  const newPassword = resetPasswordForm.password
+  const confirmPassword = resetPasswordForm.confirmPassword
+  if (!newPassword.trim()) {
+    window.alert('新密码不能为空')
+    return
+  }
+  if (newPassword !== confirmPassword) {
+    window.alert('两次输入的密码不一致')
+    return
+  }
+  errorMessage.value = ''
+  loading.value = true
+  try {
+    const result = await resetUserPassword(token.value, resetPasswordUser.value.id, newPassword)
+    showAction(`用户「${resetPasswordUser.value.name}」的密码已重置，新密码：${newPassword}`)
+    showResetPasswordModal.value = false
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '重置密码失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function confirmUnbindPhone(user: UserInfo) {
+  if (!user.phone) {
+    showAction(`用户「${user.name}」当前没有绑定手机号`)
+    return
+  }
+  confirmState.title = '解绑手机号'
+  confirmState.message = `是否解绑「${user.name}」的手机号 ${user.phone} 吗？`
+  confirmState.action = () => handleUnbindPhone(user)
+  confirmState.show = true
+}
+
+async function handleUnbindPhone(user: UserInfo) {
+  if (!token.value) {
+    return
+  }
+  confirmState.show = false
+  errorMessage.value = ''
+  loading.value = true
+  try {
+    const updated = await unbindUserPhone(token.value, user.id)
+    syncCurrentUser(updated)
+    await loadUsers()
+    showAction(`用户「${updated.name}」手机号已解绑`)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '解绑手机号失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+function confirmToggleEnabled(user: UserInfo) {
+  const nextEnabled = !user.enabled
+  const action = nextEnabled ? '启用' : '停用'
+  confirmState.title = `${action}用户`
+  confirmState.message = `是否${action}用户「${user.name}」？`
+  confirmState.action = () => handleToggleEnabled(user, nextEnabled, action)
+  confirmState.show = true
+}
+
+async function handleToggleEnabled(user: UserInfo, nextEnabled: boolean, actionName: string) {
+  if (!token.value) {
+    return
+  }
+  confirmState.show = false
+  errorMessage.value = ''
+  loading.value = true
+  try {
+    const updated = await updateUserStatus(token.value, user.id, nextEnabled)
+    syncCurrentUser(updated)
+    await loadUsers()
+    showAction(`用户「${updated.name}」已${actionName}`)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : `${actionName}用户失败`
+  } finally {
+    loading.value = false
+  }
+}
+
+function handlePrintUser(user: UserInfo) {
+  const printWindow = window.open('', '_blank', 'width=560,height=680')
+  if (!printWindow) {
+    errorMessage.value = '浏览器阻止打印窗口，请允许弹窗后重试'
+    return
+  }
+  const loginScope = user.role === 'ADMIN' ? '电脑端 + 手机端' : '仅手机端'
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="UTF-8" />
+        <title>用户信息 - ${user.name}</title>
+        <style>
+          body { font-family: "Microsoft YaHei", Arial, sans-serif; padding: 32px; color: #1f2725; }
+          h1 { font-size: 22px; margin: 0 0 24px; }
+          table { width: 100%; border-collapse: collapse; }
+          td { border: 1px solid #dfe7e4; padding: 12px; font-size: 14px; }
+          td:first-child { width: 120px; background: #f6f8f7; color: #59635f; }
+        </style>
+      </head>
+      <body>
+        <h1>黑湖小工单用户信息</h1>
+        <table>
+          <tr><td>账号</td><td>${user.username}</td></tr>
+          <tr><td>姓名</td><td>${user.name}</td></tr>
+          <tr><td>角色</td><td>${user.roleLabel}</td></tr>
+          <tr><td>登录范围</td><td>${loginScope}</td></tr>
+          <tr><td>手机号</td><td>${user.phone || '-'}</td></tr>
+          <tr><td>部门</td><td>${user.departmentName || '-'}</td></tr>
+          <tr><td>状态</td><td>${user.enabled ? '启用中' : '停用中'}</td></tr>
+          <tr><td>虚拟用户</td><td>${user.virtualUser ? '是' : '否'}</td></tr>
+        </table>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
+  printWindow.focus()
+  printWindow.print()
+}
+
+async function handleExport() {
+  if (!token.value) {
+    errorMessage.value = '请先登录'
+    return
+  }
+  try {
+    await exportUsersCsv(token.value)
+    showAction('用户数据导出成功（含密码哈希）')
+  } catch (err) {
+    errorMessage.value = err instanceof Error ? err.message : '导出失败'
+  }
+}
+
+function triggerImport() {
+  if (fileInput.value) {
+    fileInput.value.value = ''
+    fileInput.value.click()
+  }
+}
+
+async function handleImport(event: Event) {
+  const target = event.target as HTMLInputElement
+  if (!target.files || target.files.length === 0) return
+  if (!token.value) {
+    errorMessage.value = '请先登录'
+    return
+  }
+
+  const file = target.files[0]
+  const fileName = file.name
+
+  try {
+    const result = await importUsersCsv(token.value, file)
+
+    importLogs.value.unshift({
+      time: new Date().toLocaleString('zh-CN'),
+      fileName,
+      total: result.total,
+      success: result.success,
+      fail: result.fail,
+      errors: result.errors
+    })
+
+    await loadUsers()
+
+    if (result.fail === 0) {
+      showAction(`导入完成：共 ${result.total} 条，全部成功`)
+    } else {
+      showAction(`导入完成：共 ${result.total} 条，成功 ${result.success} 条，失败 ${result.fail} 条`)
+    }
+  } catch (err) {
+    errorMessage.value = err instanceof Error ? err.message : '导入失败'
+  }
+  target.value = ''
+}
+
+function openImportLog() {
+  showImportLogModal.value = true
+}
+
+function handlePrintTemplate() {
+  const dataToprint = selectedUserIds.value.length > 0
+    ? filteredUsers.value.filter(u => selectedUserIds.value.includes(u.id))
+    : filteredUsers.value
+  if (dataToprint.length === 0) {
+    errorMessage.value = '当前没有可打印的用户数据'
+    return
+  }
+  const printWindow = window.open('', '_blank', 'width=900,height=700')
+  if (!printWindow) {
+    errorMessage.value = '浏览器阻止打印窗口，请允许弹窗后重试'
+    return
+  }
+  const rows = dataToprint.map((u, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${u.departmentName || '-'}</td>
+      <td>${u.username}</td>
+      <td>${u.name}</td>
+      <td>${u.roleLabel}</td>
+      <td>${u.phone || '-'}</td>
+      <td>${u.enabled ? '启用' : '停用'}</td>
+    </tr>
+  `).join('')
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="UTF-8" />
+        <title>用户列表打印</title>
+        <style>
+          body { font-family: "Microsoft YaHei", Arial, sans-serif; padding: 24px; color: #1f2725; }
+          h1 { font-size: 20px; margin: 0 0 16px; text-align: center; }
+          .info { font-size: 12px; color: #87918e; text-align: right; margin-bottom: 12px; }
+          table { width: 100%; border-collapse: collapse; }
+          th, td { border: 1px solid #dfe7e4; padding: 8px 12px; font-size: 13px; text-align: left; }
+          th { background: #f6f8f7; color: #59635f; font-weight: 700; }
+        </style>
+      </head>
+      <body>
+        <h1>黑湖小工单 - 用户列表</h1>
+        <p class="info">打印时间：${new Date().toLocaleString('zh-CN')}，共 ${dataToPrint.length} 人</p>
+        <table>
+          <thead>
+            <tr><th>序号</th><th>部门</th><th>账号</th><th>姓名</th><th>角色</th><th>手机号</th><th>状态</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <script>window.print();<\/script>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
+  printWindow.focus()
+}
+
+function logout() {
+  token.value = ''
+  currentUser.value = null
+  users.value = []
+  localStorage.removeItem('heihu_token')
+  localStorage.removeItem('heihu_user')
+}
+
+onMounted(() => {
+  if (token.value) {
+    loadUsers()
+    loadDepartments()
+    loadUnits()
+    loadDefects()
+    loadProcesses()
+    loadRoutes()
+    // 额外全量拉取部门（供报工权限树使用，不受列表分页影响）
+    fetchDepartments(token.value, { code: '', name: '', page: 1, size: 999 })
+      .then(res => { departments.value = res.items })
+      .catch(() => {})
+  }
+
+  window.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement
+    if (!target.closest('.user-profile')) {
+      showUserDropdown.value = false
+    }
+    if (!target.closest('.custom-multiselect')) {
+      showUserSelectDropdown.value = false
+    }
+    // 报工权限下拉：点击非其内部区域时收起
+    if (!target.closest('.perm-dropdown-wrap')) {
+      showProcessPermDropdown.value = false
+    }
+    // 不良品项下拉：点击非其内部区域时收起
+    if (!target.closest('.defect-dropdown-wrap')) {
+      showProcessDefectDropdown.value = false
+    }
+  })
+})
+
+const formatDateTime = (val: string) => {
+  if (!val) return '-';
+  const d = new Date(val);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+};
+</script>
+
+<template>
+  <main v-if="!isLoggedIn" class="login-page">
+    <section class="login-hero">
+      <div class="brand">
+        <div class="logo-mark">工</div>
+        <span>黑湖小工单</span>
+      </div>
+      <div class="hero-copy">
+        <h1>随时随地，管理车间现场</h1>
+        <div class="feature-grid">
+          <div class="feature-item">
+            <span class="feature-icon">01</span>
+            <div>
+              <strong>扫码接单，移动作业</strong>
+              <p>一线工人手机扫码，无纸化生产</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">02</span>
+            <div>
+              <strong>计时计件薪资实时核算</strong>
+              <p>解放财务劳动力，绩效薪资实时核算</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">03</span>
+            <div>
+              <strong>工厂全局大屏监控</strong>
+              <p>一站式数据管理驱动生产</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="login-panel">
+      <div class="login-box">
+        <h2>欢迎登录</h2>
+        <p class="login-sub">黑湖小工单管理系统</p>
+        <form class="login-form" @submit.prevent="handleLogin">
+          <label>
+            <span>工厂代码</span>
+            <input v-model="loginForm.factoryCode" autocomplete="organization" placeholder="请输入工厂代码" />
+          </label>
+          <label>
+            <span>用户名</span>
+            <input v-model="loginForm.username" autocomplete="username" placeholder="请输入用户名" />
+          </label>
+          <label>
+            <span>密码</span>
+            <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" type="password" />
+          </label>
+          <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
+          <button class="primary-btn login-btn" :disabled="loading" type="submit">
+            {{ loading ? '登录中...' : '登录' }}
+          </button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed }">
+    <aside class="sidebar">
+      <button class="collapse-toggle" type="button" @click="isSidebarCollapsed = !isSidebarCollapsed">
+        <svg v-if="!isSidebarCollapsed" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
+        <svg v-else viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+      <div class="factory-name" v-show="!isSidebarCollapsed">小工单销售测试账号...</div>
+      <div class="sidebar-search" v-show="!isSidebarCollapsed">
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        搜索(win+shift+f)
+      </div>
+      <nav>
+        <a class="nav-item active-parent" :title="isSidebarCollapsed ? '主页' : ''">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <span v-show="!isSidebarCollapsed">主页</span>
+        </a>
+
+        <div class="nav-group">
+          <a class="nav-item" :title="isSidebarCollapsed ? '生产管理' : ''" @click.stop="toggleMenu('production')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <span v-show="!isSidebarCollapsed">生产管理</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.production }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item" :title="isSidebarCollapsed ? '上下游管理' : ''" @click.stop="toggleMenu('upstream')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            <span v-show="!isSidebarCollapsed">上下游管理</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.upstream }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item" :title="isSidebarCollapsed ? '库存管理' : ''" @click.stop="toggleMenu('inventory')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            <span v-show="!isSidebarCollapsed">库存管理</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.inventory }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item" :title="isSidebarCollapsed ? '基础数据' : ''" @click.stop="toggleMenu('basedata')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <span v-show="!isSidebarCollapsed">基础数据</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.basedata }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+          <div v-show="!isSidebarCollapsed && expandedMenus.basedata" class="sub-items-container">
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'">产品定义</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'">物料清单</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'">单位</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'">不良品项</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'">工序</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'">工艺路线</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'">仓库</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'">供应商</a>
+          </div>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item" :title="isSidebarCollapsed ? '自定义配置' : ''" @click.stop="toggleMenu('custom')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            <span v-show="!isSidebarCollapsed">自定义配置</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.custom }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item" :title="isSidebarCollapsed ? '报表' : ''" @click.stop="toggleMenu('report')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+            <span v-show="!isSidebarCollapsed">报表</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.report }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item expanded" :title="isSidebarCollapsed ? '系统配置' : ''" @click.stop="toggleMenu('sysconfig')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span v-show="!isSidebarCollapsed">系统配置</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.sysconfig }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+          <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
+            <a class="sub-item" :class="{ 'selected': activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
+            <a class="sub-item" :class="{ 'selected': activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
+            <a class="sub-item">工厂</a>
+          </div>
+        </div>
+      </nav>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div class="breadcrumb">
+          <template v-if="activeMainMenu === 'basedata'">
+            <template v-if="activeBasedataMenu === 'process' && processView !== 'list'">
+              基础数据 <span>></span> <a href="#" style="color:inherit;text-decoration:none" @click.prevent="processView = 'list'">工序</a> <span>></span> {{ processView === 'create' ? '创建工序' : '编辑工序' }}
+            </template>
+            <template v-else-if="activeBasedataMenu === 'route' && routeView !== 'list'">
+              基础数据 <span>></span> <a href="#" style="color:inherit;text-decoration:none" @click.prevent="routeView = 'list'">工艺路线</a> <span>></span> {{ routeView === 'create' ? '创建工艺路线' : '编辑工艺路线' }}
+            </template>
+            <template v-else>
+              基础数据 <span>></span> {{ activeBasedataMenu === 'unit' ? '单位' : activeBasedataMenu === 'product' ? '产品定义' : activeBasedataMenu === 'bom' ? '物料清单' : activeBasedataMenu === 'defect' ? '不良品项' : activeBasedataMenu === 'process' ? '工序' : activeBasedataMenu === 'route' ? '工艺路线' : activeBasedataMenu === 'warehouse' ? '仓库' : '供应商' }}
+            </template>
+          </template>
+          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : '用户' }}</template>
+        </div>
+        <div class="top-actions">
+          <button class="topbar-icon-btn" type="button" title="通知">
+            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          </button>
+          <div class="topbar-divider"></div>
+          <div class="user-profile" @click="showUserDropdown = !showUserDropdown">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span class="username">{{ currentUser?.name }}</span>
+            <svg class="dropdown-arrow" :class="{ 'open': showUserDropdown }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M6 9l6 6 6-6"/></svg>
+            <div v-if="showUserDropdown" class="user-dropdown">
+              <button type="button" @click.stop="logout">
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                退出登录
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- 单位管理 -->
+      <section class="content" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit'">
+        <div class="filters">
+          <label>
+            <span>名称</span>
+            <input v-model="unitFilterForm.name" placeholder="请输入" />
+          </label>
+          <label>
+            <span>备注</span>
+            <input v-model="unitFilterForm.remark" placeholder="请输入备注" />
+          </label>
+          <div class="filter-actions">
+            <button class="primary-btn query-btn" type="button" @click="">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              查询
+            </button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="primary-btn" type="button" @click="openCreateUnit">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            创建单位
+          </button>
+        </div>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:50px"><input type="checkbox" /></th>
+                <th style="width:60px">序号</th>
+                <th>名称</th>
+                <th>备注</th>
+                <th style="width:120px">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(unit, idx) in unitFilteredList" :key="unit.id">
+                <td><input type="checkbox" /></td>
+                <td>{{ idx + 1 }}</td>
+                <td>{{ unit.name }}</td>
+                <td>{{ unit.remark || '-' }}</td>
+                <td class="action-cell">
+                  <button class="action-link" type="button" @click="openEditUnit(unit)">编辑</button>
+                  <button class="action-link danger" type="button" @click="handleDeleteUnit(unit)">删除</button>
+                </td>
+              </tr>
+              <tr v-if="unitFilteredList.length === 0">
+                <td colspan="5" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 不良品项管理 -->
+      <section class="content" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'defect'">
+        <div class="filters">
+          <label>
+            <span style="white-space:nowrap">不良品项编号</span>
+            <input v-model="defectFilterForm.code" placeholder="请输入不良品项编号" />
+          </label>
+          <label>
+            <span style="white-space:nowrap">不良品项名称</span>
+            <input v-model="defectFilterForm.name" placeholder="请输入不良品项名称" />
+          </label>
+          <div class="filter-actions">
+            <button class="primary-btn query-btn" type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              查询
+            </button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="primary-btn" type="button" @click="openCreateDefect">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            创建不良品项
+          </button>
+        </div>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:50px"><input type="checkbox" /></th>
+                <th style="width:60px">序号</th>
+                <th>不良品项编号</th>
+                <th>不良品项名称</th>
+                <th style="width:120px">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(d, idx) in defectFilteredList" :key="d.id">
+                <td><input type="checkbox" /></td>
+                <td>{{ idx + 1 }}</td>
+                <td>{{ d.code }}</td>
+                <td>{{ d.name }}</td>
+                <td class="action-cell">
+                  <button class="action-link" type="button" @click="openEditDefect(d)">编辑</button>
+                  <button class="action-link danger" type="button" @click="handleDeleteDefect(d)">删除</button>
+                </td>
+              </tr>
+              <tr v-if="defectFilteredList.length === 0">
+                <td colspan="5" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 工序管理 - 列表 -->
+      <section class="content" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && processView === 'list'">
+        <div class="filters">
+          <label>
+            <span>工序编号</span>
+            <input v-model="processFilterForm.code" placeholder="请输入工序编号" />
+          </label>
+          <label>
+            <span>工序名称</span>
+            <select v-model="processFilterForm.name">
+              <option value="">请选择</option>
+              <option v-for="p in processes" :key="p.id" :value="p.name">{{ p.name }}</option>
+            </select>
+          </label>
+          <label>
+            <span>创建人</span>
+            <select v-model="processFilterForm.creator">
+              <option value="">请选择</option>
+              <option value="管理员">管理员</option>
+            </select>
+          </label>
+          <div class="filter-actions">
+            <button class="primary-btn query-btn" type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              查询
+            </button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="primary-btn create-btn" type="button" @click="openCreateProcess()">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            创建工序
+          </button>
+          <button class="toolbar-btn" type="button">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            导出
+          </button>
+          <button class="toolbar-btn" type="button">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            导入
+          </button>
+          <button class="toolbar-btn" type="button">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            默认SOP模板
+          </button>
+          <button class="toolbar-btn" type="button">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            字段配置
+          </button>
+          <button class="toolbar-btn" type="button">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+            排序
+          </button>
+          <button class="toolbar-btn" type="button">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+            行高
+          </button>
+          <div style="margin-left:auto">
+            <button class="toolbar-btn" type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              导入日志
+            </button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:40px"><input type="checkbox" /></th>
+                <th style="width:50px">序号</th>
+                <th>工序编号</th>
+                <th>工序名称</th>
+                <th>报工权限</th>
+                <th>报工数配比</th>
+                <th>任务打卡</th>
+                <th class="action-cell">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(p, index) in processFilteredList" :key="p.id">
+                <td><input type="checkbox" /></td>
+                <td>{{ index + 1 }}</td>
+                <td>{{ p.code }}</td>
+                <td>{{ p.name }}</td>
+                <td>{{ p.reportPermission.join('、') }}</td>
+                <td>{{ p.reportRatio }}</td>
+                <td>{{ p.taskPunchIn ? '开启' : '关闭' }}</td>
+                <td class="action-cell">
+                  <button class="action-link" type="button" @click="openEditProcess(p)">编辑</button>
+                  <button class="action-link" type="button">打印</button>
+                  <button class="action-link" type="button">SOP模版</button>
+                  <button class="action-link danger" type="button" @click="handleDeleteProcess(p)">删除</button>
+                </td>
+              </tr>
+              <tr v-if="processFilteredList.length === 0">
+                <td colspan="8" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 工序管理 - 创建/编辑表单 -->
+      <section class="content process-form-page" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && (processView === 'create' || processView === 'edit')">
+        <h2 class="process-form-title">{{ processView === 'edit' ? '编辑工序' : '创建工序' }}</h2>
+        <div class="process-form">
+          <!-- 工序编号 -->
+          <div class="process-field">
+            <label class="process-label">工序编号</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="processForm.code" placeholder="请输入，否则将自动生成" />
+            </div>
+          </div>
+          <!-- 工序名称 -->
+          <div class="process-field">
+            <label class="process-label required">工序名称</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="processForm.name" placeholder="请填写" />
+            </div>
+          </div>
+          <!-- 报工权限 -->
+          <div class="process-field">
+            <label class="process-label required">报工权限</label>
+            <div class="process-input-wrap perm-dropdown-wrap">
+              <div class="perm-tag-box" @click="showProcessPermDropdown = !showProcessPermDropdown">
+                <span class="perm-tag" v-for="k in processForm.reportPermission" :key="k">
+                  {{ getPermLabel(k) }}
+                  <span class="tag-close" @click.stop="removeProcessPermission(k)">×</span>
+                </span>
+                <span class="perm-placeholder" v-if="processForm.reportPermission.length === 0">请选择</span>
+              </div>
+              <div class="perm-dropdown perm-tree-dropdown" v-show="showProcessPermDropdown">
+                <!-- 搜索 -->
+                <div class="perm-search-bar">
+                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="#aaa" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input v-model="permSearchText" placeholder="搜索字段" @click.stop />
+                </div>
+                <!-- 所有人 -->
+                <div class="perm-tree-row" @click.stop="togglePermAll()">
+                  <span class="perm-checkbox" :class="{ checked: isPermSelected('all') }">
+                    <svg v-if="isPermSelected('all')" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="#fff" stroke-width="2"><polyline points="2,6 5,9 10,3"/></svg>
+                  </span>
+                  <span class="perm-tree-label">所有人</span>
+                </div>
+                <!-- 部门列表 -->
+                <template v-for="dept in filteredPermTree" :key="dept.id">
+                  <div class="perm-tree-row perm-dept-row">
+                    <span class="perm-expand-icon" @click.stop="togglePermDeptExpand(dept.id)">
+                      <svg :style="{ transform: isDeptExpanded(dept.id) ? 'rotate(90deg)' : 'rotate(0)' }" viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none"><polyline points="9 18 15 12 9 6"/></svg>
+                    </span>
+                    <span class="perm-checkbox"
+                      :class="{ checked: isDeptAllSelected(dept), partial: isDeptPartialSelected(dept) }"
+                      @click.stop="togglePermDept(dept)">
+                      <svg v-if="isDeptAllSelected(dept)" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="#fff" stroke-width="2"><polyline points="2,6 5,9 10,3"/></svg>
+                      <span v-else-if="isDeptPartialSelected(dept)" style="width:8px;height:2px;background:#fff;display:block;margin:auto;"></span>
+                    </span>
+                    <span class="perm-tree-label" @click.stop="togglePermDeptExpand(dept.id)">
+                      {{ dept.name }} ({{ dept.employees.length }}人)
+                    </span>
+                  </div>
+                  <!-- 员工列表 -->
+                  <template v-if="isDeptExpanded(dept.id)">
+                    <div class="perm-tree-row perm-emp-row" v-for="emp in dept.employees" :key="emp.id"
+                      @click.stop="togglePermEmployee(dept, emp)">
+                      <span style="width:20px"></span>
+                      <span class="perm-checkbox" :class="{ checked: isPermSelected(emp.id) }">
+                        <svg v-if="isPermSelected(emp.id)" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="#fff" stroke-width="2"><polyline points="2,6 5,9 10,3"/></svg>
+                      </span>
+                      <span class="perm-tree-label">{{ emp.name }}</span>
+                    </div>
+                  </template>
+                </template>
+              </div>
+            </div>
+          </div>
+          <!-- 计划数默认值 -->
+          <div class="process-field">
+            <label class="process-label required">计划数默认值</label>
+            <div class="process-input-wrap">
+              <div class="formula-box">
+                <button class="formula-edit-btn" type="button">
+                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  修改
+                </button>
+                <div class="formula-text">
+                  <span class="formula-fx">fx</span>
+                  <span>$(任务.工单计划数) * $(任务.报工效配比)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 报工数配比 -->
+          <div class="process-field">
+            <label class="process-label required">报工数配比</label>
+            <div class="process-input-wrap">
+              <input class="process-input" type="number" v-model.number="processForm.reportRatio" min="1" />
+            </div>
+          </div>
+          <!-- 不良品项列表 -->
+          <div class="process-field">
+            <label class="process-label">不良品项列表</label>
+            <div class="process-input-wrap defect-dropdown-wrap" style="position:relative">
+              <div class="perm-tag-box" @click="showProcessDefectDropdown = !showProcessDefectDropdown">
+                <span class="perm-tag" v-for="id in processForm.defectItemIds" :key="id">
+                  {{ getDefectLabel(id) }}
+                  <span class="tag-close" @click.stop="toggleProcessDefect(id)">×</span>
+                </span>
+                <span class="perm-placeholder" v-if="processForm.defectItemIds.length === 0">请选择不良品项</span>
+              </div>
+              <div class="perm-dropdown" v-show="showProcessDefectDropdown">
+                <div class="perm-option" v-for="d in defects" :key="d.id"
+                  :class="{ active: processForm.defectItemIds.includes(d.id) }"
+                  @click="toggleProcessDefect(d.id)">
+                  {{ d.code }} | {{ d.name }}
+                  <span v-if="processForm.defectItemIds.includes(d.id)" style="margin-left:auto;color:var(--accent)">✓</span>
+                </div>
+                <div v-if="defects.length === 0" style="padding:12px;color:#aaa;text-align:center">暂无不良品项</div>
+              </div>
+            </div>
+          </div>
+          <!-- 任务打卡 -->
+          <div class="process-field">
+            <label class="process-label">任务打卡</label>
+            <div class="process-input-wrap">
+              <div class="radio-group">
+                <label class="radio-label">
+                  <input type="radio" :value="false" v-model="processForm.taskPunchIn" />
+                  <span>关闭</span>
+                </label>
+                <label class="radio-label">
+                  <input type="radio" :value="true" v-model="processForm.taskPunchIn" />
+                  <span>开启</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <!-- 良品数量 -->
+          <div class="process-field">
+            <label class="process-label">良品数量</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="processForm.goodQuantity" placeholder="请填写" />
+            </div>
+          </div>
+          <!-- 工序名称机械 -->
+          <div class="process-field">
+            <label class="process-label">工序名称机械</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="processForm.machineName" placeholder="请填写" />
+            </div>
+          </div>
+          <!-- 投料数 -->
+          <div class="process-field">
+            <label class="process-label">投料数</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="processForm.feedCount" placeholder="请填写" />
+            </div>
+          </div>
+          <!-- 对应机台 -->
+          <div class="process-field">
+            <label class="process-label">对应机台</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="processForm.correspondingMachine" placeholder="请填写" />
+            </div>
+          </div>
+          <!-- 要求 -->
+          <div class="process-field">
+            <label class="process-label">要求</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="processForm.requirements" placeholder="请填写" />
+            </div>
+          </div>
+          <!-- 工序采集数据 -->
+          <div class="process-field process-field-collect">
+            <label class="process-label">工序采集数据</label>
+            <div class="process-input-wrap">
+              <div class="collect-wrap">
+                <table class="collect-table">
+                  <thead>
+                    <tr>
+                      <th>类型</th>
+                      <th>名称</th>
+                      <th style="width:40px"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, idx) in processForm.collectData" :key="idx">
+                      <td><input class="collect-input" v-model="row.type" placeholder="请填写" /></td>
+                      <td><input class="collect-input" v-model="row.name" placeholder="请填写" /></td>
+                      <td><button type="button" class="collect-del" @click="removeCollectDataRow(idx)">×</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div class="collect-empty" v-if="processForm.collectData.length === 0">
+                  <svg viewBox="0 0 80 60" width="72" height="54" fill="none">
+                    <rect x="10" y="8" width="60" height="44" rx="4" fill="#f2f4f3" stroke="#dde3e0" stroke-width="1.5"/>
+                    <rect x="18" y="18" width="44" height="6" rx="2" fill="#e2e8e5"/>
+                    <rect x="18" y="30" width="32" height="5" rx="2" fill="#eaeeec"/>
+                    <rect x="18" y="41" width="20" height="4" rx="2" fill="#eaeeec"/>
+                  </svg>
+                  <span>暂无采集数据</span>
+                </div>
+                <button type="button" class="add-collect-row" @click="addCollectDataRow()"
+                  :disabled="processForm.collectData.length >= 50">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                  添加一行 最多支持添加50个
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 底部按钮 -->
+        <div class="process-form-footer">
+          <button class="btn-cancel" type="button" @click="processView = 'list'">取消</button>
+          <button class="btn-save" type="button" @click="handleSaveProcess()">保存</button>
+        </div>
+      </section>
+
+      <!-- 工艺路线 - 列表 -->
+      <section class="content" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView === 'list'">
+        <div class="filters">
+          <label>
+            <span>工艺路线编号</span>
+            <input v-model="routeFilterForm.code" placeholder="请输入工艺路线编号" />
+          </label>
+          <label>
+            <span>工艺路线名称</span>
+            <input v-model="routeFilterForm.name" placeholder="请输入工艺路线名称" />
+          </label>
+          <div class="filter-actions">
+            <button class="primary-btn query-btn" type="button">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              查询
+            </button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="primary-btn create-btn" type="button" @click="openCreateRoute()">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            创建工艺路线
+          </button>
+          <button class="toolbar-btn" type="button">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            导出
+          </button>
+          <button class="toolbar-btn" type="button">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            导入
+          </button>
+          <button class="toolbar-btn" type="button">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            字段配置
+          </button>
+          <button class="toolbar-btn" style="margin-left:auto" type="button">导入日志</button>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width:40px"><input type="checkbox" /></th>
+              <th>工艺路线编号</th>
+              <th>工艺路线名称</th>
+              <th>工序/工艺路线列表</th>
+              <th>创建人</th>
+              <th>创建时间</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(r, idx) in routeFilteredList" :key="r.id">
+              <td style="text-align:center">{{ idx + 1 }}</td>
+              <td>
+                <a href="#" style="color:var(--accent);text-decoration:none" @click.prevent="openEditRoute(r)">{{ r.code }}</a>
+              </td>
+              <td>{{ r.name }}</td>
+              <td style="color:#586360">
+                {{ r.steps.map(s => getProcessName(s.processId)).filter(Boolean).join('、') || '-' }}
+              </td>
+              <td>{{ r.creator }}</td>
+              <td>{{ r.createdAt }}</td>
+              <td>
+                <button class="link-btn" type="button" @click="openEditRoute(r)">编辑</button>
+                <button class="link-btn" type="button">复制</button>
+                <button class="link-btn danger" type="button" @click="confirmDeleteRoute(r)">删除</button>
+              </td>
+            </tr>
+            <tr v-if="routeFilteredList.length === 0">
+              <td colspan="7" style="text-align:center;padding:48px;color:#bbb">
+                <svg viewBox="0 0 64 64" width="40" height="40" style="display:block;margin:0 auto 10px" fill="none"><rect x="8" y="12" width="48" height="40" rx="4" fill="#f2f4f3" stroke="#dde3e0" stroke-width="1.5"/><line x1="18" y1="24" x2="46" y2="24" stroke="#dde3e0" stroke-width="2"/><line x1="18" y1="32" x2="38" y2="32" stroke="#dde3e0" stroke-width="2"/></svg>
+                暂无工艺路线
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- 工艺路线 - 创建/编辑 -->
+      <section class="process-form-page" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView !== 'list'">
+        <div class="process-form-scroll">
+          <h2 class="process-form-title">{{ routeView === 'create' ? '创建工艺路线' : '编辑工艺路线' }}</h2>
+          <!-- 基本信息 -->
+          <div class="process-field">
+            <label class="process-label">工艺路线编号</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="routeForm.code" placeholder="请输入，忽略将自动生成" />
+            </div>
+          </div>
+          <div class="process-field">
+            <label class="process-label required">工艺路线名称</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="routeForm.name" placeholder="请填写" />
+            </div>
+          </div>
+
+          <!-- 工序列表 -->
+          <div class="route-steps-section">
+            <div class="route-steps-header">
+              <span class="route-steps-title">工序列表</span>
+              <div style="display:flex;gap:8px">
+                <button type="button" class="primary-btn" style="height:32px;padding:0 14px;font-size:13px" @click="addRouteStep()">
+                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  添加一行
+                </button>
+                <button type="button" class="toolbar-btn" style="height:32px;font-size:13px">
+                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+                  字段配置
+                </button>
+              </div>
+            </div>
+
+            <!-- 工序表格 -->
+            <div class="collect-wrap route-steps-wrap">
+              <table class="collect-table route-steps-table">
+                <thead>
+                  <tr>
+                    <th style="width:36px"></th>
+                    <th style="width:36px"><input type="checkbox" /></th>
+                    <th>类型</th>
+                    <th>工序/工艺路线 *</th>
+                    <th style="width:120px">报工数配比 *</th>
+                    <th style="width:120px">备注</th>
+                    <th style="width:60px">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(step, idx) in routeForm.steps" :key="step.id"
+                    :class="{ 'drag-over': routeDragOverIdx === idx }"
+                    draggable="true"
+                    @dragstart="onRouteDragStart(idx, $event)"
+                    @dragover="onRouteDragOver(idx, $event)"
+                    @drop="onRouteDrop(idx)"
+                    @dragend="onRouteDragEnd()"
+                  >
+                    <!-- 拖拽手柄 -->
+                    <td style="text-align:center;cursor:grab;color:#bbb;font-size:16px;letter-spacing:1px">&#8942;&#8942;</td>
+                    <td style="text-align:center"><input type="checkbox" /></td>
+                    <!-- 类型 -->
+                    <td>
+                      <div class="radio-group" style="gap:8px">
+                        <label class="radio-label">
+                          <input type="radio" value="process" v-model="step.type" />
+                          <span>工序</span>
+                        </label>
+                        <label class="radio-label">
+                          <input type="radio" value="route" v-model="step.type" />
+                          <span>工艺路线</span>
+                        </label>
+                      </div>
+                    </td>
+                    <!-- 工序下拉选择 -->
+                    <td style="position:relative">
+                      <div class="route-step-select" @click.stop="openRouteStepDropdown(step.id)">
+                        <span v-if="step.processId" class="route-step-selected">{{ getProcessName(step.processId) }}</span>
+                        <span v-else class="route-step-placeholder">请选择</span>
+                        <svg viewBox="0 0 24 24" width="12" height="12" stroke="#aaa" stroke-width="2" fill="none"
+                          :style="{ transform: routeStepDropdownOpen[step.id] ? 'rotate(180deg)' : 'none' }">
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </div>
+                      <div class="route-step-dropdown" v-show="routeStepDropdownOpen[step.id]">
+                        <div class="perm-search-bar">
+                          <svg viewBox="0 0 24 24" width="13" height="13" stroke="#aaa" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                          <input v-model="routeStepSearchText[step.id]" placeholder="搜索字段" @click.stop />
+                        </div>
+                        <div v-if="filteredProcessesForStep(step.id).length === 0" style="padding:12px;color:#aaa;text-align:center;font-size:13px">暂无数据</div>
+                        <div
+                          class="perm-option"
+                          v-for="p in filteredProcessesForStep(step.id)" :key="p.id"
+                          :class="{ active: step.processId === p.id }"
+                          @click.stop="selectRouteStepProcess(step, p.id)">
+                          {{ p.name }}
+                          <span v-if="step.processId === p.id" style="margin-left:auto;color:var(--accent)">✓</span>
+                        </div>
+                      </div>
+                    </td>
+                    <!-- 报工数配比 -->
+                    <td>
+                      <input class="collect-input" type="number" v-model.number="step.reportRatio" min="1" style="width:100%" />
+                    </td>
+                    <!-- 备注 -->
+                    <td>
+                      <input class="collect-input" v-model="step.remark" placeholder="请填写" style="width:100%" />
+                    </td>
+                    <!-- 操作 -->
+                    <td style="text-align:center">
+                      <button type="button" class="link-btn danger" @click="removeRouteStep(idx)">删除</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="collect-empty" v-if="routeForm.steps.length === 0">
+                <svg viewBox="0 0 80 60" width="72" height="54" fill="none">
+                  <rect x="10" y="8" width="60" height="44" rx="4" fill="#f2f4f3" stroke="#dde3e0" stroke-width="1.5"/>
+                  <rect x="18" y="18" width="44" height="6" rx="2" fill="#e2e8e5"/>
+                  <rect x="18" y="30" width="32" height="5" rx="2" fill="#eaeeec"/>
+                  <rect x="18" y="41" width="20" height="4" rx="2" fill="#eaeeec"/>
+                </svg>
+                <span>暂无数据</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 底部按钮 -->
+        <div class="process-form-footer">
+          <button class="btn-cancel" type="button" @click="routeView = 'list'">取消</button>
+          <button class="btn-save" type="button" @click="handleSaveRoute()">保存</button>
+        </div>
+      </section>
+
+      <!-- 用户管理 -->
+      <section class="content" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'">
+        <div class="filters">
+          <label>
+            <span>姓名</span>
+            <input v-model="filterForm.name" placeholder="请输入名称" />
+          </label>
+          <label>
+            <span>状态</span>
+            <select v-model="filterForm.status">
+              <option>全部</option>
+              <option>启用中</option>
+              <option>停用中</option>
+            </select>
+          </label>
+          <label>
+            <span>账号</span>
+            <input v-model="filterForm.account" placeholder="请输入账号" />
+          </label>
+          <label>
+            <span>虚拟用户</span>
+            <select v-model="filterForm.virtual">
+              <option>全部</option>
+              <option>是</option>
+              <option>否</option>
+            </select>
+          </label>
+          <label>
+            <span>角色</span>
+            <select v-model="filterForm.role">
+              <option>全部</option>
+              <option>管理员</option>
+              <option>生产人员</option>
+            </select>
+          </label>
+          <label>
+            <span>部门</span>
+            <select v-model="filterForm.department">
+              <option value="">全部</option>
+              <option v-for="dept in departments" :key="dept.id" :value="dept.name">{{ dept.name }}</option>
+            </select>
+          </label>
+          <div class="filter-actions">
+            <button class="primary-btn query-btn" type="button" @click="loadUsers">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              查询
+            </button>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <button class="primary-btn" type="button" @click="showCreateModal = true">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+              新增用户
+            </button>
+            <button class="ghost-btn" type="button" @click="handleExport">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              导出
+            </button>
+            <label class="ghost-btn" style="cursor:pointer">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              导入
+              <input type="file" accept=".csv" style="display:none" @change="handleImport" />
+            </label>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>姓名</th>
+                <th>账号</th>
+                <th>手机号</th>
+                <th>角色</th>
+                <th>部门</th>
+                <th>状态</th>
+                <th>虚拟用户</th>
+                <th>创建时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="user in filteredUsers" :key="user.id">
+                <td>{{ user.name }}</td>
+                <td>{{ user.username }}</td>
+                <td>
+                  <span>{{ user.phone || '-' }}</span>
+                  <button v-if="user.phone" class="inline-link" type="button" @click="confirmUnbindPhone(user)">解绑</button>
+                </td>
+                <td>{{ user.roleLabel }}</td>
+                <td>{{ user.departmentName || '-' }}</td>
+                <td>
+                  <span class="status-badge" :class="user.enabled ? 'enabled' : 'disabled'">
+                    {{ user.enabled ? '启用中' : '停用中' }}
+                  </span>
+                </td>
+                <td>{{ user.virtualUser ? '是' : '否' }}</td>
+                <td>{{ formatDateTime(user.createdAt) }}</td>
+                <td>
+                  <button class="action-link" type="button" @click="openResetPassword(user)">重置密码</button>
+                  <button class="action-link" type="button" @click="confirmUnbindPhone(user)">解绑手机号</button>
+                  <button class="action-link" type="button" @click="handlePrintUser(user)">打印</button>
+                  <button class="action-link" type="button" @click="openEditUser(user)">编辑</button>
+                  <button class="action-link" type="button" @click="confirmToggleEnabled(user)">{{ user.enabled ? '停用' : '启用' }}</button>
+                  <button class="action-link" type="button" @click="openPermissionConfig(user)">权限配置</button>
+                </td>
+              </tr>
+              <tr v-if="filteredUsers.length === 0">
+                <td colspan="9" style="text-align:center;color:#aaa;padding:32px">暂无用户数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination">
+          <span class="page-total">共 {{ users.length }} 条结果</span>
+          <button class="page-btn" type="button" :disabled="currentPage <= 1" @click="currentPage--">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span class="page-num">{{ currentPage }}</span>
+          <button class="page-btn" type="button" :disabled="currentPage >= totalPages" @click="currentPage++">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <select class="size-select" v-model="pageSize">
+            <option :value="10">10条/页</option>
+            <option :value="20">20条/页</option>
+            <option :value="50">50条/页</option>
+          </select>
+        </div>
+      </section>
+
+      <!-- 部门管理 -->
+      <section class="content" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'">
+        <div class="filters">
+          <label>
+            <span>部门名称</span>
+            <input v-model="departmentFilterForm.name" placeholder="请输入部门名称" />
+          </label>
+          <label>
+            <span>部门编码</span>
+            <input v-model="departmentFilterForm.code" placeholder="请输入部门编码" />
+          </label>
+          <div class="filter-actions">
+            <button class="primary-btn query-btn" type="button" @click="loadDepartments">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              查询
+            </button>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button class="primary-btn" @click="openCreateDepartmentModal">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            新建部门
+          </button>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>部门名称</th>
+                <th>部门编码</th>
+                <th>创建时间</th>
+                <th>创建人</th>
+                <th style="width:120px">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="dept in departments" :key="dept.id">
+                <td>{{ dept.name }}</td>
+                <td>{{ dept.code }}</td>
+                <td>{{ formatDateTime(dept.createdAt) }}</td>
+                <td>{{ dept.createdBy || '-' }}</td>
+                <td class="action-cell">
+                  <button class="action-link" type="button" @click="openEditDepartmentModal(dept)">编辑</button>
+                  <button class="action-link danger" type="button" @click="confirmDeleteDepartment(dept)">删除</button>
+                </td>
+              </tr>
+              <tr v-if="departments.length === 0">
+                <td colspan="5" style="text-align:center;color:#aaa;padding:32px">暂无部门数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination">
+          <span class="page-total">共 {{ departmentTotal }} 条结果</span>
+          <button class="page-btn" type="button" :disabled="departmentFilterForm.page <= 1" @click="handleDepartmentPageChange(-1)">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span class="page-num">{{ departmentFilterForm.page }}</span>
+          <button class="page-btn" type="button" :disabled="departmentFilterForm.page >= Math.ceil(departmentTotal / departmentFilterForm.size) || departmentTotal === 0" @click="handleDepartmentPageChange(1)">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <select class="size-select" v-model="departmentFilterForm.size" @change="loadDepartments">
+            <option :value="10">10条/页</option>
+            <option :value="20">20条/页</option>
+            <option :value="50">50条/页</option>
+          </select>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <!-- 导入日志弹窗 -->
+  <div v-if="showImportLog" class="modal-backdrop">
+    <section class="modal">
+      <header class="modal-header">
+        <h2>导入结果</h2>
+        <button class="close-btn" type="button" @click="showImportLog = false">×</button>
+      </header>
+      <div style="padding: 22px 44px 24px; min-width: 340px;">
+        <p>总计：{{ importResult?.total }} 条</p>
+        <p style="color:#0c9d82">成功：{{ importResult?.success }} 条</p>
+        <p v-if="importResult?.fail" style="color:#d74434">失败：{{ importResult?.fail }} 条</p>
+        <ul v-if="importResult?.errors?.length" style="margin-top:8px;padding-left:16px;color:#d74434;font-size:13px">
+          <li v-for="err in importResult.errors" :key="err">{{ err }}</li>
+        </ul>
+      </div>
+    </section>
+  </div>
+
+  <!-- 新增用户弹窗 -->
+  <div v-if="showCreateModal" class="modal-backdrop">
+    <section class="modal">
+      <header class="modal-header">
+        <h2>新增用户</h2>
+        <button class="close-btn" type="button" @click="showCreateModal = false">×</button>
+      </header>
+      <form class="create-form" @submit.prevent="handleCreateUser">
+        <label>
+          <span><em>*</em> 姓名</span>
+          <input v-model="createForm.name" placeholder="请输入姓名" required />
+        </label>
+        <label>
+          <span><em>*</em> 账号</span>
+          <input v-model="createForm.username" placeholder="请输入账号" required />
+        </label>
+        <label>
+          <span>手机号</span>
+          <input v-model="createForm.phone" placeholder="请输入手机号" />
+        </label>
+        <label>
+          <span><em>*</em> 密码</span>
+          <input v-model="createForm.password" placeholder="请输入密码" type="password" required />
+        </label>
+        <label>
+          <span>角色</span>
+          <select v-model="createForm.role">
+            <option value="ADMIN">管理员</option>
+            <option value="PRODUCTION">生产人员</option>
+          </select>
+        </label>
+        <label>
+          <span>部门</span>
+          <select v-model="createForm.departmentId">
+            <option :value="undefined">无</option>
+            <option v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
+          </select>
+        </label>
+        <label>
+          <span>虚拟用户</span>
+          <input type="checkbox" v-model="createForm.virtualUser" style="width:auto;justify-self:start" />
+        </label>
+        <footer class="modal-footer">
+          <button class="ghost-btn wide" type="button" @click="showCreateModal = false">取消</button>
+          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <!-- 编辑用户弹窗 -->
+  <div v-if="showEditModal" class="modal-backdrop">
+    <section class="modal">
+      <header class="modal-header">
+        <h2>编辑用户</h2>
+        <button class="close-btn" type="button" @click="showEditModal = false">×</button>
+      </header>
+      <form class="create-form" @submit.prevent="handleUpdateUser">
+        <label>
+          <span><em>*</em> 姓名</span>
+          <input v-model="editForm.name" placeholder="请输入姓名" required />
+        </label>
+        <label>
+          <span><em>*</em> 账号</span>
+          <input v-model="editForm.username" placeholder="请输入账号" required />
+        </label>
+        <label>
+          <span>手机号</span>
+          <input v-model="editForm.phone" placeholder="请输入手机号" />
+        </label>
+        <label>
+          <span>角色</span>
+          <select v-model="editForm.role">
+            <option value="ADMIN">管理员</option>
+            <option value="PRODUCTION">生产人员</option>
+          </select>
+        </label>
+        <label>
+          <span>部门</span>
+          <select v-model="editForm.departmentId">
+            <option :value="undefined">无</option>
+            <option v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
+          </select>
+        </label>
+        <label>
+          <span>虚拟用户</span>
+          <input type="checkbox" v-model="editForm.virtualUser" style="width:auto;justify-self:start" />
+        </label>
+        <footer class="modal-footer">
+          <button class="ghost-btn wide" type="button" @click="showEditModal = false">取消</button>
+          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <!-- 重置密码弹窗 -->
+  <div v-if="showResetPasswordModal" class="modal-backdrop">
+    <section class="modal">
+      <header class="modal-header">
+        <h2>重置密码</h2>
+        <button class="close-btn" type="button" @click="showResetPasswordModal = false">×</button>
+      </header>
+      <form class="create-form" @submit.prevent="handleResetPassword">
+        <label>
+          <span><em>*</em> 新密码</span>
+          <div style="position:relative">
+            <input v-model="resetPasswordForm.password" :type="showNewPassword ? 'text' : 'password'" placeholder="请输入新密码" required />
+            <button type="button" class="password-toggle" @click="showNewPassword = !showNewPassword">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </label>
+        <label>
+          <span><em>*</em> 确认密码</span>
+          <div style="position:relative">
+            <input v-model="resetPasswordForm.confirmPassword" :type="showConfirmPassword ? 'text' : 'password'" placeholder="请再次输入密码" required />
+            <button type="button" class="password-toggle" @click="showConfirmPassword = !showConfirmPassword">
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </label>
+        <footer class="modal-footer">
+          <button class="ghost-btn wide" type="button" @click="showResetPasswordModal = false">取消</button>
+          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <!-- 权限配置弹窗 -->
+  <div v-if="showPermissionModal" class="modal-backdrop">
+    <section class="modal">
+      <header class="modal-header">
+        <h2>权限配置</h2>
+        <button class="close-btn" type="button" @click="showPermissionModal = false">×</button>
+      </header>
+      <form class="create-form" @submit.prevent="handleUpdatePermission">
+        <label>
+          <span>角色</span>
+          <select v-model="permissionRole">
+            <option value="ADMIN">管理员</option>
+            <option value="PRODUCTION">生产人员</option>
+          </select>
+        </label>
+        <footer class="modal-footer">
+          <button class="ghost-btn wide" type="button" @click="showPermissionModal = false">取消</button>
+          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <!-- 新建用户成功弹窗 -->
+  <div v-if="successUser" class="modal-backdrop">
+    <section class="modal success-modal">
+      <div class="success-icon">
+        <svg viewBox="0 0 24 24" width="48" height="48" stroke="#0c9d82" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
+      </div>
+      <h2>新建用户成功</h2>
+      <div class="success-info">
+        <p><span>账号：</span>{{ successUser.username }}</p>
+        <p><span>姓名：</span>{{ successUser.name }}</p>
+        <p><span>角色：</span>{{ successUser.roleLabel }}</p>
+        <p><span>密码：</span>{{ successUserPassword }}</p>
+      </div>
+      <footer class="modal-footer">
+        <button class="ghost-btn wide" type="button" @click="copySuccessUser">复制信息</button>
+        <button class="primary-btn wide" type="button" @click="successUser = null">关闭</button>
+      </footer>
+    </section>
+  </div>
+
+  <!-- 确认弹窗 -->
+  <div v-if="confirmState.show" class="modal-backdrop">
+    <section class="modal confirm-modal">
+      <div class="error-icon">
+        <svg viewBox="0 0 24 24" width="48" height="48" stroke="#d74434" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+      </div>
+      <h2>{{ confirmState.title }}</h2>
+      <p style="color:#6d7775; margin-bottom:16px">{{ confirmState.message }}</p>
+      <footer class="modal-footer">
+        <button class="ghost-btn wide" type="button" @click="confirmState.show = false">取消</button>
+        <button class="primary-btn wide" type="button" style="background:#d74434;border-color:#d74434" :disabled="loading" @click="confirmState.action && confirmState.action()">确定</button>
+      </footer>
+    </section>
+  </div>
+
+  <!-- 操作成功提示 -->
+  <div v-if="actionMessage" class="action-toast">{{ actionMessage }}</div>
+
+  <!-- 错误弹窗 -->
+  <div v-if="errorMessage" class="modal-backdrop">
+    <section class="modal confirm-modal">
+      <div class="error-icon">
+        <svg viewBox="0 0 24 24" width="48" height="48" stroke="#d74434" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+      </div>
+      <h2>操作失败</h2>
+      <p style="color:#6d7775; word-break:break-all">{{ errorMessage }}</p>
+      <button class="primary-btn wide" type="button" @click="errorMessage = ''" style="background:#d74434;border-color:#d74434;margin-top:8px">关闭</button>
+    </section>
+  </div>
+
+  <!-- 部门弹窗 -->
+  <div v-if="showDepartmentModal" class="modal-backdrop">
+    <section class="modal">
+      <header class="modal-header">
+        <h2>{{ editingDepartment ? '编辑部门' : '新建部门' }}</h2>
+        <button class="close-btn" type="button" @click="showDepartmentModal = false">×</button>
+      </header>
+      <form class="create-form" @submit.prevent="handleSaveDepartment">
+        <label>
+          <span><em>*</em> 部门名称</span>
+          <input v-model="departmentForm.name" placeholder="请输入部门名称" required />
+        </label>
+        <label>
+          <span>部门编码</span>
+          <input v-model="departmentForm.code" placeholder="留空系统自动生成" />
+        </label>
+        <label style="align-items: flex-start;">
+          <span style="padding-top: 8px;">部门人员</span>
+          <div class="custom-multiselect">
+            <div ref="userSelectTriggerRef" class="multiselect-trigger" @click.stop="openUserSelectDropdown">
+              <span :class="{ placeholder: !departmentForm.userIds || departmentForm.userIds.length === 0 }">
+                {{ selectedUserNames }}
+              </span>
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" :style="{ transform: showUserSelectDropdown ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </div>
+            <Teleport to="body">
+              <div v-if="showUserSelectDropdown" class="multiselect-dropdown multiselect-dropdown-fixed" :style="dropdownStyle" @click.stop>
+                <label v-for="u in allUsersList" :key="u.id" class="multiselect-option">
+                  <input type="checkbox" :value="u.id" v-model="departmentForm.userIds" />
+                  <span>{{ u.name }} ({{ u.username }})</span>
+                </label>
+                <div v-if="allUsersList.length === 0" style="padding:8px 12px;color:#aaa;font-size:13px">暂无人员</div>
+              </div>
+            </Teleport>
+          </div>
+        </label>
+        <footer class="modal-footer">
+          <button class="ghost-btn wide" type="button" @click="showDepartmentModal = false">取消</button>
+          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <!-- 单位弹窗 -->
+  <div v-if="showUnitModal" class="modal-backdrop">
+    <section class="modal">
+      <header class="modal-header">
+        <h2>{{ editingUnit ? '编辑单位' : '创建单位' }}</h2>
+        <button class="close-btn" type="button" @click="showUnitModal = false">×</button>
+      </header>
+      <form class="create-form" @submit.prevent="handleSaveUnit">
+        <label>
+          <span><em>*</em> 名称</span>
+          <input v-model="unitForm.name" placeholder="请输入单位名称" required />
+        </label>
+        <label>
+          <span>备注</span>
+          <input v-model="unitForm.remark" placeholder="请输入备注" />
+        </label>
+        <footer class="modal-footer">
+          <button class="ghost-btn wide" type="button" @click="showUnitModal = false">取消</button>
+          <button class="primary-btn wide" type="submit">确定</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <!-- 不良品项弹窗 -->
+  <div v-if="showDefectModal" class="modal-backdrop">
+    <section class="modal">
+      <header class="modal-header">
+        <h2>{{ editingDefect ? '编辑不良品项' : '创建不良品项' }}</h2>
+        <button class="close-btn" type="button" @click="showDefectModal = false">×</button>
+      </header>
+      <form class="create-form" @submit.prevent="handleSaveDefect">
+        <label>
+          <span style="white-space:nowrap;min-width:90px"><em>*</em> 不良品项名称</span>
+          <input v-model="defectForm.name" placeholder="请输入" required />
+        </label>
+        <label>
+          <span style="white-space:nowrap;min-width:90px">不良品项编号</span>
+          <input v-model="defectForm.code" placeholder="请输入，您略将自动生成" />
+        </label>
+        <footer class="modal-footer">
+          <button class="ghost-btn wide" type="button" @click="showDefectModal = false">取消</button>
+          <button class="primary-btn wide" type="submit">确定</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+</template>
