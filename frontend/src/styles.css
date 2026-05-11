@@ -1672,3 +1672,64 @@ tr.drag-over {
 .action-toast svg { flex-shrink: 0; }
 .success-toast { background: linear-gradient(135deg, #2dba6e, #28a660); }
 .error-toast   { background: linear-gradient(135deg, #e04848, #d43434); }
+
+/* ===== 报工权限列标签 + Tooltip ===== */
+.perm-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 8px;
+}
+.perm-cell-tag {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: #eaf4ec;
+  color: #1a7d3a;
+  border: 1px solid #b8e2c4;
+  white-space: nowrap;
+  cursor: default;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.perm-cell-tag.perm-partial {
+  background: #fff8e6;
+  color: #b07d10;
+  border-color: #f0cc72;
+}
+.perm-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1c2b26;
+  color: #fff;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  max-width: 260px;
+  word-break: break-all;
+  box-shadow: 0 4px 16px rgba(0,0,0,.25);
+  z-index: 500;
+  pointer-events: none;
+}
+.perm-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #1c2b26;
+}
+.perm-cell-tag:hover .perm-tooltip {
+  display: block;
+}

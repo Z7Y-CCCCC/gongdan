@@ -557,6 +557,54 @@ function removeProcessPermission(key: string) {
   processForm.reportPermission = processForm.reportPermission.filter(x => x !== key)
 }
 
+/**
+ * 将报工权限 key 数组转换为展示用标签列表
+ * 返回 [{ label, tooltip, partial }]
+ *   label: 显示文本
+ *   tooltip: 鼠标悬停提示（有权限的员工列表，仅 partial 时有值）
+ *   partial: 是否"有部分员工无权限"
+ */
+function formatPermissionTags(perms: string[]): { label: string; tooltip: string; partial: boolean }[] {
+  if (!perms || perms.length === 0) return [{ label: '—', tooltip: '', partial: false }]
+  if (perms.includes('all')) return [{ label: '所有人', tooltip: '', partial: false }]
+
+  const tags: { label: string; tooltip: string; partial: boolean }[] = []
+  const handled = new Set<string>()
+
+  for (const dept of permTree.value) {
+    const deptSelected = perms.includes(dept.id)
+    const selectedEmps = dept.employees.filter(e => perms.includes(e.id))
+    const allEmps = dept.employees
+
+    if (deptSelected || (allEmps.length > 0 && selectedEmps.length === allEmps.length)) {
+      // 整个部门都有权限
+      tags.push({ label: dept.name, tooltip: '', partial: false })
+      handled.add(dept.id)
+      allEmps.forEach(e => handled.add(e.id))
+    } else if (selectedEmps.length > 0) {
+      // 部分员工有权限
+      const names = selectedEmps.map(e => e.name).join('、')
+      tags.push({
+        label: `${dept.name}（有部分员工无权限）`,
+        tooltip: `有权限的员工：${names}`,
+        partial: true
+      })
+      handled.add(dept.id)
+      selectedEmps.forEach(e => handled.add(e.id))
+    }
+  }
+
+  // 未被部门覆盖的单独员工 key
+  for (const key of perms) {
+    if (!handled.has(key) && key.startsWith('emp-')) {
+      const name = permKeyLabel(key)
+      tags.push({ label: name, tooltip: '', partial: false })
+    }
+  }
+
+  return tags.length > 0 ? tags : [{ label: '—', tooltip: '', partial: false }]
+}
+
 // 工序不良品项下拉
 const showProcessDefectDropdown = ref(false)
 // 工序报工权限下拉
@@ -1739,7 +1787,14 @@ const formatDateTime = (val: string) => {
                 <td>{{ index + 1 }}</td>
                 <td>{{ p.code }}</td>
                 <td>{{ p.name }}</td>
-                <td>{{ p.reportPermission.join('、') }}</td>
+                <td class="perm-cell">
+                  <template v-for="(tag, ti) in formatPermissionTags(p.reportPermission)" :key="ti">
+                    <span class="perm-cell-tag" :class="{ 'perm-partial': tag.partial }">
+                      {{ tag.label }}
+                      <span v-if="tag.tooltip" class="perm-tooltip">{{ tag.tooltip }}</span>
+                    </span>
+                  </template>
+                </td>
                 <td>{{ p.reportRatio }}</td>
                 <td>{{ p.taskPunchIn ? '开启' : '关闭' }}</td>
                 <td class="action-cell">
