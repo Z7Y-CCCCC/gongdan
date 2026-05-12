@@ -501,22 +501,38 @@ function togglePermDeptExpand(deptId: string) {
   else permExpandedDepts.value.add(deptId)
 }
 function isDeptExpanded(deptId: string) { return permExpandedDepts.value.has(deptId) }
-// 判断 key 是否选中（key = 'all' | deptId | employeeId）
-function isPermSelected(key: string) { return processForm.reportPermission.includes(key) }
+// 判断员工 key 是否显示为选中（直接选中、或部门已选、或所有人已选）
+function isPermSelected(key: string) {
+  const perms = processForm.reportPermission
+  if (perms.includes('all')) return true
+  if (perms.includes(key)) return true
+  // 如果是员工 key，检查所在部门是否已选
+  if (key.startsWith('emp-')) {
+    for (const dept of permTree.value) {
+      if (dept.employees.some(e => e.id === key) && perms.includes(dept.id)) return true
+    }
+  }
+  return false
+}
 function isDeptPartialSelected(dept: PermDept) {
-  // 整个部门已选 → 不是"部分"
-  if (processForm.reportPermission.includes(dept.id)) return false
+  const perms = processForm.reportPermission
+  // 'all' 或整个部门已选 → 不是"部分"
+  if (perms.includes('all')) return false
+  if (perms.includes(dept.id)) return false
   // 没有员工的部门不存在部分选中
   if (dept.employees.length === 0) return false
-  const anySelected = dept.employees.some(e => processForm.reportPermission.includes(e.id))
-  const allSelected = dept.employees.every(e => processForm.reportPermission.includes(e.id))
+  const anySelected = dept.employees.some(e => perms.includes(e.id))
+  const allSelected = dept.employees.every(e => perms.includes(e.id))
   return anySelected && !allSelected
 }
 function isDeptAllSelected(dept: PermDept) {
+  const perms = processForm.reportPermission
+  // 'all' 全选
+  if (perms.includes('all')) return true
   // dept-id 在数组里 表示整个部门已选
-  if (processForm.reportPermission.includes(dept.id)) return true
+  if (perms.includes(dept.id)) return true
   // 或者每个员工都单独被选中
-  return dept.employees.length > 0 && dept.employees.every(e => processForm.reportPermission.includes(e.id))
+  return dept.employees.length > 0 && dept.employees.every(e => perms.includes(e.id))
 }
 function togglePermAll() {
   // 已是全选 → 清空；否则 → 全选（设为 all）
