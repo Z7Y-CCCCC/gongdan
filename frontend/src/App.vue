@@ -280,7 +280,7 @@ const processForm = reactive<{
 interface RouteStep {
   id: number          // 行内唯一id，用于拖拽key
   type: 'process' | 'route'
-  processId: number | null  // 选中的工序 id
+  processId: number | null  // 选中的工序或工艺路线 id
   reportRatio: number
   remark: string
 }
@@ -315,10 +315,21 @@ const routeForm = reactive<{ code: string; name: string; steps: RouteStep[] }>({
 const routeStepSearchText = ref<Record<number, string>>({})
 const routeStepDropdownOpen = ref<Record<number, boolean>>({})
 
-function filteredProcessesForStep(stepId: number) {
+function filteredItemsForStep(stepId: number) {
+  const step = routeForm.steps.find(s => s.id === stepId)
   const s = (routeStepSearchText.value[stepId] || '').trim().toLowerCase()
-  if (!s) return processes.value
+  if (step && step.type === 'route') {
+    // 类型为工艺路线 → 返回路线列表（排除当前正在编辑的路线，防止自引用）
+    const editingId = editingRoute.value?.id
+    const list = routes.value.filter(r => r.id !== editingId)
+    if (!s) return list.map(r => ({ id: r.id, name: r.name, code: r.code }))
+    return list.filter(r => r.name.toLowerCase().includes(s) || r.code.toLowerCase().includes(s))
+      .map(r => ({ id: r.id, name: r.name, code: r.code }))
+  }
+  // 类型为工序 → 返回工序列表
+  if (!s) return processes.value.map(p => ({ id: p.id, name: p.name, code: p.code }))
   return processes.value.filter(p => p.name.toLowerCase().includes(s) || p.code.toLowerCase().includes(s))
+    .map(p => ({ id: p.id, name: p.name, code: p.code }))
 }
 function openRouteStepDropdown(stepId: number) {
   // 关闭其他
@@ -332,16 +343,31 @@ function closeAllRouteStepDropdowns() {
     routeStepDropdownOpen.value[Number(k)] = false
   })
 }
-function selectRouteStepProcess(step: RouteStep, processId: number) {
-  step.processId = processId
-  const p = processes.value.find(x => x.id === processId)
-  step.reportRatio = p ? p.reportRatio : 1
+function selectRouteStepItem(step: RouteStep, itemId: number) {
+  step.processId = itemId
+  if (step.type === 'process') {
+    const p = processes.value.find(x => x.id === itemId)
+    step.reportRatio = p ? p.reportRatio : 1
+  } else {
+    step.reportRatio = 1
+  }
   routeStepDropdownOpen.value[step.id] = false
+}
+function getStepItemName(step: RouteStep) {
+  if (!step.processId) return ''
+  if (step.type === 'route') {
+    const r = routes.value.find(x => x.id === step.processId)
+    return r ? r.name : ''
+  }
+  const p = processes.value.find(x => x.id === step.processId)
+  return p ? p.name : ''
 }
 function getProcessName(pid: number | null) {
   if (!pid) return ''
   const p = processes.value.find(x => x.id === pid)
-  return p ? p.name : ''
+  if (p) return p.name
+  const r = routes.value.find(x => x.id === pid)
+  return r ? r.name : ''
 }
 
 function addRouteStep() {
@@ -2218,8 +2244,8 @@ const formatDateTime = (val: string) => {
                     <th style="width:36px"></th>
                     <th style="width:36px"><input type="checkbox" /></th>
                     <th>类型</th>
-                    <th>工序/工艺路线 *</th>
-                    <th style="width:120px">报工数配比 *</th>
+                    <th>工序/工艺路线 <span style="color:#e5534b">*</span></th>
+                    <th style="width:120px">报工数配比 <span style="color:#e5534b">*</span></th>
                     <th style="width:120px">备注</th>
                     <th style="width:60px">操作</th>
                   </tr>
@@ -2241,19 +2267,19 @@ const formatDateTime = (val: string) => {
                     <td>
                       <div class="radio-group" style="gap:8px">
                         <label class="radio-label">
-                          <input type="radio" value="process" v-model="step.type" />
+                          <input type="radio" value="process" v-model="step.type" @change="step.processId = null" />
                           <span>工序</span>
                         </label>
                         <label class="radio-label">
-                          <input type="radio" value="route" v-model="step.type" />
+                          <input type="radio" value="route" v-model="step.type" @change="step.processId = null" />
                           <span>工艺路线</span>
                         </label>
                       </div>
                     </td>
-                    <!-- 工序下拉选择 -->
+                    <!-- 工序/工艺路线下拉选择 -->
                     <td style="position:relative">
                       <div class="route-step-select" @click.stop="openRouteStepDropdown(step.id)">
-                        <span v-if="step.processId" class="route-step-selected">{{ getProcessName(step.processId) }}</span>
+                        <span v-if="step.processId" class="route-step-selected">{{ getStepItemName(step) }}</span>
                         <span v-else class="route-step-placeholder">请选择</span>
                         <svg viewBox="0 0 24 24" width="12" height="12" stroke="#aaa" stroke-width="2" fill="none"
                           :style="{ transform: routeStepDropdownOpen[step.id] ? 'rotate(180deg)' : 'none' }">
@@ -2265,14 +2291,14 @@ const formatDateTime = (val: string) => {
                           <svg viewBox="0 0 24 24" width="13" height="13" stroke="#aaa" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                           <input v-model="routeStepSearchText[step.id]" placeholder="搜索字段" @click.stop />
                         </div>
-                        <div v-if="filteredProcessesForStep(step.id).length === 0" style="padding:12px;color:#aaa;text-align:center;font-size:13px">暂无数据</div>
+                        <div v-if="filteredItemsForStep(step.id).length === 0" style="padding:12px;color:#aaa;text-align:center;font-size:13px">暂无数据</div>
                         <div
                           class="perm-option"
-                          v-for="p in filteredProcessesForStep(step.id)" :key="p.id"
-                          :class="{ active: step.processId === p.id }"
-                          @click.stop="selectRouteStepProcess(step, p.id)">
-                          {{ p.name }}
-                          <span v-if="step.processId === p.id" style="margin-left:auto;color:var(--accent)">✓</span>
+                          v-for="item in filteredItemsForStep(step.id)" :key="item.id"
+                          :class="{ active: step.processId === item.id }"
+                          @click.stop="selectRouteStepItem(step, item.id)">
+                          {{ item.name }}
+                          <span v-if="step.processId === item.id" style="margin-left:auto;color:var(--accent)">✓</span>
                         </div>
                       </div>
                     </td>
