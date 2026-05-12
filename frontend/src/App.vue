@@ -66,7 +66,11 @@ const showPermissionModal = ref(false)
 const selectedUserIds = ref<number[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const importLogs = ref<{ time: string; fileName: string; total: number; success: number; fail: number; errors: string[] }[]>([])
+const importResult = ref<{ total: number; success: number; fail: number; errors: string[] } | null>(null)
 const showImportLogModal = ref(false)
+const currentPage = ref(1)
+const totalPages = ref(1)
+const pageSize = ref(10)
 const confirmState = reactive({
   show: false,
   title: '',
@@ -1369,6 +1373,7 @@ async function handleImport(event: Event) {
 
   try {
     const result = await importUsersCsv(token.value, file)
+    importResult.value = result
 
     importLogs.value.unshift({
       time: new Date().toLocaleString('zh-CN'),
@@ -2544,11 +2549,11 @@ const formatDateTime = (val: string) => {
   </main>
 
   <!-- 导入日志弹窗 -->
-  <div v-if="showImportLog" class="modal-backdrop">
+  <div v-if="showImportLogModal" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>导入结果</h2>
-        <button class="close-btn" type="button" @click="showImportLog = false">×</button>
+        <button class="close-btn" type="button" @click="showImportLogModal = false">×</button>
       </header>
       <div style="padding: 22px 44px 24px; min-width: 340px;">
         <p>总计：{{ importResult?.total }} 条</p>
