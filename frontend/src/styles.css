@@ -626,13 +626,17 @@ button {
 }
 
 .filters label {
-  width: 240px;
+  width: 280px;
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 86px minmax(0, 1fr);
   align-items: center;
   gap: 0 8px;
   font-size: 13px;
   color: #586360;
+}
+.filters label span {
+  white-space: nowrap;
+  text-align: right;
 }
 
 .query-btn {
