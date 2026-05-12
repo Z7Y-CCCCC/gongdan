@@ -327,21 +327,25 @@ function filteredItemsForStep(stepId: number) {
     const editingId = editingRoute.value?.id
     const list = routes.value.filter(r => r.id !== editingId)
     if (!s) return list.map(r => ({ id: r.id, name: r.name, code: r.code }))
-    return list.filter(r => r.name.toLowerCase().includes(s) || r.code.toLowerCase().includes(s))
+    return list.filter(r => (r.name || '').toLowerCase().includes(s) || (r.code || '').toLowerCase().includes(s))
       .map(r => ({ id: r.id, name: r.name, code: r.code }))
   }
   // 类型为工序 → 返回工序列表
   if (!s) return processes.value.map(p => ({ id: p.id, name: p.name, code: p.code }))
-  return processes.value.filter(p => p.name.toLowerCase().includes(s) || p.code.toLowerCase().includes(s))
+  return processes.value.filter(p => (p.name || '').toLowerCase().includes(s) || (p.code || '').toLowerCase().includes(s))
     .map(p => ({ id: p.id, name: p.name, code: p.code }))
 }
+
 function openRouteStepDropdown(stepId: number) {
+  const isOpen = routeStepDropdownOpen.value[stepId]
   // 关闭其他
   Object.keys(routeStepDropdownOpen.value).forEach(k => {
     routeStepDropdownOpen.value[Number(k)] = false
   })
-  routeStepDropdownOpen.value[stepId] = true
+  // 切换当前
+  routeStepDropdownOpen.value[stepId] = !isOpen
 }
+
 function closeAllRouteStepDropdowns() {
   Object.keys(routeStepDropdownOpen.value).forEach(k => {
     routeStepDropdownOpen.value[Number(k)] = false
@@ -1494,6 +1498,10 @@ onMounted(() => {
     // 不良品项下拉：点击非其内部区域时收起
     if (!target.closest('.defect-dropdown-wrap')) {
       showProcessDefectDropdown.value = false
+    }
+    // 工序下拉框：点击非其内部区域时收起
+    if (!target.closest('.route-step-select') && !target.closest('.route-step-dropdown')) {
+      closeAllRouteStepDropdowns()
     }
   })
 })
