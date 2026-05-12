@@ -338,18 +338,21 @@ function filteredItemsForStep(stepId: number) {
 
 function openRouteStepDropdown(stepId: number) {
   const isOpen = routeStepDropdownOpen.value[stepId]
-  // 关闭其他
+  const newMap: Record<number, boolean> = {}
   Object.keys(routeStepDropdownOpen.value).forEach(k => {
-    routeStepDropdownOpen.value[Number(k)] = false
+    newMap[Number(k)] = false
   })
-  // 切换当前
-  routeStepDropdownOpen.value[stepId] = !isOpen
+  newMap[stepId] = !isOpen
+  routeStepDropdownOpen.value = newMap
+  console.log('Toggle route step dropdown', stepId, 'isOpen:', !isOpen)
 }
 
 function closeAllRouteStepDropdowns() {
+  const newMap: Record<number, boolean> = {}
   Object.keys(routeStepDropdownOpen.value).forEach(k => {
-    routeStepDropdownOpen.value[Number(k)] = false
+    newMap[Number(k)] = false
   })
+  routeStepDropdownOpen.value = newMap
 }
 function selectRouteStepItem(step: RouteStep, itemId: number) {
   step.processId = itemId
