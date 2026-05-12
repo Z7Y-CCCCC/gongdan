@@ -1180,7 +1180,7 @@ th {
   font-size: 18px;
   font-weight: 600;
   color: #1e2724;
-  margin: 0 0 28px 0;
+  margin: 20px 0 28px 0;
 }
 .process-form {
   max-width: 680px;
@@ -1580,19 +1580,20 @@ th {
 
 /* ===== 工艺路线 - 工序列表区 ===== */
 .route-steps-section {
-  margin-top: 32px;
+  margin-top: 16px;
   padding: 0 32px;
 }
 .route-steps-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  margin-bottom: 12px;
 }
 .route-steps-title {
   font-size: 15px;
   font-weight: 600;
   color: #1e2724;
+  margin-bottom: 0;
 }
 .route-steps-wrap {
   border-radius: 6px;

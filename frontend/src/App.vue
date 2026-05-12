@@ -2183,13 +2183,13 @@ const formatDateTime = (val: string) => {
           <!-- 基本信息 -->
           <div class="process-field">
             <label class="process-label">工艺路线编号</label>
-            <div class="process-input-wrap">
+            <div class="process-input-wrap" style="max-width:50%">
               <input class="process-input" v-model="routeForm.code" placeholder="请输入，忽略将自动生成" />
             </div>
           </div>
           <div class="process-field">
             <label class="process-label required">工艺路线名称</label>
-            <div class="process-input-wrap">
+            <div class="process-input-wrap" style="max-width:50%">
               <input class="process-input" v-model="routeForm.name" placeholder="请填写" />
             </div>
           </div>
@@ -2198,7 +2198,7 @@ const formatDateTime = (val: string) => {
           <div class="route-steps-section">
             <div class="route-steps-header">
               <span class="route-steps-title">工序列表</span>
-              <div style="display:flex;gap:8px">
+              <div style="display:flex;gap:8px;margin-top:8px">
                 <button type="button" class="primary-btn" style="height:32px;padding:0 14px;font-size:13px" @click="addRouteStep()">
                   <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   添加一行
