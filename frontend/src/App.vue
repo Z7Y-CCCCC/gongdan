@@ -504,14 +504,22 @@ function isDeptExpanded(deptId: string) { return permExpandedDepts.value.has(dep
 // 判断 key 是否选中（key = 'all' | deptId | employeeId）
 function isPermSelected(key: string) { return processForm.reportPermission.includes(key) }
 function isDeptPartialSelected(dept: PermDept) {
+  // 整个部门已选 → 不是"部分"
+  if (processForm.reportPermission.includes(dept.id)) return false
+  // 没有员工的部门不存在部分选中
+  if (dept.employees.length === 0) return false
   const anySelected = dept.employees.some(e => processForm.reportPermission.includes(e.id))
   const allSelected = dept.employees.every(e => processForm.reportPermission.includes(e.id))
   return anySelected && !allSelected
 }
 function isDeptAllSelected(dept: PermDept) {
+  // dept-id 在数组里 表示整个部门已选
+  if (processForm.reportPermission.includes(dept.id)) return true
+  // 或者每个员工都单独被选中
   return dept.employees.length > 0 && dept.employees.every(e => processForm.reportPermission.includes(e.id))
 }
 function togglePermAll() {
+  // 已是全选 → 清空；否则 → 全选（设为 all）
   if (processForm.reportPermission.includes('all')) {
     processForm.reportPermission = []
   } else {
@@ -522,36 +530,54 @@ function togglePermDept(dept: PermDept) {
   // 取消"所有人"
   const allIdx = processForm.reportPermission.indexOf('all')
   if (allIdx !== -1) processForm.reportPermission.splice(allIdx, 1)
-  const deptIdx = processForm.reportPermission.indexOf(dept.id)
-  if (deptIdx !== -1) {
-    // 已选部门 → 取消部门和所有员工
-    processForm.reportPermission.splice(deptIdx, 1)
-    dept.employees.forEach(e => {
-      const i = processForm.reportPermission.indexOf(e.id)
-      if (i !== -1) processForm.reportPermission.splice(i, 1)
-    })
+
+  if (isDeptAllSelected(dept)) {
+    // 已全选 → 取消部门id和所有员工id
+    processForm.reportPermission = processForm.reportPermission.filter(
+      k => k !== dept.id && !dept.employees.some(e => e.id === k)
+    )
   } else {
-    // 未选部门 → 选中部门（代表全员工）
-    processForm.reportPermission.push(dept.id)
-    dept.employees.forEach(e => {
-      if (!processForm.reportPermission.includes(e.id)) processForm.reportPermission.push(e.id)
-    })
+    // 未全选 → 只存 dept-id，移除旧的散装员工id（避免重复）
+    processForm.reportPermission = processForm.reportPermission.filter(
+      k => !dept.employees.some(e => e.id === k)
+    )
+    if (!processForm.reportPermission.includes(dept.id)) {
+      processForm.reportPermission.push(dept.id)
+    }
   }
 }
 function togglePermEmployee(dept: PermDept, emp: PermEmployee) {
+  // 取消"所有人"
   const allIdx = processForm.reportPermission.indexOf('all')
   if (allIdx !== -1) processForm.reportPermission.splice(allIdx, 1)
-  const empIdx = processForm.reportPermission.indexOf(emp.id)
-  if (empIdx !== -1) {
-    processForm.reportPermission.splice(empIdx, 1)
-    // 移除部门选中
-    const dIdx = processForm.reportPermission.indexOf(dept.id)
-    if (dIdx !== -1) processForm.reportPermission.splice(dIdx, 1)
+
+  const deptSelected = processForm.reportPermission.includes(dept.id)
+
+  if (deptSelected) {
+    // 部门整体已选 → 展开为散装员工，再取消该员工
+    processForm.reportPermission = processForm.reportPermission.filter(k => k !== dept.id)
+    dept.employees.forEach(e => {
+      if (e.id !== emp.id && !processForm.reportPermission.includes(e.id)) {
+        processForm.reportPermission.push(e.id)
+      }
+    })
   } else {
-    processForm.reportPermission.push(emp.id)
-    // 如果部门全员都选了，同时标记部门
-    if (dept.employees.every(e => processForm.reportPermission.includes(e.id))) {
-      if (!processForm.reportPermission.includes(dept.id)) processForm.reportPermission.push(dept.id)
+    const empIdx = processForm.reportPermission.indexOf(emp.id)
+    if (empIdx !== -1) {
+      // 已选员工 → 取消
+      processForm.reportPermission.splice(empIdx, 1)
+    } else {
+      // 未选员工 → 加入
+      processForm.reportPermission.push(emp.id)
+      // 如果部门所有员工都被单独选中了，合并成 dept-id
+      if (dept.employees.every(e => processForm.reportPermission.includes(e.id))) {
+        processForm.reportPermission = processForm.reportPermission.filter(
+          k => !dept.employees.some(e => e.id === k)
+        )
+        if (!processForm.reportPermission.includes(dept.id)) {
+          processForm.reportPermission.push(dept.id)
+        }
+      }
     }
   }
 }
@@ -620,6 +646,23 @@ function formatPermissionTags(perms: string[]): { label: string; tooltip: string
 const showProcessDefectDropdown = ref(false)
 // 工序报工权限下拉
 const showProcessPermDropdown = ref(false)
+
+/**
+ * 标签框展示用的 key 列表（过滤掉被 dept-id 覆盖的散装员工 key，避免重复显示）
+ */
+const visiblePermKeys = computed(() => {
+  const perms = processForm.reportPermission
+  if (perms.includes('all')) return ['all']
+  // 找出所有已选 dept-id 覆盖的员工 id 集合
+  const coveredEmpIds = new Set<string>()
+  for (const dept of permTree.value) {
+    if (perms.includes(dept.id)) {
+      dept.employees.forEach(e => coveredEmpIds.add(e.id))
+    }
+  }
+  // 只显示 dept-id 和未被覆盖的散装员工 key
+  return perms.filter(k => !coveredEmpIds.has(k))
+})
 
 function openCreateProcess() {
   editingProcess.value = null
@@ -1848,11 +1891,11 @@ const formatDateTime = (val: string) => {
             <label class="process-label required">报工权限</label>
             <div class="process-input-wrap perm-dropdown-wrap">
               <div class="perm-tag-box" @click="showProcessPermDropdown = !showProcessPermDropdown">
-                <span class="perm-tag" v-for="k in processForm.reportPermission" :key="k">
+                <span class="perm-tag" v-for="k in visiblePermKeys" :key="k">
                   {{ getPermLabel(k) }}
                   <span class="tag-close" @click.stop="removeProcessPermission(k)">×</span>
                 </span>
-                <span class="perm-placeholder" v-if="processForm.reportPermission.length === 0">请选择</span>
+                <span class="perm-placeholder" v-if="visiblePermKeys.length === 0">请选择</span>
               </div>
               <div class="perm-dropdown perm-tree-dropdown" v-show="showProcessPermDropdown">
                 <!-- 搜索 -->
