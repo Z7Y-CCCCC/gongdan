@@ -98,6 +98,17 @@ const activeConfigMenu = ref('department') // default to department based on use
 const activeMainMenu = ref('sysconfig') // 'sysconfig' | 'basedata'
 const activeBasedataMenu = ref('unit') // default to unit
 
+// 全局 Tooltip（fixed 定位，不被 overflow 裁剪）
+const tooltipState = reactive({ visible: false, text: '', x: 0, y: 0 })
+function showTooltip(e: MouseEvent, text: string) {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  tooltipState.x = rect.left + rect.width / 2
+  tooltipState.y = rect.top - 8
+  tooltipState.text = text
+  tooltipState.visible = true
+}
+function hideTooltip() { tooltipState.visible = false }
+
 // 单位管理
 const units = ref<UnitInfo[]>([])
 const unitFilterForm = reactive({ name: '', remark: '' })
@@ -1789,10 +1800,12 @@ const formatDateTime = (val: string) => {
                 <td>{{ p.name }}</td>
                 <td class="perm-cell">
                   <template v-for="(tag, ti) in formatPermissionTags(p.reportPermission)" :key="ti">
-                    <span class="perm-cell-tag" :class="{ 'perm-partial': tag.partial }">
-                      {{ tag.label }}
-                      <span v-if="tag.tooltip" class="perm-tooltip">{{ tag.tooltip }}</span>
-                    </span>
+                    <span
+                      class="perm-cell-tag"
+                      :class="{ 'perm-partial': tag.partial }"
+                      @mouseenter="tag.tooltip ? showTooltip($event, tag.tooltip) : null"
+                      @mouseleave="hideTooltip"
+                    >{{ tag.label }}</span>
                   </template>
                 </td>
                 <td>{{ p.reportRatio }}</td>
@@ -2756,4 +2769,12 @@ const formatDateTime = (val: string) => {
       </form>
     </section>
   </div>
+
+  <!-- 全局 Tooltip -->
+  <div
+    v-if="tooltipState.visible"
+    class="global-tooltip"
+    :style="{ left: tooltipState.x + 'px', top: tooltipState.y + 'px' }"
+  >{{ tooltipState.text }}</div>
+
 </template>
