@@ -1195,14 +1195,15 @@ th {
   align-items: flex-start;
 }
 .process-label {
-  width: 110px;
-  min-width: 110px;
+  width: 120px;
+  min-width: 120px;
   font-size: 13px;
   color: #586360;
   padding-top: 10px;
   text-align: right;
-  padding-right: 16px;
+  padding-right: 20px;
   flex-shrink: 0;
+  white-space: nowrap;
 }
 .process-label.required::before {
   content: '* ';
