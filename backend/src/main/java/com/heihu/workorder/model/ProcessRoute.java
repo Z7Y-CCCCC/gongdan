@@ -26,7 +26,8 @@ public class ProcessRoute {
 
     // 工序步骤，JSON数组存储
     // 格式: [{"type":"process","processId":1,"reportRatio":1,"remark":"..."}]
-    @Column(name = "steps", columnDefinition = "TEXT")
+    @Lob
+    @Column(name = "steps")
     private String steps;
 
     @ManyToOne(fetch = FetchType.LAZY)

@@ -1,0 +1,42 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: 工
+      - generic [ref=e7]: 黑湖小工单
+    - generic [ref=e8]:
+      - heading "随时随地，管理车间现场" [level=1] [ref=e9]
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: "01"
+          - generic [ref=e13]:
+            - strong [ref=e14]: 扫码接单，移动作业
+            - paragraph [ref=e15]: 一线工人手机扫码，无纸化生产
+        - generic [ref=e16]:
+          - generic [ref=e17]: "02"
+          - generic [ref=e18]:
+            - strong [ref=e19]: 计时计件薪资实时核算
+            - paragraph [ref=e20]: 解放财务劳动力，绩效薪资实时核算
+        - generic [ref=e21]:
+          - generic [ref=e22]: "03"
+          - generic [ref=e23]:
+            - strong [ref=e24]: 工厂全局大屏监控
+            - paragraph [ref=e25]: 一站式数据管理驱动生产
+  - generic [ref=e27]:
+    - heading "欢迎登录" [level=2] [ref=e28]
+    - paragraph [ref=e29]: 黑湖小工单管理系统
+    - generic [ref=e30]:
+      - generic [ref=e31]:
+        - generic [ref=e32]: 工厂代码
+        - textbox "工厂代码" [ref=e33]:
+          - /placeholder: 请输入工厂代码
+          - text: HHGD
+      - generic [ref=e34]:
+        - generic [ref=e35]: 用户名
+        - textbox "用户名" [ref=e36]:
+          - /placeholder: 请输入用户名
+          - text: admin
+      - generic [ref=e37]:
+        - generic [ref=e38]: 密码
+        - textbox "密码" [ref=e39]:
+          - /placeholder: 请输入密码
+      - button "登录" [ref=e40] [cursor=pointer]

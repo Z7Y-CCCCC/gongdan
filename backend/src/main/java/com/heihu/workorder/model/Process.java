@@ -54,7 +54,8 @@ public class Process {
     private String requirements;
 
     // 采集数据，JSON数组存储，格式: [{"type":"...","name":"..."}]
-    @Column(name = "collect_data", columnDefinition = "TEXT")
+    @Lob
+    @Column(name = "collect_data")
     private String collectData;
 
     @ManyToOne(fetch = FetchType.LAZY)

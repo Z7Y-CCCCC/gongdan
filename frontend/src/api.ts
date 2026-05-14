@@ -97,7 +97,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(message)
   }
 
-  return response.json()
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  const text = await response.text()
+  if (!text) {
+    return undefined as T
+  }
+
+  return JSON.parse(text) as T
 }
 
 export function login(payload: LoginPayload) {
@@ -499,6 +508,334 @@ export async function updateProcessRoute(token: string, id: number, payload: Pro
 
 export async function deleteProcessRoute(token: string, id: number) {
   return request<void>(`/process-routes/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 产品定义 API =====
+export interface ProductPayload {
+  code?: string
+  name: string
+  unitId: number
+  spec?: string
+  attribute?: string
+  routeId?: number | null
+  supplierName?: string
+  maxStock?: string
+  minStock?: string
+  safetyStock?: string
+  inventoryQty?: number
+  costPrice?: string
+  salePrice?: string
+  keyPart?: boolean
+  manufactureMode?: string
+  quantity?: string
+  fixedWeight?: string
+  customerName?: string
+  productType?: string
+}
+
+export interface ProductInfo {
+  id: number
+  code: string
+  name: string
+  unitId: number
+  unitName: string
+  spec: string
+  attribute: string
+  routeId?: number | null
+  routeName?: string
+  supplierName?: string
+  maxStock?: string
+  minStock?: string
+  safetyStock?: string
+  inventoryQty: number
+  costPrice?: string
+  salePrice?: string
+  keyPart: boolean
+  manufactureMode?: string
+  quantity?: string
+  fixedWeight?: string
+  customerName?: string
+  productType?: string
+  creator?: string
+  createdAt: string
+}
+
+export interface ProductListResponse {
+  items: ProductInfo[]
+  total: number
+}
+
+export interface ProductOperationLogInfo {
+  id: number
+  actionType: string
+  actionLabel: string
+  operatorName: string
+  productCode?: string
+  productName?: string
+  detail?: string
+  createdAt: string
+  message: string
+}
+
+export interface ProductOperationLogListResponse {
+  items: ProductOperationLogInfo[]
+  total: number
+}
+
+export interface ProductOperationLogPayload {
+  actionType: string
+  productCode?: string
+  productName?: string
+  detail?: string
+}
+
+export async function fetchProducts(
+  token: string,
+  params: { code?: string; name?: string; spec?: string; page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.name) query.append('name', params.name)
+  if (params.spec) query.append('spec', params.spec)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<ProductListResponse>(`/products?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createProduct(token: string, payload: ProductPayload) {
+  return request<ProductInfo>('/products', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function fetchProductOperationLogs(
+  token: string,
+  params: { page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<ProductOperationLogListResponse>(`/products/operation-logs?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createProductOperationLog(token: string, payload: ProductOperationLogPayload) {
+  return request<void>('/products/operation-logs', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateProduct(token: string, id: number, payload: ProductPayload) {
+  return request<ProductInfo>(`/products/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteProduct(token: string, id: number) {
+  return request<void>(`/products/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 自定义字段 API =====
+export interface CustomFieldOption {
+  label: string
+  value: string
+  color?: string | null
+  defaultSelected?: boolean
+}
+
+export interface CustomFieldPayload {
+  scope?: string
+  name: string
+  fieldType: string
+  options?: CustomFieldOption[]
+  defaultValues?: string[]
+  placeholder?: string
+  displayMode?: string
+  required?: boolean
+  allowUserOptions?: boolean
+  helperText?: string
+  description?: string
+  sortOrder?: number
+}
+
+export interface CustomFieldInfo {
+  id: number
+  scope: string
+  name: string
+  fieldType: string
+  options: CustomFieldOption[]
+  defaultValues: string[]
+  placeholder?: string
+  displayMode?: string
+  required: boolean
+  allowUserOptions: boolean
+  helperText?: string
+  description?: string
+  sortOrder: number
+  creator?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface CustomFieldListResponse {
+  items: CustomFieldInfo[]
+  total: number
+}
+
+export async function fetchCustomFields(token: string, scope = 'workorder') {
+  const query = new URLSearchParams()
+  query.append('scope', scope)
+  return request<CustomFieldListResponse>(`/custom-fields?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createCustomField(token: string, payload: CustomFieldPayload) {
+  return request<CustomFieldInfo>('/custom-fields', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateCustomField(token: string, id: number, payload: CustomFieldPayload) {
+  return request<CustomFieldInfo>(`/custom-fields/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteCustomField(token: string, id: number) {
+  return request<void>(`/custom-fields/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 工单 API =====
+export interface WorkOrderCustomValue {
+  fieldId?: number
+  fieldName: string
+  fieldType: string
+  value: string | string[] | number | null
+}
+
+export interface WorkOrderTaskPayload {
+  processName: string
+  processCode?: string
+  sequenceNo: number
+  plannedQuantity: number
+  planDeadline?: string
+  reportPermission?: string
+  assignee?: string
+  enabled?: boolean
+}
+
+export interface WorkOrderMaterialPayload {
+  materialCode?: string
+  materialName: string
+  materialSpec?: string
+  quantity: number
+}
+
+export interface WorkOrderPayload {
+  code?: string
+  productId: number
+  plannedQuantity: number
+  status?: string
+  priority?: string
+  planStart?: string
+  planEnd?: string
+  relatedOrderCode?: string
+  remark?: string
+  goodQuantity?: number
+  defectQuantity?: number
+  defectRate?: string
+  customValues?: WorkOrderCustomValue[]
+  tasks?: WorkOrderTaskPayload[]
+  materials?: WorkOrderMaterialPayload[]
+}
+
+export interface WorkOrderInfo {
+  id: number
+  code: string
+  productId: number
+  productCode: string
+  productName: string
+  productSpec?: string
+  plannedQuantity: number
+  goodQuantity: number
+  defectQuantity: number
+  defectRate?: string
+  status: string
+  priority: string
+  routeName?: string
+  progressPercent: number
+  planStart?: string
+  planEnd?: string
+  relatedOrderCode?: string
+  remark?: string
+  customValues: WorkOrderCustomValue[]
+  tasks: WorkOrderTaskPayload[]
+  materials: WorkOrderMaterialPayload[]
+  creator?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface WorkOrderListResponse {
+  items: WorkOrderInfo[]
+  total: number
+}
+
+export async function fetchWorkOrders(
+  token: string,
+  params: { code?: string; productName?: string; page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.productName) query.append('productName', params.productName)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<WorkOrderListResponse>(`/work-orders?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createWorkOrder(token: string, payload: WorkOrderPayload) {
+  return request<WorkOrderInfo>('/work-orders', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateWorkOrder(token: string, id: number, payload: WorkOrderPayload) {
+  return request<WorkOrderInfo>(`/work-orders/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteWorkOrder(token: string, id: number) {
+  return request<void>(`/work-orders/${id}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` }
   })

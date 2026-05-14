@@ -1234,6 +1234,204 @@ th {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(0, 184, 137, 0.12);
 }
+
+/* ===== 新拆分页面沿用老界面的紧凑样式 ===== */
+.table-container {
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e2e8e6;
+}
+
+.data-table {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tab-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tab-pill {
+  min-height: 34px;
+  padding: 0 18px;
+  border: 1px solid #dce7e4;
+  border-radius: 18px;
+  background: #fff;
+  color: #41504c;
+  font-size: 13px;
+}
+
+.tab-pill.active {
+  border-color: #c9f0e7;
+  background: #eafbf7;
+  color: var(--accent-dark);
+}
+
+.green-link {
+  color: var(--accent-dark);
+}
+
+.toolbar-search {
+  height: 34px;
+  border: 1px solid #d5dedb;
+  border-radius: 4px;
+  padding: 0 12px;
+  outline: none;
+}
+
+.toolbar-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 184, 137, 0.12);
+}
+
+.process-field input,
+.process-field select,
+.process-field textarea,
+.option-box input,
+.option-box select,
+.option-box textarea {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #d5dedb;
+  border-radius: 4px;
+  padding: 0 12px;
+  font-size: 13px;
+  color: #1e2724;
+  background: #fff;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.process-field textarea,
+.option-box textarea {
+  min-height: 92px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.process-field input:focus,
+.process-field select:focus,
+.process-field textarea:focus,
+.option-box input:focus,
+.option-box select:focus,
+.option-box textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 184, 137, 0.12);
+}
+
+.process-field.full-width {
+  max-width: 680px;
+}
+
+.product-form-page,
+.custom-field-page {
+  padding-top: 2px;
+}
+
+.form-bottom-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  padding: 16px 0 0 120px;
+  background: #fff;
+}
+
+.modal-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 34px;
+  height: 48px;
+  border-bottom: 1px solid #eef2f1;
+}
+
+.modal-tabs button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #485652;
+  font-size: 14px;
+}
+
+.modal-tabs button.active {
+  color: var(--accent-dark);
+  border-bottom-color: var(--accent);
+}
+
+.workorder-modal {
+  width: min(1120px, calc(100vw - 40px));
+}
+
+.create-form.two-column {
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+}
+
+.create-form.two-column label {
+  grid-template-columns: 112px minmax(0, 1fr);
+}
+
+.create-form.two-column .full-row {
+  grid-column: 1 / -1;
+}
+
+.create-form textarea {
+  min-height: 96px;
+  border: 1px solid #d5dedb;
+  border-radius: 4px;
+  padding: 10px 12px;
+  outline: none;
+  resize: vertical;
+}
+
+.option-box {
+  max-width: 760px;
+  margin: 0 0 20px 120px;
+  padding: 16px;
+  border: 1px solid #e1e9e6;
+  background: #f6fffc;
+}
+
+.toolbar-title {
+  font-weight: 600;
+  color: #26312e;
+}
+
+.option-flags {
+  display: flex;
+  gap: 24px;
+  margin: 8px 0 20px 120px;
+  color: #53625e;
+  font-size: 14px;
+}
+
+.option-flags label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.muted,
+.empty-state {
+  color: #8a9693;
+  font-size: 13px;
+}
+
+.placeholder-page {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+}
+
+.batch-modal {
+  width: min(560px, calc(100vw - 34px));
+}
 /* 报工权限 / 不良品项 tag-box */
 .perm-tag-box {
   min-height: 38px;

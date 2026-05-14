@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
+import QRCode from 'qrcode'
 import {
   createUser,
   exportUsersCsv,
@@ -48,6 +49,9 @@ import {
   type ProcessRouteInfo,
   type ProcessRoutePayload
 } from './api'
+import ProductDefinitionPage from './components/ProductDefinitionPage.vue'
+import WorkOrderPage from './components/WorkOrderPage.vue'
+import CustomWorkOrderFieldsPage from './components/CustomWorkOrderFieldsPage.vue'
 
 const token = ref(localStorage.getItem('heihu_token') || '')
 const currentUser = ref<UserInfo | null>(readStoredUser())
@@ -101,6 +105,28 @@ const showConfirmPassword = ref(false)
 const activeConfigMenu = ref('department') // default to department based on user request
 const activeMainMenu = ref('sysconfig') // 'sysconfig' | 'basedata'
 const activeBasedataMenu = ref('unit') // default to unit
+const activeProductionMenu = ref('workorder')
+const activeCustomMenu = ref('workorder')
+
+const showEditPrintTemplateModal = ref(false)
+const printTemplates = ref([
+  { id: 1, type: '30x40', name: '工单二维码(30*40mm)', qrSource: '工单二维码', row1: '产品名称', row2: '工单编号', titleField: '' },
+  { id: 2, type: '80x60', name: '工单二维码(80*60mm)', qrSource: '工单外链', titleField: '工单编号', row1: '产品名称', row2: '' }
+])
+const activeTemplateId = ref(1)
+const activeTemplateIndex = computed(() => {
+  const index = printTemplates.value.findIndex(t => t.id === activeTemplateId.value)
+  return index === -1 ? 0 : index
+})
+
+const qrPreviewUrl = ref('')
+watchEffect(() => {
+  const tpl = printTemplates.value[activeTemplateIndex.value]
+  const text = tpl.qrSource === '工单二维码' ? '123456' : `${window.location.origin}/workorder/123456`
+  QRCode.toDataURL(text, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } }).then(url => {
+    qrPreviewUrl.value = url
+  }).catch(err => console.error('QR Generate Error:', err))
+})
 
 // 全局 Tooltip（fixed 定位，不被 overflow 裁剪）
 const tooltipState = reactive({ visible: false, text: '', x: 0, y: 0 })
@@ -687,7 +713,7 @@ function formatPermissionTags(perms: string[]): { label: string; tooltip: string
   // 未被部门覆盖的单独员工 key
   for (const key of perms) {
     if (!handled.has(key) && key.startsWith('emp-')) {
-      const name = permKeyLabel(key)
+      const name = getPermLabel(key)
       tags.push({ label: name, tooltip: '', partial: false })
     }
   }
@@ -897,7 +923,7 @@ const createForm = reactive<CreateUserPayload>({
   name: '',
   password: '',
   role: 'ADMIN',
-  departmentName: '',
+  departmentId: undefined,
   virtualUser: false
 })
 
@@ -906,7 +932,7 @@ const editForm = reactive<UpdateUserPayload>({
   phone: '',
   name: '',
   role: 'ADMIN',
-  departmentName: '',
+  departmentId: undefined,
   virtualUser: false
 })
 
@@ -1095,7 +1121,7 @@ function resetCreateForm() {
   createForm.name = ''
   createForm.password = ''
   createForm.role = 'ADMIN'
-  createForm.departmentName = ''
+  createForm.departmentId = undefined
   createForm.virtualUser = false
 }
 
@@ -1113,7 +1139,7 @@ async function handleCreateUser() {
       name: createForm.name.trim(),
       password: createForm.password,
       role: createForm.role as Role,
-      departmentName: createForm.departmentName?.trim(),
+      departmentId: createForm.departmentId,
       virtualUser: Boolean(createForm.virtualUser)
     })
     await loadUsers()
@@ -1156,7 +1182,7 @@ function openEditUser(user: UserInfo) {
   editForm.phone = user.phone || ''
   editForm.name = user.name
   editForm.role = user.role
-  editForm.departmentName = user.departmentName || ''
+  editForm.departmentId = user.departmentId
   editForm.virtualUser = user.virtualUser
   showEditModal.value = true
 }
@@ -1173,7 +1199,7 @@ async function handleUpdateUser() {
       phone: editForm.phone?.trim(),
       name: editForm.name.trim(),
       role: editForm.role,
-      departmentName: editForm.departmentName?.trim(),
+      departmentId: editForm.departmentId,
       virtualUser: Boolean(editForm.virtualUser)
     })
     syncCurrentUser(updated)
@@ -1449,7 +1475,7 @@ function handlePrintTemplate() {
       </head>
       <body>
         <h1>黑湖小工单 - 用户列表</h1>
-        <p class="info">打印时间：${new Date().toLocaleString('zh-CN')}，共 ${dataToPrint.length} 人</p>
+        <p class="info">打印时间：${new Date().toLocaleString('zh-CN')}，共 ${dataToprint.length} 人</p>
         <table>
           <thead>
             <tr><th>序号</th><th>部门</th><th>账号</th><th>姓名</th><th>角色</th><th>手机号</th><th>状态</th></tr>
@@ -1605,6 +1631,13 @@ const formatDateTime = (val: string) => {
             <span v-show="!isSidebarCollapsed">生产管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.production }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
+          <div v-show="!isSidebarCollapsed && expandedMenus.production" class="sub-items-container">
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'">销售订单</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'">工单</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'">任务</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'">报工</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'">报工工作台</a>
+          </div>
         </div>
 
         <div class="nav-group">
@@ -1647,6 +1680,14 @@ const formatDateTime = (val: string) => {
             <span v-show="!isSidebarCollapsed">自定义配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.custom }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
+          <div v-show="!isSidebarCollapsed && expandedMenus.custom" class="sub-items-container">
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'">产品</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'">物料清单</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'">工序</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'">工单</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'">报工</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'">客户</a>
+          </div>
         </div>
 
         <div class="nav-group">
@@ -1686,9 +1727,39 @@ const formatDateTime = (val: string) => {
               基础数据 <span>></span> {{ activeBasedataMenu === 'unit' ? '单位' : activeBasedataMenu === 'product' ? '产品定义' : activeBasedataMenu === 'bom' ? '物料清单' : activeBasedataMenu === 'defect' ? '不良品项' : activeBasedataMenu === 'process' ? '工序' : activeBasedataMenu === 'route' ? '工艺路线' : activeBasedataMenu === 'warehouse' ? '仓库' : '供应商' }}
             </template>
           </template>
+          <template v-else-if="activeMainMenu === 'production'">
+            生产管理 <span>></span> {{ activeProductionMenu === 'sales' ? '销售订单' : activeProductionMenu === 'workorder' ? '工单' : activeProductionMenu === 'task' ? '任务' : activeProductionMenu === 'reporting' ? '报工' : '报工工作台' }}
+          </template>
+          <template v-else-if="activeMainMenu === 'custom'">
+            自定义配置 <span>></span> {{ activeCustomMenu === 'product' ? '产品' : activeCustomMenu === 'bom' ? '物料清单' : activeCustomMenu === 'process' ? '工序' : activeCustomMenu === 'workorder' ? '工单' : activeCustomMenu === 'reporting' ? '报工' : '客户' }}
+          </template>
           <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : '用户' }}</template>
         </div>
         <div class="top-actions">
+          <template v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'">
+            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showAction('AI读单功能开发中...')">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 4h16v16H4z"/><path d="M4 10h16"/><path d="M10 4v16"/></svg>
+              AI读单
+            </button>
+            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showAction('数据分析模板功能开发中...')">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+              数据分析模板
+            </button>
+            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showEditPrintTemplateModal = true">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              打印模板
+            </button>
+            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showAction('移动端卡片功能开发中...')">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+              移动端卡片
+            </button>
+            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showAction('自定义事件功能开发中...')">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              自定义事件
+            </button>
+            <div class="topbar-divider" style="height:14px;background:#dce3e0;width:1px;margin:0 12px"></div>
+          </template>
+
           <button class="topbar-icon-btn" type="button" title="通知">
             <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           </button>
@@ -1706,6 +1777,38 @@ const formatDateTime = (val: string) => {
           </div>
         </div>
       </header>
+
+      <ProductDefinitionPage
+        v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'product'"
+        :token="token"
+        @notice="showAction"
+      />
+
+      <WorkOrderPage
+        v-show="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
+        :token="token"
+        @notice="showAction"
+      />
+
+      <CustomWorkOrderFieldsPage
+        v-show="activeMainMenu === 'custom' && activeCustomMenu === 'workorder'"
+        :token="token"
+        @notice="showAction"
+      />
+
+      <section
+        class="content placeholder-page"
+        v-show="activeMainMenu === 'production' && activeProductionMenu !== 'workorder'"
+      >
+        <div class="empty-state">该模块待补全。</div>
+      </section>
+
+      <section
+        class="content placeholder-page"
+        v-show="activeMainMenu === 'custom' && activeCustomMenu !== 'workorder'"
+      >
+        <div class="empty-state">该模块待补全。</div>
+      </section>
 
       <!-- 单位管理 -->
       <section class="content" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit'">
@@ -2877,5 +2980,157 @@ const formatDateTime = (val: string) => {
     class="global-tooltip"
     :style="{ left: tooltipState.x + 'px', top: tooltipState.y + 'px' }"
   >{{ tooltipState.text }}</div>
+
+  <!-- 编辑打印模板弹窗 -->
+  <div v-if="showEditPrintTemplateModal" class="modal-backdrop" style="z-index: 10000">
+    <section class="modal" style="width: 900px; padding: 0;">
+      <header class="modal-header" style="padding: 16px 24px; border-bottom: 1px solid #eee;">
+        <h2 style="font-size: 16px; margin: 0;">编辑打印模板</h2>
+        <button class="close-btn" type="button" @click="showEditPrintTemplateModal = false">×</button>
+      </header>
+      <div style="display: flex; height: 500px;">
+        <!-- 左侧模板列表 -->
+        <div style="width: 220px; border-right: 1px solid #eee; background: #fafafa; display: flex; flex-direction: column;">
+          <div style="padding: 12px; display: flex; gap: 16px; border-bottom: 1px solid #eee;">
+            <span style="color: #00b889; border-bottom: 2px solid #00b889; padding-bottom: 4px; font-size: 13px; cursor: pointer;">内置打印</span>
+            <span style="color: #8a9693; font-size: 13px; cursor: pointer;">Excel模板打印</span>
+          </div>
+          <div style="padding: 16px; overflow-y: auto; flex: 1;">
+            <button class="ghost-btn" style="width: 100%; border-style: dashed; margin-bottom: 16px; color: #00b889; border-color: #00b889;">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right: 4px; vertical-align: middle;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              创建模板
+            </button>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+              <div v-for="tpl in printTemplates" :key="tpl.id" 
+                   @click="activeTemplateId = tpl.id"
+                   style="border: 1px solid #e5e6e6; border-radius: 4px; padding: 12px; cursor: pointer; position: relative; text-align: center;"
+                   :style="tpl.id === activeTemplateId ? 'background: #e8f7f3; border-color: #00b889;' : 'background: #fff;'">
+                <div style="font-size: 12px; color: #555; margin-bottom: 8px; white-space: pre-wrap;">{{ tpl.type === '30x40' ? '30mm\n*\n40mm' : '80mm\n*\n60mm' }}</div>
+                <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">{{ tpl.name.split('(')[0] }}(...</div>
+                <div style="font-size: 12px; color: #3498db;">删除</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 中间编辑区 -->
+        <div style="flex: 1; border-right: 1px solid #eee; padding: 24px; overflow-y: auto; background: #fdfdfd;">
+          <h3 style="font-size: 14px; margin-top: 0; margin-bottom: 8px; color: #333;">配置打印模板 {{ printTemplates[activeTemplateIndex].type.replace('x', '*') }}mm</h3>
+          <p style="font-size: 12px; color: #8a9693; margin-top: 0; margin-bottom: 24px;">字段1-3个 二维码1个 可通过页面配置模板需要打印的字段</p>
+          
+          <div class="process-field">
+            <label class="process-label required" style="font-weight: normal; margin-bottom: 8px; display: block;">模板名称</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="printTemplates[activeTemplateIndex].name" />
+            </div>
+          </div>
+          
+          <div class="process-field" v-if="printTemplates[activeTemplateIndex].type === '80x60'">
+            <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">标题行</label>
+            <div class="process-input-wrap">
+              <input class="process-input" v-model="printTemplates[activeTemplateIndex].titleField" />
+            </div>
+          </div>
+          
+          <div class="process-field">
+            <label class="process-label required" v-if="printTemplates[activeTemplateIndex].type === '30x40'" style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">二维码</label>
+            <label class="process-label" v-else style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">取值</label>
+            <div class="process-input-wrap">
+              <select class="process-input" v-model="printTemplates[activeTemplateIndex].qrSource">
+                <option value="工单二维码">工单二维码</option>
+                <option value="工单外链">工单外链</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="process-field">
+            <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">{{ printTemplates[activeTemplateIndex].type === '30x40' ? '第一行取值' : '第1行' }}</label>
+            <div class="process-input-wrap" style="position: relative;">
+              <input class="process-input" v-model="printTemplates[activeTemplateIndex].row1" />
+              <span style="position: absolute; right: 12px; top: 8px; color: #aaa; cursor: pointer;">✕</span>
+            </div>
+          </div>
+          <div class="process-field" v-if="printTemplates[activeTemplateIndex].type === '30x40'">
+            <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">第二行取值</label>
+            <div class="process-input-wrap" style="position: relative;">
+              <input class="process-input" v-model="printTemplates[activeTemplateIndex].row2" />
+              <span style="position: absolute; right: 12px; top: 8px; color: #aaa; cursor: pointer;">✕</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧预览区 -->
+        <div style="width: 320px; padding: 24px; display: flex; flex-direction: column; background: #fff;">
+          <h3 style="font-size: 14px; margin-top: 0; margin-bottom: 24px; color: #333;">模板效果预览</h3>
+          <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
+            <!-- 30x40 预览 -->
+            <div v-if="printTemplates[activeTemplateIndex].type === '30x40'" style="width: 200px; border: 1px solid #ccc; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05); background: #fff;">
+              <img v-if="qrPreviewUrl" :src="qrPreviewUrl" width="120" height="120" style="margin-bottom: 16px; mix-blend-mode: multiply;" />
+              <svg v-else viewBox="0 0 100 100" width="120" height="120" style="margin-bottom: 16px;">
+                <rect width="100" height="100" fill="#000" />
+                <rect x="10" y="10" width="30" height="30" fill="#fff" />
+                <rect x="60" y="10" width="30" height="30" fill="#fff" />
+                <rect x="10" y="60" width="30" height="30" fill="#fff" />
+                <rect x="60" y="60" width="30" height="30" fill="#fff" />
+                <rect x="45" y="45" width="10" height="10" fill="#fff" />
+              </svg>
+              <div style="font-size: 14px; font-weight: bold; margin-bottom: 8px;">${工单.{{ printTemplates[activeTemplateIndex].row1 }}}</div>
+              <div style="font-size: 12px; color: #666;">${工单.{{ printTemplates[activeTemplateIndex].row2 }}}</div>
+            </div>
+            
+            <!-- 80x60 预览 -->
+            <div v-else style="width: 280px; border: 2px solid #333; padding: 2px; background: #fff; display: flex; flex-direction: column;">
+              <div style="text-align: center; font-size: 14px; font-weight: bold; border-bottom: 1px solid #333; padding: 8px 0;">
+                {{ printTemplates[activeTemplateIndex].titleField }}: ${工单.{{ printTemplates[activeTemplateIndex].titleField }}}
+              </div>
+              <div style="display: flex;">
+                <div style="flex: 1; border-right: 1px solid #333; display: flex; flex-direction: column;">
+                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
+                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">产品编号</div>
+                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.产品编号}</div>
+                  </div>
+                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
+                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">产品名称</div>
+                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.{{ printTemplates[activeTemplateIndex].row1 }}}</div>
+                  </div>
+                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
+                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">产品规格</div>
+                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.产品规格}</div>
+                  </div>
+                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
+                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center; text-align: center;">工单计划数</div>
+                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.计划数}</div>
+                  </div>
+                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
+                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">计划时间</div>
+                    <div style="flex: 1; padding: 4px; display: flex; align-items: center; font-size: 8px;">${工单.计划时间}</div>
+                  </div>
+                  <div style="display: flex; font-size: 10px; height: 30px;">
+                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">备注</div>
+                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.备注}</div>
+                  </div>
+                </div>
+                <div style="width: 90px; display: flex; align-items: center; justify-content: center; padding: 8px;">
+                  <img v-if="qrPreviewUrl" :src="qrPreviewUrl" width="70" height="70" style="mix-blend-mode: multiply;" />
+                  <svg v-else viewBox="0 0 100 100" width="70" height="70">
+                    <rect width="100" height="100" fill="#000" />
+                    <rect x="10" y="10" width="30" height="30" fill="#fff" />
+                    <rect x="60" y="10" width="30" height="30" fill="#fff" />
+                    <rect x="10" y="60" width="30" height="30" fill="#fff" />
+                    <rect x="60" y="60" width="30" height="30" fill="#fff" />
+                    <rect x="45" y="45" width="10" height="10" fill="#fff" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="modal-footer" style="padding: 16px 24px; border-top: 1px solid #eee; background: #fff;">
+        <button class="ghost-btn" style="min-width: 80px;" type="button" @click="showEditPrintTemplateModal = false">取消</button>
+        <button class="primary-btn" style="min-width: 80px;" type="button" @click="showAction('保存成功'); showEditPrintTemplateModal = false">保存</button>
+      </footer>
+    </section>
+  </div>
 
 </template>
