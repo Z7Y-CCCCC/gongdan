@@ -1,0 +1,55 @@
+{
+  "pages": [
+    {
+      "path": "pages/bind/index",
+      "style": { "navigationBarTitleText": "账号绑定" }
+    },
+    {
+      "path": "pages/home/index",
+      "style": { "navigationBarTitleText": "黑湖小工单" }
+    },
+    {
+      "path": "pages/work-orders/index",
+      "style": { "navigationBarTitleText": "工单" }
+    },
+    {
+      "path": "pages/work-order-detail/index",
+      "style": { "navigationBarTitleText": "工单详情" }
+    },
+    {
+      "path": "pages/report-form/index",
+      "style": { "navigationBarTitleText": "报工" }
+    },
+    {
+      "path": "pages/report-list/index",
+      "style": { "navigationBarTitleText": "报工列表" }
+    },
+    {
+      "path": "pages/tasks/index",
+      "style": { "navigationBarTitleText": "任务" }
+    },
+    {
+      "path": "pages/board/index",
+      "style": { "navigationBarTitleText": "看板" }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "黑湖小工单",
+    "navigationBarBackgroundColor": "#f6f7f7",
+    "backgroundColor": "#f3f5f5"
+  },
+  "tabBar": {
+    "color": "#9aa4a1",
+    "selectedColor": "#00b889",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/work-orders/index", "text": "工单" },
+      { "pagePath": "pages/tasks/index", "text": "任务" },
+      { "pagePath": "pages/home/index", "text": "+" },
+      { "pagePath": "pages/report-list/index", "text": "报工" },
+      { "pagePath": "pages/board/index", "text": "看板" }
+    ]
+  }
+}

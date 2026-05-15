@@ -16,6 +16,7 @@ public class UserResponse {
     private String departmentName;
     private boolean virtualUser;
     private boolean enabled;
+    private boolean mobileBound;
     private LocalDateTime createdAt;
 
     public static UserResponse from(FactoryUser user) {
@@ -32,6 +33,7 @@ public class UserResponse {
         }
         response.setVirtualUser(user.isVirtualUser());
         response.setEnabled(user.isEnabled());
+        response.setMobileBound(user.getWechatOpenid() != null && !user.getWechatOpenid().trim().isEmpty());
         response.setCreatedAt(user.getCreatedAt());
         return response;
     }
@@ -114,6 +116,14 @@ public class UserResponse {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isMobileBound() {
+        return mobileBound;
+    }
+
+    public void setMobileBound(boolean mobileBound) {
+        this.mobileBound = mobileBound;
     }
 
     public LocalDateTime getCreatedAt() {

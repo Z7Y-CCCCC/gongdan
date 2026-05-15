@@ -13,6 +13,8 @@ public interface UserRepository extends JpaRepository<FactoryUser, Long> {
 
     Optional<FactoryUser> findByIdAndFactoryId(Long id, Long factoryId);
 
+    Optional<FactoryUser> findByWechatOpenid(String wechatOpenid);
+
     List<FactoryUser> findByFactoryIdOrderByCreatedAtAsc(Long factoryId);
 
     List<FactoryUser> findByDepartmentId(Long departmentId);

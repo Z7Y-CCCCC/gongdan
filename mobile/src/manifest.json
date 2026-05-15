@@ -1,0 +1,17 @@
+{
+  "name": "黑湖小工单",
+  "appid": "__UNI__HEIHU_WORKORDER",
+  "description": "黑湖小工单微信小程序端",
+  "versionName": "0.0.1",
+  "versionCode": "1",
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "postcss": true,
+      "minified": false
+    },
+    "usingComponents": true
+  }
+}

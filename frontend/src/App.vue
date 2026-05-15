@@ -52,6 +52,7 @@ import {
 import ProductDefinitionPage from './components/ProductDefinitionPage.vue'
 import WorkOrderPage from './components/WorkOrderPage.vue'
 import CustomWorkOrderFieldsPage from './components/CustomWorkOrderFieldsPage.vue'
+import ReportApprovalPage from './components/ReportApprovalPage.vue'
 
 const token = ref(localStorage.getItem('heihu_token') || '')
 const currentUser = ref<UserInfo | null>(readStoredUser())
@@ -1790,6 +1791,12 @@ const formatDateTime = (val: string) => {
         @notice="showAction"
       />
 
+      <ReportApprovalPage
+        v-show="activeMainMenu === 'production' && activeProductionMenu === 'workbench'"
+        :token="token"
+        @notice="showAction"
+      />
+
       <CustomWorkOrderFieldsPage
         v-show="activeMainMenu === 'custom' && activeCustomMenu === 'workorder'"
         :token="token"
@@ -1798,7 +1805,7 @@ const formatDateTime = (val: string) => {
 
       <section
         class="content placeholder-page"
-        v-show="activeMainMenu === 'production' && activeProductionMenu !== 'workorder'"
+        v-show="activeMainMenu === 'production' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench'"
       >
         <div class="empty-state">该模块待补全。</div>
       </section>

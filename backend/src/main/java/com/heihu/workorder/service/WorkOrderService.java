@@ -58,6 +58,14 @@ public class WorkOrderService {
         ).map(this::toResponse);
     }
 
+    @Transactional(readOnly = true)
+    public WorkOrderResponse get(Long factoryId, Long id) {
+        WorkOrder workOrder = workOrderRepository.findById(id)
+                .filter(item -> item.getFactory().getId().equals(factoryId))
+                .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
+        return toResponse(workOrder);
+    }
+
     public WorkOrderResponse create(Long factoryId, Long userId, WorkOrderRequest request) {
         WorkOrder workOrder = new WorkOrder();
         workOrder.setCreatedAt(LocalDateTime.now());
@@ -182,9 +190,17 @@ public class WorkOrderService {
 
     private Integer calculateProgress(List<WorkOrderRequest.TaskItem> tasks) {
         if (tasks.isEmpty()) return 0;
-        long enabledCount = tasks.stream().filter(task -> task.getEnabled() == null || task.getEnabled()).count();
-        if (enabledCount == 0) return 0;
-        return (int) Math.round((enabledCount * 100.0) / tasks.size());
+        int planned = 0;
+        int completed = 0;
+        for (WorkOrderRequest.TaskItem task : tasks) {
+            if (task.getEnabled() != null && !task.getEnabled()) {
+                continue;
+            }
+            planned += task.getPlannedQuantity() == null ? 0 : Math.max(task.getPlannedQuantity(), 0);
+            completed += task.getCompletedQuantity() == null ? 0 : Math.max(task.getCompletedQuantity(), 0);
+        }
+        if (planned <= 0) return 0;
+        return (int) Math.round(completed * 100.0 / planned);
     }
 
     private LocalDateTime parseDateTime(String value) {

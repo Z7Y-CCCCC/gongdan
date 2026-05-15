@@ -11,6 +11,7 @@ export interface UserInfo {
   departmentName?: string
   virtualUser: boolean
   enabled: boolean
+  mobileBound?: boolean
   createdAt: string
 }
 
@@ -742,6 +743,10 @@ export interface WorkOrderTaskPayload {
   sequenceNo: number
   plannedQuantity: number
   completedQuantity?: number
+  defectQuantity?: number
+  approvedQuantity?: number
+  unapprovedQuantity?: number
+  lastReportTime?: string
   planDeadline?: string
   reportPermission?: string
   assignee?: string
@@ -893,5 +898,112 @@ export async function setUserPreference(token: string, key: string, value: strin
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({ value })
+  })
+}
+
+// ===== 报工审批 API =====
+export type ReportStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export interface WorkOrderReportImageInfo {
+  id: number
+  originalFileName: string
+  accessPath: string
+  fileSize: number
+  contentType: string
+  createdAt: string
+}
+
+export interface WorkOrderReportInfo {
+  id: number
+  workOrderId: number
+  workOrderCode: string
+  productName?: string
+  productCode?: string
+  productSpec?: string
+  processSequenceNo: number
+  processName: string
+  reporterId: number
+  reporterName: string
+  reportQuantity: number
+  goodQuantity: number
+  defectQuantity: number
+  defectItemName?: string
+  reportDurationMinutes: number
+  startTime?: string
+  endTime?: string
+  materialName?: string
+  remark?: string
+  status: ReportStatus
+  approverId?: number
+  approverName?: string
+  approvedAt?: string
+  approvalRemark?: string
+  createdAt: string
+  updatedAt: string
+  images: WorkOrderReportImageInfo[]
+}
+
+export interface WorkOrderReportListResponse {
+  items: WorkOrderReportInfo[]
+  total: number
+}
+
+export async function fetchReports(
+  token: string,
+  params: { status?: ReportStatus | ''; workOrderCode?: string; reporterName?: string; period?: string; page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.status) query.append('status', params.status)
+  if (params.workOrderCode) query.append('workOrderCode', params.workOrderCode)
+  if (params.reporterName) query.append('reporterName', params.reporterName)
+  if (params.period) query.append('period', params.period)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<WorkOrderReportListResponse>(`/reports?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchReport(token: string, id: number) {
+  return request<WorkOrderReportInfo>(`/reports/${id}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function approveReport(token: string, id: number, remark = '') {
+  return request<WorkOrderReportInfo>(`/reports/${id}/approve`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ remark })
+  })
+}
+
+export async function rejectReport(token: string, id: number, remark = '') {
+  return request<WorkOrderReportInfo>(`/reports/${id}/reject`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ remark })
+  })
+}
+
+// ===== 手机端 API 共用类型 =====
+export interface MobileAuthResult {
+  bindRequired: boolean
+  openidTicket?: string
+  token?: string
+  user?: UserInfo
+}
+
+export async function mobileWechatLogin(payload: { code?: string; mockOpenid?: string }) {
+  return request<MobileAuthResult>('/mobile/auth/wechat-login', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function mobileBind(payload: { openidTicket: string; factoryCode: string; username: string; password: string }) {
+  return request<MobileAuthResult>('/mobile/auth/bind', {
+    method: 'POST',
+    body: JSON.stringify(payload)
   })
 }

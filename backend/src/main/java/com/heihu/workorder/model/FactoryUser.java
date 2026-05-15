@@ -64,6 +64,15 @@ public class FactoryUser {
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
+    @Column(name = "wechat_openid", length = 128, unique = true)
+    private String wechatOpenid;
+
+    @Column(name = "mobile_bound_at")
+    private LocalDateTime mobileBoundAt;
+
+    @Column(name = "last_mobile_login_at")
+    private LocalDateTime lastMobileLoginAt;
+
     public Long getId() {
         return id;
     }
@@ -158,5 +167,29 @@ public class FactoryUser {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getWechatOpenid() {
+        return wechatOpenid;
+    }
+
+    public void setWechatOpenid(String wechatOpenid) {
+        this.wechatOpenid = wechatOpenid;
+    }
+
+    public LocalDateTime getMobileBoundAt() {
+        return mobileBoundAt;
+    }
+
+    public void setMobileBoundAt(LocalDateTime mobileBoundAt) {
+        this.mobileBoundAt = mobileBoundAt;
+    }
+
+    public LocalDateTime getLastMobileLoginAt() {
+        return lastMobileLoginAt;
+    }
+
+    public void setLastMobileLoginAt(LocalDateTime lastMobileLoginAt) {
+        this.lastMobileLoginAt = lastMobileLoginAt;
     }
 }

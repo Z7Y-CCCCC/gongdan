@@ -66,6 +66,10 @@ public class WorkOrderRequest {
         private Integer sequenceNo;
         private Integer plannedQuantity;
         private Integer completedQuantity;
+        private Integer defectQuantity;
+        private Integer approvedQuantity;
+        private Integer unapprovedQuantity;
+        private String lastReportTime;
         private String planDeadline;
         private String reportPermission;
         private String assignee;
@@ -109,6 +113,38 @@ public class WorkOrderRequest {
 
         public void setCompletedQuantity(Integer completedQuantity) {
             this.completedQuantity = completedQuantity;
+        }
+
+        public Integer getDefectQuantity() {
+            return defectQuantity;
+        }
+
+        public void setDefectQuantity(Integer defectQuantity) {
+            this.defectQuantity = defectQuantity;
+        }
+
+        public Integer getApprovedQuantity() {
+            return approvedQuantity;
+        }
+
+        public void setApprovedQuantity(Integer approvedQuantity) {
+            this.approvedQuantity = approvedQuantity;
+        }
+
+        public Integer getUnapprovedQuantity() {
+            return unapprovedQuantity;
+        }
+
+        public void setUnapprovedQuantity(Integer unapprovedQuantity) {
+            this.unapprovedQuantity = unapprovedQuantity;
+        }
+
+        public String getLastReportTime() {
+            return lastReportTime;
+        }
+
+        public void setLastReportTime(String lastReportTime) {
+            this.lastReportTime = lastReportTime;
         }
 
         public String getPlanDeadline() {
