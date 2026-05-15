@@ -340,6 +340,11 @@ async function saveOrder() {
     activeTab.value = 'basic'
     return
   }
+  if (Number(form.plannedQuantity || 0) <= 0) {
+    emit('notice', '计划数必须大于 0')
+    activeTab.value = 'basic'
+    return
+  }
   const payload = {
     code: form.code || undefined,
     productId: Number(form.productId),
@@ -358,15 +363,19 @@ async function saveOrder() {
     tasks: form.tasks,
     materials: []
   }
-  if (editing.value) {
-    await updateWorkOrder(props.token, editing.value.id, payload)
-    emit('notice', '工单已更新')
-  } else {
-    await createWorkOrder(props.token, payload)
-    emit('notice', '工单已创建')
+  try {
+    if (editing.value) {
+      await updateWorkOrder(props.token, editing.value.id, payload)
+      emit('notice', '工单已更新')
+    } else {
+      await createWorkOrder(props.token, payload)
+      emit('notice', '工单已创建')
+    }
+    showModal.value = false
+    await loadData()
+  } catch (e: any) {
+    emit('notice', e.message || '操作失败')
   }
-  showModal.value = false
-  await loadData()
 }
 
 async function removeOrder(item: WorkOrderInfo) {
@@ -757,7 +766,6 @@ onMounted(loadData)
           <label><span>产品信息</span><select v-model="form.productId"><option value="">请选择</option><option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }} / {{ p.code }}</option></select></label>
           <label><span>计划数</span><input v-model.number="form.plannedQuantity" type="number" /></label>
           <label><span>所属分类</span><select v-model="form.categoryId"><option value="">未分类</option><option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option></select></label>
-          <label><span>优先级</span><select v-model="form.priority"><option value="NORMAL">正常</option><option value="LOW">低</option><option value="HIGH">高</option><option value="URGENT">加急</option></select></label>
           <label><span>状态</span><select v-model="form.status"><option value="NOT_STARTED">未开始</option><option value="EXECUTING">执行中</option><option value="PAUSED">已暂停</option><option value="COMPLETED">已完成</option></select></label>
           <label><span>优先级</span><select v-model="form.priority"><option value="NORMAL">正常</option><option value="HIGH">高</option><option value="URGENT">加急</option><option value="LOW">低</option></select></label>
           <label><span>计划开始时间</span><input v-model="form.planStart" type="datetime-local" /></label>
