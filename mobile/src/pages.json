@@ -1,4 +1,10 @@
 {
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^uni-(.*)": "@dcloudio/uni-ui/lib/uni-$1/uni-$1.vue"
+    }
+  },
   "pages": [
     {
       "path": "pages/bind/index",
@@ -45,11 +51,36 @@
     "backgroundColor": "#ffffff",
     "borderStyle": "white",
     "list": [
-      { "pagePath": "pages/work-orders/index", "text": "工单" },
-      { "pagePath": "pages/tasks/index", "text": "任务" },
-      { "pagePath": "pages/home/index", "text": "+" },
-      { "pagePath": "pages/report-list/index", "text": "报工" },
-      { "pagePath": "pages/board/index", "text": "看板" }
+      {
+        "pagePath": "pages/work-orders/index",
+        "text": "工单",
+        "iconPath": "static/tabbar/order.png",
+        "selectedIconPath": "static/tabbar/order.png"
+      },
+      {
+        "pagePath": "pages/tasks/index",
+        "text": "任务",
+        "iconPath": "static/tabbar/task.png",
+        "selectedIconPath": "static/tabbar/task.png"
+      },
+      {
+        "pagePath": "pages/home/index",
+        "text": "报工",
+        "iconPath": "static/tabbar/plus.png",
+        "selectedIconPath": "static/tabbar/plus.png"
+      },
+      {
+        "pagePath": "pages/report-list/index",
+        "text": "记录",
+        "iconPath": "static/tabbar/report.png",
+        "selectedIconPath": "static/tabbar/report.png"
+      },
+      {
+        "pagePath": "pages/board/index",
+        "text": "看板",
+        "iconPath": "static/tabbar/board.png",
+        "selectedIconPath": "static/tabbar/board.png"
+      }
     ]
   }
 }

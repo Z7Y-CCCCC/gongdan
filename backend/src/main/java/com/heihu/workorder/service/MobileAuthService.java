@@ -75,7 +75,14 @@ public class MobileAuthService {
 
     @Transactional
     public MobileAuthResponse bind(MobileBindRequest request) {
-        String openid = openidTickets.remove(normalize(request.getOpenidTicket()));
+        String ticket = normalize(request.getOpenidTicket());
+        String openid = openidTickets.remove(ticket);
+        
+        // 开发者模拟模式：如果以 MOCK_TICKET_ 开头，且开启了 mock 模式，则自动生成一个模拟 openid
+        if (!StringUtils.hasText(openid) && mockEnabled && ticket.startsWith("MOCK_TICKET_")) {
+            openid = "MOCK_OPENID_" + ticket.substring(12);
+        }
+
         if (!StringUtils.hasText(openid)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "微信绑定凭证已失效，请重新进入小程序");
         }
