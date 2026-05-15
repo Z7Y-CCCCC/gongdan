@@ -1245,31 +1245,116 @@ th {
 .data-table {
   width: 100%;
   min-width: 940px;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 14px;
+}
+
+.data-table th, .data-table td {
+  border-bottom: 1px solid #e2e8e6;
+  white-space: nowrap;
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  background: #f4f6f6;
+  z-index: 10;
+}
+
+/* Sticky Operation Column */
+.data-table th:last-child,
+.data-table td:last-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+}
+.data-table th:last-child {
+  background: #f4f6f6;
+  z-index: 11;
+}
+.data-table td:last-child {
+  box-shadow: -4px 0 8px rgba(0,0,0,0.02);
+}
+
+.category-tabs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  border-bottom: 1px solid #dce7e4;
+  margin-bottom: 16px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.cat-tab {
+  height: 40px;
+  padding: 0 4px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #586360;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cat-tab.active {
+  color: #00b889;
+  border-bottom-color: #00b889;
+  font-weight: 500;
+}
+
+.cat-tab.add-tab {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #889390;
 }
 
 .tab-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding-bottom: 4px;
 }
 
 .tab-pill {
-  min-height: 34px;
-  padding: 0 18px;
-  border: 1px solid #dce7e4;
-  border-radius: 18px;
-  background: #fff;
+  min-height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 15px;
+  background: #f4f6f6;
   color: #41504c;
   font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
 .tab-pill.active {
   border-color: #c9f0e7;
   background: #eafbf7;
   color: var(--accent-dark);
+}
+
+.count-badge {
+  background: #e2e8e6;
+  padding: 2px 6px;
+  border-radius: 9999px;
+  font-size: 12px;
+}
+.tab-pill.active .count-badge {
+  background: var(--accent);
+  color: white;
+}
+.add-tab {
+  padding: 0 12px;
+}
+.add-tab:hover {
+  background: #f4f6f6;
 }
 
 .green-link {

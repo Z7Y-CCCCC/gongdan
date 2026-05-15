@@ -10,6 +10,7 @@ import com.heihu.workorder.model.WorkOrder;
 import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
+import com.heihu.workorder.repository.WorkOrderCategoryRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -31,13 +32,16 @@ public class WorkOrderService {
     private final WorkOrderRepository workOrderRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    private final WorkOrderCategoryRepository categoryRepository;
 
     public WorkOrderService(WorkOrderRepository workOrderRepository,
                             ProductRepository productRepository,
-                            UserRepository userRepository) {
+                            UserRepository userRepository,
+                            WorkOrderCategoryRepository categoryRepository) {
         this.workOrderRepository = workOrderRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
+        this.categoryRepository = categoryRepository;
     }
 
     public Page<WorkOrderResponse> list(Long factoryId, String code, String productName, Pageable pageable) {
@@ -109,6 +113,15 @@ public class WorkOrderService {
 
         workOrder.setFactory(product.getFactory());
         workOrder.setCode(codeToUse);
+        
+        if (request.getCategoryId() != null) {
+            categoryRepository.findById(request.getCategoryId())
+                .filter(c -> c.getFactory().getId().equals(factoryId))
+                .ifPresent(workOrder::setCategory);
+        } else {
+            workOrder.setCategory(null);
+        }
+
         workOrder.setProduct(product);
         workOrder.setProductCode(product.getCode());
         workOrder.setProductName(product.getName());
@@ -140,6 +153,12 @@ public class WorkOrderService {
         response.setGoodQuantity(item.getGoodQuantity());
         response.setDefectQuantity(item.getDefectQuantity());
         response.setDefectRate(item.getDefectRate());
+        
+        if (item.getCategory() != null) {
+            response.setCategoryId(item.getCategory().getId());
+            response.setCategoryName(item.getCategory().getName());
+        }
+
         response.setStatus(item.getStatus());
         response.setPriority(item.getPriority());
         response.setRouteName(

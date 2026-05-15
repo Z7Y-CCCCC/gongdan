@@ -741,6 +741,7 @@ export interface WorkOrderTaskPayload {
   processCode?: string
   sequenceNo: number
   plannedQuantity: number
+  completedQuantity?: number
   planDeadline?: string
   reportPermission?: string
   assignee?: string
@@ -758,6 +759,7 @@ export interface WorkOrderPayload {
   code?: string
   productId: number
   plannedQuantity: number
+  categoryId?: number
   status?: string
   priority?: string
   planStart?: string
@@ -783,6 +785,8 @@ export interface WorkOrderInfo {
   goodQuantity: number
   defectQuantity: number
   defectRate?: string
+  categoryId?: number
+  categoryName?: string
   status: string
   priority: string
   routeName?: string
@@ -838,5 +842,56 @@ export async function deleteWorkOrder(token: string, id: number) {
   return request<void>(`/work-orders/${id}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 工单分类 API =====
+export interface WorkOrderCategoryInfo {
+  id: number
+  name: string
+  creatorId?: number
+  creatorName?: string
+  createdAt: string
+}
+
+export async function fetchWorkOrderCategories(token: string) {
+  return request<WorkOrderCategoryInfo[]>('/work-orders/categories', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createWorkOrderCategory(token: string, payload: { name: string }) {
+  return request<WorkOrderCategoryInfo>('/work-orders/categories', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteWorkOrderCategory(token: string, id: number) {
+  return request<void>(`/work-orders/categories/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 用户偏好 API =====
+export interface UserPreferenceInfo {
+  key: string
+  value: string
+  updatedAt: string
+}
+
+export async function fetchUserPreference(token: string, key: string) {
+  return request<UserPreferenceInfo>(`/user/preferences/${key}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function setUserPreference(token: string, key: string, value: string) {
+  return request<UserPreferenceInfo>(`/user/preferences/${key}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ value })
   })
 }

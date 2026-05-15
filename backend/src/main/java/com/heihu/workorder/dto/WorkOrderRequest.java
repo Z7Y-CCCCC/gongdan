@@ -16,6 +16,7 @@ public class WorkOrderRequest {
     private Integer goodQuantity;
     private Integer defectQuantity;
     private String defectRate;
+    private Long categoryId;
     private List<CustomValueItem> customValues;
     private List<TaskItem> tasks;
     private List<MaterialItem> materials;
@@ -64,6 +65,7 @@ public class WorkOrderRequest {
         private String processCode;
         private Integer sequenceNo;
         private Integer plannedQuantity;
+        private Integer completedQuantity;
         private String planDeadline;
         private String reportPermission;
         private String assignee;
@@ -99,6 +101,14 @@ public class WorkOrderRequest {
 
         public void setPlannedQuantity(Integer plannedQuantity) {
             this.plannedQuantity = plannedQuantity;
+        }
+
+        public Integer getCompletedQuantity() {
+            return completedQuantity;
+        }
+
+        public void setCompletedQuantity(Integer completedQuantity) {
+            this.completedQuantity = completedQuantity;
         }
 
         public String getPlanDeadline() {
@@ -267,6 +277,14 @@ public class WorkOrderRequest {
 
     public void setDefectRate(String defectRate) {
         this.defectRate = defectRate;
+    }
+
+    public Long getCategoryId() {
+        return categoryId;
+    }
+
+    public void setCategoryId(Long categoryId) {
+        this.categoryId = categoryId;
     }
 
     public List<CustomValueItem> getCustomValues() {

@@ -14,6 +14,8 @@ public class WorkOrderResponse {
     private Integer goodQuantity;
     private Integer defectQuantity;
     private String defectRate;
+    private Long categoryId;
+    private String categoryName;
     private String status;
     private String priority;
     private String routeName;
@@ -107,6 +109,22 @@ public class WorkOrderResponse {
 
     public void setDefectRate(String defectRate) {
         this.defectRate = defectRate;
+    }
+
+    public Long getCategoryId() {
+        return categoryId;
+    }
+
+    public void setCategoryId(Long categoryId) {
+        this.categoryId = categoryId;
+    }
+
+    public String getCategoryName() {
+        return categoryName;
+    }
+
+    public void setCategoryName(String categoryName) {
+        this.categoryName = categoryName;
     }
 
     public String getStatus() {

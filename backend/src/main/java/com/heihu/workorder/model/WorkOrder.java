@@ -82,6 +82,10 @@ public class WorkOrder {
     @JoinColumn(name = "creator_id")
     private FactoryUser creator;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    private WorkOrderCategory category;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -254,6 +258,14 @@ public class WorkOrder {
 
     public void setCreator(FactoryUser creator) {
         this.creator = creator;
+    }
+
+    public WorkOrderCategory getCategory() {
+        return category;
+    }
+
+    public void setCategory(WorkOrderCategory category) {
+        this.category = category;
     }
 
     public LocalDateTime getCreatedAt() {

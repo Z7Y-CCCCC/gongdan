@@ -16,13 +16,20 @@ import {
   type ProductInfo,
   type WorkOrderCustomValue,
   type WorkOrderInfo,
-  type WorkOrderTaskPayload
+  type WorkOrderTaskPayload,
+  type WorkOrderCategoryInfo,
+  fetchWorkOrderCategories,
+  createWorkOrderCategory,
+  deleteWorkOrderCategory,
+  fetchUserPreference,
+  setUserPreference
 } from '../api'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
 
 const workOrders = ref<WorkOrderInfo[]>([])
+const categories = ref<WorkOrderCategoryInfo[]>([])
 const products = ref<ProductInfo[]>([])
 const processes = ref<ProcessInfo[]>([])
 const routes = ref<ProcessRouteInfo[]>([])
@@ -31,8 +38,26 @@ const selectedIds = ref<number[]>([])
 const showModal = ref(false)
 const activeTab = ref<'basic' | 'custom' | 'task' | 'material'>('basic')
 const editing = ref<WorkOrderInfo | null>(null)
+const categoryFilter = ref('all')
 const statusFilter = ref('all')
 const keyword = ref('')
+
+const showColumnConfig = ref(false)
+const showColumnModal = ref(false)
+const showCategoryModal = ref(false)
+const newCategoryName = ref('')
+
+const columnDefinitions = [
+  { key: 'code', label: '工单编号' },
+  { key: 'productCode', label: '产品编号' },
+  { key: 'productName', label: '产品名称' },
+  { key: 'productSpec', label: '产品规格' },
+  { key: 'plannedQuantity', label: '计划数' },
+  { key: 'status', label: '状态' },
+  { key: 'priority', label: '优先级' },
+  { key: 'routeName', label: '工单进度路线' }
+]
+const visibleColumns = ref<string[]>(columnDefinitions.map(c => c.key))
 
 const form = reactive({
   code: '',
@@ -47,30 +72,94 @@ const form = reactive({
   goodQuantity: 0,
   defectQuantity: 0,
   defectRate: '',
+  categoryId: '' as number | '',
   customValues: [] as WorkOrderCustomValue[],
-  tasks: [] as WorkOrderTaskPayload[]
+  tasks: [] as WorkOrderTaskPayload[],
+  materials: [] as any[]
 })
 
-const statusCards = computed(() => [
-  { key: 'all', label: '全部', count: workOrders.value.length },
-  { key: 'NOT_STARTED', label: '未开始', count: workOrders.value.filter(i => i.status === 'NOT_STARTED').length },
-  { key: 'EXECUTING', label: '执行中', count: workOrders.value.filter(i => i.status === 'EXECUTING').length },
-  { key: 'PAUSED', label: '已暂停', count: workOrders.value.filter(i => i.status === 'PAUSED').length },
-  { key: 'COMPLETED', label: '已完成', count: workOrders.value.filter(i => i.status === 'COMPLETED').length }
-])
+function isToday(item: WorkOrderInfo) {
+  if (!item.createdAt) return false
+  const d = new Date(item.createdAt)
+  const today = new Date()
+  return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear()
+}
+
+function isDueSoon(item: WorkOrderInfo) {
+  if (!item.planEnd) return false
+  const d = new Date(item.planEnd)
+  const now = new Date()
+  const diffDays = (d.getTime() - now.getTime()) / (1000 * 3600 * 24)
+  return diffDays >= 0 && diffDays <= 3
+}
+
+const categoryTabs = computed(() => {
+  const tabs = [
+    { key: 'all', label: '全部工单' },
+    { key: 'today', label: '今日计划单' },
+    { key: 'urgent', label: '加急订单' },
+    { key: 'due_soon', label: '三天到期订单' }
+  ]
+  categories.value.forEach(cat => {
+    tabs.push({
+      key: `cat_${cat.id}`,
+      label: cat.name
+    })
+  })
+  return tabs
+})
+
+const statusCards = computed(() => {
+  // Use categoryFilter to pre-filter items for counting status
+  const baseOrders = workOrders.value.filter(item => {
+    if (categoryFilter.value === 'all') return true
+    if (categoryFilter.value === 'today') return isToday(item)
+    if (categoryFilter.value === 'urgent') return item.priority === 'HIGH' || item.priority === 'URGENT'
+    if (categoryFilter.value === 'due_soon') return isDueSoon(item)
+    if (categoryFilter.value.startsWith('cat_')) {
+      return item.categoryId === Number(categoryFilter.value.replace('cat_', ''))
+    }
+    return true
+  })
+
+  return [
+    { key: 'all', label: '全部', count: baseOrders.length },
+    { key: 'NOT_STARTED', label: '未开始', count: baseOrders.filter(i => i.status === 'NOT_STARTED').length },
+    { key: 'EXECUTING', label: '执行中', count: baseOrders.filter(i => i.status === 'EXECUTING').length },
+    { key: 'COMPLETED', label: '已结束', count: baseOrders.filter(i => i.status === 'COMPLETED').length },
+    { key: 'CANCELED', label: '已取消', count: baseOrders.filter(i => i.status === 'CANCELED').length }
+  ]
+})
 
 const filteredOrders = computed(() => {
   const result = workOrders.value.filter(item => {
-    const statusOk = statusFilter.value === 'all' || item.status === statusFilter.value
+    let catOk = false
+    if (categoryFilter.value === 'all') catOk = true
+    else if (categoryFilter.value === 'today') catOk = isToday(item)
+    else if (categoryFilter.value === 'urgent') catOk = item.priority === 'HIGH' || item.priority === 'URGENT'
+    else if (categoryFilter.value === 'due_soon') catOk = isDueSoon(item)
+    else if (categoryFilter.value.startsWith('cat_')) {
+      catOk = item.categoryId === Number(categoryFilter.value.replace('cat_', ''))
+    }
+
+    let statusOk = false
+    if (statusFilter.value === 'all') statusOk = true
+    else statusOk = item.status === statusFilter.value
+
     const text = `${item.code}${item.productCode}${item.productName}`.toLowerCase()
     const keywordOk = !keyword.value || text.includes(keyword.value.toLowerCase())
-    return statusOk && keywordOk
+    
+    return catOk && statusOk && keywordOk
   })
   result.sort((a, b) => {
     if (sortAsc.value) return a.id - b.id
     return b.id - a.id
   })
   return result
+})
+
+const totalPlannedQuantity = computed(() => {
+  return filteredOrders.value.reduce((sum, item) => sum + (item.plannedQuantity || 0), 0)
 })
 
 const allSelected = computed(() =>
@@ -105,18 +194,52 @@ function resetForm() {
 }
 
 async function loadData() {
-  const [orderRes, productRes, processRes, routeRes, fieldRes] = await Promise.all([
+  const [orderRes, productRes, processRes, routeRes, fieldRes, categoryRes] = await Promise.all([
     fetchWorkOrders(props.token, { size: 500 }),
     fetchProducts(props.token, { size: 500 }),
     fetchProcesses(props.token, { size: 500 }),
     fetchProcessRoutes(props.token, { size: 500 }),
-    fetchCustomFields(props.token, 'workorder')
+    fetchCustomFields(props.token, 'workorder'),
+    fetchWorkOrderCategories(props.token)
   ])
   workOrders.value = orderRes.items
   products.value = productRes.items
   processes.value = processRes.items
   routes.value = routeRes.items
   customFields.value = fieldRes.items
+  categories.value = categoryRes
+  
+  try {
+    const pref = await fetchUserPreference(props.token, 'WORK_ORDER_COLUMNS')
+    if (pref && pref.value) {
+      visibleColumns.value = JSON.parse(pref.value)
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+async function handleSaveCategory() {
+  if (!newCategoryName.value.trim()) return
+  try {
+    await createWorkOrderCategory(props.token, { name: newCategoryName.value.trim() })
+    emit('notice', '分类添加成功')
+    newCategoryName.value = ''
+    showCategoryModal.value = false
+    await loadData()
+  } catch (e: any) {
+    emit('notice', e.message || '添加失败')
+  }
+}
+
+async function handleSaveColumns() {
+  try {
+    await setUserPreference(props.token, 'WORK_ORDER_COLUMNS', JSON.stringify(visibleColumns.value))
+    showColumnModal.value = false
+    emit('notice', '列配置已保存')
+  } catch (e) {
+    emit('notice', '配置保存失败')
+  }
 }
 
 function openCreate() {
@@ -142,6 +265,7 @@ function openEdit(item: WorkOrderInfo) {
     goodQuantity: item.goodQuantity || 0,
     defectQuantity: item.defectQuantity || 0,
     defectRate: item.defectRate || '',
+    categoryId: item.categoryId || '',
     customValues: JSON.parse(JSON.stringify(item.customValues || [])),
     tasks: JSON.parse(JSON.stringify(item.tasks || []))
   })
@@ -229,6 +353,7 @@ async function saveOrder() {
     goodQuantity: Number(form.goodQuantity || 0),
     defectQuantity: Number(form.defectQuantity || 0),
     defectRate: form.defectRate || undefined,
+    categoryId: form.categoryId ? Number(form.categoryId) : undefined,
     customValues: form.customValues,
     tasks: form.tasks,
     materials: []
@@ -383,8 +508,9 @@ watch(selectedIds, async (ids) => {
   const newUrls: Record<number, string> = {}
   for (const id of ids) {
     const code = workOrders.value.find(o => o.id === id)?.code || String(id)
+    const url = `${window.location.origin}/workorder/${code}`
     try {
-      newUrls[id] = await QRCode.toDataURL(code, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } })
+      newUrls[id] = await QRCode.toDataURL(url, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } })
     } catch (e) {
       console.error(e)
     }
@@ -418,17 +544,47 @@ onMounted(loadData)
 
 <template>
   <section class="content">
-    <div class="tab-row">
+    <div class="category-tabs">
       <button
-        v-for="item in statusCards"
+        v-for="item in categoryTabs"
         :key="item.key"
-        class="tab-pill"
-        :class="{ active: statusFilter === item.key }"
+        class="cat-tab"
+        :class="{ active: categoryFilter === item.key }"
         type="button"
-        @click="statusFilter = item.key"
+        @click="categoryFilter = item.key"
       >
-        {{ item.label }} {{ item.count }}
+        {{ item.label }}
       </button>
+      <button class="cat-tab add-tab" type="button" @click="showCategoryModal = true" title="添加工单分类">
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      </button>
+    </div>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+      <div class="tab-row" style="margin-bottom: 0;">
+        <button
+          v-for="item in statusCards"
+          :key="item.key"
+          class="tab-pill"
+          :class="{ active: statusFilter === item.key }"
+          type="button"
+          @click="statusFilter = item.key"
+        >
+          {{ item.label }} <span class="count-badge">{{ item.count }}</span>
+        </button>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <div style="display: flex; align-items: center; background: #fff; border: 1px solid #dce3e0; border-radius: 4px; height: 34px; overflow: hidden;">
+          <select style="border: none; outline: none; background: transparent; padding: 0 8px; font-size: 13px; height: 100%; border-right: 1px solid #dce3e0; cursor: pointer; color: #586360;">
+            <option value="工单、产品">默认</option>
+          </select>
+          <input v-model="keyword" placeholder="搜工单、查产品" style="border: none; outline: none; height: 100%; width: 140px; font-size: 13px; padding: 0 12px;" />
+          <button style="background: #00b889; border: none; color: white; height: 100%; display: flex; align-items: center; justify-content: center; padding: 0 12px; cursor: pointer;">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="toolbar" v-if="selectedIds.length === 0">
@@ -444,7 +600,7 @@ onMounted(loadData)
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         导入
       </button>
-      <button class="text-btn" type="button" style="color: #586360; margin-left: 8px;" @click="$emit('notice', '请通过左侧【自定义字段】菜单进行配置')">
+      <button class="text-btn" type="button" style="color: #586360; margin-left: 8px;" @click="showColumnModal = true">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
         字段配置
       </button>
@@ -470,15 +626,6 @@ onMounted(loadData)
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
           操作记录
         </button>
-        <div style="display: flex; align-items: center; background: #fff; border: 1px solid #dce3e0; border-radius: 4px; height: 34px; overflow: hidden;">
-          <select style="border: none; outline: none; background: transparent; padding: 0 8px; font-size: 13px; height: 100%; border-right: 1px solid #dce3e0; cursor: pointer; color: #586360;">
-            <option value="工单、产品">搜工单、查产品</option>
-          </select>
-          <input v-model="keyword" placeholder="" style="border: none; outline: none; height: 100%; width: 140px; font-size: 13px; padding: 0 12px;" />
-          <button style="background: #00b889; border: none; color: white; height: 100%; display: flex; align-items: center; justify-content: center; padding: 0 12px; cursor: pointer;">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          </button>
-        </div>
       </div>
     </div>
 
@@ -543,32 +690,52 @@ onMounted(loadData)
         <thead>
           <tr>
             <th style="width:48px"><input type="checkbox" :checked="allSelected" @change="toggleAll(($event.target as HTMLInputElement).checked)" /></th>
-            <th>工单编号</th>
-            <th>产品编号</th>
-            <th>产品名称</th>
-            <th>产品规格</th>
-            <th>状态</th>
-            <th>优先级</th>
-            <th>工单进度路线</th>
+            <th v-if="visibleColumns.includes('code')">工单编号</th>
+            <th v-if="visibleColumns.includes('productCode')">产品编号</th>
+            <th v-if="visibleColumns.includes('productName')">产品名称</th>
+            <th v-if="visibleColumns.includes('productSpec')">产品规格</th>
+            <th v-if="visibleColumns.includes('plannedQuantity')">计划数</th>
+            <th v-if="visibleColumns.includes('status')">状态</th>
+            <th v-if="visibleColumns.includes('priority')">优先级</th>
+            <th v-if="visibleColumns.includes('routeName')">工单进度路线</th>
             <th style="width:130px">操作</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in filteredOrders" :key="item.id">
             <td><input type="checkbox" :checked="selectedIds.includes(item.id)" @change="toggleOne(item.id, ($event.target as HTMLInputElement).checked)" /></td>
-            <td>{{ item.code }}</td>
-            <td>{{ item.productCode }}</td>
-            <td>{{ item.productName }}</td>
-            <td>{{ item.productSpec || '-' }}</td>
-            <td class="green-link">{{ statusLabel(item.status) }}</td>
-            <td>{{ priorityLabel(item.priority) }}</td>
-            <td>{{ item.routeName || '-' }} {{ item.progressPercent }}%</td>
+            <td v-if="visibleColumns.includes('code')">{{ item.code }}</td>
+            <td v-if="visibleColumns.includes('productCode')">{{ item.productCode }}</td>
+            <td v-if="visibleColumns.includes('productName')">{{ item.productName }}</td>
+            <td v-if="visibleColumns.includes('productSpec')">{{ item.productSpec || '-' }}</td>
+            <td v-if="visibleColumns.includes('plannedQuantity')">{{ item.plannedQuantity }}</td>
+            <td v-if="visibleColumns.includes('status')" class="green-link">{{ statusLabel(item.status) }}</td>
+            <td v-if="visibleColumns.includes('priority')">{{ priorityLabel(item.priority) }}</td>
+            <td v-if="visibleColumns.includes('routeName')">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-weight: 500; color: #1f2725;">{{ item.routeName || '-' }}</span>
+                <div class="process-progress" v-if="item.tasks && item.tasks.length > 0">
+                  <div v-for="(task, i) in item.tasks" :key="i" class="progress-node" :class="{ completed: (task.completedQuantity || 0) >= (task.plannedQuantity || 1), partial: (task.completedQuantity || 0) > 0 && (task.completedQuantity || 0) < (task.plannedQuantity || 1) }">
+                    <div class="node-circle" :title="`${task.processName} (${task.completedQuantity || 0}/${task.plannedQuantity || 0})`"></div>
+                    <div class="node-line" v-if="i < item.tasks.length - 1"></div>
+                  </div>
+                </div>
+                <span style="font-size: 12px; color: #8a9693;">{{ item.progressPercent }}%</span>
+              </div>
+            </td>
             <td class="action-cell">
               <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
               <button class="action-link danger" type="button" @click="removeOrder(item)">删除</button>
             </td>
           </tr>
         </tbody>
+        <tfoot>
+          <tr>
+            <td :colspan="visibleColumns.length + 2" style="font-size: 13px; color: #586360; background: #fdfdfd; position: sticky; bottom: 0; text-align: left; font-weight: 500;">
+              当前页合计计划数: <span style="color: #00b889;">{{ totalPlannedQuantity }}</span>
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>
 
@@ -589,6 +756,8 @@ onMounted(loadData)
           <label><span>工单编号</span><input v-model="form.code" placeholder="请输入，忽略将自动生成" /></label>
           <label><span>产品信息</span><select v-model="form.productId"><option value="">请选择</option><option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }} / {{ p.code }}</option></select></label>
           <label><span>计划数</span><input v-model.number="form.plannedQuantity" type="number" /></label>
+          <label><span>所属分类</span><select v-model="form.categoryId"><option value="">未分类</option><option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option></select></label>
+          <label><span>优先级</span><select v-model="form.priority"><option value="NORMAL">正常</option><option value="LOW">低</option><option value="HIGH">高</option><option value="URGENT">加急</option></select></label>
           <label><span>状态</span><select v-model="form.status"><option value="NOT_STARTED">未开始</option><option value="EXECUTING">执行中</option><option value="PAUSED">已暂停</option><option value="COMPLETED">已完成</option></select></label>
           <label><span>优先级</span><select v-model="form.priority"><option value="NORMAL">正常</option><option value="HIGH">高</option><option value="URGENT">加急</option><option value="LOW">低</option></select></label>
           <label><span>计划开始时间</span><input v-model="form.planStart" type="datetime-local" /></label>
@@ -629,6 +798,50 @@ onMounted(loadData)
     </div>
 
     <!-- 打印模板选择弹窗 -->
+    <!-- 添加分类弹窗 -->
+    <div v-if="showCategoryModal" class="modal-backdrop">
+      <div class="modal workorder-modal" style="width: 480px;">
+        <div class="modal-header">
+          <h2>添加工单分类</h2>
+          <button class="close-btn" type="button" @click="showCategoryModal = false">×</button>
+        </div>
+        <div style="padding: 24px;">
+          <div class="form-row">
+            <label style="width: 80px;">分类名称</label>
+            <div class="process-input-wrap">
+              <input v-model="newCategoryName" class="process-input" placeholder="请输入分类名称" />
+            </div>
+          </div>
+          <div style="text-align: right; margin-top: 24px;">
+            <button class="ghost-btn" style="margin-right: 12px;" @click="showCategoryModal = false">取消</button>
+            <button class="primary-btn" @click="handleSaveCategory">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 字段配置弹窗 -->
+    <div v-if="showColumnModal" class="modal-backdrop">
+      <div class="modal workorder-modal" style="width: 520px;">
+        <div class="modal-header">
+          <h2>字段配置</h2>
+          <button class="close-btn" type="button" @click="showColumnModal = false">×</button>
+        </div>
+        <div style="padding: 24px; max-height: 480px; overflow-y: auto;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <label v-for="col in columnDefinitions" :key="col.key" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" :value="col.key" v-model="visibleColumns" style="accent-color: #00b889; width: 16px; height: 16px;" />
+              <span style="font-size: 14px; color: #1e2724;">{{ col.label }}</span>
+            </label>
+          </div>
+          <div style="text-align: right; margin-top: 24px;">
+            <button class="ghost-btn" style="margin-right: 12px;" @click="showColumnModal = false">取消</button>
+            <button class="primary-btn" @click="handleSaveColumns">保存配置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div v-if="showPrintModal" class="modal-backdrop">
       <div class="modal workorder-modal" style="width: 760px;">
         <div class="modal-header">
@@ -734,6 +947,74 @@ onMounted(loadData)
 }
 .row-height-normal th, .row-height-normal td {
   height: 46px !important;
+}
+
+.column-config-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: white;
+  border: 1px solid #e2e8e6;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  padding: 16px;
+  z-index: 50;
+  width: 220px;
+}
+.column-config-popover h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  color: #333;
+}
+.col-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.col-list label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #555;
+  cursor: pointer;
+}
+
+.process-progress {
+  display: flex;
+  align-items: center;
+}
+.progress-node {
+  display: flex;
+  align-items: center;
+}
+.node-circle {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #e2e8e6;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #dce3e0;
+}
+.progress-node.completed .node-circle {
+  background: #00b889;
+  box-shadow: 0 0 0 1px #00b889;
+}
+.progress-node.partial .node-circle {
+  background: #f5a623;
+  box-shadow: 0 0 0 1px #f5a623;
+}
+.node-line {
+  width: 16px;
+  height: 2px;
+  background: #e2e8e6;
+  margin: 0 2px;
+}
+.progress-node.completed .node-line {
+  background: #00b889;
 }
 
 .print-area {
