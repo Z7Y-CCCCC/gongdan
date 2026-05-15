@@ -23,6 +23,7 @@ public class WorkOrderCategoryService {
     @Autowired
     private UserRepository userRepository;
 
+    @Transactional(readOnly = true)
     public List<WorkOrderCategoryResponse> getCategories(Long factoryId) {
         return categoryRepository.findByFactoryIdOrderByIdAsc(factoryId)
                 .stream()
