@@ -47,6 +47,25 @@ const showColumnModal = ref(false)
 const showCategoryModal = ref(false)
 const newCategoryName = ref('')
 
+const taskTooltip = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  task: null as any
+})
+
+function showTaskTooltip(e: MouseEvent, task: any) {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  taskTooltip.task = task
+  taskTooltip.x = rect.left + rect.width / 2
+  taskTooltip.y = rect.bottom
+  taskTooltip.visible = true
+}
+
+function hideTaskTooltip() {
+  taskTooltip.visible = false
+}
+
 const columnDefinitions = [
   { key: 'code', label: '工单编号' },
   { key: 'productCode', label: '产品编号' },
@@ -553,6 +572,17 @@ onMounted(loadData)
 
 <template>
   <section class="content">
+    <div v-if="taskTooltip.visible && taskTooltip.task" class="task-tooltip" :style="{ left: taskTooltip.x + 'px', top: taskTooltip.y + 'px' }">
+      <div class="tooltip-title">{{ taskTooltip.task.processName }}</div>
+      <div class="tooltip-progress">工序进度: {{ taskTooltip.task.completedQuantity || 0 }}/{{ taskTooltip.task.plannedQuantity || 0 }}</div>
+      <hr class="tooltip-divider" />
+      <div class="tooltip-stat">工序计划数: <span>{{ taskTooltip.task.plannedQuantity || 0 }}</span></div>
+      <div class="tooltip-stat">已报工良品数: <span>{{ taskTooltip.task.completedQuantity || 0 }}</span></div>
+      <div class="tooltip-stat">已报工不良品数: <span>{{ taskTooltip.task.defectQuantity || 0 }}</span></div>
+      <div class="tooltip-stat">已审批良品数: <span>{{ taskTooltip.task.approvedQuantity || 0 }}</span></div>
+      <div class="tooltip-stat">未审批良品数: <span>{{ taskTooltip.task.unapprovedQuantity || 0 }}</span></div>
+      <div class="tooltip-stat" v-if="taskTooltip.task.lastReportTime">最近报工时间: <span>{{ taskTooltip.task.lastReportTime }}</span></div>
+    </div>
     <div class="category-tabs">
       <button
         v-for="item in categoryTabs"
@@ -725,7 +755,7 @@ onMounted(loadData)
                 <span style="font-weight: 500; color: #1f2725;">{{ item.routeName || '-' }}</span>
                 <div class="process-progress" v-if="item.tasks && item.tasks.length > 0">
                   <div v-for="(task, i) in item.tasks" :key="i" class="progress-node" :class="{ completed: (task.completedQuantity || 0) >= (task.plannedQuantity || 1), partial: (task.completedQuantity || 0) > 0 && (task.completedQuantity || 0) < (task.plannedQuantity || 1) }">
-                    <div class="node-circle" :title="`${task.processName} (${task.completedQuantity || 0}/${task.plannedQuantity || 0})`"></div>
+                    <div class="node-circle" @mouseenter="showTaskTooltip($event, task)" @mouseleave="hideTaskTooltip"></div>
                     <div class="node-line" v-if="i < item.tasks.length - 1"></div>
                   </div>
                 </div>

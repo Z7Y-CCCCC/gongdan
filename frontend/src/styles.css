@@ -2018,3 +2018,50 @@ tr.drag-over {
   border: 5px solid transparent;
   border-top-color: #1c2b26;
 }
+
+.task-tooltip {
+  position: fixed;
+  background-color: rgba(50, 50, 50, 0.95);
+  color: #fff;
+  padding: 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  z-index: 10000;
+  pointer-events: none;
+  transform: translate(-50%, 12px); /* Centered below */
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  min-width: 220px;
+}
+.task-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px;
+  border-style: solid;
+  border-color: transparent transparent rgba(50, 50, 50, 0.95) transparent;
+}
+.task-tooltip .tooltip-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #fff;
+}
+.task-tooltip .tooltip-progress {
+  font-size: 13px;
+  color: #ccc;
+  margin-bottom: 8px;
+}
+.task-tooltip .tooltip-divider {
+  border: none;
+  border-top: 1px solid #666;
+  margin: 10px 0;
+}
+.task-tooltip .tooltip-stat {
+  line-height: 1.8;
+  color: #bbb;
+}
+.task-tooltip .tooltip-stat span {
+  color: #fff;
+}
