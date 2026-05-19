@@ -806,6 +806,8 @@ export interface WorkOrderInfo {
   creator?: string
   createdAt?: string
   updatedAt?: string
+  planCount?: number
+  customerName?: string
 }
 
 export interface WorkOrderListResponse {

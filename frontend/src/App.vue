@@ -61,6 +61,9 @@ import ProductDefinitionPage from './components/ProductDefinitionPage.vue'
 import WorkOrderPage from './components/WorkOrderPage.vue'
 import CustomWorkOrderFieldsPage from './components/CustomWorkOrderFieldsPage.vue'
 import ReportApprovalPage from './components/ReportApprovalPage.vue'
+import BaseDataPage from './components/BaseDataPage.vue'
+import UserManagementPage from './components/UserManagementPage.vue'
+import DepartmentManagementPage from './components/DepartmentManagementPage.vue'
 
 const token = ref(localStorage.getItem('heihu_token') || '')
 const currentUser = ref<UserInfo | null>(readStoredUser())
@@ -1059,7 +1062,7 @@ function openUserSelectDropdown() {
 }
 
 const selectedUserNames = computed(() => {
-  if (!departmentForm.userIds || departmentForm.userIds.length === 0) return '请选择部门人员'
+  if (!departmentForm.userIds || departmentForm.userIds?.length === 0) return '请选择部门人员'
   return allUsersList.value
     .filter(u => departmentForm.userIds!.includes(u.id))
     .map(u => u.name)
@@ -2204,8 +2207,19 @@ const formatDateTime = (val: string) => {
         <div class="empty-state">该模块待补全。</div>
       </section>
 
+      <!-- 基础数据（组件化） -->
+      <BaseDataPage
+        v-if="activeMainMenu === 'basedata'"
+        :token="token"
+        :active-basedata-menu="activeBasedataMenu"
+        :users="users"
+        @error="msg => errorMessage = msg"
+        @notice="msg => actionMessage = msg"
+        @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
+      />
+
       <!-- 单位管理 -->
-      <section class="content" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit'">
+      <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit'">
         <div class="filters">
           <label>
             <span>名称</span>
@@ -2259,7 +2273,7 @@ const formatDateTime = (val: string) => {
       </section>
 
       <!-- 不良品项管理 -->
-      <section class="content" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'defect'">
+      <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'defect'">
         <div class="filters">
           <label>
             <span style="white-space:nowrap">不良品项编号</span>
@@ -2313,7 +2327,7 @@ const formatDateTime = (val: string) => {
       </section>
 
       <!-- 工序管理 - 列表 -->
-      <section class="content" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && processView === 'list'">
+      <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && processView === 'list'">
         <div class="filters">
           <label>
             <span>工序编号</span>
@@ -2424,7 +2438,7 @@ const formatDateTime = (val: string) => {
       </section>
 
       <!-- 工序管理 - 创建/编辑表单 -->
-      <section class="content process-form-page" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && (processView === 'create' || processView === 'edit')">
+      <section class="content process-form-page" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && (processView === 'create' || processView === 'edit')">
         <h2 class="process-form-title">{{ processView === 'edit' ? '编辑工序' : '创建工序' }}</h2>
         <div class="process-form">
           <!-- 工序编号 -->
@@ -2639,7 +2653,7 @@ const formatDateTime = (val: string) => {
       </section>
 
       <!-- 工艺路线 - 列表 -->
-      <section class="content" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView === 'list'">
+      <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView === 'list'">
         <div class="filters">
           <label>
             <span>工艺路线编号</span>
@@ -2716,7 +2730,7 @@ const formatDateTime = (val: string) => {
       </section>
 
       <!-- 工艺路线 - 创建/编辑 -->
-      <section class="process-form-page" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView !== 'list'">
+      <section class="process-form-page" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView !== 'list'">
         <div class="process-form-scroll">
           <h2 class="process-form-title">{{ routeView === 'create' ? '创建工艺路线' : '编辑工艺路线' }}</h2>
           <!-- 基本信息 -->
@@ -2849,8 +2863,22 @@ const formatDateTime = (val: string) => {
         </div>
       </section>
 
+      <!-- 用户管理（组件化） -->
+      <UserManagementPage
+        v-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'"
+        :token="token"
+        :users="users"
+        :departments="departments"
+        :current-user="currentUser"
+        @error="msg => errorMessage = msg"
+        @notice="msg => actionMessage = msg"
+        @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
+        @reload-users="loadUsers"
+        @update-current-user="syncCurrentUser"
+      />
+
       <!-- 用户管理 -->
-      <section class="content" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'">
+      <section class="content" v-if="false" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'">
         <div class="filters">
           <label>
             <span>姓名</span>
@@ -2982,8 +3010,20 @@ const formatDateTime = (val: string) => {
         </div>
       </section>
 
+      <!-- 部门管理（组件化） -->
+      <DepartmentManagementPage
+        v-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'"
+        :token="token"
+        :departments="departments"
+        :department-total="departmentTotal"
+        @error="msg => errorMessage = msg"
+        @notice="msg => actionMessage = msg"
+        @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
+        @reload-departments="loadDepartments"
+      />
+
       <!-- 部门管理 -->
-      <section class="content" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'">
+      <section class="content" v-if="false" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'">
         <div class="filters">
           <label>
             <span>部门名称</span>
@@ -3303,7 +3343,7 @@ const formatDateTime = (val: string) => {
   </main>
 
   <!-- 导入日志弹窗 -->
-  <div v-if="showImportLogModal" class="modal-backdrop">
+  <div v-if="false" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>导入结果</h2>
@@ -3314,14 +3354,14 @@ const formatDateTime = (val: string) => {
         <p style="color:#0c9d82">成功：{{ importResult?.success }} 条</p>
         <p v-if="importResult?.fail" style="color:#d74434">失败：{{ importResult?.fail }} 条</p>
         <ul v-if="importResult?.errors?.length" style="margin-top:8px;padding-left:16px;color:#d74434;font-size:13px">
-          <li v-for="err in importResult.errors" :key="err">{{ err }}</li>
+          <li v-for="err in importResult?.errors" :key="err">{{ err }}</li>
         </ul>
       </div>
     </section>
   </div>
 
   <!-- 新增用户弹窗 -->
-  <div v-if="showCreateModal" class="modal-backdrop">
+  <div v-if="false" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>新增用户</h2>
@@ -3371,7 +3411,7 @@ const formatDateTime = (val: string) => {
   </div>
 
   <!-- 编辑用户弹窗 -->
-  <div v-if="showEditModal" class="modal-backdrop">
+  <div v-if="false" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>编辑用户</h2>
@@ -3417,7 +3457,7 @@ const formatDateTime = (val: string) => {
   </div>
 
   <!-- 重置密码弹窗 -->
-  <div v-if="showResetPasswordModal" class="modal-backdrop">
+  <div v-if="false" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>重置密码</h2>
@@ -3451,7 +3491,7 @@ const formatDateTime = (val: string) => {
   </div>
 
   <!-- 权限配置弹窗 -->
-  <div v-if="showPermissionModal" class="modal-backdrop">
+  <div v-if="false" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>权限配置</h2>
@@ -3474,16 +3514,16 @@ const formatDateTime = (val: string) => {
   </div>
 
   <!-- 新建用户成功弹窗 -->
-  <div v-if="successUser" class="modal-backdrop">
+  <div v-if="false" class="modal-backdrop">
     <section class="modal success-modal">
       <div class="success-icon">
         <svg viewBox="0 0 24 24" width="48" height="48" stroke="#0c9d82" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
       </div>
       <h2>新建用户成功</h2>
       <div class="success-info">
-        <p><span>账号：</span>{{ successUser.username }}</p>
-        <p><span>姓名：</span>{{ successUser.name }}</p>
-        <p><span>角色：</span>{{ successUser.roleLabel }}</p>
+        <p><span>账号：</span>{{ successUser?.username }}</p>
+        <p><span>姓名：</span>{{ successUser?.name }}</p>
+        <p><span>角色：</span>{{ successUser?.roleLabel }}</p>
         <p><span>密码：</span>{{ successUserPassword }}</p>
       </div>
       <footer class="modal-footer">
@@ -3521,7 +3561,7 @@ const formatDateTime = (val: string) => {
   </div>
 
   <!-- 部门弹窗 -->
-  <div v-if="showDepartmentModal" class="modal-backdrop">
+  <div v-if="false" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingDepartment ? '编辑部门' : '新建部门' }}</h2>
@@ -3540,7 +3580,7 @@ const formatDateTime = (val: string) => {
           <span style="padding-top: 8px;">部门人员</span>
           <div class="custom-multiselect">
             <div ref="userSelectTriggerRef" class="multiselect-trigger" @click.stop="openUserSelectDropdown">
-              <span :class="{ placeholder: !departmentForm.userIds || departmentForm.userIds.length === 0 }">
+              <span :class="{ placeholder: !departmentForm.userIds || departmentForm.userIds?.length === 0 }">
                 {{ selectedUserNames }}
               </span>
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" :style="{ transform: showUserSelectDropdown ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }">
@@ -3567,7 +3607,7 @@ const formatDateTime = (val: string) => {
   </div>
 
   <!-- 单位弹窗 -->
-  <div v-if="showUnitModal" class="modal-backdrop">
+  <div v-if="false" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingUnit ? '编辑单位' : '创建单位' }}</h2>
@@ -3591,7 +3631,7 @@ const formatDateTime = (val: string) => {
   </div>
 
   <!-- 不良品项弹窗 -->
-  <div v-if="showDefectModal" class="modal-backdrop">
+  <div v-if="false" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingDefect ? '编辑不良品项' : '创建不良品项' }}</h2>

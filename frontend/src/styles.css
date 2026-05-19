@@ -2282,7 +2282,7 @@ tr.drag-over {
    车间看板 - 深蓝科技风 (Black Lake Style)
    ================================================ */
 .dashboard-fullscreen {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: linear-gradient(135deg, #020b1a 0%, #0a1628 30%, #0d1f3c 60%, #061224 100%);
   color: #cde0f0;
@@ -2290,7 +2290,7 @@ tr.drag-over {
   display: flex;
   flex-direction: column;
   font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  z-index: 100;
+  z-index: 9999;
 }
 .dashboard-fullscreen:fullscreen {
   position: fixed;
