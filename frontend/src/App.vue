@@ -3173,31 +3173,34 @@ const formatDateTime = (val: string) => {
           </div>
 
           <!-- 左下：工单概览 -->
-          <div class="db-card db-card-table" style="overflow-y: hidden; display: flex; flex-direction: column;">
-            <div class="db-card-head" style="flex-shrink: 0;">
-              <span class="db-card-title">工单概览</span>
+          <div class="db-card db-card-table" style="overflow-y: hidden; display: flex; flex-direction: column; padding: 0 12px 12px 12px; background: transparent; border: none; box-shadow: none;">
+            <div class="db-table-header" style="flex-shrink: 0;">
+              <span>工单概览</span>
             </div>
-            <table class="db-table" style="flex: 1; display: flex; flex-direction: column;">
-              <thead style="display: table; width: 100%; table-layout: fixed; flex-shrink: 0;">
+            <table class="db-table-v2">
+              <thead>
                 <tr>
-                  <th style="width: 20%;">工单编号</th>
-                  <th style="width: 25%;">产品名称</th>
-                  <th style="width: 15%;">计划数</th>
-                  <th style="width: 15%;">客户简称</th>
+                  <th style="width: 15%;">工单编号 <i class="sort-arrow">▼</i></th>
+                  <th style="width: 20%;">产品名称 <i class="sort-arrow">▼</i></th>
+                  <th style="width: 10%;">计划数</th>
+                  <th style="width: 10%;">客户简称</th>
                   <th style="width: 10%;">是否加急</th>
-                  <th style="width: 15%;">生产进度</th>
+                  <th style="width: 35%;">生产进度</th>
                 </tr>
               </thead>
-              <tbody style="display: block; overflow-y: auto; flex: 1;">
-                <tr v-for="(row, ri) in tableData" :key="ri" style="display: table; width: 100%; table-layout: fixed;">
-                  <td class="td-code" style="width: 20%;">{{ row.code }}</td>
-                  <td style="width: 25%;">{{ row.product }}</td>
-                  <td style="width: 15%;">{{ row.qty }}</td>
-                  <td style="width: 15%;">{{ row.customer }}</td>
+              <tbody>
+                <tr v-for="(row, ri) in tableData" :key="ri">
+                  <td class="td-code" style="width: 15%;">{{ row.code }}</td>
+                  <td style="width: 20%;">{{ row.product }}</td>
+                  <td style="width: 10%;">{{ row.qty }}</td>
+                  <td style="width: 10%;">{{ row.customer }}</td>
                   <td style="width: 10%;"><span :class="['db-tag', row.urgent ? 'urgent' : 'normal']">{{ row.urgent ? '加急订单' : '-' }}</span></td>
-                  <td style="width: 15%;">
-                    <div class="db-mini-progress">
-                      <div class="db-mini-progress-fill" :style="{ width: row.progress + '%' }"></div>
+                  <td style="width: 35%;">
+                    <div class="db-stepper">
+                      <div class="db-step" v-for="step in ['下料','冲压','压铸','折弯','冲压','电解','包装']" :key="step">
+                        <div class="db-step-circle">0%</div>
+                        <div class="db-step-name">{{ step }}</div>
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -3206,24 +3209,24 @@ const formatDateTime = (val: string) => {
           </div>
 
           <!-- 右下：任务执行进度 -->
-          <div class="db-card db-card-table" style="overflow-y: hidden; display: flex; flex-direction: column;">
-            <div class="db-card-head" style="flex-shrink: 0;">
-              <span class="db-card-title">任务执行进度</span>
-              <span class="db-card-tag">今天</span>
+          <div class="db-card db-card-table" style="overflow-y: hidden; display: flex; flex-direction: column; padding: 0 12px 12px 12px; background: transparent; border: none; box-shadow: none;">
+            <div class="db-table-header" style="flex-shrink: 0;">
+              <span>任务执行进度</span>
+              <span class="db-table-tag">今天</span>
             </div>
-            <table class="db-table" style="flex: 1; display: flex; flex-direction: column;">
-              <thead style="display: table; width: 100%; table-layout: fixed; flex-shrink: 0;">
+            <table class="db-table-v2">
+              <thead>
                 <tr>
                   <th style="width: 16%;">工序名称</th>
                   <th style="width: 16%;">生产任务数</th>
                   <th style="width: 16%;">计划数</th>
                   <th style="width: 16%;">良品数</th>
-                  <th style="width: 16%;">不良数</th>
+                  <th style="width: 16%;">不良品数</th>
                   <th style="width: 16%;">未完成数</th>
                 </tr>
               </thead>
-              <tbody style="display: block; overflow-y: auto; flex: 1;">
-                <tr v-for="(row, ri) in taskProgressData" :key="ri" style="display: table; width: 100%; table-layout: fixed;">
+              <tbody>
+                <tr v-for="(row, ri) in taskProgressData" :key="ri">
                   <td style="width: 16%;">{{ row.process }}</td>
                   <td style="width: 16%;">{{ row.taskCount }}</td>
                   <td style="width: 16%;">{{ row.planned }}</td>

@@ -2590,62 +2590,110 @@ tr.drag-over {
 .db-pie-dot { width: 8px; height: 8px; border-radius: 2px; display: inline-block; flex-shrink: 0; }
 .db-pie-pct { margin-left: auto; color: #5a8aaa; font-size: 10px; }
 
-/* 表格样式 */
-.db-card-table { overflow-y: auto; }
-.db-table {
+/* 图1风格 表格标题 */
+.db-table-header {
+  background: #061c47;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  padding: 8px 0;
+  margin-bottom: 12px;
+  border-radius: 2px;
+  font-weight: 600;
+  font-size: 15px;
+  color: #e0f0ff;
+  letter-spacing: 1px;
+}
+.db-table-header::before, .db-table-header::after {
+  content: '';
+  position: absolute;
+  width: 6px; height: 16px;
+}
+.db-table-header::before {
+  left: 12px;
+  border-top: 2px solid #00c8ff; border-bottom: 2px solid #00c8ff; border-left: 2px solid #00c8ff;
+}
+.db-table-header::after {
+  right: 12px;
+  border-top: 2px solid #00c8ff; border-bottom: 2px solid #00c8ff; border-right: 2px solid #00c8ff;
+}
+.db-table-tag {
+  font-size: 10px;
+  color: #4a8ab5;
+  margin-left: 8px;
+  font-weight: normal;
+}
+
+/* 图1风格 表格 */
+.db-card-table { overflow-y: hidden; display: flex; flex-direction: column; }
+.db-table-v2 {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
-.db-table thead th {
-  position: sticky;
-  top: 0;
-  background: rgba(4,18,40,0.95);
-  color: #5a8aaa;
-  font-weight: 500;
+.db-table-v2 thead { display: table; width: 100%; table-layout: fixed; flex-shrink: 0; }
+.db-table-v2 tbody { display: block; overflow-y: auto; flex: 1; }
+.db-table-v2 tr { display: table; width: 100%; table-layout: fixed; }
+
+.db-table-v2 thead th {
+  background: #061c47;
+  color: #8ab0d0;
+  border-right: 1px solid #0a265c;
+  border-bottom: 1px solid #00c8ff;
   padding: 8px 6px;
   text-align: left;
-  border-bottom: 1px solid rgba(0,180,255,0.1);
   white-space: nowrap;
+  font-weight: normal;
 }
-.db-table tbody td {
-  padding: 7px 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+.db-table-v2 tbody td {
+  background: #030d24;
   color: #a0c0d8;
+  border-right: 1px solid #0a265c;
+  border-bottom: 1px solid #0a265c;
+  padding: 8px 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 140px;
 }
-.db-table tbody tr:hover td { background: rgba(0,180,255,0.05); }
-.td-code { color: #00c8ff; }
+.db-table-v2 tbody tr:nth-child(even) td { background: #041228; }
+.db-table-v2 tbody tr:hover td { background: rgba(0,200,255,0.1); }
+.td-code { color: #e0f0ff; }
 .td-green { color: #10b981; }
 .td-red { color: #ef4444; }
+
+.sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  color: #00d4ff;
+  font-size: 10px;
+}
 
 /* 标签 */
 .db-tag {
   font-size: 10px;
   padding: 2px 8px;
-  border-radius: 3px;
+  border-radius: 2px;
   white-space: nowrap;
 }
-.db-tag.urgent { background: rgba(239,68,68,0.2); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
-.db-tag.normal { background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.2); }
+.db-tag.urgent { background: rgba(239,68,68,0.15); color: #ef4444; }
+.db-tag.normal { color: #a0c0d8; }
 
-/* 进度条 */
-.db-mini-progress {
-  width: 80px;
-  height: 6px;
-  background: rgba(0,100,180,0.15);
-  border-radius: 3px;
-  overflow: hidden;
+/* 生产进度步进器 */
+.db-stepper { display: flex; align-items: center; gap: 4px; }
+.db-step { display: flex; flex-direction: column; align-items: center; position: relative; }
+.db-step:not(:last-child)::after {
+  content: ''; position: absolute; top: 8px; left: 16px; width: 6px; height: 1px; background: #3b82f6;
 }
-.db-mini-progress-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #00c8ff, #00ff88);
-  border-radius: 3px;
-  transition: width 0.8s ease;
+.db-step-circle {
+  width: 16px; height: 16px; border-radius: 50%; border: 1px solid #3b82f6;
+  display: flex; justify-content: center; align-items: center; font-size: 8px; color: #a0c0d8;
+  background: #030d24; z-index: 1;
 }
+.db-step-name { font-size: 8px; color: #5a8aaa; margin-top: 2px; transform: scale(0.9); }
 
 /* 底部加载动画（模拟截图的加载圈） */
 @keyframes db-spin {
