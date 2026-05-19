@@ -2337,12 +2337,17 @@ tr.drag-over {
 .db-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 1.2fr 1fr;
+  grid-template-columns: repeat(6, 1fr);
   grid-template-rows: 1.3fr 1fr;
   gap: 14px;
   padding: 14px 20px 20px;
   min-height: 0;
 }
+.db-grid > .db-card:nth-child(1) { grid-column: span 2; }
+.db-grid > .db-card:nth-child(2) { grid-column: span 2; }
+.db-grid > .db-card:nth-child(3) { grid-column: span 2; }
+.db-grid > .db-card:nth-child(4) { grid-column: span 3; }
+.db-grid > .db-card:nth-child(5) { grid-column: span 3; }
 
 /* 卡片通用样式 */
 .db-card {
