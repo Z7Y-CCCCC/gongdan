@@ -140,6 +140,7 @@ const exitDashboard = () => {
     document.exitFullscreen?.()
     isDashboardFullscreen.value = false
   }
+  activeMainMenu.value = 'sysconfig'
   activeConfigMenu.value = 'department'
 }
 
@@ -193,7 +194,7 @@ const loadDashboardData = async () => {
   }
 }
 
-watch(activeConfigMenu, (newVal) => {
+watch(activeMainMenu, (newVal) => {
   if (newVal === 'dashboard') {
     loadDashboardData()
   }
@@ -1195,13 +1196,15 @@ function handleSearch() {
     { label: '客户', mainMenu: 'custom', subMenu: 'customer', expandedMenu: 'custom' },
     { label: '部门', mainMenu: 'sysconfig', subMenu: 'department', expandedMenu: 'sysconfig' },
     { label: '用户', mainMenu: 'sysconfig', subMenu: 'user', expandedMenu: 'sysconfig' },
-    { label: '车间看板', mainMenu: 'sysconfig', subMenu: 'dashboard', expandedMenu: 'sysconfig' }
+    { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' }
   ]
 
   const match = menuMap.find(m => m.label.includes(query))
   if (match) {
     activeMainMenu.value = match.mainMenu
-    expandedMenus[match.expandedMenu as keyof typeof expandedMenus] = true
+    if (match.expandedMenu) {
+      expandedMenus[match.expandedMenu as keyof typeof expandedMenus] = true
+    }
     if (match.mainMenu === 'production') activeProductionMenu.value = match.subMenu
     else if (match.mainMenu === 'basedata') activeBasedataMenu.value = match.subMenu
     else if (match.mainMenu === 'custom') activeCustomMenu.value = match.subMenu
@@ -2083,8 +2086,14 @@ const formatDateTime = (val: string) => {
             <a class="sub-item" :class="{ 'selected': activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
             <a class="sub-item" :class="{ 'selected': activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
             <a class="sub-item">工厂</a>
-            <a class="sub-item" :class="{ 'selected': activeConfigMenu === 'dashboard' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'dashboard'">车间看板</a>
           </div>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'dashboard' }" :title="isSidebarCollapsed ? '车间看板' : ''" @click.stop="activeMainMenu = 'dashboard'">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            <span v-show="!isSidebarCollapsed">车间看板</span>
+          </a>
         </div>
       </nav>
     </aside>
@@ -2109,7 +2118,10 @@ const formatDateTime = (val: string) => {
           <template v-else-if="activeMainMenu === 'custom'">
             自定义配置 <span>></span> {{ activeCustomMenu === 'product' ? '产品' : activeCustomMenu === 'bom' ? '物料清单' : activeCustomMenu === 'process' ? '工序' : activeCustomMenu === 'workorder' ? '工单' : activeCustomMenu === 'reporting' ? '报工' : '客户' }}
           </template>
-          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : activeConfigMenu === 'dashboard' ? '车间看板' : '用户' }}</template>
+          <template v-else-if="activeMainMenu === 'dashboard'">
+            车间看板
+          </template>
+          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : '用户' }}</template>
         </div>
         <div class="top-actions">
           <template v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'">
@@ -3043,7 +3055,7 @@ const formatDateTime = (val: string) => {
       </section>
 
       <!-- ====== 车间看板（全屏深蓝科技风） ====== -->
-      <section class="dashboard-fullscreen" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'dashboard'">
+      <section class="dashboard-fullscreen" v-show="activeMainMenu === 'dashboard'">
         <div class="db-header">
           <span class="db-time">最近更新: {{ dashboardTime }}</span>
           <h1 class="db-title">黑湖小工单数据看板</h1>
