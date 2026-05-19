@@ -18,4 +18,6 @@ public interface UserRepository extends JpaRepository<FactoryUser, Long> {
     List<FactoryUser> findByFactoryIdOrderByCreatedAtAsc(Long factoryId);
 
     List<FactoryUser> findByDepartmentId(Long departmentId);
+
+    List<FactoryUser> findAllByPhone(String phone);
 }

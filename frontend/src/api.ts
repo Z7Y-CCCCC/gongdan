@@ -1007,3 +1007,66 @@ export async function mobileBind(payload: { openidTicket: string; factoryCode: s
     body: JSON.stringify(payload)
   })
 }
+
+// ===== 手机号登录 API =====
+export interface PhonePasswordLoginPayload {
+  phone: string
+  password: string
+}
+
+export interface PhoneSmsLoginPayload {
+  phone: string
+  code: string
+}
+
+export interface SmsSendPayload {
+  phone: string
+}
+
+export interface SelectFactoryPayload {
+  phone: string
+  factoryId: number
+  loginType: 'password' | 'sms'
+  credential: string
+}
+
+export interface FactoryOptionItem {
+  factoryId: number
+  factoryCode: string
+  factoryName: string
+}
+
+export interface PhoneLoginResult {
+  selectRequired: boolean
+  token?: string
+  user?: UserInfo
+  factories?: FactoryOptionItem[]
+}
+
+export function phonePasswordLogin(payload: PhonePasswordLoginPayload) {
+  return request<PhoneLoginResult>('/auth/phone/password-login', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function phoneSmsLogin(payload: PhoneSmsLoginPayload) {
+  return request<PhoneLoginResult>('/auth/phone/sms-login', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function sendSmsCode(payload: SmsSendPayload) {
+  return request<void>('/auth/phone/sms/send', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function selectFactory(payload: SelectFactoryPayload) {
+  return request<PhoneLoginResult>('/auth/phone/select-factory', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
