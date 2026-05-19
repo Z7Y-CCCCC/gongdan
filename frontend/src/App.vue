@@ -1172,6 +1172,44 @@ function persistSession(response: LoginResponse) {
 
 const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
 
+const searchQuery = ref('')
+function handleSearch() {
+  const query = searchQuery.value.trim().toLowerCase()
+  if (!query) return
+
+  const menuMap: Array<{ label: string; mainMenu: string; subMenu: string; expandedMenu: string }> = [
+    { label: '销售订单', mainMenu: 'production', subMenu: 'sales', expandedMenu: 'production' },
+    { label: '工单', mainMenu: 'production', subMenu: 'workorder', expandedMenu: 'production' },
+    { label: '任务', mainMenu: 'production', subMenu: 'task', expandedMenu: 'production' },
+    { label: '报工', mainMenu: 'production', subMenu: 'reporting', expandedMenu: 'production' },
+    { label: '报工工作台', mainMenu: 'production', subMenu: 'workbench', expandedMenu: 'production' },
+    { label: '产品定义', mainMenu: 'basedata', subMenu: 'product', expandedMenu: 'basedata' },
+    { label: '物料清单', mainMenu: 'basedata', subMenu: 'bom', expandedMenu: 'basedata' },
+    { label: '单位', mainMenu: 'basedata', subMenu: 'unit', expandedMenu: 'basedata' },
+    { label: '不良品项', mainMenu: 'basedata', subMenu: 'defect', expandedMenu: 'basedata' },
+    { label: '工序', mainMenu: 'basedata', subMenu: 'process', expandedMenu: 'basedata' },
+    { label: '工艺路线', mainMenu: 'basedata', subMenu: 'route', expandedMenu: 'basedata' },
+    { label: '仓库', mainMenu: 'basedata', subMenu: 'warehouse', expandedMenu: 'basedata' },
+    { label: '供应商', mainMenu: 'basedata', subMenu: 'supplier', expandedMenu: 'basedata' },
+    { label: '产品', mainMenu: 'custom', subMenu: 'product', expandedMenu: 'custom' },
+    { label: '客户', mainMenu: 'custom', subMenu: 'customer', expandedMenu: 'custom' },
+    { label: '部门', mainMenu: 'sysconfig', subMenu: 'department', expandedMenu: 'sysconfig' },
+    { label: '用户', mainMenu: 'sysconfig', subMenu: 'user', expandedMenu: 'sysconfig' },
+    { label: '车间看板', mainMenu: 'sysconfig', subMenu: 'dashboard', expandedMenu: 'sysconfig' }
+  ]
+
+  const match = menuMap.find(m => m.label.includes(query))
+  if (match) {
+    activeMainMenu.value = match.mainMenu
+    expandedMenus[match.expandedMenu as keyof typeof expandedMenus] = true
+    if (match.mainMenu === 'production') activeProductionMenu.value = match.subMenu
+    else if (match.mainMenu === 'basedata') activeBasedataMenu.value = match.subMenu
+    else if (match.mainMenu === 'custom') activeCustomMenu.value = match.subMenu
+    else if (match.mainMenu === 'sysconfig') activeConfigMenu.value = match.subMenu
+    searchQuery.value = ''
+  }
+}
+
 async function handleLogin() {
   errorMessage.value = ''
   loading.value = true
@@ -1954,7 +1992,7 @@ const formatDateTime = (val: string) => {
       <div class="factory-name" v-show="!isSidebarCollapsed" :title="currentFactoryCode">{{ currentFactoryCode }}</div>
       <div class="sidebar-search" v-show="!isSidebarCollapsed">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input type="text" placeholder="搜索(win+shift+f)" style="background: transparent; border: none; color: inherit; outline: none; width: 100%; font-size: 13px;" />
+        <input v-model="searchQuery" @keydown.enter="handleSearch" type="text" placeholder="搜索(win+shift+f)" style="background: transparent; border: none; color: inherit; outline: none; width: 100%; font-size: 13px;" />
       </div>
       <nav>
         <a class="nav-item active-parent" :title="isSidebarCollapsed ? '主页' : ''">
