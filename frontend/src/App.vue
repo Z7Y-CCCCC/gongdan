@@ -1170,12 +1170,16 @@ function persistSession(response: LoginResponse) {
   localStorage.setItem('heihu_user', JSON.stringify(response.user))
 }
 
+const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
+
 async function handleLogin() {
   errorMessage.value = ''
   loading.value = true
   try {
     const response = await login(loginForm)
     persistSession(response)
+    currentFactoryCode.value = loginForm.factoryCode
+    localStorage.setItem('heihu_factory_code', loginForm.factoryCode)
     await loadUsers()
     await loadDepartments()
   } catch (error) {
@@ -1268,6 +1272,11 @@ async function handleSelectFactory(factoryId: number) {
     })
     if (result.token && result.user) {
       persistSession({ token: result.token, user: result.user })
+      const factory = factoryList.value.find(f => f.factoryId === factoryId)
+      if (factory) {
+        currentFactoryCode.value = factory.factoryCode
+        localStorage.setItem('heihu_factory_code', factory.factoryCode)
+      }
       showFactorySelect.value = false
       loadUsers()
       loadDepartments()
@@ -1942,10 +1951,10 @@ const formatDateTime = (val: string) => {
         <svg v-if="!isSidebarCollapsed" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
         <svg v-else viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 18l6-6-6-6"/></svg>
       </button>
-      <div class="factory-name" v-show="!isSidebarCollapsed">小工单销售测试账号...</div>
+      <div class="factory-name" v-show="!isSidebarCollapsed" :title="currentFactoryCode">{{ currentFactoryCode }}</div>
       <div class="sidebar-search" v-show="!isSidebarCollapsed">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        搜索(win+shift+f)
+        <input type="text" placeholder="搜索(win+shift+f)" style="background: transparent; border: none; color: inherit; outline: none; width: 100%; font-size: 13px;" />
       </div>
       <nav>
         <a class="nav-item active-parent" :title="isSidebarCollapsed ? '主页' : ''">
