@@ -2471,25 +2471,49 @@ tr.drag-over {
 /* KPI 核心指标 */
 .db-kpi-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
 }
-.db-kpi {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 10px;
+.db-kpi-box {
+  background: rgba(4,18,40,0.8);
+  border: 1px solid rgba(0,200,255,0.2);
+  border-radius: 4px;
+  padding: 10px;
+  position: relative;
+  box-shadow: inset 0 0 10px rgba(0,200,255,0.05);
 }
-.db-kpi-label { font-size: 12px; color: #6a8aa5; }
+.db-kpi-box::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 4px; height: 4px;
+  border-top: 1px solid #00c8ff;
+  border-left: 1px solid #00c8ff;
+}
+.db-kpi-box::after {
+  content: '';
+  position: absolute;
+  bottom: 0; right: 0;
+  width: 4px; height: 4px;
+  border-bottom: 1px solid #00c8ff;
+  border-right: 1px solid #00c8ff;
+}
+.db-kpi-box-title { font-size: 11px; color: #5a8aaa; margin-bottom: 4px; }
 .db-kpi-value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   font-family: 'DIN Alternate', 'Roboto', monospace;
   color: #e0f0ff;
 }
-.db-kpi-value.cyan { color: #00d4ff; }
-.db-kpi-value.yellow { color: #f59e0b; }
-.db-kpi-value.red { color: #ef4444; }
+.db-kpi-value.cyan { color: #00d4ff; text-shadow: 0 0 8px rgba(0,212,255,0.4); }
+.db-kpi-box-sub {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: #4a7a9a; margin-top: 4px;
+}
+.red-text { color: #ef4444; }
+.green-text { color: #10b981; }
+.cyan-text { color: #00d4ff; }
+.mt-2 { margin-top: 8px; }
 
 /* 工厂视觉效果区 */
 .db-factory-visual {
