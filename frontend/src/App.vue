@@ -64,6 +64,13 @@ import ReportApprovalPage from './components/ReportApprovalPage.vue'
 import BaseDataPage from './components/BaseDataPage.vue'
 import UserManagementPage from './components/UserManagementPage.vue'
 import DepartmentManagementPage from './components/DepartmentManagementPage.vue'
+import HomeDashboardPage from './views/HomeDashboardPage.vue'
+import InboundReceiptPage from './components/InboundReceiptPage.vue'
+import OutboundReceiptPage from './components/OutboundReceiptPage.vue'
+import InventoryBalancePage from './components/InventoryBalancePage.vue'
+import InventoryDetailPage from './components/InventoryDetailPage.vue'
+import CustomReceiptFieldsPage from './components/CustomReceiptFieldsPage.vue'
+import DeleteConfirmDialog from './components/DeleteConfirmDialog.vue'
 
 const token = ref(localStorage.getItem('heihu_token') || '')
 const currentUser = ref<UserInfo | null>(readStoredUser())
@@ -119,6 +126,7 @@ const activeMainMenu = ref('sysconfig') // 'sysconfig' | 'basedata'
 const activeBasedataMenu = ref('unit') // default to unit
 const activeProductionMenu = ref('workorder')
 const activeCustomMenu = ref('workorder')
+const activeInventoryMenu = ref('inbound') // 'inbound' | 'outbound' | 'detail' | 'balance' | 'summary'
 
 // ======== 车间看板数据 ========
 const isDashboardFullscreen = ref(false)
@@ -290,9 +298,9 @@ const qrPreviewUrl = ref('')
 watchEffect(() => {
   const tpl = printTemplates.value[activeTemplateIndex.value]
   const text = tpl.qrSource === '工单二维码' ? '123456' : `${window.location.origin}/workorder/123456`
-  QRCode.toDataURL(text, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } }).then(url => {
+  QRCode.toDataURL(text, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } }).then((url: string) => {
     qrPreviewUrl.value = url
-  }).catch(err => console.error('QR Generate Error:', err))
+  }).catch((err: any) => console.error('QR Generate Error:', err))
 })
 
 // 全局 Tooltip（fixed 定位，不被 overflow 裁剪）
@@ -1172,6 +1180,10 @@ function persistSession(response: LoginResponse) {
   currentUser.value = response.user
   localStorage.setItem('heihu_token', response.token)
   localStorage.setItem('heihu_user', JSON.stringify(response.user))
+  // ADMIN 用户登录后默认进入主页仪表盘
+  if (response.user.role === 'ADMIN') {
+    activeMainMenu.value = 'home'
+  }
 }
 
 const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
@@ -1199,7 +1211,8 @@ function handleSearch() {
     { label: '客户', mainMenu: 'custom', subMenu: 'customer', expandedMenu: 'custom' },
     { label: '部门', mainMenu: 'sysconfig', subMenu: 'department', expandedMenu: 'sysconfig' },
     { label: '用户', mainMenu: 'sysconfig', subMenu: 'user', expandedMenu: 'sysconfig' },
-    { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' }
+    { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' },
+    { label: '主页', mainMenu: 'home', subMenu: '', expandedMenu: '' }
   ]
 
   const match = menuMap.find(m => m.label.includes(query))
@@ -1831,6 +1844,10 @@ function logout() {
 
 onMounted(() => {
   if (token.value) {
+    // ADMIN 用户页面刷新后默认进入主页仪表盘
+    if (currentUser.value && currentUser.value.role === 'ADMIN') {
+      activeMainMenu.value = 'home'
+    }
     loadUsers()
     loadDepartments()
     loadUnits()
@@ -1877,6 +1894,13 @@ const formatDateTime = (val: string) => {
   const seconds = String(d.getSeconds()).padStart(2, '0');
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
+
+function handleNavigate(menu: { main: string; sub: string }) {
+  activeMainMenu.value = menu.main
+  if (menu.main === 'inventory') {
+    activeInventoryMenu.value = menu.sub
+  }
+}
 </script>
 
 <template>
@@ -2001,7 +2025,7 @@ const formatDateTime = (val: string) => {
         <input v-model="searchQuery" @keydown.enter="handleSearch" type="text" placeholder="搜索(win+shift+f)" style="background: transparent; border: none; color: inherit; outline: none; width: 100%; font-size: 13px;" />
       </div>
       <nav>
-        <a class="nav-item active-parent" :title="isSidebarCollapsed ? '主页' : ''">
+        <a v-if="currentUser && currentUser.role === 'ADMIN'" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'home' }" :title="isSidebarCollapsed ? '主页' : ''" @click="activeMainMenu = 'home'">
           <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           <span v-show="!isSidebarCollapsed">主页</span>
         </a>
@@ -2035,6 +2059,13 @@ const formatDateTime = (val: string) => {
             <span v-show="!isSidebarCollapsed">库存管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.inventory }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
+          <div v-show="!isSidebarCollapsed && expandedMenus.inventory" class="sub-items-container">
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'">入库单</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'">出库单</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'">库存收发明细</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'">库存余额</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'">进销存汇总</a>
+          </div>
         </div>
 
         <div class="nav-group">
@@ -2068,6 +2099,8 @@ const formatDateTime = (val: string) => {
             <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'">工单</a>
             <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'">报工</a>
             <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'">客户</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'">出入库单</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'">出入库明细</a>
           </div>
         </div>
 
@@ -2104,7 +2137,10 @@ const formatDateTime = (val: string) => {
     <section class="workspace">
       <header class="topbar">
         <div class="breadcrumb">
-          <template v-if="activeMainMenu === 'basedata'">
+          <template v-if="activeMainMenu === 'home'">
+            主页
+          </template>
+          <template v-else-if="activeMainMenu === 'basedata'">
             <template v-if="activeBasedataMenu === 'process' && processView !== 'list'">
               基础数据 <span>></span> <a href="#" style="color:inherit;text-decoration:none" @click.prevent="processView = 'list'">工序</a> <span>></span> {{ processView === 'create' ? '创建工序' : '编辑工序' }}
             </template>
@@ -2119,7 +2155,10 @@ const formatDateTime = (val: string) => {
             生产管理 <span>></span> {{ activeProductionMenu === 'sales' ? '销售订单' : activeProductionMenu === 'workorder' ? '工单' : activeProductionMenu === 'task' ? '任务' : activeProductionMenu === 'reporting' ? '报工' : '报工工作台' }}
           </template>
           <template v-else-if="activeMainMenu === 'custom'">
-            自定义配置 <span>></span> {{ activeCustomMenu === 'product' ? '产品' : activeCustomMenu === 'bom' ? '物料清单' : activeCustomMenu === 'process' ? '工序' : activeCustomMenu === 'workorder' ? '工单' : activeCustomMenu === 'reporting' ? '报工' : '客户' }}
+            自定义配置 <span>></span> {{ activeCustomMenu === 'product' ? '产品' : activeCustomMenu === 'bom' ? '物料清单' : activeCustomMenu === 'process' ? '工序' : activeCustomMenu === 'workorder' ? '工单' : activeCustomMenu === 'reporting' ? '报工' : activeCustomMenu === 'customer' ? '客户' : activeCustomMenu === 'receipt' ? '出入库单' : activeCustomMenu === 'receipt_detail' ? '出入库明细' : '客户' }}
+          </template>
+          <template v-else-if="activeMainMenu === 'inventory'">
+            库存管理 <span>></span> {{ activeInventoryMenu === 'inbound' ? '入库单' : activeInventoryMenu === 'outbound' ? '出库单' : activeInventoryMenu === 'detail' ? '库存收发明细' : activeInventoryMenu === 'balance' ? '库存余额' : '进销存汇总' }}
           </template>
           <template v-else-if="activeMainMenu === 'dashboard'">
             车间看板
@@ -2169,42 +2208,95 @@ const formatDateTime = (val: string) => {
         </div>
       </header>
 
+      <HomeDashboardPage
+        v-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
+        :token="token"
+      />
+
       <ProductDefinitionPage
-        v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'product'"
+        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'product'"
         :token="token"
         @notice="showAction"
       />
 
       <WorkOrderPage
-        v-show="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
+        v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
         :token="token"
         @notice="showAction"
       />
 
       <ReportApprovalPage
-        v-show="activeMainMenu === 'production' && activeProductionMenu === 'workbench'"
+        v-if="activeMainMenu === 'production' && activeProductionMenu === 'workbench'"
         :token="token"
         @notice="showAction"
       />
 
       <CustomWorkOrderFieldsPage
-        v-show="activeMainMenu === 'custom' && activeCustomMenu === 'workorder'"
+        v-if="activeMainMenu === 'custom' && activeCustomMenu === 'workorder'"
         :token="token"
         @notice="showAction"
       />
 
       <section
         class="content placeholder-page"
-        v-show="activeMainMenu === 'production' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench'"
+        v-if="activeMainMenu === 'production' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench'"
       >
         <div class="empty-state">该模块待补全。</div>
       </section>
 
+      <CustomReceiptFieldsPage
+        v-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt'"
+        :token="token"
+        scope="receipt"
+        scope-label="出入库单"
+        @notice="showAction"
+      />
+
+      <CustomReceiptFieldsPage
+        v-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail'"
+        :token="token"
+        scope="receipt_detail"
+        scope-label="出入库明细"
+        @notice="showAction"
+      />
+
       <section
         class="content placeholder-page"
-        v-show="activeMainMenu === 'custom' && activeCustomMenu !== 'workorder'"
+        v-if="activeMainMenu === 'custom' && activeCustomMenu !== 'workorder' && activeCustomMenu !== 'receipt' && activeCustomMenu !== 'receipt_detail'"
       >
         <div class="empty-state">该模块待补全。</div>
+      </section>
+
+      <InboundReceiptPage
+        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound'"
+        :token="token"
+        @notice="showAction"
+      />
+
+      <InventoryBalancePage
+        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'balance'"
+        :token="token"
+        @notice="showAction"
+        @navigate="handleNavigate"
+      />
+
+      <OutboundReceiptPage
+        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound'"
+        :token="token"
+        @notice="showAction"
+      />
+
+      <InventoryDetailPage
+        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'detail'"
+        :token="token"
+        @notice="showAction"
+      />
+
+      <section
+        class="content placeholder-page"
+        v-if="activeMainMenu === 'inventory' && activeInventoryMenu !== 'inbound' && activeInventoryMenu !== 'balance' && activeInventoryMenu !== 'outbound' && activeInventoryMenu !== 'detail'"
+      >
+        <div class="empty-state">进销存汇总模块待补全。</div>
       </section>
 
       <!-- 基础数据（组件化） -->
@@ -3534,19 +3626,13 @@ const formatDateTime = (val: string) => {
   </div>
 
   <!-- 确认弹窗 -->
-  <div v-if="confirmState.show" class="modal-backdrop">
-    <section class="modal confirm-modal">
-      <div class="error-icon">
-        <svg viewBox="0 0 24 24" width="48" height="48" stroke="#d74434" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-      </div>
-      <h2>{{ confirmState.title }}</h2>
-      <p style="color:#6d7775; margin-bottom:16px">{{ confirmState.message }}</p>
-      <footer class="modal-footer">
-        <button class="ghost-btn wide" type="button" @click="confirmState.show = false">取消</button>
-        <button class="primary-btn wide" type="button" style="background:#d74434;border-color:#d74434" :disabled="loading" @click="confirmState.action && confirmState.action()">确定</button>
-      </footer>
-    </section>
-  </div>
+  <DeleteConfirmDialog
+    :visible="confirmState.show"
+    :title="confirmState.title"
+    :message="confirmState.message"
+    @confirm="() => { confirmState.action && confirmState.action(); confirmState.show = false }"
+    @update:visible="val => { confirmState.show = val }"
+  />
 
   <!-- 操作成功提示 -->
   <div v-if="actionMessage" class="action-toast success-toast">

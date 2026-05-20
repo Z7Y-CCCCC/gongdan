@@ -24,9 +24,13 @@ import {
   fetchUserPreference,
   setUserPreference
 } from '../api'
+import { useDeleteConfirm } from '../composables/useDeleteConfirm'
+import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
+
+const { visible: deleteVisible, title: deleteTitle, message: deleteMessage, loading: deleteLoading, confirm: deleteConfirm, handleConfirm: deleteHandleConfirm, handleCancel: deleteHandleCancel } = useDeleteConfirm()
 
 const workOrders = ref<WorkOrderInfo[]>([])
 const categories = ref<WorkOrderCategoryInfo[]>([])
@@ -398,10 +402,19 @@ async function saveOrder() {
 }
 
 async function removeOrder(item: WorkOrderInfo) {
-  if (!window.confirm(`确认删除工单 ${item.code}？`)) return
-  await deleteWorkOrder(props.token, item.id)
-  emit('notice', '工单已删除')
-  await loadData()
+  const confirmed = await deleteConfirm({ message: `确认删除工单「${item.code}」？` })
+  if (!confirmed) return
+  deleteLoading.value = true
+  try {
+    await deleteWorkOrder(props.token, item.id)
+    emit('notice', '工单已删除')
+    await loadData()
+  } catch (e: any) {
+    emit('notice', e.message || '删除失败')
+  } finally {
+    deleteLoading.value = false
+    deleteVisible.value = false
+  }
 }
 
 function toggleAll(checked: boolean) {
@@ -513,13 +526,22 @@ async function handleBulkStatus(status: string) {
 }
 
 async function handleDeleteSelected() {
-  if (!window.confirm(`确认删除选中的 ${selectedIds.value.length} 个工单？`)) return
-  for (const id of selectedIds.value) {
-    await deleteWorkOrder(props.token, id)
+  const confirmed = await deleteConfirm({ message: `确认删除选中的 ${selectedIds.value.length} 个工单？` })
+  if (!confirmed) return
+  deleteLoading.value = true
+  try {
+    for (const id of selectedIds.value) {
+      await deleteWorkOrder(props.token, id)
+    }
+    selectedIds.value = []
+    emit('notice', '删除成功')
+    await loadData()
+  } catch (e: any) {
+    emit('notice', e.message || '删除失败')
+  } finally {
+    deleteLoading.value = false
+    deleteVisible.value = false
   }
-  selectedIds.value = []
-  emit('notice', '删除成功')
-  await loadData()
 }
 
 function handleEditSelected() {
@@ -972,6 +994,15 @@ onMounted(loadData)
       </div>
     </div>
   </section>
+
+  <DeleteConfirmDialog
+    v-model:visible="deleteVisible"
+    :title="deleteTitle"
+    :message="deleteMessage"
+    :loading="deleteLoading"
+    @confirm="deleteHandleConfirm"
+    @update:visible="val => { if (!val) deleteHandleCancel() }"
+  />
 </template>
 
 <style scoped>

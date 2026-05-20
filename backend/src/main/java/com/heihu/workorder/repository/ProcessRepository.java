@@ -6,10 +6,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+
 @Repository
 public interface ProcessRepository extends JpaRepository<Process, Long> {
 
     Page<Process> findByFactoryId(Long factoryId, Pageable pageable);
+
+    List<Process> findAllByFactoryId(Long factoryId);
 
     Page<Process> findByFactoryIdAndCodeContaining(Long factoryId, String code, Pageable pageable);
 

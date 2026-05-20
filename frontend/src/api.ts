@@ -78,6 +78,14 @@ export interface ResetPasswordResponse {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
 
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -95,7 +103,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     } catch {
       message = response.statusText || message
     }
-    throw new Error(message)
+    throw new ApiError(message, response.status)
   }
 
   if (response.status === 204) {
@@ -1070,5 +1078,317 @@ export function selectFactory(payload: SelectFactoryPayload) {
   return request<PhoneLoginResult>('/auth/phone/select-factory', {
     method: 'POST',
     body: JSON.stringify(payload)
+  })
+}
+
+
+// ===== 主页仪表盘 API =====
+export type HomeRange = 'today' | 'yesterday' | 'this_month'
+export type WorkOrderStatusTab =
+  | 'not_started' | 'in_progress' | 'due_within_3_days'
+  | 'overdue_unfinished' | 'overdue_finished_this_month'
+  | 'finished_today' | 'finished_this_month'
+
+export interface ProcessCardItem {
+  processId: number
+  processName: string
+  taskCount: number
+  plannedQuantity: number
+  goodQuantity: number
+  defectQuantity: number
+}
+export interface ProcessCardListResponse { items: ProcessCardItem[] }
+
+export interface WorkOrderProgressItem {
+  id: number
+  code: string
+  productCode: string
+  productName: string
+  productSpec: string
+  status: string
+  statusLabel: string
+}
+export interface WorkOrderProgressListResponse { items: WorkOrderProgressItem[] }
+
+export interface PerformanceResponse {
+  plannedQuantity: number
+  completedQuantity: number
+  workOrderCount: number
+  defectRatePercent: number
+  averageCycleDays: number
+  overdueUnfinishedCount: number
+}
+
+export interface RecentReportItem {
+  id: number
+  workOrderId: number
+  workOrderCode: string
+  reporterName: string
+  processName: string
+  goodQuantity: number
+  defectQuantity: number
+  createdAt: string
+}
+export interface RecentReportListResponse { items: RecentReportItem[] }
+
+export function fetchHomeProcessCards(token: string, range: HomeRange, includeNotStarted: boolean) {
+  const query = new URLSearchParams()
+  query.append('range', range)
+  query.append('includeNotStarted', String(includeNotStarted))
+  return request<ProcessCardListResponse>(`/home-dashboard/process-cards?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function fetchHomeWorkOrders(token: string, tab: WorkOrderStatusTab) {
+  const query = new URLSearchParams()
+  query.append('status', tab)
+  return request<WorkOrderProgressListResponse>(`/home-dashboard/work-orders?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function fetchHomePerformance(token: string, range: HomeRange) {
+  const query = new URLSearchParams()
+  query.append('range', range)
+  return request<PerformanceResponse>(`/home-dashboard/performance?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function fetchHomeRecentReports(token: string, params: { since?: string; limit?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.since) query.append('since', params.since)
+  if (params.limit) query.append('limit', String(params.limit))
+  return request<RecentReportListResponse>(`/home-dashboard/reports/recent?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 入库单 API =====
+export interface InboundReceiptItemInfo {
+  id: number
+  productId: number
+  productCode: string
+  productName: string
+  productSpec?: string
+  productAttribute?: string
+  unitName?: string
+  minStock?: string
+  maxStock?: string
+  safetyStock?: string
+  inventoryQty: number
+  quantity: number
+  customValues?: WorkOrderCustomValue[]
+}
+
+export interface InboundReceiptInfo {
+  id: number
+  code: string
+  inboundType: string
+  inboundTime: string
+  remark?: string
+  creator?: string
+  createdAt: string
+  items: InboundReceiptItemInfo[]
+  customValues?: WorkOrderCustomValue[]
+}
+
+export interface InboundReceiptListResponse {
+  items: InboundReceiptInfo[]
+  total: number
+}
+
+export interface InboundReceiptItemPayload {
+  productId: number
+  quantity: number
+  customValues?: WorkOrderCustomValue[]
+}
+
+export interface InboundReceiptPayload {
+  code?: string
+  inboundType: string
+  inboundTime: string
+  remark?: string
+  items: InboundReceiptItemPayload[]
+  customValues?: WorkOrderCustomValue[]
+}
+
+export async function fetchInboundReceipts(
+  token: string,
+  params: { code?: string; inboundType?: string; startTime?: string; endTime?: string; page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.inboundType) query.append('inboundType', params.inboundType)
+  if (params.startTime) query.append('startTime', params.startTime)
+  if (params.endTime) query.append('endTime', params.endTime)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<InboundReceiptListResponse>(`/inbound-receipts?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchInboundReceipt(token: string, id: number) {
+  return request<InboundReceiptInfo>(`/inbound-receipts/${id}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createInboundReceipt(token: string, payload: InboundReceiptPayload) {
+  return request<InboundReceiptInfo>('/inbound-receipts', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteInboundReceipt(token: string, id: number) {
+  return request<void>(`/inbound-receipts/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 出库单 API =====
+export interface OutboundReceiptItemInfo {
+  id: number
+  productId: number
+  productCode: string
+  productName: string
+  productSpec?: string
+  productAttribute?: string
+  unitName?: string
+  minStock?: string
+  maxStock?: string
+  safetyStock?: string
+  inventoryQty: number
+  quantity: number
+  customValues?: WorkOrderCustomValue[]
+}
+
+export interface OutboundReceiptInfo {
+  id: number
+  code: string
+  outboundType: string
+  outboundTime: string
+  remark?: string
+  creator?: string
+  createdAt: string
+  items: OutboundReceiptItemInfo[]
+  customValues?: WorkOrderCustomValue[]
+}
+
+export interface OutboundReceiptListResponse {
+  items: OutboundReceiptInfo[]
+  total: number
+}
+
+export interface OutboundReceiptItemPayload {
+  productId: number
+  quantity: number
+  customValues?: WorkOrderCustomValue[]
+}
+
+export interface OutboundReceiptPayload {
+  code?: string
+  outboundType: string
+  outboundTime: string
+  remark?: string
+  items: OutboundReceiptItemPayload[]
+  customValues?: WorkOrderCustomValue[]
+}
+
+export async function fetchOutboundReceipts(
+  token: string,
+  params: { code?: string; outboundType?: string; startTime?: string; endTime?: string; page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.outboundType) query.append('outboundType', params.outboundType)
+  if (params.startTime) query.append('startTime', params.startTime)
+  if (params.endTime) query.append('endTime', params.endTime)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<OutboundReceiptListResponse>(`/outbound-receipts?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchOutboundReceipt(token: string, id: number) {
+  return request<OutboundReceiptInfo>(`/outbound-receipts/${id}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createOutboundReceipt(token: string, payload: OutboundReceiptPayload) {
+  return request<OutboundReceiptInfo>('/outbound-receipts', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteOutboundReceipt(token: string, id: number) {
+  return request<void>(`/outbound-receipts/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 库存收发明细 API =====
+export interface InventoryDetailInfo {
+  sourceType: string
+  receiptCode: string
+  receiptType: string
+  operationTime: string
+  remark?: string
+  productCode: string
+  productName: string
+  productSpec?: string
+  productAttribute?: string
+  unitName?: string
+  receiptQty: number
+  changeQty: number
+}
+
+export interface InventoryDetailListResponse {
+  items: InventoryDetailInfo[]
+  total: number
+}
+
+export async function fetchInventoryDetails(
+  token: string,
+  params: {
+    receiptCode?: string
+    receiptType?: string
+    sourceType?: string
+    remark?: string
+    productCode?: string
+    productName?: string
+    productSpec?: string
+    productAttribute?: string
+    startTime?: string
+    endTime?: string
+    page?: number
+    size?: number
+  } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.receiptCode) query.append('receiptCode', params.receiptCode)
+  if (params.receiptType) query.append('receiptType', params.receiptType)
+  if (params.sourceType) query.append('sourceType', params.sourceType)
+  if (params.remark) query.append('remark', params.remark)
+  if (params.productCode) query.append('productCode', params.productCode)
+  if (params.productName) query.append('productName', params.productName)
+  if (params.productSpec) query.append('productSpec', params.productSpec)
+  if (params.productAttribute) query.append('productAttribute', params.productAttribute)
+  if (params.startTime) query.append('startTime', params.startTime)
+  if (params.endTime) query.append('endTime', params.endTime)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<InventoryDetailListResponse>(`/inventory-details?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
   })
 }

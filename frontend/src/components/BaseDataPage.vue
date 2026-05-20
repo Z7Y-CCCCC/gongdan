@@ -12,6 +12,10 @@ import {
   type ProcessRouteInfo, type ProcessRoutePayload,
   type DepartmentInfo, type UserInfo
 } from '../api'
+import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
+
+const { visible: deleteVisible, title: deleteTitle, message: deleteMessage, loading: deleteLoading, confirm: deleteConfirm, handleConfirm: deleteHandleConfirm, handleCancel: deleteHandleCancel } = useDeleteConfirm()
 
 const props = defineProps<{
   token: string
@@ -89,10 +93,17 @@ async function handleSaveUnit() {
   } catch (e: any) { errorMessage.value = e.message || '保存单位失败' }
 }
 async function handleDeleteUnit(unit: UnitInfo) {
+  const confirmed = await deleteConfirm({ message: `确认删除单位「${unit.name}」？` })
+  if (!confirmed) return
+  deleteLoading.value = true
   try {
     await deleteUnit(props.token, unit.id)
     units.value = units.value.filter(u => u.id !== unit.id)
   } catch (e: any) { errorMessage.value = e.message || '删除单位失败' }
+  finally {
+    deleteLoading.value = false
+    deleteVisible.value = false
+  }
 }
 
 // 不良品项管理
@@ -145,10 +156,17 @@ async function handleSaveDefect() {
   } catch (e: any) { errorMessage.value = e.message || '保存不良品项失败' }
 }
 async function handleDeleteDefect(d: DefectInfo) {
+  const confirmed = await deleteConfirm({ message: `确认删除不良品项「${d.name}」？` })
+  if (!confirmed) return
+  deleteLoading.value = true
   try {
     await deleteDefect(props.token, d.id)
     defects.value = defects.value.filter(item => item.id !== d.id)
   } catch (e: any) { errorMessage.value = e.message || '删除不良品项失败' }
+  finally {
+    deleteLoading.value = false
+    deleteVisible.value = false
+  }
 }
 
 // 工序管理
@@ -721,11 +739,17 @@ async function handleSaveProcess() {
 }
 async function handleDeleteProcess(p: ProcessItem) {
   if (!props.token) return
+  const confirmed = await deleteConfirm({ message: `确认删除工序「${p.name}」？` })
+  if (!confirmed) return
+  deleteLoading.value = true
   try {
     await deleteProcess(props.token, p.id)
     await loadProcesses()
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : '删除失败'
+  } finally {
+    deleteLoading.value = false
+    deleteVisible.value = false
   }
 }
 async function loadProcesses() {
@@ -1483,4 +1507,13 @@ onMounted(() => {
       </form>
     </section>
   </div>
+
+  <DeleteConfirmDialog
+    v-model:visible="deleteVisible"
+    :title="deleteTitle"
+    :message="deleteMessage"
+    :loading="deleteLoading"
+    @confirm="deleteHandleConfirm"
+    @update:visible="val => { if (!val) deleteHandleCancel() }"
+  />
 </template>

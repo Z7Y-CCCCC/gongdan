@@ -89,6 +89,9 @@ public class WorkOrder {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
+
     @Column(nullable = false)
     private LocalDateTime updatedAt;
 
@@ -274,6 +277,14 @@ public class WorkOrder {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getCompletedAt() {
+        return completedAt;
+    }
+
+    public void setCompletedAt(LocalDateTime completedAt) {
+        this.completedAt = completedAt;
     }
 
     public LocalDateTime getUpdatedAt() {

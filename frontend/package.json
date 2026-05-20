@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vue-tsc --noEmit && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test": "vitest --run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "qrcode": "^1.5.4",
@@ -14,8 +16,12 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.4.0",
+    "fast-check": "^3.0.0",
+    "jsdom": "^24.0.0",
     "typescript": "~5.7.2",
     "vite": "^6.0.5",
+    "vitest": "^3.0.0",
     "vue-tsc": "^2.2.0"
   }
 }

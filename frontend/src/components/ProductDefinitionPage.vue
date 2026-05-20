@@ -13,9 +13,13 @@ import {
   type ProductPayload,
   type UnitInfo
 } from '../api'
+import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
+
+const { visible, title, message, loading, confirm, handleConfirm, handleCancel } = useDeleteConfirm()
 
 type ProductTab = 'all' | 'self' | 'purchase' | 'outsource'
 
@@ -186,10 +190,17 @@ async function saveProduct() {
 }
 
 async function removeProduct(item: ProductInfo) {
-  if (!window.confirm(`确认删除产品 ${item.name}？`)) return
-  await deleteProduct(props.token, item.id)
-  emit('notice', '产品已删除')
-  await loadData()
+  const confirmed = await confirm({ message: `确认删除产品「${item.name}」？` })
+  if (!confirmed) return
+  loading.value = true
+  try {
+    await deleteProduct(props.token, item.id)
+    emit('notice', '产品已删除')
+    await loadData()
+  } finally {
+    loading.value = false
+    visible.value = false
+  }
 }
 
 async function openLogs() {
@@ -320,5 +331,14 @@ onMounted(loadData)
         </div>
       </div>
     </div>
+
+    <DeleteConfirmDialog
+      v-model:visible="visible"
+      :title="title"
+      :message="message"
+      :loading="loading"
+      @confirm="handleConfirm"
+      @update:visible="val => { if (!val) handleCancel() }"
+    />
   </section>
 </template>

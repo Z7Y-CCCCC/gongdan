@@ -240,6 +240,35 @@ public class ProductService {
         productOperationLogRepository.save(log);
     }
 
+    @Transactional(readOnly = true)
+    public String exportProductsCsv(Long factoryId, String code, String name, String spec) {
+        org.springframework.data.domain.PageRequest pageRequest = org.springframework.data.domain.PageRequest.of(
+                0, Integer.MAX_VALUE, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt")
+        );
+        org.springframework.data.domain.Page<ProductResponse> page = list(factoryId, code, name, spec, pageRequest);
+        StringBuilder sb = new StringBuilder();
+        sb.append("库存数量,单位,产品名称,产品编号,产品规格,工艺路线\n");
+        for (ProductResponse p : page.getContent()) {
+            sb.append(p.getInventoryQty() != null ? p.getInventoryQty() : 0).append(',');
+            sb.append(csvEscape(p.getUnitName())).append(',');
+            sb.append(csvEscape(p.getName())).append(',');
+            sb.append(csvEscape(p.getCode())).append(',');
+            sb.append(csvEscape(p.getSpec())).append(',');
+            sb.append(csvEscape(p.getRouteName())).append('\n');
+        }
+        return sb.toString();
+    }
+
+    private String csvEscape(String value) {
+        if (value == null) {
+            return "";
+        }
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
+    }
+
     private String actionLabel(String actionType) {
         if ("CREATE".equalsIgnoreCase(actionType)) return "创建";
         if ("UPDATE".equalsIgnoreCase(actionType)) return "编辑";

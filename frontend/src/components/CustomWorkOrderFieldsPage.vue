@@ -8,9 +8,13 @@ import {
   type CustomFieldInfo,
   type CustomFieldOption
 } from '../api'
+import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
+
+const { visible, title, message, loading, confirm, handleConfirm, handleCancel } = useDeleteConfirm()
 
 const fields = ref<CustomFieldInfo[]>([])
 const view = ref<'list' | 'form'>('list')
@@ -171,10 +175,17 @@ async function saveField() {
 }
 
 async function removeField(item: CustomFieldInfo) {
-  if (!window.confirm(`确认删除字段 ${item.name}？`)) return
-  await deleteCustomField(props.token, item.id)
-  emit('notice', '字段已删除')
-  await loadFields()
+  const confirmed = await confirm({ message: `确认删除字段「${item.name}」？` })
+  if (!confirmed) return
+  loading.value = true
+  try {
+    await deleteCustomField(props.token, item.id)
+    emit('notice', '字段已删除')
+    await loadFields()
+  } finally {
+    loading.value = false
+    visible.value = false
+  }
 }
 
 onMounted(loadFields)
@@ -281,5 +292,14 @@ onMounted(loadFields)
         </div>
       </div>
     </div>
+
+    <DeleteConfirmDialog
+      v-model:visible="visible"
+      :title="title"
+      :message="message"
+      :loading="loading"
+      @confirm="handleConfirm"
+      @update:visible="(val: boolean) => { if (!val) handleCancel() }"
+    />
   </section>
 </template>

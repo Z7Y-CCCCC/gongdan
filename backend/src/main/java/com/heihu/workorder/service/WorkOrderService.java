@@ -138,7 +138,18 @@ public class WorkOrderService {
         workOrder.setGoodQuantity(request.getGoodQuantity() != null ? request.getGoodQuantity() : 0);
         workOrder.setDefectQuantity(request.getDefectQuantity() != null ? request.getDefectQuantity() : 0);
         workOrder.setDefectRate(normalize(request.getDefectRate()));
-        workOrder.setStatus(normalize(request.getStatus()) != null ? request.getStatus().trim() : "NOT_STARTED");
+
+        String previousStatus = creating ? null : workOrder.getStatus();
+        String nextStatus = normalize(request.getStatus()) != null ? request.getStatus().trim() : "NOT_STARTED";
+        workOrder.setStatus(nextStatus);
+
+        if (!"COMPLETED".equals(previousStatus) && "COMPLETED".equals(nextStatus)) {
+            workOrder.setCompletedAt(LocalDateTime.now());
+        }
+        if (!"COMPLETED".equals(nextStatus)) {
+            workOrder.setCompletedAt(null);
+        }
+
         workOrder.setPriority(normalize(request.getPriority()) != null ? request.getPriority().trim() : "NORMAL");
         workOrder.setPlanStart(parseDateTime(request.getPlanStart()));
         workOrder.setPlanEnd(parseDateTime(request.getPlanEnd()));

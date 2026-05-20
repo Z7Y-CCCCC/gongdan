@@ -1,0 +1,500 @@
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue'
+import { fetchProducts, fetchUserPreference, setUserPreference, type ProductInfo } from '../api'
+
+const props = defineProps<{ token: string }>()
+const emit = defineEmits<{
+  notice: [message: string]
+  navigate: [menu: { main: string; sub: string }]
+}>()
+
+// ===== State =====
+const products = ref<ProductInfo[]>([])
+const totalProducts = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(10)
+const loading = ref(false)
+
+// Sorting State
+const sortKey = ref('createdAt')
+const sortOrder = ref<'asc' | 'desc'>('desc')
+
+// Filter state
+const filterForm = reactive({
+  code: '',
+  name: '',
+  spec: ''
+})
+
+// Column configurations
+const visibleColumns = ref<string[]>([
+  'inventoryQty',
+  'unitName',
+  'name',
+  'code',
+  'spec',
+  'routeName'
+])
+
+const columnDefinitions = [
+  { key: 'inventoryQty', label: '库存数量' },
+  { key: 'unitName', label: '单位' },
+  { key: 'name', label: '产品名称' },
+  { key: 'code', label: '产品编号' },
+  { key: 'spec', label: '产品规格' },
+  { key: 'routeName', label: '工艺路线' }
+]
+
+// Modal visibility state
+const showDetailModal = ref(false)
+const activeDetail = ref<ProductInfo | null>(null)
+const showColumnModal = ref(false)
+
+// Checkbox selection state
+const selectedIds = ref<number[]>([])
+
+// ===== Computed Properties =====
+const allSelected = computed(() => {
+  return products.value.length > 0 && products.value.every(item => selectedIds.value.includes(item.id))
+})
+
+const totalPages = computed(() => Math.ceil(totalProducts.value / pageSize.value) || 1)
+
+// Calculate total inventory qty for current page
+const currentPageTotalQty = computed(() => {
+  return sortedProducts.value.reduce((sum, item) => sum + (item.inventoryQty || 0), 0)
+})
+
+// Client-side sorting for responsiveness
+const sortedProducts = computed(() => {
+  const list = [...products.value]
+  if (!sortKey.value) return list
+  return list.sort((a, b) => {
+    let valA = (a as any)[sortKey.value]
+    let valB = (b as any)[sortKey.value]
+    if (valA === undefined || valA === null) valA = ''
+    if (valB === undefined || valB === null) valB = ''
+
+    if (typeof valA === 'number' && typeof valB === 'number') {
+      return sortOrder.value === 'asc' ? valA - valB : valB - valA
+    }
+
+    const strA = String(valA).toLowerCase()
+    const strB = String(valB).toLowerCase()
+    return sortOrder.value === 'asc' 
+      ? strA.localeCompare(strB, 'zh') 
+      : strB.localeCompare(strA, 'zh')
+  })
+})
+
+// ===== Actions =====
+async function loadData() {
+  loading.value = true
+  try {
+    const res = await fetchProducts(props.token, {
+      code: filterForm.code.trim() || undefined,
+      name: filterForm.name.trim() || undefined,
+      spec: filterForm.spec.trim() || undefined,
+      page: currentPage.value,
+      size: pageSize.value
+    })
+    products.value = res.items
+    totalProducts.value = res.total
+  } catch (e: any) {
+    emit('notice', e.message || '加载库存余额失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadPreferences() {
+  try {
+    const pref = await fetchUserPreference(props.token, 'INVENTORY_BALANCE_COLUMNS')
+    if (pref && pref.value) {
+      visibleColumns.value = JSON.parse(pref.value)
+    }
+  } catch (e) {
+    // Ignore
+  }
+}
+
+async function handleSaveColumns() {
+  try {
+    await setUserPreference(props.token, 'INVENTORY_BALANCE_COLUMNS', JSON.stringify(visibleColumns.value))
+    showColumnModal.value = false
+    emit('notice', '列配置已保存')
+  } catch (e) {
+    emit('notice', '配置保存失败')
+  }
+}
+
+function handleSearch() {
+  currentPage.value = 1
+  loadData()
+}
+
+function handleReset() {
+  filterForm.code = ''
+  filterForm.name = ''
+  filterForm.spec = ''
+  currentPage.value = 1
+  loadData()
+}
+
+function toggleAll(checked: boolean) {
+  selectedIds.value = checked ? products.value.map(item => item.id) : []
+}
+
+function toggleOne(id: number, checked: boolean) {
+  selectedIds.value = checked
+    ? Array.from(new Set([...selectedIds.value, id]))
+    : selectedIds.value.filter(item => item !== id)
+}
+
+function toggleSort(key: string) {
+  if (sortKey.value === key) {
+    sortOrder.value = sortOrder.value === 'asc' ? 'desc' : 'asc'
+  } else {
+    sortKey.value = key
+    sortOrder.value = 'asc'
+  }
+}
+
+function openDetail(item: ProductInfo) {
+  activeDetail.value = item
+  showDetailModal.value = true
+}
+
+function navigateToDetail(item: ProductInfo) {
+  // Emit event to navigate to 'detail' (库存收发明细) tab
+  emit('navigate', { main: 'inventory', sub: 'detail' })
+}
+
+async function handleExport() {
+  try {
+    const query = new URLSearchParams()
+    if (filterForm.code) query.append('code', filterForm.code)
+    if (filterForm.name) query.append('name', filterForm.name)
+    if (filterForm.spec) query.append('spec', filterForm.spec)
+
+    const res = await fetch(`/api/products/export?${query.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${props.token}`
+      }
+    })
+    if (!res.ok) {
+      throw new Error('导出失败')
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `库存余额_${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    emit('notice', '已导出 CSV 文件')
+  } catch (e: any) {
+    emit('notice', e.message || '导出失败')
+  }
+}
+
+onMounted(() => {
+  loadData()
+  loadPreferences()
+})
+</script>
+
+<template>
+  <section class="content">
+    <!-- Category Tabs -->
+    <div class="category-tabs">
+      <button class="cat-tab active" type="button">全部</button>
+      <button class="cat-tab add-tab" type="button" @click="emit('notice', '分类功能开发中...')" title="添加分类">
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+      </button>
+    </div>
+
+    <!-- Search Filters -->
+    <div class="filters inline-filters" style="margin-bottom: 16px;">
+      <div class="filter-group">
+        <label>产品编号</label>
+        <input v-model="filterForm.code" placeholder="请输入产品编号" @keyup.enter="handleSearch" />
+      </div>
+      <div class="filter-group">
+        <label>产品名称</label>
+        <input v-model="filterForm.name" placeholder="请输入产品名称" @keyup.enter="handleSearch" />
+      </div>
+      <div class="filter-group">
+        <label>产品规格</label>
+        <input v-model="filterForm.spec" placeholder="请输入产品规格" @keyup.enter="handleSearch" />
+      </div>
+      <div class="filter-actions">
+        <button class="primary-btn query-btn" type="button" @click="handleSearch">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          查询
+        </button>
+        <button class="toolbar-btn" type="button" @click="handleReset" title="重置条件">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Action Toolbar -->
+    <div class="toolbar" style="margin-bottom: 16px;">
+      <button class="toolbar-btn primary-stroke" type="button" @click="handleExport">
+        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        导出
+      </button>
+
+      <div style="margin-left: auto;">
+        <button class="text-btn" type="button" style="color: #586360;" @click="showColumnModal = true">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+            <line x1="4" y1="21" x2="4" y2="14"></line>
+            <line x1="4" y1="10" x2="4" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="12"></line>
+            <line x1="12" y1="8" x2="12" y2="3"></line>
+            <line x1="20" y1="21" x2="20" y2="16"></line>
+            <line x1="20" y1="12" x2="20" y2="3"></line>
+            <line x1="1" y1="14" x2="7" y2="14"></line>
+            <line x1="9" y1="8" x2="15" y2="8"></line>
+            <line x1="17" y1="16" x2="23" y2="16"></line>
+          </svg>
+          列配置
+        </button>
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width:48px">
+              <input type="checkbox" :checked="allSelected" @change="toggleAll(($event.target as HTMLInputElement).checked)" />
+            </th>
+            <th v-if="visibleColumns.includes('inventoryQty')" class="sortable" @click="toggleSort('inventoryQty')">
+              库存数量
+              <span class="sort-icon" :class="sortKey === 'inventoryQty' ? sortOrder : ''"></span>
+            </th>
+            <th v-if="visibleColumns.includes('unitName')" class="sortable" @click="toggleSort('unitName')">
+              单位
+              <span class="sort-icon" :class="sortKey === 'unitName' ? sortOrder : ''"></span>
+            </th>
+            <th v-if="visibleColumns.includes('name')" class="sortable" @click="toggleSort('name')">
+              产品名称
+              <span class="sort-icon" :class="sortKey === 'name' ? sortOrder : ''"></span>
+            </th>
+            <th v-if="visibleColumns.includes('code')" class="sortable" @click="toggleSort('code')">
+              产品编号
+              <span class="sort-icon" :class="sortKey === 'code' ? sortOrder : ''"></span>
+            </th>
+            <th v-if="visibleColumns.includes('spec')" class="sortable" @click="toggleSort('spec')">
+              产品规格
+              <span class="sort-icon" :class="sortKey === 'spec' ? sortOrder : ''"></span>
+            </th>
+            <th v-if="visibleColumns.includes('routeName')" class="sortable" @click="toggleSort('routeName')">
+              工艺路线
+              <span class="sort-icon" :class="sortKey === 'routeName' ? sortOrder : ''"></span>
+            </th>
+            <th style="width:140px">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in sortedProducts" :key="item.id">
+            <td>
+              <input type="checkbox" :checked="selectedIds.includes(item.id)" @change="toggleOne(item.id, ($event.target as HTMLInputElement).checked)" />
+            </td>
+            <td v-if="visibleColumns.includes('inventoryQty')">{{ item.inventoryQty }}</td>
+            <td v-if="visibleColumns.includes('unitName')">{{ item.unitName || '-' }}</td>
+            <td v-if="visibleColumns.includes('name')">{{ item.name }}</td>
+            <td v-if="visibleColumns.includes('code')">{{ item.code }}</td>
+            <td v-if="visibleColumns.includes('spec')">{{ item.spec || '-' }}</td>
+            <td v-if="visibleColumns.includes('routeName')">{{ item.routeName || '-' }}</td>
+            <td class="action-cell">
+              <button class="action-link" type="button" @click="openDetail(item)">详情</button>
+              <button class="action-link" type="button" @click="navigateToDetail(item)">收发明细</button>
+            </td>
+          </tr>
+          <tr v-if="sortedProducts.length === 0">
+            <td :colspan="visibleColumns.length + 2" style="text-align: center; color: #8a9693; padding: 32px 0;">
+              暂无匹配的库存余额数据
+            </td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr style="background: #fdfdfd; font-weight: bold;">
+            <td></td>
+            <td v-if="visibleColumns.includes('inventoryQty')" style="color: #00b889; text-align: left;">
+              当前页合计: {{ currentPageTotalQty }}
+            </td>
+            <td v-if="visibleColumns.includes('unitName')">-</td>
+            <td v-if="visibleColumns.includes('name')">-</td>
+            <td v-if="visibleColumns.includes('code')">-</td>
+            <td v-if="visibleColumns.includes('spec')">-</td>
+            <td v-if="visibleColumns.includes('routeName')">-</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination" v-if="totalProducts > 0" style="margin-top: 16px;">
+      <span class="page-info">共{{ totalProducts }}条结果</span>
+      <div class="page-controls">
+        <button :disabled="currentPage <= 1" @click="currentPage--; loadData()">&lt;</button>
+        <button class="active">{{ currentPage }}</button>
+        <button :disabled="currentPage >= totalPages" @click="currentPage++; loadData()">&gt;</button>
+      </div>
+      <select class="page-size-select" v-model="pageSize" @change="currentPage = 1; loadData()">
+        <option :value="10">10 条/页</option>
+        <option :value="20">20 条/页</option>
+        <option :value="50">50 条/页</option>
+        <option :value="100">100 条/页</option>
+      </select>
+    </div>
+
+    <!-- Detail Modal -->
+    <div v-if="showDetailModal" class="modal-backdrop">
+      <div class="modal workorder-modal" style="width: 600px;">
+        <div class="modal-header">
+          <h2>产品库存详情</h2>
+          <button class="close-btn" type="button" @click="showDetailModal = false">×</button>
+        </div>
+        <div style="padding: 24px; max-height: 480px; overflow-y: auto;">
+          <div class="detail-grid">
+            <div class="detail-item"><span class="label">产品编号:</span><span class="value">{{ activeDetail?.code || '-' }}</span></div>
+            <div class="detail-item"><span class="label">产品名称:</span><span class="value">{{ activeDetail?.name || '-' }}</span></div>
+            <div class="detail-item"><span class="label">单位:</span><span class="value">{{ activeDetail?.unitName || '-' }}</span></div>
+            <div class="detail-item"><span class="label">产品规格:</span><span class="value">{{ activeDetail?.spec || '-' }}</span></div>
+            <div class="detail-item"><span class="label">属性:</span><span class="value">{{ activeDetail?.attribute || '-' }}</span></div>
+            <div class="detail-item"><span class="label">工艺路线:</span><span class="value">{{ activeDetail?.routeName || '-' }}</span></div>
+            <div class="detail-item"><span class="label">制造方式:</span><span class="value">{{ activeDetail?.manufactureMode || '-' }}</span></div>
+            <div class="detail-item"><span class="label">安全库存:</span><span class="value">{{ activeDetail?.safetyStock || '0' }}</span></div>
+            <div class="detail-item"><span class="label">最小库存:</span><span class="value">{{ activeDetail?.minStock || '0' }}</span></div>
+            <div class="detail-item"><span class="label">最大库存:</span><span class="value">{{ activeDetail?.maxStock || '0' }}</span></div>
+            <div class="detail-item"><span class="label">成本价:</span><span class="value">¥{{ activeDetail?.costPrice || '0.00' }}</span></div>
+            <div class="detail-item"><span class="label">销售价:</span><span class="value">¥{{ activeDetail?.salePrice || '0.00' }}</span></div>
+            <div class="detail-item"><span class="label">供应商:</span><span class="value">{{ activeDetail?.supplierName || '-' }}</span></div>
+            <div class="detail-item"><span class="label">客户名称:</span><span class="value">{{ activeDetail?.customerName || '-' }}</span></div>
+            <div class="detail-item"><span class="label">产品类型:</span><span class="value">{{ activeDetail?.productType || '-' }}</span></div>
+            <div class="detail-item"><span class="label">当前库存:</span><span class="value" style="color: #00b889; font-weight: bold;">{{ activeDetail?.inventoryQty || 0 }}</span></div>
+            <div class="detail-item"><span class="label">创建人:</span><span class="value">{{ activeDetail?.creator || '-' }}</span></div>
+            <div class="detail-item"><span class="label">创建时间:</span><span class="value">{{ activeDetail?.createdAt || '-' }}</span></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="primary-btn wide" type="button" @click="showDetailModal = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column Config Modal -->
+    <div v-if="showColumnModal" class="modal-backdrop">
+      <div class="modal workorder-modal" style="width: 480px;">
+        <div class="modal-header">
+          <h2>字段配置</h2>
+          <button class="close-btn" type="button" @click="showColumnModal = false">×</button>
+        </div>
+        <div style="padding: 24px; max-height: 480px; overflow-y: auto;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <label v-for="col in columnDefinitions" :key="col.key" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" :value="col.key" v-model="visibleColumns" style="accent-color: #00b889; width: 16px; height: 16px;" />
+              <span style="font-size: 14px; color: #1e2724;">{{ col.label }}</span>
+            </label>
+          </div>
+          <div style="text-align: right; margin-top: 24px;">
+            <button class="ghost-btn" style="margin-right: 12px;" @click="showColumnModal = false">取消</button>
+            <button class="primary-btn" @click="handleSaveColumns">保存配置</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</template>
+
+<style scoped>
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.sort-icon {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 4px;
+  vertical-align: middle;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 4px solid #8a9693;
+  opacity: 0.3;
+  transition: transform 0.2s, opacity 0.2s;
+}
+.sort-icon.asc {
+  transform: rotate(0deg);
+  opacity: 1;
+  border-bottom-color: #00b889;
+}
+.sort-icon.desc {
+  transform: rotate(180deg);
+  opacity: 1;
+  border-bottom-color: #00b889;
+}
+
+.page-size-select {
+  border: 1px solid #dce3e0;
+  border-radius: 4px;
+  background: white;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #586360;
+  outline: none;
+  cursor: pointer;
+  height: 28px;
+  line-height: 20px;
+}
+.page-size-select:hover {
+  border-color: #00b889;
+}
+
+.primary-stroke {
+  background: white !important;
+  color: #00b889 !important;
+  border: 1px solid #00b889 !important;
+}
+.primary-stroke:hover {
+  background: #f4fbf9 !important;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.detail-item {
+  display: flex;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.detail-item .label {
+  color: #8a9693;
+  width: 90px;
+  flex-shrink: 0;
+}
+.detail-item .value {
+  color: #1e2724;
+  word-break: break-all;
+}
+</style>

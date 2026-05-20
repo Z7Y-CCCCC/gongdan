@@ -47,6 +47,23 @@ public class ProductController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/export")
+    public void exportProducts(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(required = false) String code,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String spec,
+            javax.servlet.http.HttpServletResponse response
+    ) throws java.io.IOException {
+        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        String csv = productService.exportProductsCsv(currentUser.getFactoryId(), code, name, spec);
+        response.setContentType("text/csv; charset=UTF-8");
+        response.setHeader("Content-Disposition", "attachment; filename=inventory_balance_export.csv");
+        response.getOutputStream().write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
+        response.getOutputStream().write(csv.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        response.getOutputStream().flush();
+    }
+
     @GetMapping("/operation-logs")
     public ResponseEntity<Map<String, Object>> listOperationLogs(
             @RequestHeader(value = "Authorization", required = false) String authorization,
