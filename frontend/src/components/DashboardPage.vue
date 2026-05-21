@@ -167,7 +167,7 @@ defineExpose({ loadDashboardData })
   <section class="dashboard-fullscreen">
     <div class="db-header">
       <span class="db-time">最近更新: {{ dashboardTime }}</span>
-      <h1 class="db-title">黑湖小工单数据看板</h1>
+      <h1 class="db-title">小工单数据看板</h1>
       <div style="display: flex; gap: 12px;">
         <button class="db-fullscreen-btn" @click="toggleDashboardFullscreen">{{ isDashboardFullscreen ? '退出全屏' : '进入全屏' }}</button>
         <button class="db-fullscreen-btn" @click="exitDashboard">退出看板</button>

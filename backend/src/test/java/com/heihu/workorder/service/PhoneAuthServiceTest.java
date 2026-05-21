@@ -65,17 +65,18 @@ class PhoneAuthServiceTest {
     }
 
     @Test
-    @DisplayName("测试密码登录失败（手机号不存在）")
-    void loginByPassword_phoneNotFound_shouldThrowUnauthorized() {
+    @DisplayName("测试密码登录（手机号不存在）返回bindingRequired")
+    void loginByPassword_phoneNotFound_shouldReturnBindingRequired() {
         String phone = "13800000000";
 
         when(userRepository.findAllByPhone(phone)).thenReturn(Collections.emptyList());
 
-        ApiException exception = assertThrows(ApiException.class, () ->
-                phoneAuthService.loginByPassword(phone, "anyPassword"));
+        PhoneLoginResponse response = phoneAuthService.loginByPassword(phone, "anyPassword");
 
-        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatus());
-        assertEquals("手机号或密码不正确", exception.getMessage());
+        assertTrue(response.isBindingRequired());
+        assertEquals(phone, response.getPhone());
+        assertNull(response.getToken());
+        assertNull(response.getUser());
     }
 
     @Test
@@ -149,19 +150,20 @@ class PhoneAuthServiceTest {
     }
 
     @Test
-    @DisplayName("测试验证码登录失败（手机号未注册）")
-    void loginBySmsCode_phoneNotRegistered_shouldThrowUnauthorized() {
+    @DisplayName("测试验证码登录（手机号未注册但验证码有效）应返回 bindingRequired")
+    void loginBySmsCode_phoneNotRegistered_validCode_shouldReturnBindingRequired() {
         String phone = "13800000000";
         String code = "123456";
 
         when(smsService.verifyCode(phone, code)).thenReturn(true);
         when(userRepository.findAllByPhone(phone)).thenReturn(Collections.emptyList());
 
-        ApiException exception = assertThrows(ApiException.class, () ->
-                phoneAuthService.loginBySmsCode(phone, code));
+        PhoneLoginResponse response = phoneAuthService.loginBySmsCode(phone, code);
 
-        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatus());
-        assertEquals("该手机号未注册", exception.getMessage());
+        assertTrue(response.isBindingRequired());
+        assertEquals(phone, response.getPhone());
+        assertNull(response.getToken());
+        assertNull(response.getUser());
     }
 
     // ==================== 多工厂场景测试 ====================

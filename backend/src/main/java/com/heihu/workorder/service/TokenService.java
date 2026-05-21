@@ -20,10 +20,19 @@ public class TokenService {
         sessions.put(token, new AuthenticatedUser(
                 user.getId(),
                 user.getFactory().getId(),
+                user.getFactory().getCode(),
                 user.getRole(),
                 user.getName()
         ));
         return token;
+    }
+
+    public AuthenticatedUser requireSuperAdmin(String authorization) {
+        AuthenticatedUser user = requireUser(authorization);
+        if (!"ADMIN".equalsIgnoreCase(user.getFactoryCode())) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "需要超级管理员权限");
+        }
+        return user;
     }
 
     public AuthenticatedUser requireAdmin(String authorization) {

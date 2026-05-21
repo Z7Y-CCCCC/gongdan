@@ -41,7 +41,10 @@ public class PhoneAuthService {
     public PhoneLoginResponse loginByPassword(String phone, String password) {
         List<FactoryUser> users = userRepository.findAllByPhone(phone);
         if (users.isEmpty()) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "手机号或密码不正确");
+            PhoneLoginResponse response = new PhoneLoginResponse();
+            response.setBindingRequired(true);
+            response.setPhone(phone);
+            return response;
         }
 
         // 筛选密码匹配的用户
@@ -82,6 +85,7 @@ public class PhoneAuthService {
     /**
      * 手机号 + 短信验证码登录。
      * 若手机号关联多个工厂且有多个启用用户，返回工厂列表供选择。
+     * 若手机号无关联用户且验证码有效，返回 bindingRequired=true 引导绑定流程。
      */
     @Transactional(readOnly = true)
     public PhoneLoginResponse loginBySmsCode(String phone, String code) {
@@ -91,7 +95,11 @@ public class PhoneAuthService {
 
         List<FactoryUser> users = userRepository.findAllByPhone(phone);
         if (users.isEmpty()) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "该手机号未注册");
+            // 验证码有效但手机号未注册，返回 bindingRequired 响应引导绑定
+            PhoneLoginResponse response = new PhoneLoginResponse();
+            response.setBindingRequired(true);
+            response.setPhone(phone);
+            return response;
         }
 
         // 筛选启用的用户

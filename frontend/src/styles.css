@@ -35,6 +35,7 @@ button {
 }
 
 .login-page {
+  position: relative;
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(520px, 1fr) minmax(380px, 520px);
@@ -42,39 +43,26 @@ button {
     radial-gradient(circle at 28% 86%, rgba(0, 184, 137, 0.18), transparent 30%),
     linear-gradient(135deg, #f4faf9 0%, #eaf2f4 54%, #f8fbfb 100%);
   overflow: hidden;
+  z-index: 1;
+}
+
+.login-page::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: url('/login_bg.png') center center / cover no-repeat;
+  opacity: 0.08;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .login-hero {
   position: relative;
   padding: 34px 48px 56px;
   overflow: hidden;
-}
-
-/* 背景图铺满下半区域 */
-.login-hero::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 55%;
-  background: url('/login_bg.png') center bottom / cover no-repeat;
-  opacity: 0.6;
-  pointer-events: none;
-  z-index: 0;
-}
-
-/* 渐变遮罩：从上方背景色平滑过渡到透明，让图片自然淡入 */
-.login-hero::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 55%;
-  background: linear-gradient(to bottom, #f4faf9 0%, transparent 40%);
-  pointer-events: none;
-  z-index: 0;
 }
 
 .brand {
@@ -87,15 +75,14 @@ button {
 }
 
 .logo-mark {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 7px;
-  background: var(--accent);
+  width: 180px;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  border-radius: 16px;
+  background: transparent;
   color: #fff;
   font-size: 22px;
-  transform: rotate(3deg);
   box-shadow: 0 12px 28px rgba(0, 184, 137, 0.28);
 }
 
@@ -284,6 +271,50 @@ button {
   display: grid;
   gap: 16px;
 }
+
+.remember-me-row {
+  display: flex;
+  align-items: center;
+  margin: 2px 0 6px 0;
+}
+
+.remember-me-label {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: #586360;
+  font-size: 13px;
+  user-select: none;
+}
+
+.remember-me-label input[type="checkbox"] {
+  appearance: auto !important;
+  -webkit-appearance: auto !important;
+  width: 15px !important;
+  height: 15px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  accent-color: #0c9d82 !important;
+  cursor: pointer;
+  margin: 0 !important;
+}
+
+.create-form input[type="checkbox"] {
+  appearance: auto !important;
+  -webkit-appearance: auto !important;
+  width: 16px !important;
+  height: 16px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  accent-color: #0c9d82 !important;
+  cursor: pointer;
+  margin: 0 !important;
+}
+
 
 .login-form label,
 .filters label,
@@ -1301,9 +1332,10 @@ th {
 .data-table th:last-child {
   background: #f4f6f6;
   z-index: 11;
+  box-shadow: -6px 0 12px rgba(0, 0, 0, 0.06);
 }
 .data-table td:last-child {
-  box-shadow: -4px 0 8px rgba(0,0,0,0.02);
+  box-shadow: -6px 0 12px rgba(0, 0, 0, 0.06);
 }
 
 .category-tabs {

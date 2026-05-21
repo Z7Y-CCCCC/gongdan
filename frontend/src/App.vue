@@ -71,9 +71,15 @@ import InventoryBalancePage from './components/InventoryBalancePage.vue'
 import InventoryDetailPage from './components/InventoryDetailPage.vue'
 import CustomReceiptFieldsPage from './components/CustomReceiptFieldsPage.vue'
 import DeleteConfirmDialog from './components/DeleteConfirmDialog.vue'
+import SuperAdminAuthCodesPage from './components/SuperAdminAuthCodesPage.vue'
+import BindFactoryPage from './components/BindFactoryPage.vue'
+import { useAuth } from './composables/useAuth'
+
+const sharedAuth = useAuth()
 
 const token = ref(localStorage.getItem('heihu_token') || '')
 const currentUser = ref<UserInfo | null>(readStoredUser())
+const isSuperAdmin = ref(localStorage.getItem('heihu_is_super_admin') === 'true')
 const users = ref<UserInfo[]>([])
 const loading = ref(false)
 const usersLoading = ref(false)
@@ -122,7 +128,7 @@ const showUserDropdown = ref(false)
 const showNewPassword = ref(false)
 const showConfirmPassword = ref(false)
 const activeConfigMenu = ref('department') // default to department based on user request
-const activeMainMenu = ref('sysconfig') // 'sysconfig' | 'basedata'
+const activeMainMenu = ref('home') // 'home' | 'sysconfig' | 'basedata' | 'super-admin' | ...
 const activeBasedataMenu = ref('unit') // default to unit
 const activeProductionMenu = ref('workorder')
 const activeCustomMenu = ref('workorder')
@@ -208,6 +214,10 @@ const loadDashboardData = async () => {
 watch(activeMainMenu, (newVal) => {
   if (newVal === 'dashboard') {
     loadDashboardData()
+  }
+  // Route guard: redirect non-super-admin users away from super-admin page
+  if (newVal === 'super-admin' && !isSuperAdmin.value) {
+    activeMainMenu.value = 'home'
   }
 })
 
@@ -1039,7 +1049,7 @@ const expandedMenus = reactive<Record<string, boolean>>({
   basedata: false,
   custom: false,
   report: false,
-  sysconfig: true
+  sysconfig: false
 })
 
 function toggleMenu(key: string) {
@@ -1078,13 +1088,30 @@ const selectedUserNames = computed(() => {
 })
 
 const loginForm = reactive({
-  factoryCode: 'HHGD',
-  username: 'admin',
+  factoryCode: '',
+  username: '',
   password: ''
 })
 
 // Phone login state
-const loginTab = ref<'phone' | 'factory'>('phone')
+const loginTab = ref<'phone' | 'factory'>('factory')
+const rememberMe = ref(false)
+
+// 挂载/初始化时读取 localStorage
+try {
+  const saved = localStorage.getItem('gongdan_remember_me')
+  if (saved) {
+    const parsed = JSON.parse(saved)
+    if (parsed.remember) {
+      rememberMe.value = true
+      loginForm.factoryCode = parsed.factoryCode || ''
+      loginForm.username = parsed.username || ''
+      loginForm.password = parsed.password || ''
+    }
+  }
+} catch (e) {
+  console.error('Failed to read rememberMe from localStorage:', e)
+}
 const phoneLoginMode = ref<'password' | 'sms'>('password')
 const phoneForm = reactive({
   phone: '',
@@ -1095,6 +1122,8 @@ const smsCountdown = ref(0)
 let smsTimer: ReturnType<typeof setInterval> | null = null
 const phoneError = ref('')
 const showFactorySelect = ref(false)
+const showBindFactory = ref(false)
+const bindingPhone = ref('')
 const factoryList = ref<FactoryOptionItem[]>([])
 const pendingPhoneCredential = reactive({
   phone: '',
@@ -1139,7 +1168,7 @@ const filteredUsers = computed(() => {
     const matchAccount = !filterForm.account || item.username.includes(filterForm.account)
     const matchRole = filterForm.role === '全部' || item.roleLabel === filterForm.role
     const matchDepartment =
-      filterForm.department === '全部' || item.departmentName === filterForm.department
+      !filterForm.department || filterForm.department === '全部' || item.departmentName === filterForm.department
     const matchStatus =
       filterForm.status === '全部' ||
       (filterForm.status === '全部' ? true : filterForm.status === '启用中' ? item.enabled : !item.enabled)
@@ -1178,12 +1207,14 @@ function readStoredUser() {
 function persistSession(response: LoginResponse) {
   token.value = response.token
   currentUser.value = response.user
+  isSuperAdmin.value = response.isSuperAdmin ?? false
   localStorage.setItem('heihu_token', response.token)
   localStorage.setItem('heihu_user', JSON.stringify(response.user))
-  // ADMIN 用户登录后默认进入主页仪表盘
-  if (response.user.role === 'ADMIN') {
-    activeMainMenu.value = 'home'
-  }
+  localStorage.setItem('heihu_is_super_admin', String(response.isSuperAdmin ?? false))
+  // 同步 useAuth composable 的共享状态（供 HomeDashboardPage 等子组件使用）
+  sharedAuth.persistSession(response)
+  // 登录后默认进入主页仪表盘
+  activeMainMenu.value = 'home'
 }
 
 const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
@@ -1234,6 +1265,16 @@ async function handleLogin() {
   loading.value = true
   try {
     const response = await login(loginForm)
+    if (rememberMe.value) {
+      localStorage.setItem('gongdan_remember_me', JSON.stringify({
+        remember: true,
+        factoryCode: loginForm.factoryCode,
+        username: loginForm.username,
+        password: loginForm.password
+      }))
+    } else {
+      localStorage.removeItem('gongdan_remember_me')
+    }
     persistSession(response)
     currentFactoryCode.value = loginForm.factoryCode
     localStorage.setItem('heihu_factory_code', loginForm.factoryCode)
@@ -1307,14 +1348,25 @@ async function handlePhoneLogin() {
 }
 
 function handlePhoneLoginResult(result: PhoneLoginResult) {
-  if (result.selectRequired && result.factories) {
+  if (result.bindingRequired && result.phone) {
+    // 需要绑定工厂，携带手机号跳转到绑定页面，不显示错误提示
+    bindingPhone.value = result.phone
+    showBindFactory.value = true
+  } else if (result.selectRequired && result.factories) {
     factoryList.value = result.factories
     showFactorySelect.value = true
   } else if (result.token && result.user) {
-    persistSession({ token: result.token, user: result.user })
+    persistSession({ token: result.token, user: result.user, isSuperAdmin: false })
     loadUsers()
     loadDepartments()
   }
+}
+
+function handleBindSuccess(payload: { token: string; user: any }) {
+  showBindFactory.value = false
+  bindingPhone.value = ''
+  // 绑定成功后不自动登录，用户需要使用默认密码重新登录
+  // BindFactoryPage 组件内部已处理成功状态展示
 }
 
 async function handleSelectFactory(factoryId: number) {
@@ -1328,7 +1380,7 @@ async function handleSelectFactory(factoryId: number) {
       credential: pendingPhoneCredential.credential
     })
     if (result.token && result.user) {
-      persistSession({ token: result.token, user: result.user })
+      persistSession({ token: result.token, user: result.user, isSuperAdmin: false })
       const factory = factoryList.value.find(f => f.factoryId === factoryId)
       if (factory) {
         currentFactoryCode.value = factory.factoryCode
@@ -1698,7 +1750,7 @@ function handlePrintUser(user: UserInfo) {
         </style>
       </head>
       <body>
-        <h1>黑湖小工单用户信息</h1>
+        <h1>小工单用户信息</h1>
         <table>
           <tr><td>账号</td><td>${user.username}</td></tr>
           <tr><td>姓名</td><td>${user.name}</td></tr>
@@ -1818,7 +1870,7 @@ function handlePrintTemplate() {
         </style>
       </head>
       <body>
-        <h1>黑湖小工单 - 用户列表</h1>
+        <h1>小工单 - 用户列表</h1>
         <p class="info">打印时间：${new Date().toLocaleString('zh-CN')}，共 ${dataToprint.length} 人</p>
         <table>
           <thead>
@@ -1837,17 +1889,20 @@ function handlePrintTemplate() {
 function logout() {
   token.value = ''
   currentUser.value = null
+  isSuperAdmin.value = false
   users.value = []
   localStorage.removeItem('heihu_token')
   localStorage.removeItem('heihu_user')
+  localStorage.removeItem('heihu_is_super_admin')
+  // 退出登录时重置主菜单和子菜单的焦点
+  activeMainMenu.value = 'home'
+  activeConfigMenu.value = 'department'
 }
 
 onMounted(() => {
   if (token.value) {
-    // ADMIN 用户页面刷新后默认进入主页仪表盘
-    if (currentUser.value && currentUser.value.role === 'ADMIN') {
-      activeMainMenu.value = 'home'
-    }
+    // 页面刷新后默认进入主页仪表盘
+    activeMainMenu.value = 'home'
     loadUsers()
     loadDepartments()
     loadUnits()
@@ -1907,8 +1962,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
   <main v-if="!isLoggedIn" class="login-page">
     <section class="login-hero">
       <div class="brand">
-        <div class="logo-mark">工</div>
-        <span>黑湖小工单</span>
+        <img class="logo-mark" src="/logo.jpg" alt="Logo" />
       </div>
       <div class="hero-copy">
         <h1>随时随地，管理车间现场</h1>
@@ -1940,12 +1994,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="login-panel">
       <div class="login-box">
         <h2>欢迎登录</h2>
-        <p class="login-sub">黑湖小工单管理系统</p>
+        <p class="login-sub">小工单管理系统</p>
 
         <!-- Tab switcher -->
-        <div class="login-tabs">
-          <span class="login-tab" :class="{ active: loginTab === 'phone' }" @click="loginTab = 'phone'">手机号登录</span>
+        <div v-if="!showBindFactory && !showFactorySelect" class="login-tabs">
           <span class="login-tab" :class="{ active: loginTab === 'factory' }" @click="loginTab = 'factory'">工厂账号登录</span>
+          <span class="login-tab" :class="{ active: loginTab === 'phone' }" @click="loginTab = 'phone'">手机号登录</span>
         </div>
 
         <!-- Factory select overlay -->
@@ -1960,8 +2014,16 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <button class="text-btn" type="button" @click="showFactorySelect = false">返回</button>
         </div>
 
+        <!-- Bind factory overlay -->
+        <BindFactoryPage
+          v-if="showBindFactory"
+          :phone="bindingPhone"
+          @back="showBindFactory = false; bindingPhone = ''"
+          @bound="handleBindSuccess"
+        />
+
         <!-- Phone login form -->
-        <form v-if="loginTab === 'phone' && !showFactorySelect" class="login-form" @submit.prevent="handlePhoneLogin">
+        <form v-if="loginTab === 'phone' && !showFactorySelect && !showBindFactory" class="login-form" @submit.prevent="handlePhoneLogin">
           <div class="phone-mode-switch">
             <span :class="{ active: phoneLoginMode === 'password' }" @click="phoneLoginMode = 'password'">密码登录</span>
             <span class="mode-divider">|</span>
@@ -1991,7 +2053,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         </form>
 
         <!-- Factory account login form (existing) -->
-        <form v-if="loginTab === 'factory' && !showFactorySelect" class="login-form" @submit.prevent="handleLogin">
+        <form v-if="loginTab === 'factory' && !showFactorySelect && !showBindFactory" class="login-form" @submit.prevent="handleLogin">
           <label>
             <span>工厂代码</span>
             <input v-model="loginForm.factoryCode" autocomplete="organization" placeholder="请输入工厂代码" />
@@ -2004,6 +2066,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span>密码</span>
             <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" type="password" />
           </label>
+          <div class="remember-me-row">
+            <label class="remember-me-label">
+              <input type="checkbox" v-model="rememberMe" />
+              <span>记住用户名密码</span>
+            </label>
+          </div>
           <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
           <button class="primary-btn login-btn" :disabled="loading" type="submit">
             {{ loading ? '登录中...' : '登录' }}
@@ -2119,8 +2187,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.sysconfig }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
-            <a class="sub-item" :class="{ 'selected': activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
-            <a class="sub-item" :class="{ 'selected': activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
+            <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
+            <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
             <a class="sub-item">工厂</a>
           </div>
         </div>
@@ -2129,6 +2197,13 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'dashboard' }" :title="isSidebarCollapsed ? '车间看板' : ''" @click.stop="activeMainMenu = 'dashboard'">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
             <span v-show="!isSidebarCollapsed">车间看板</span>
+          </a>
+        </div>
+
+        <div v-if="isSuperAdmin" class="nav-group">
+          <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'super-admin' }" :title="isSidebarCollapsed ? '授权码管理' : ''" @click.stop="activeMainMenu = 'super-admin'">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span v-show="!isSidebarCollapsed">授权码管理</span>
           </a>
         </div>
       </nav>
@@ -2162,6 +2237,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </template>
           <template v-else-if="activeMainMenu === 'dashboard'">
             车间看板
+          </template>
+          <template v-else-if="activeMainMenu === 'super-admin'">
+            授权码管理
           </template>
           <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : '用户' }}</template>
         </div>
@@ -2211,6 +2289,10 @@ function handleNavigate(menu: { main: string; sub: string }) {
       <HomeDashboardPage
         v-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
         :token="token"
+      />
+
+      <SuperAdminAuthCodesPage
+        v-if="activeMainMenu === 'super-admin'"
       />
 
       <ProductDefinitionPage
@@ -2482,18 +2564,18 @@ function handleNavigate(menu: { main: string; sub: string }) {
             </button>
           </div>
         </div>
-        <div class="table-wrapper">
+        <div class="table-container">
           <table class="data-table">
             <thead>
               <tr>
                 <th style="width:40px"><input type="checkbox" /></th>
                 <th style="width:50px">序号</th>
-                <th>工序编号</th>
-                <th>工序名称</th>
-                <th>报工权限</th>
-                <th>报工数配比</th>
-                <th>任务打卡</th>
-                <th class="action-cell">操作</th>
+                <th style="min-width:140px">工序编号</th>
+                <th style="min-width:150px">工序名称</th>
+                <th style="min-width:200px">报工权限</th>
+                <th style="min-width:120px">报工数配比</th>
+                <th style="min-width:100px">任务打卡</th>
+                <th class="action-cell" style="min-width:240px">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -2781,18 +2863,19 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </button>
           <button class="toolbar-btn" style="margin-left:auto" type="button">导入日志</button>
         </div>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th style="width:40px"><input type="checkbox" /></th>
-              <th>工艺路线编号</th>
-              <th>工艺路线名称</th>
-              <th>工序/工艺路线列表</th>
-              <th>创建人</th>
-              <th>创建时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:40px"><input type="checkbox" /></th>
+                <th style="min-width:150px">工艺路线编号</th>
+                <th style="min-width:180px">工艺路线名称</th>
+                <th style="min-width:240px">工序/工艺路线列表</th>
+                <th style="min-width:120px">创建人</th>
+                <th style="min-width:180px">创建时间</th>
+                <th style="min-width:180px">操作</th>
+              </tr>
+            </thead>
           <tbody>
             <tr v-for="(r, idx) in routeFilteredList" :key="r.id">
               <td style="text-align:center">{{ idx + 1 }}</td>
@@ -2819,6 +2902,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             </tr>
           </tbody>
         </table>
+      </div>
       </section>
 
       <!-- 工艺路线 - 创建/编辑 -->
@@ -3041,15 +3125,15 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <table class="data-table">
             <thead>
               <tr>
-                <th>姓名</th>
-                <th>账号</th>
-                <th>手机号</th>
-                <th>角色</th>
-                <th>部门</th>
-                <th>状态</th>
-                <th>虚拟用户</th>
-                <th>创建时间</th>
-                <th>操作</th>
+                <th style="min-width: 100px;">姓名</th>
+                <th style="min-width: 120px;">账号</th>
+                <th style="min-width: 180px;">手机号</th>
+                <th style="min-width: 110px;">角色</th>
+                <th style="min-width: 130px;">部门</th>
+                <th style="min-width: 100px;">状态</th>
+                <th style="min-width: 100px;">虚拟用户</th>
+                <th style="min-width: 180px;">创建时间</th>
+                <th style="min-width: 440px;">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -3058,7 +3142,6 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 <td>{{ user.username }}</td>
                 <td>
                   <span>{{ user.phone || '-' }}</span>
-                  <button v-if="user.phone" class="inline-link" type="button" @click="confirmUnbindPhone(user)">解绑</button>
                 </td>
                 <td>{{ user.roleLabel }}</td>
                 <td>{{ user.departmentName || '-' }}</td>
@@ -3190,7 +3273,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
       <section class="dashboard-fullscreen" v-show="activeMainMenu === 'dashboard'">
         <div class="db-header">
           <span class="db-time">最近更新: {{ dashboardTime }}</span>
-          <h1 class="db-title">黑湖小工单数据看板</h1>
+          <h1 class="db-title">小工单数据看板</h1>
           <div style="display: flex; gap: 12px;">
             <button class="db-fullscreen-btn" @click="toggleDashboardFullscreen">{{ isDashboardFullscreen ? '退出全屏' : '进入全屏' }}</button>
             <button class="db-fullscreen-btn" @click="exitDashboard">退出看板</button>

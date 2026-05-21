@@ -72,6 +72,9 @@ public class DataInitializer implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        // 初始化超级管理员工厂
+        seedSuperAdminFactory();
+
         Factory factory = factoryRepository.findByCode(factoryCode)
                 .orElseGet(() -> {
                     Factory item = new Factory();
@@ -94,6 +97,42 @@ public class DataInitializer implements ApplicationRunner {
 
         syncAdmin(admin);
         seedWorkOrderCustomFields(targetFactory, admin);
+    }
+
+    private void seedSuperAdminFactory() {
+        String superAdminFactoryCode = "ADMIN";
+        String superAdminUsername = "admin";
+        String superAdminPassword = "admin123";
+
+        Factory adminFactory = factoryRepository.findByCode(superAdminFactoryCode)
+                .orElseGet(() -> {
+                    Factory item = new Factory();
+                    item.setCode(superAdminFactoryCode);
+                    item.setName("超级管理员");
+                    item.setEnabled(true);
+                    item.setCreatedAt(LocalDateTime.now());
+                    return factoryRepository.save(item);
+                });
+
+        if (!adminFactory.isEnabled()) {
+            adminFactory.setEnabled(true);
+            factoryRepository.save(adminFactory);
+        }
+
+        userRepository.findByFactoryIdAndUsername(adminFactory.getId(), superAdminUsername)
+                .orElseGet(() -> {
+                    FactoryUser user = new FactoryUser();
+                    user.setFactory(adminFactory);
+                    user.setUsername(superAdminUsername);
+                    user.setName("超级管理员");
+                    user.setPasswordHash(passwordEncoder.encode(superAdminPassword));
+                    user.setRole(Role.ADMIN);
+                    user.setEnabled(true);
+                    user.setVirtualUser(false);
+                    user.setCreatedAt(LocalDateTime.now());
+                    user.setUpdatedAt(LocalDateTime.now());
+                    return userRepository.save(user);
+                });
     }
 
     private FactoryUser createDefaultAdmin(Factory factory) {

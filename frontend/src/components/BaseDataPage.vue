@@ -984,18 +984,18 @@ onMounted(() => {
             </button>
           </div>
         </div>
-        <div class="table-wrapper">
+        <div class="table-container">
           <table class="data-table">
             <thead>
               <tr>
                 <th style="width:40px"><input type="checkbox" /></th>
                 <th style="width:50px">序号</th>
-                <th>工序编号</th>
-                <th>工序名称</th>
-                <th>报工权限</th>
-                <th>报工数配比</th>
-                <th>任务打卡</th>
-                <th class="action-cell">操作</th>
+                <th style="min-width:140px">工序编号</th>
+                <th style="min-width:150px">工序名称</th>
+                <th style="min-width:200px">报工权限</th>
+                <th style="min-width:120px">报工数配比</th>
+                <th style="min-width:100px">任务打卡</th>
+                <th class="action-cell" style="min-width:240px">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -1285,18 +1285,19 @@ onMounted(() => {
           </button>
           <button class="toolbar-btn" style="margin-left:auto" type="button">导入日志</button>
         </div>
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th style="width:40px"><input type="checkbox" /></th>
-              <th>工艺路线编号</th>
-              <th>工艺路线名称</th>
-              <th>工序/工艺路线列表</th>
-              <th>创建人</th>
-              <th>创建时间</th>
-              <th>操作</th>
-            </tr>
-          </thead>
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:40px"><input type="checkbox" /></th>
+                <th style="min-width:150px">工艺路线编号</th>
+                <th style="min-width:180px">工艺路线名称</th>
+                <th style="min-width:240px">工序/工艺路线列表</th>
+                <th style="min-width:120px">创建人</th>
+                <th style="min-width:180px">创建时间</th>
+                <th style="min-width:180px">操作</th>
+              </tr>
+            </thead>
           <tbody>
             <tr v-for="(r, idx) in routeFilteredList" :key="r.id">
               <td style="text-align:center">{{ idx + 1 }}</td>
@@ -1323,6 +1324,7 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
+      </div>
       </section>
 
 

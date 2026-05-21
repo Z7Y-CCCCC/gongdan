@@ -1,6 +1,7 @@
 package com.heihu.workorder.repository;
 
 import com.heihu.workorder.model.FactoryUser;
+import com.heihu.workorder.model.Role;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,7 +18,11 @@ public interface UserRepository extends JpaRepository<FactoryUser, Long> {
 
     List<FactoryUser> findByFactoryIdOrderByCreatedAtAsc(Long factoryId);
 
+    List<FactoryUser> findByFactoryId(Long factoryId);
+
     List<FactoryUser> findByDepartmentId(Long departmentId);
 
     List<FactoryUser> findAllByPhone(String phone);
+
+    List<FactoryUser> findByRoleAndVirtualUserFalseAndFactoryIdNotOrderByCreatedAtDesc(Role role, Long factoryId);
 }

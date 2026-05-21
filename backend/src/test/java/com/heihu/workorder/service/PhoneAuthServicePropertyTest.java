@@ -23,10 +23,10 @@ import static org.mockito.Mockito.*;
  */
 class PhoneAuthServicePropertyTest {
 
-    // Feature: phone-login, Property 2: 无效凭证统一拒绝（密码登录）
-    // **Validates: Requirements 2.4, 2.5**
+    // Feature: phone-factory-binding, Property 1: Unregistered phone returns bindingRequired without credential validation
+    // **Validates: Requirements 1.1, 1.3, 1.6**
     @Property(tries = 100)
-    void invalidCredentialsShouldReturn401_phoneNotFound(
+    void unregisteredPhoneShouldReturnBindingRequired(
             @ForAll("validPhoneNumbers") String phone,
             @ForAll("randomPasswords") String password
     ) {
@@ -40,15 +40,16 @@ class PhoneAuthServicePropertyTest {
 
         PhoneAuthService service = new PhoneAuthService(userRepository, passwordEncoder, tokenService, smsService);
 
-        // Act & Assert
-        ApiException exception = catchThrowableOfType(
-                () -> service.loginByPassword(phone, password),
-                ApiException.class
-        );
+        // Act
+        PhoneLoginResponse response = service.loginByPassword(phone, password);
 
-        assertThat(exception).isNotNull();
-        assertThat(exception.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        assertThat(exception.getMessage()).isEqualTo("手机号或密码不正确");
+        // Assert: bindingRequired=true, phone set, no token or user
+        assertThat(response.isBindingRequired()).isTrue();
+        assertThat(response.getPhone()).isEqualTo(phone);
+        assertThat(response.getToken()).isNull();
+        assertThat(response.getUser()).isNull();
+        // Password should NOT be validated (no interaction with passwordEncoder)
+        verifyNoInteractions(passwordEncoder);
     }
 
     // Feature: phone-login, Property 2: 无效凭证统一拒绝（密码登录）

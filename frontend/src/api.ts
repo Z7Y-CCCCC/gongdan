@@ -50,6 +50,7 @@ export interface LoginPayload {
 export interface LoginResponse {
   token: string
   user: UserInfo
+  isSuperAdmin: boolean
 }
 
 export interface CreateUserPayload {
@@ -1048,9 +1049,23 @@ export interface FactoryOptionItem {
 
 export interface PhoneLoginResult {
   selectRequired: boolean
+  bindingRequired?: boolean
+  phone?: string
   token?: string
   user?: UserInfo
   factories?: FactoryOptionItem[]
+}
+
+export interface BindFactoryPayload {
+  phone: string
+  factoryCode: string
+  authorizationCode: string
+}
+
+export interface BindFactoryResponse {
+  token: string
+  user: UserInfo
+  defaultPassword: string
 }
 
 export function phonePasswordLogin(payload: PhonePasswordLoginPayload) {
@@ -1076,6 +1091,13 @@ export function sendSmsCode(payload: SmsSendPayload) {
 
 export function selectFactory(payload: SelectFactoryPayload) {
   return request<PhoneLoginResult>('/auth/phone/select-factory', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export function bindFactory(payload: BindFactoryPayload) {
+  return request<BindFactoryResponse>('/auth/phone/bind-factory', {
     method: 'POST',
     body: JSON.stringify(payload)
   })
@@ -1389,6 +1411,192 @@ export async function fetchInventoryDetails(
   if (params.page) query.append('page', String(params.page))
   if (params.size) query.append('size', String(params.size))
   return request<InventoryDetailListResponse>(`/inventory-details?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 超级管理员管理 API =====
+
+// --- 工厂管理 ---
+export interface CreateFactoryPayload {
+  factoryCode: string
+  factoryName: string
+}
+
+export interface FactoryListItem {
+  factoryCode: string
+  factoryName: string
+  enabled: boolean
+  createdAt: string
+}
+
+export function createFactory(token: string, payload: CreateFactoryPayload) {
+  return request<FactoryListItem>('/super-admin/factories', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function fetchFactories(token: string) {
+  return request<FactoryListItem[]>('/super-admin/factories', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function disableFactory(token: string, code: string) {
+  return request<void>(`/super-admin/factories/${code}/disable`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function enableFactory(token: string, code: string) {
+  return request<void>(`/super-admin/factories/${code}/enable`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// --- 工厂管理员账号 ---
+export interface CreateFactoryAdminPayload {
+  factoryCode: string
+  username: string
+  password?: string
+}
+
+export interface FactoryAdminResponse {
+  factoryCode: string
+  username: string
+  password: string
+  enabled: boolean
+  createdAt: string
+}
+
+export interface FactoryAdminListItem {
+  id: number
+  factoryCode: string
+  username: string
+  enabled: boolean
+  createdAt: string
+}
+
+export function createFactoryAdmin(token: string, payload: CreateFactoryAdminPayload) {
+  return request<FactoryAdminResponse>('/super-admin/factory-admins', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function fetchFactoryAdmins(token: string) {
+  return request<FactoryAdminListItem[]>('/super-admin/factory-admins', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function disableFactoryAdmin(token: string, id: number) {
+  return request<void>(`/super-admin/factory-admins/${id}/disable`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function enableFactoryAdmin(token: string, id: number) {
+  return request<void>(`/super-admin/factory-admins/${id}/enable`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// --- 授权码管理 ---
+export interface GenerateAuthCodePayload {
+  factoryCode: string
+  expirationMinutes?: number
+}
+
+export interface AuthCodeResponse {
+  code: string
+  expiresAt: string
+}
+
+export interface AuthCodeListItem {
+  id: number
+  code: string
+  factoryCode: string
+  status: 'active' | 'expired' | 'consumed' | 'disabled'
+  createdAt: string
+  expiresAt: string
+}
+
+export function generateAuthCode(token: string, payload: GenerateAuthCodePayload) {
+  return request<AuthCodeResponse>('/super-admin/auth-codes', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function fetchAuthCodes(token: string) {
+  return request<AuthCodeListItem[]>('/super-admin/auth-codes', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function disableAuthCode(token: string, id: number) {
+  return request<void>(`/super-admin/auth-codes/${id}/disable`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// --- 超级管理员账号 ---
+export interface CreateSuperAdminPayload {
+  username: string
+  password: string
+}
+
+export function createSuperAdmin(token: string, payload: CreateSuperAdminPayload) {
+  return request<void>('/super-admin/admins', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function fetchSuperAdmins(token: string) {
+  return request<FactoryAdminListItem[]>('/super-admin/super-admins', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function resetSuperAdminUserPassword(token: string, userId: number, password?: string) {
+  const body: Record<string, string> = {}
+  if (password) body.password = password
+  return request<{ password: string }>(`/super-admin/users/${userId}/reset-password`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body)
+  })
+}
+
+export function deleteFactoryAdmin(token: string, id: number) {
+  return request<void>(`/super-admin/factory-admins/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function deleteAuthCode(token: string, id: number) {
+  return request<void>(`/super-admin/auth-codes/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function deleteSuperAdmin(token: string, id: number) {
+  return request<void>(`/super-admin/super-admins/${id}`, {
+    method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` }
   })
 }

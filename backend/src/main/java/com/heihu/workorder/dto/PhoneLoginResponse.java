@@ -5,7 +5,9 @@ import java.util.List;
 public class PhoneLoginResponse {
 
     private boolean selectRequired;
+    private boolean bindingRequired;  // 是否需要绑定工厂
     private String token;
+    private String phone;             // 需要绑定的手机号（bindingRequired=true 时返回）
     private UserResponse user;
     private List<FactoryOption> factories;
 
@@ -18,6 +20,22 @@ public class PhoneLoginResponse {
 
     public void setSelectRequired(boolean selectRequired) {
         this.selectRequired = selectRequired;
+    }
+
+    public boolean isBindingRequired() {
+        return bindingRequired;
+    }
+
+    public void setBindingRequired(boolean bindingRequired) {
+        this.bindingRequired = bindingRequired;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
     }
 
     public String getToken() {

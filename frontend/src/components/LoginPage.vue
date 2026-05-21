@@ -9,6 +9,7 @@ import {
   type PhoneLoginResult,
   type FactoryOptionItem
 } from '../api'
+import BindFactoryPage from './BindFactoryPage.vue'
 
 const emit = defineEmits<{
   (e: 'login-success', payload: { token: string; user: any; factoryCode?: string }): void
@@ -18,13 +19,30 @@ const loading = ref(false)
 const errorMessage = ref('')
 
 const loginForm = reactive({
-  factoryCode: 'HHGD',
-  username: 'admin',
+  factoryCode: '',
+  username: '',
   password: ''
 })
 
 // Phone login state
-const loginTab = ref<'phone' | 'factory'>('phone')
+const loginTab = ref<'phone' | 'factory'>('factory')
+const rememberMe = ref(false)
+
+// 挂载/初始化时读取 localStorage
+try {
+  const saved = localStorage.getItem('gongdan_remember_me')
+  if (saved) {
+    const parsed = JSON.parse(saved)
+    if (parsed.remember) {
+      rememberMe.value = true
+      loginForm.factoryCode = parsed.factoryCode || ''
+      loginForm.username = parsed.username || ''
+      loginForm.password = parsed.password || ''
+    }
+  }
+} catch (e) {
+  console.error('Failed to read rememberMe from localStorage:', e)
+}
 const phoneLoginMode = ref<'password' | 'sms'>('password')
 const phoneForm = reactive({
   phone: '',
@@ -35,6 +53,8 @@ const smsCountdown = ref(0)
 let smsTimer: ReturnType<typeof setInterval> | null = null
 const phoneError = ref('')
 const showFactorySelect = ref(false)
+const showBindFactory = ref(false)
+const bindingPhone = ref('')
 const factoryList = ref<FactoryOptionItem[]>([])
 const pendingPhoneCredential = reactive({
   phone: '',
@@ -49,6 +69,16 @@ async function handleLogin() {
   loading.value = true
   try {
     const response = await login(loginForm)
+    if (rememberMe.value) {
+      localStorage.setItem('gongdan_remember_me', JSON.stringify({
+        remember: true,
+        factoryCode: loginForm.factoryCode,
+        username: loginForm.username,
+        password: loginForm.password
+      }))
+    } else {
+      localStorage.removeItem('gongdan_remember_me')
+    }
     emit('login-success', {
       token: response.token,
       user: response.user,
@@ -122,12 +152,24 @@ async function handlePhoneLogin() {
 }
 
 function handlePhoneLoginResult(result: PhoneLoginResult) {
-  if (result.selectRequired && result.factories) {
+  if (result.bindingRequired && result.phone) {
+    bindingPhone.value = result.phone
+    showBindFactory.value = true
+  } else if (result.selectRequired && result.factories) {
     factoryList.value = result.factories
     showFactorySelect.value = true
   } else if (result.token && result.user) {
     emit('login-success', { token: result.token, user: result.user })
   }
+}
+
+function handleBindBack() {
+  showBindFactory.value = false
+  bindingPhone.value = ''
+}
+
+function handleBound(payload: { token: string; user: any }) {
+  emit('login-success', payload)
 }
 
 async function handleSelectFactory(factoryId: number) {
@@ -161,8 +203,7 @@ async function handleSelectFactory(factoryId: number) {
   <main class="login-page">
     <section class="login-hero">
       <div class="brand">
-        <div class="logo-mark">工</div>
-        <span>黑湖小工单</span>
+        <img class="logo-mark" src="/logo.jpg" alt="Logo" />
       </div>
       <div class="hero-copy">
         <h1>随时随地，管理车间现场</h1>
@@ -194,12 +235,12 @@ async function handleSelectFactory(factoryId: number) {
     <section class="login-panel">
       <div class="login-box">
         <h2>欢迎登录</h2>
-        <p class="login-sub">黑湖小工单管理系统</p>
+        <p class="login-sub">小工单管理系统</p>
 
         <!-- Tab switcher -->
         <div class="login-tabs">
-          <span class="login-tab" :class="{ active: loginTab === 'phone' }" @click="loginTab = 'phone'">手机号登录</span>
           <span class="login-tab" :class="{ active: loginTab === 'factory' }" @click="loginTab = 'factory'">工厂账号登录</span>
+          <span class="login-tab" :class="{ active: loginTab === 'phone' }" @click="loginTab = 'phone'">手机号登录</span>
         </div>
 
         <!-- Factory select overlay -->
@@ -214,8 +255,16 @@ async function handleSelectFactory(factoryId: number) {
           <button class="text-btn" type="button" @click="showFactorySelect = false">返回</button>
         </div>
 
+        <!-- Bind factory page -->
+        <BindFactoryPage
+          v-if="showBindFactory"
+          :phone="bindingPhone"
+          @back="handleBindBack"
+          @bound="handleBound"
+        />
+
         <!-- Phone login form -->
-        <form v-if="loginTab === 'phone' && !showFactorySelect" class="login-form" @submit.prevent="handlePhoneLogin">
+        <form v-if="loginTab === 'phone' && !showFactorySelect && !showBindFactory" class="login-form" @submit.prevent="handlePhoneLogin">
           <div class="phone-mode-switch">
             <span :class="{ active: phoneLoginMode === 'password' }" @click="phoneLoginMode = 'password'">密码登录</span>
             <span class="mode-divider">|</span>
@@ -245,7 +294,7 @@ async function handleSelectFactory(factoryId: number) {
         </form>
 
         <!-- Factory account login form (existing) -->
-        <form v-if="loginTab === 'factory' && !showFactorySelect" class="login-form" @submit.prevent="handleLogin">
+        <form v-if="loginTab === 'factory' && !showFactorySelect && !showBindFactory" class="login-form" @submit.prevent="handleLogin">
           <label>
             <span>工厂代码</span>
             <input v-model="loginForm.factoryCode" autocomplete="organization" placeholder="请输入工厂代码" />
@@ -258,6 +307,12 @@ async function handleSelectFactory(factoryId: number) {
             <span>密码</span>
             <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" type="password" />
           </label>
+          <div class="remember-me-row">
+            <label class="remember-me-label">
+              <input type="checkbox" v-model="rememberMe" />
+              <span>记住用户名密码</span>
+            </label>
+          </div>
           <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
           <button class="primary-btn login-btn" :disabled="loading" type="submit">
             {{ loading ? '登录中...' : '登录' }}

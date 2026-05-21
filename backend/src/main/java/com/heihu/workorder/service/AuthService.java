@@ -44,6 +44,10 @@ public class AuthService {
         Factory factory = factoryRepository.findByCode(factoryCode)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "工厂代码、用户名或密码不正确"));
 
+        if (!factory.isEnabled()) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "该工厂已被停用，无法登录");
+        }
+
         FactoryUser user = findUser(factory.getId(), account)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "工厂代码、用户名或密码不正确"));
 
@@ -56,7 +60,8 @@ public class AuthService {
         }
 
         String token = tokenService.issue(user);
-        return new AuthResponse(token, UserResponse.from(user));
+        boolean isSuperAdmin = "ADMIN".equals(factory.getCode());
+        return new AuthResponse(token, UserResponse.from(user), isSuperAdmin);
     }
 
     private Optional<FactoryUser> findUser(Long factoryId, String account) {

@@ -30,7 +30,6 @@ const importLogs = ref<{ time: string; fileName: string; total: number; success:
 const importResult = ref<{ total: number; success: number; fail: number; errors: string[] } | null>(null)
 const showImportLogModal = ref(false)
 const currentPage = ref(1)
-const totalPages = ref(1)
 const pageSize = ref(10)
 const successUser = ref<UserInfo | null>(null)
 const successUserPassword = ref('')
@@ -93,7 +92,7 @@ const filteredUsers = computed(() => {
     const matchAccount = !filterForm.account || item.username.includes(filterForm.account)
     const matchRole = filterForm.role === '全部' || item.roleLabel === filterForm.role
     const matchDepartment =
-      filterForm.department === '全部' || item.departmentName === filterForm.department
+      !filterForm.department || filterForm.department === '全部' || item.departmentName === filterForm.department
     const matchStatus =
       filterForm.status === '全部' ||
       (filterForm.status === '全部' ? true : filterForm.status === '启用中' ? item.enabled : !item.enabled)
@@ -102,6 +101,18 @@ const filteredUsers = computed(() => {
       (filterForm.virtual === '全部' ? true : filterForm.virtual === '是' ? item.virtualUser : !item.virtualUser)
     return matchName && matchAccount && matchRole && matchDepartment && matchStatus && matchVirtual
   })
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredUsers.value.length / pageSize.value)))
+
+const paginatedUsers = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return filteredUsers.value.slice(start, end)
+})
+
+watch(filteredUsers, () => {
+  currentPage.value = 1
 })
 
 const isAllSelected = computed({
@@ -288,7 +299,7 @@ async function handleUnbindPhone(user: UserInfo) {
   if (!props.token) {
     return
   }
-    errorMessage.value = ''
+  errorMessage.value = ''
   loading.value = true
   try {
     const updated = await unbindUserPhone(props.token, user.id)
@@ -312,7 +323,7 @@ async function handleToggleEnabled(user: UserInfo, nextEnabled: boolean, actionN
   if (!props.token) {
     return
   }
-    errorMessage.value = ''
+  errorMessage.value = ''
   loading.value = true
   try {
     const updated = await updateUserStatus(props.token, user.id, nextEnabled)
@@ -348,7 +359,7 @@ function handlePrintUser(user: UserInfo) {
         </style>
       </head>
       <body>
-        <h1>黑湖小工单用户信息</h1>
+        <h1>小工单用户信息</h1>
         <table>
           <tr><td>账号</td><td>${user.username}</td></tr>
           <tr><td>姓名</td><td>${user.name}</td></tr>
@@ -468,7 +479,7 @@ function handlePrintTemplate() {
         </style>
       </head>
       <body>
-        <h1>黑湖小工单 - 用户列表</h1>
+        <h1>小工单 - 用户列表</h1>
         <p class="info">打印时间：${new Date().toLocaleString('zh-CN')}，共 ${dataToprint.length} 人</p>
         <table>
           <thead>
@@ -557,24 +568,23 @@ function handlePrintTemplate() {
           <table class="data-table">
             <thead>
               <tr>
-                <th>姓名</th>
-                <th>账号</th>
-                <th>手机号</th>
-                <th>角色</th>
-                <th>部门</th>
-                <th>状态</th>
-                <th>虚拟用户</th>
-                <th>创建时间</th>
-                <th>操作</th>
+                <th style="min-width: 100px;">姓名</th>
+                <th style="min-width: 120px;">账号</th>
+                <th style="min-width: 180px;">手机号</th>
+                <th style="min-width: 110px;">角色</th>
+                <th style="min-width: 130px;">部门</th>
+                <th style="min-width: 100px;">状态</th>
+                <th style="min-width: 100px;">虚拟用户</th>
+                <th style="min-width: 180px;">创建时间</th>
+                <th style="min-width: 440px;">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="user in filteredUsers" :key="user.id">
+              <tr v-for="user in paginatedUsers" :key="user.id">
                 <td>{{ user.name }}</td>
                 <td>{{ user.username }}</td>
                 <td>
                   <span>{{ user.phone || '-' }}</span>
-                  <button v-if="user.phone" class="inline-link" type="button" @click="confirmUnbindPhone(user)">解绑</button>
                 </td>
                 <td>{{ user.roleLabel }}</td>
                 <td>{{ user.departmentName || '-' }}</td>
@@ -602,7 +612,7 @@ function handlePrintTemplate() {
         </div>
 
         <div class="pagination">
-          <span class="page-total">共 {{ users.length }} 条结果</span>
+          <span class="page-total">共 {{ filteredUsers.length }} 条结果</span>
           <button class="page-btn" type="button" :disabled="currentPage <= 1" @click="currentPage--">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
           </button>

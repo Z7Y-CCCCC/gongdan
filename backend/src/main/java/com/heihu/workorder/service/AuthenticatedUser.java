@@ -6,12 +6,14 @@ public class AuthenticatedUser {
 
     private final Long userId;
     private final Long factoryId;
+    private final String factoryCode;
     private final Role role;
     private final String name;
 
-    public AuthenticatedUser(Long userId, Long factoryId, Role role, String name) {
+    public AuthenticatedUser(Long userId, Long factoryId, String factoryCode, Role role, String name) {
         this.userId = userId;
         this.factoryId = factoryId;
+        this.factoryCode = factoryCode;
         this.role = role;
         this.name = name;
     }
@@ -22,6 +24,10 @@ public class AuthenticatedUser {
 
     public Long getFactoryId() {
         return factoryId;
+    }
+
+    public String getFactoryCode() {
+        return factoryCode;
     }
 
     public Role getRole() {
