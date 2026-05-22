@@ -30,6 +30,7 @@ public class WorkOrderResponse {
     private String creator;
     private String createdAt;
     private String updatedAt;
+    private Long version;
 
     public Long getId() {
         return id;
@@ -237,5 +238,13 @@ public class WorkOrderResponse {
 
     public void setUpdatedAt(String updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 }

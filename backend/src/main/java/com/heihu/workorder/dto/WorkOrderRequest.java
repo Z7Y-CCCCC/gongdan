@@ -20,6 +20,7 @@ public class WorkOrderRequest {
     private List<CustomValueItem> customValues;
     private List<TaskItem> tasks;
     private List<MaterialItem> materials;
+    private Long version;
 
     public static class CustomValueItem {
         private Long fieldId;
@@ -345,5 +346,13 @@ public class WorkOrderRequest {
 
     public void setMaterials(List<MaterialItem> materials) {
         this.materials = materials;
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
+    public void setVersion(Long version) {
+        this.version = version;
     }
 }

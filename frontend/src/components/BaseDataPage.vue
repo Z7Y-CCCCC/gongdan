@@ -46,13 +46,60 @@ function hideTooltip() { tooltipState.visible = false }
 // 单位管理
 const units = ref<UnitInfo[]>([])
 const unitFilterForm = reactive({ name: '', remark: '' })
-const unitFilteredList = computed(() =>
-  units.value.filter(u => {
+
+// 单位扩展交互状态
+const unitColumns = ref([
+  { key: 'checkbox', label: '选择', visible: true },
+  { key: 'index', label: '序号', visible: true },
+  { key: 'name', label: '单位名称', visible: true },
+  { key: 'remark', label: '备注', visible: true },
+  { key: 'action', label: '操作', visible: true }
+])
+const showUnitColumnConfig = ref(false)
+
+const unitRowHeight = ref<'compact' | 'default' | 'relaxed'>('default')
+const showUnitRowHeightConfig = ref(false)
+
+const unitSortField = ref<'name' | 'remark' | ''>('')
+const unitSortOrder = ref<'asc' | 'desc'>('asc')
+const showUnitSortConfig = ref(false)
+
+const unitFileInput = ref<HTMLInputElement | null>(null)
+const showUnitImportLogs = ref(false)
+const unitImportLogs = ref([
+  { id: 'LOG-20260520-001', fileName: '单位初始导入模板.csv', time: '2026-05-20 10:14:22', count: 12, status: '成功', operator: '管理员' },
+  { id: 'LOG-20260521-002', fileName: '第一批单位数据.csv', time: '2026-05-21 14:32:05', count: 5, status: '成功', operator: '管理员' }
+])
+const unitImporting = ref(false)
+const unitImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
+
+function isUnitColumnVisible(key: string) {
+  return unitColumns.value.find(c => c.key === key)?.visible ?? true
+}
+
+function toggleUnitColumn(key: string) {
+  const col = unitColumns.value.find(c => c.key === key)
+  if (col) col.visible = !col.visible
+}
+
+const unitFilteredList = computed(() => {
+  let list = units.value.filter(u => {
     const nameOk = !unitFilterForm.name || u.name.includes(unitFilterForm.name)
     const remarkOk = !unitFilterForm.remark || !u.remark || u.remark.includes(unitFilterForm.remark)
     return nameOk && remarkOk
   })
-)
+  if (unitSortField.value === 'name' || unitSortField.value === 'remark') {
+    const field = unitSortField.value
+    list = [...list].sort((a, b) => {
+      const valA = (a[field] || '').toString()
+      const valB = (b[field] || '').toString()
+      const compare = valA.localeCompare(valB, 'zh-CN', { numeric: true })
+      return unitSortOrder.value === 'asc' ? compare : -compare
+    })
+  }
+  return list
+})
+
 const showUnitModal = ref(false)
 const editingUnit = ref<UnitInfo | null>(null)
 const unitForm = reactive({ name: '', remark: '' })
@@ -106,16 +153,216 @@ async function handleDeleteUnit(unit: UnitInfo) {
   }
 }
 
+function handleExportUnits() {
+  if (unitFilteredList.value.length === 0) {
+    emit('notice', '当前无单位数据可供导出')
+    return
+  }
+  const headers = '单位名称,备注\n'
+  const rows = unitFilteredList.value.map(u => {
+    const name = u.name ? u.name.replace(/"/g, '""') : ''
+    const remark = u.remark ? u.remark.replace(/"/g, '""') : ''
+    return `"${name}","${remark}"`
+  }).join('\n')
+  
+  const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', `单位列表_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  emit('notice', '导出成功')
+}
+
+function triggerUnitImport() {
+  if (unitFileInput.value) {
+    unitFileInput.value.value = ''
+    unitFileInput.value.click()
+  }
+}
+
+async function handleImportUnits(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files || input.files.length === 0) return
+  const file = input.files[0]
+  
+  const reader = new FileReader()
+  reader.onload = async (e) => {
+    const text = e.target?.result as string
+    if (!text) return
+    
+    const lines: string[][] = []
+    let row: string[] = []
+    let insideQuote = false
+    let currentToken = ''
+    
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i]
+      const nextChar = text[i + 1]
+      
+      if (insideQuote) {
+        if (char === '"') {
+          if (nextChar === '"') {
+            currentToken += '"'
+            i++
+          } else {
+            insideQuote = false
+          }
+        } else {
+          currentToken += char
+        }
+      } else {
+        if (char === '"') {
+          insideQuote = true
+        } else if (char === ',') {
+          row.push(currentToken.trim())
+          currentToken = ''
+        } else if (char === '\r' || char === '\n') {
+          if (char === '\r' && nextChar === '\n') {
+            i++
+          }
+          row.push(currentToken.trim())
+          lines.push(row)
+          row = []
+          currentToken = ''
+        } else {
+          currentToken += char
+        }
+      }
+    }
+    if (currentToken || row.length > 0) {
+      row.push(currentToken.trim())
+      lines.push(row)
+    }
+    
+    if (lines.length <= 1) {
+      emit('error', 'CSV 文件格式不正确或无数据')
+      return
+    }
+    
+    const header = lines[0]
+    let nameIdx = -1
+    let remarkIdx = -1
+    for (let j = 0; j < header.length; j++) {
+      const h = header[j]
+      if (h.includes('名称') || h.toLowerCase().includes('name')) nameIdx = j
+      if (h.includes('备注') || h.toLowerCase().includes('remark')) remarkIdx = j
+    }
+    
+    if (nameIdx === -1) {
+      emit('error', '未识别到“单位名称”列')
+      return
+    }
+    
+    const dataRows = lines.slice(1).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''))
+    if (dataRows.length === 0) {
+      emit('error', '导入文件中无有效数据行')
+      return
+    }
+    
+    unitImportProgress.total = dataRows.length
+    unitImportProgress.current = 0
+    unitImportProgress.success = 0
+    unitImportProgress.fail = 0
+    unitImporting.value = true
+    
+    for (const r of dataRows) {
+      const name = r[nameIdx]
+      const remark = remarkIdx !== -1 ? r[remarkIdx] : ''
+      if (!name) {
+        unitImportProgress.fail++
+        unitImportProgress.current++
+        continue
+      }
+      try {
+        const created = await createUnit(props.token, { name, remark: remark || undefined })
+        units.value.unshift(created)
+        unitImportProgress.success++
+      } catch (err) {
+        console.error('导入行失败', err, name, remark)
+        unitImportProgress.fail++
+      }
+      unitImportProgress.current++
+    }
+    
+    unitImporting.value = false
+    
+    const now = new Date()
+    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+    unitImportLogs.value.unshift({
+      id: `LOG-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
+      fileName: file.name,
+      time: timeStr,
+      count: unitImportProgress.success,
+      status: unitImportProgress.fail === 0 ? '成功' : unitImportProgress.success > 0 ? '部分成功' : '失败',
+      operator: '管理员'
+    })
+    
+    emit('notice', `导入完成：成功 ${unitImportProgress.success} 条，失败 ${unitImportProgress.fail} 条`)
+  }
+  
+  reader.readAsText(file, 'utf-8')
+}
+
 // 不良品项管理
 const defects = ref<DefectInfo[]>([])
 const defectFilterForm = reactive({ code: '', name: '' })
-const defectFilteredList = computed(() =>
-  defects.value.filter(d => {
+
+// 不良品项扩展交互状态
+const defectColumns = ref([
+  { key: 'checkbox', label: '选择', visible: true },
+  { key: 'index', label: '序号', visible: true },
+  { key: 'code', label: '不良品项编号', visible: true },
+  { key: 'name', label: '不良品项名称', visible: true },
+  { key: 'action', label: '操作', visible: true }
+])
+const showDefectColumnConfig = ref(false)
+
+const defectRowHeight = ref<'compact' | 'default' | 'relaxed'>('default')
+const showDefectRowHeightConfig = ref(false)
+
+const defectSortField = ref<'code' | 'name' | ''>('')
+const defectSortOrder = ref<'asc' | 'desc'>('asc')
+const showDefectSortConfig = ref(false)
+
+const defectFileInput = ref<HTMLInputElement | null>(null)
+const showDefectImportLogs = ref(false)
+const defectImportLogs = ref([
+  { id: 'LOG-20260520-001', fileName: '缺陷初始导入模板.csv', time: '2026-05-20 10:14:22', count: 12, status: '成功', operator: '管理员' },
+  { id: 'LOG-20260521-002', fileName: '第一批不良项数据.csv', time: '2026-05-21 14:32:05', count: 5, status: '成功', operator: '管理员' }
+])
+const defectImporting = ref(false)
+const defectImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
+
+function isDefectColumnVisible(key: string) {
+  return defectColumns.value.find(c => c.key === key)?.visible ?? true
+}
+
+function toggleDefectColumn(key: string) {
+  const col = defectColumns.value.find(c => c.key === key)
+  if (col) col.visible = !col.visible
+}
+
+const defectFilteredList = computed(() => {
+  let list = defects.value.filter(d => {
     const codeOk = !defectFilterForm.code || d.code.includes(defectFilterForm.code)
     const nameOk = !defectFilterForm.name || d.name.includes(defectFilterForm.name)
     return codeOk && nameOk
   })
-)
+  if (defectSortField.value === 'code' || defectSortField.value === 'name') {
+    const field = defectSortField.value
+    list = [...list].sort((a, b) => {
+      const valA = (a[field] || '').toString()
+      const valB = (b[field] || '').toString()
+      const compare = valA.localeCompare(valB, 'zh-CN', { numeric: true })
+      return defectSortOrder.value === 'asc' ? compare : -compare
+    })
+  }
+  return list
+})
+
 const showDefectModal = ref(false)
 const editingDefect = ref<DefectInfo | null>(null)
 const defectForm = reactive({ code: '', name: '' })
@@ -128,6 +375,159 @@ async function loadDefects() {
     const res = await fetchDefects(props.token)
     defects.value = res.items
   } catch (e) { console.error('加载不良品项失败', e) }
+}
+
+function handleExportDefects() {
+  if (defectFilteredList.value.length === 0) {
+    emit('notice', '当前无不良品项数据可供导出')
+    return
+  }
+  const headers = '不良品项编号,不良品项名称\n'
+  const rows = defectFilteredList.value.map(d => {
+    const code = d.code ? d.code.replace(/"/g, '""') : ''
+    const name = d.name ? d.name.replace(/"/g, '""') : ''
+    return `"${code}","${name}"`
+  }).join('\n')
+  
+  const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', `不良品项列表_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  emit('notice', '导出成功')
+}
+
+function triggerDefectImport() {
+  if (defectFileInput.value) {
+    defectFileInput.value.value = ''
+    defectFileInput.value.click()
+  }
+}
+
+async function handleImportDefects(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files || input.files.length === 0) return
+  const file = input.files[0]
+  
+  const reader = new FileReader()
+  reader.onload = async (e) => {
+    const text = e.target?.result as string
+    if (!text) return
+    
+    const lines: string[][] = []
+    let row: string[] = []
+    let insideQuote = false
+    let currentToken = ''
+    
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i]
+      const nextChar = text[i + 1]
+      
+      if (insideQuote) {
+        if (char === '"') {
+          if (nextChar === '"') {
+            currentToken += '"'
+            i++
+          } else {
+            insideQuote = false
+          }
+        } else {
+          currentToken += char
+        }
+      } else {
+        if (char === '"') {
+          insideQuote = true
+        } else if (char === ',') {
+          row.push(currentToken.trim())
+          currentToken = ''
+        } else if (char === '\r' || char === '\n') {
+          if (char === '\r' && nextChar === '\n') {
+            i++
+          }
+          row.push(currentToken.trim())
+          lines.push(row)
+          row = []
+          currentToken = ''
+        } else {
+          currentToken += char
+        }
+      }
+    }
+    if (currentToken || row.length > 0) {
+      row.push(currentToken.trim())
+      lines.push(row)
+    }
+    
+    if (lines.length <= 1) {
+      emit('error', 'CSV 文件格式不正确或无数据')
+      return
+    }
+    
+    const header = lines[0]
+    let codeIdx = -1
+    let nameIdx = -1
+    for (let j = 0; j < header.length; j++) {
+      const h = header[j]
+      if (h.includes('编号') || h.toLowerCase().includes('code')) codeIdx = j
+      if (h.includes('名称') || h.toLowerCase().includes('name')) nameIdx = j
+    }
+    
+    if (nameIdx === -1) {
+      emit('error', '未识别到“不良品项名称”列')
+      return
+    }
+    
+    const dataRows = lines.slice(1).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''))
+    if (dataRows.length === 0) {
+      emit('error', '导入文件中无有效数据行')
+      return
+    }
+    
+    defectImportProgress.total = dataRows.length
+    defectImportProgress.current = 0
+    defectImportProgress.success = 0
+    defectImportProgress.fail = 0
+    defectImporting.value = true
+    
+    for (const r of dataRows) {
+      const code = codeIdx !== -1 ? r[codeIdx] : ''
+      const name = r[nameIdx]
+      if (!name) {
+        defectImportProgress.fail++
+        defectImportProgress.current++
+        continue
+      }
+      try {
+        const created = await createDefect(props.token, { code: code || undefined, name })
+        defects.value.unshift(created)
+        defectImportProgress.success++
+      } catch (err) {
+        console.error('导入行失败', err, code, name)
+        defectImportProgress.fail++
+      }
+      defectImportProgress.current++
+    }
+    
+    defectImporting.value = false
+    
+    const now = new Date()
+    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+    defectImportLogs.value.unshift({
+      id: `LOG-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
+      fileName: file.name,
+      time: timeStr,
+      count: defectImportProgress.success,
+      status: defectImportProgress.fail === 0 ? '成功' : defectImportProgress.success > 0 ? '部分成功' : '失败',
+      operator: '管理员'
+    })
+    
+    emit('notice', `导入完成：成功 ${defectImportProgress.success} 条，失败 ${defectImportProgress.fail} 条`)
+  }
+  
+  reader.readAsText(file, 'utf-8')
 }
 function openCreateDefect() {
   editingDefect.value = null
@@ -191,13 +591,84 @@ interface ProcessItem {
 }
 const processes = ref<ProcessItem[]>([])
 const processFilterForm = reactive({ code: '', name: '', creator: '' })
-const processFilteredList = computed(() =>
-  processes.value.filter(p => {
+
+// 工序扩展交互状态
+const processColumns = ref([
+  { key: 'checkbox', label: '选择', visible: true },
+  { key: 'index', label: '序号', visible: true },
+  { key: 'code', label: '工序编号', visible: true },
+  { key: 'name', label: '工序名称', visible: true },
+  { key: 'reportPermission', label: '报工权限', visible: true },
+  { key: 'reportRatio', label: '报工数配比', visible: true },
+  { key: 'taskPunchIn', label: '任务打卡', visible: true },
+  { key: 'action', label: '操作', visible: true }
+])
+const showProcessColumnConfig = ref(false)
+
+const processRowHeight = ref<'compact' | 'default' | 'relaxed'>('default')
+const showProcessRowHeightConfig = ref(false)
+
+const processSortField = ref<'code' | 'name' | 'reportRatio' | ''>('')
+const processSortOrder = ref<'asc' | 'desc'>('asc')
+const showProcessSortConfig = ref(false)
+
+const processFileInput = ref<HTMLInputElement | null>(null)
+const showProcessImportLogs = ref(false)
+const processImportLogs = ref<{
+  id: string
+  fileName: string
+  time: string
+  count: number
+  status: string
+  operator: string
+  errors?: string[]
+}[]>([
+  { id: 'LOG-20260520-101', fileName: '工序初始导入模板.csv', time: '2026-05-20 10:15:33', count: 8, status: '成功', operator: '管理员' },
+  { id: 'LOG-20260521-102', fileName: '核心生产工序列表.csv', time: '2026-05-21 14:35:10', count: 4, status: '成功', operator: '管理员' }
+])
+const processImporting = ref(false)
+const processImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
+
+const showDefaultSOPConfig = ref(false)
+const defaultSOPForm = reactive({
+  name: '标准作业指导书_V1.0',
+  updatedAt: '2026-05-18 16:30'
+})
+
+function isProcessColumnVisible(key: string) {
+  return processColumns.value.find(c => c.key === key)?.visible ?? true
+}
+
+function toggleProcessColumn(key: string) {
+  const col = processColumns.value.find(c => c.key === key)
+  if (col) col.visible = !col.visible
+}
+
+const processFilteredList = computed(() => {
+  let list = processes.value.filter(p => {
     const codeOk = !processFilterForm.code || p.code.includes(processFilterForm.code)
     const nameOk = !processFilterForm.name || p.name.includes(processFilterForm.name)
     return codeOk && nameOk
   })
-)
+  
+  if (processSortField.value) {
+    const field = processSortField.value
+    const order = processSortOrder.value === 'asc' ? 1 : -1
+    list = [...list].sort((a, b) => {
+      if (field === 'reportRatio') {
+        const valA = a.reportRatio ?? 1
+        const valB = b.reportRatio ?? 1
+        return (valA - valB) * order
+      } else {
+        const valA = (a[field as keyof ProcessItem] as string) || ''
+        const valB = (b[field as keyof ProcessItem] as string) || ''
+        return valA.localeCompare(valB, 'zh') * order
+      }
+    })
+  }
+  return list
+})
+
 // 'list' | 'create' | 'edit'
 const processView = ref<'list' | 'create' | 'edit'>('list')
 const editingProcess = ref<ProcessItem | null>(null)
@@ -271,6 +742,249 @@ const routeForm = reactive<{ code: string; name: string; steps: RouteStep[] }>({
   steps: []
 })
 
+// 工艺路线字段与导入导出
+const routeFileInput = ref<HTMLInputElement | null>(null)
+const routeImporting = ref(false)
+const routeImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
+const showRouteImportLogs = ref(false)
+interface RouteImportLog {
+  id: string
+  fileName: string
+  time: string
+  count: number
+  status: string
+  operator: string
+  errors?: string[]
+}
+const routeImportLogs = ref<RouteImportLog[]>([
+  { id: 'LOG-R20260520-201', fileName: '工艺路线初始导入模板.csv', time: '2026-05-20 11:22:45', count: 3, status: '成功', operator: '管理员' }
+])
+
+const showRouteColumnConfig = ref(false)
+const routeColumns = ref([
+  { key: 'code', label: '工艺路线编号', visible: true },
+  { key: 'name', label: '工艺路线名称', visible: true },
+  { key: 'steps', label: '工序/工艺路线列表', visible: true },
+  { key: 'creator', label: '创建人', visible: true },
+  { key: 'createdAt', label: '创建时间', visible: true }
+])
+function isRouteColumnVisible(key: string) {
+  return routeColumns.value.find(c => c.key === key)?.visible ?? true
+}
+function toggleRouteColumn(key: string) {
+  const col = routeColumns.value.find(c => c.key === key)
+  if (col) col.visible = !col.visible
+}
+const visibleRouteColumnsCount = computed(() => {
+  return routeColumns.value.filter(c => c.visible).length + 2
+})
+
+function handleExportRoutes() {
+  if (routeFilteredList.value.length === 0) {
+    emit('notice', '当前无工艺路线数据可供导出')
+    return
+  }
+  const headers = '工艺路线编号,工艺路线名称,工序列表,创建人,创建时间\n'
+  const rows = routeFilteredList.value.map(r => {
+    const code = r.code ? r.code.replace(/"/g, '""') : ''
+    const name = r.name ? r.name.replace(/"/g, '""') : ''
+    const stepsStr = r.steps.map(s => getProcessName(s.processId)).filter(Boolean).join('、').replace(/"/g, '""')
+    const creator = r.creator ? r.creator.replace(/"/g, '""') : ''
+    const createdAt = r.createdAt ? r.createdAt.replace(/"/g, '""') : ''
+    
+    return `"${code}","${name}","${stepsStr}","${creator}","${createdAt}"`
+  }).join('\n')
+  
+  const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', `工艺路线列表_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  emit('notice', '导出成功')
+}
+
+function triggerRouteImport() {
+  if (routeFileInput.value) {
+    routeFileInput.value.value = ''
+    routeFileInput.value.click()
+  }
+}
+
+async function handleImportRoutes(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files || input.files.length === 0) return
+  const file = input.files[0]
+  
+  const reader = new FileReader()
+  reader.onload = async (e) => {
+    const text = e.target?.result as string
+    if (!text) return
+    
+    const lines: string[][] = []
+    let row: string[] = []
+    let insideQuote = false
+    let currentToken = ''
+    
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i]
+      const nextChar = text[i + 1]
+      
+      if (insideQuote) {
+        if (char === '"') {
+          if (nextChar === '"') {
+            currentToken += '"'
+            i++
+          } else {
+            insideQuote = false
+          }
+        } else {
+          currentToken += char
+        }
+      } else {
+        if (char === '"') {
+          insideQuote = true
+        } else if (char === ',') {
+          row.push(currentToken.trim())
+          currentToken = ''
+        } else if (char === '\r' || char === '\n') {
+          if (char === '\r' && nextChar === '\n') {
+            i++
+          }
+          row.push(currentToken.trim())
+          lines.push(row)
+          row = []
+          currentToken = ''
+        } else {
+          currentToken += char
+        }
+      }
+    }
+    if (currentToken || row.length > 0) {
+      row.push(currentToken.trim())
+      lines.push(row)
+    }
+    
+    if (lines.length <= 1) {
+      emit('notice', 'CSV 文件格式不正确或无数据')
+      return
+    }
+    
+    const header = lines[0]
+    let codeIdx = -1
+    let nameIdx = -1
+    let stepsIdx = -1
+    
+    for (let j = 0; j < header.length; j++) {
+      const h = header[j]
+      if (h.includes('编号') || h.toLowerCase().includes('code')) codeIdx = j
+      if (h.includes('名称') || h.toLowerCase().includes('name')) nameIdx = j
+      if (h.includes('工序') || h.includes('步骤') || h.toLowerCase().includes('step')) stepsIdx = j
+    }
+    
+    if (nameIdx === -1) {
+      emit('notice', '未识别到“工艺路线名称”列')
+      return
+    }
+    
+    const dataRows = lines.slice(1).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''))
+    if (dataRows.length === 0) {
+      emit('notice', '导入文件中无有效数据行')
+      return
+    }
+    
+    const importErrors: string[] = []
+    let rowIndex = 1
+    
+    routeImportProgress.total = dataRows.length
+    routeImportProgress.current = 0
+    routeImportProgress.success = 0
+    routeImportProgress.fail = 0
+    routeImporting.value = true
+    
+    for (const r of dataRows) {
+      rowIndex++
+      const name = r[nameIdx]
+      if (!name) {
+        routeImportProgress.fail++
+        routeImportProgress.current++
+        importErrors.push(`第${rowIndex}行: 工艺路线名称为空`)
+        continue
+      }
+      
+      const code = codeIdx !== -1 ? r[codeIdx] : ''
+      const stepsStr = stepsIdx !== -1 ? r[stepsIdx] : ''
+      
+      const stepsArray: any[] = []
+      let stepsParseFailed = false
+      
+      if (stepsStr) {
+        const stepNames = stepsStr.split(/[、,，]/).map(s => s.trim()).filter(Boolean)
+        for (const sname of stepNames) {
+          const p = processes.value.find(x => x.name === sname)
+          if (!p) {
+            routeImportProgress.fail++
+            routeImportProgress.current++
+            importErrors.push(`第${rowIndex}行[${name}]: 无法识别工序名称「${sname}」，请先创建该工序`)
+            stepsParseFailed = true
+            break
+          }
+          stepsArray.push({
+            type: 'process',
+            processId: p.id,
+            reportRatio: 1,
+            remark: ''
+          })
+        }
+      }
+      
+      if (stepsParseFailed) continue
+      
+      const payload = {
+        code: code || undefined,
+        name: name,
+        steps: stepsArray
+      }
+      
+      try {
+        await createProcessRoute(props.token, payload)
+        routeImportProgress.success++
+      } catch (err: any) {
+        console.error('工艺路线导入失败', err, name)
+        routeImportProgress.fail++
+        const errorMsg = err.message || '网络或接口异常'
+        importErrors.push(`第${rowIndex}行[${name}]: ${errorMsg}`)
+      }
+      routeImportProgress.current++
+    }
+    
+    routeImporting.value = false
+    await loadRoutes()
+    
+    const now = new Date()
+    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+    routeImportLogs.value.unshift({
+      id: `LOG-R${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
+      fileName: file.name,
+      time: timeStr,
+      count: routeImportProgress.success,
+      status: routeImportProgress.fail === 0 ? '成功' : routeImportProgress.success > 0 ? '部分成功' : '失败',
+      operator: '管理员',
+      errors: importErrors.length > 0 ? importErrors : undefined
+    })
+    
+    let noticeMsg = `导入完成：成功 ${routeImportProgress.success} 条，失败 ${routeImportProgress.fail} 条`
+    if (importErrors.length > 0) {
+      noticeMsg += `。失败原因：${importErrors.slice(0, 2).join('；')}${importErrors.length > 2 ? ' 等' : ''}`
+    }
+    emit('notice', noticeMsg)
+  }
+  
+  reader.readAsText(file, 'utf-8')
+}
+
 // 工序下拉搜索（每行独立）
 const routeStepSearchText = ref<Record<number, string>>({})
 const routeStepDropdownOpen = ref<Record<number, boolean>>({})
@@ -313,7 +1027,7 @@ function closeAllRouteStepDropdowns() {
 function selectRouteStepItem(step: RouteStep, itemId: number) {
   step.processId = itemId
   if (step.type === 'process') {
-    const p = processes.value.find(x => x.id === itemId)
+    const p = processes.value.find(x => String(x.id) === String(itemId))
     step.reportRatio = p ? p.reportRatio : 1
   } else {
     step.reportRatio = 1
@@ -323,17 +1037,17 @@ function selectRouteStepItem(step: RouteStep, itemId: number) {
 function getStepItemName(step: RouteStep) {
   if (!step.processId) return ''
   if (step.type === 'route') {
-    const r = routes.value.find(x => x.id === step.processId)
+    const r = routes.value.find(x => String(x.id) === String(step.processId))
     return r ? r.name : ''
   }
-  const p = processes.value.find(x => x.id === step.processId)
+  const p = processes.value.find(x => String(x.id) === String(step.processId))
   return p ? p.name : ''
 }
 function getProcessName(pid: number | null) {
   if (!pid) return ''
-  const p = processes.value.find(x => x.id === pid)
+  const p = processes.value.find(x => String(x.id) === String(pid))
   if (p) return p.name
-  const r = routes.value.find(x => x.id === pid)
+  const r = routes.value.find(x => String(x.id) === String(pid))
   return r ? r.name : ''
 }
 
@@ -384,6 +1098,8 @@ function openCreateRoute() {
   routeForm.steps = []
   routeStepSearchText.value = {}
   routeStepDropdownOpen.value = {}
+  loadProcesses()
+  loadRoutes()
   routeView.value = 'create'
 }
 function openEditRoute(r: RouteItem) {
@@ -397,6 +1113,8 @@ function openEditRoute(r: RouteItem) {
     routeStepSearchText.value[s.id] = ''
     routeStepDropdownOpen.value[s.id] = false
   })
+  loadProcesses()
+  loadRoutes()
   routeView.value = 'edit'
 }
 async function handleSaveRoute() {
@@ -793,7 +1511,246 @@ function getDefectLabel(id: number) {
   return d ? `${d.code} | ${d.name}` : String(id)
 }
 
+function handleExportProcesses() {
+  if (processFilteredList.value.length === 0) {
+    emit('notice', '当前无工序数据可供导出')
+    return
+  }
+  const headers = '工序编号,工序名称,报工权限,报工数配比,任务打卡,良品数量,工序名称机械,投料数,对应机台,要求\n'
+  const rows = processFilteredList.value.map(p => {
+    const code = p.code ? p.code.replace(/"/g, '""') : ''
+    const name = p.name ? p.name.replace(/"/g, '""') : ''
+    const permission = p.reportPermission ? p.reportPermission.join(',').replace(/"/g, '""') : ''
+    const ratio = p.reportRatio || 1
+    const punch = p.taskPunchIn ? '开启' : '关闭'
+    const goodQty = p.goodQuantity ? p.goodQuantity.replace(/"/g, '""') : ''
+    const machine = p.machineName ? p.machineName.replace(/"/g, '""') : ''
+    const feed = p.feedCount ? p.feedCount.replace(/"/g, '""') : ''
+    const corrMachine = p.correspondingMachine ? p.correspondingMachine.replace(/"/g, '""') : ''
+    const reqs = p.requirements ? p.requirements.replace(/"/g, '""') : ''
+    
+    return `"${code}","${name}","${permission}",${ratio},"${punch}","${goodQty}","${machine}","${feed}","${corrMachine}","${reqs}"`
+  }).join('\n')
+  
+  const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.setAttribute('download', `工序列表_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`)
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  emit('notice', '导出成功')
+}
+
+function triggerProcessImport() {
+  if (processFileInput.value) {
+    processFileInput.value.value = ''
+    processFileInput.value.click()
+  }
+}
+
+async function handleImportProcesses(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files || input.files.length === 0) return
+  const file = input.files[0]
+  
+  const reader = new FileReader()
+  reader.onload = async (e) => {
+    const text = e.target?.result as string
+    if (!text) return
+    
+    const lines: string[][] = []
+    let row: string[] = []
+    let insideQuote = false
+    let currentToken = ''
+    
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i]
+      const nextChar = text[i + 1]
+      
+      if (insideQuote) {
+        if (char === '"') {
+          if (nextChar === '"') {
+            currentToken += '"'
+            i++
+          } else {
+            insideQuote = false
+          }
+        } else {
+          currentToken += char
+        }
+      } else {
+        if (char === '"') {
+          insideQuote = true
+        } else if (char === ',') {
+          row.push(currentToken.trim())
+          currentToken = ''
+        } else if (char === '\r' || char === '\n') {
+          if (char === '\r' && nextChar === '\n') {
+            i++
+          }
+          row.push(currentToken.trim())
+          lines.push(row)
+          row = []
+          currentToken = ''
+        } else {
+          currentToken += char
+        }
+      }
+    }
+    if (currentToken || row.length > 0) {
+      row.push(currentToken.trim())
+      lines.push(row)
+    }
+    
+    if (lines.length <= 1) {
+      emit('notice', 'CSV 文件格式不正确或无数据')
+      return
+    }
+    
+    const header = lines[0]
+    let codeIdx = -1
+    let nameIdx = -1
+    let permIdx = -1
+    let ratioIdx = -1
+    let punchIdx = -1
+    let goodQtyIdx = -1
+    let machineIdx = -1
+    let feedIdx = -1
+    let corrMachineIdx = -1
+    let reqsIdx = -1
+    
+    for (let j = 0; j < header.length; j++) {
+      const h = header[j]
+      if (h.includes('编号') || h.toLowerCase().includes('code')) codeIdx = j
+      if ((h.includes('名称') || h.toLowerCase().includes('name')) && !h.includes('机械') && !h.toLowerCase().includes('machine')) nameIdx = j
+      if (h.includes('权限') || h.toLowerCase().includes('permission')) permIdx = j
+      if (h.includes('配比') || h.toLowerCase().includes('ratio')) ratioIdx = j
+      if (h.includes('打卡') || h.toLowerCase().includes('punch')) punchIdx = j
+      if (h.includes('良品') || h.toLowerCase().includes('good')) goodQtyIdx = j
+      if (h.includes('机械') || h.toLowerCase().includes('machine')) machineIdx = j
+      if (h.includes('投料') || h.toLowerCase().includes('feed')) feedIdx = j
+      if (h.includes('机台') || h.toLowerCase().includes('corr')) corrMachineIdx = j
+      if (h.includes('要求') || h.toLowerCase().includes('req')) reqsIdx = j
+    }
+    
+    if (nameIdx === -1) {
+      emit('notice', '未识别到“工序名称”列')
+      return
+    }
+    
+    const dataRows = lines.slice(1).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''))
+    if (dataRows.length === 0) {
+      emit('notice', '导入文件中无有效数据行')
+      return
+    }
+    
+    const importErrors: string[] = []
+    let rowIndex = 1
+    
+    processImportProgress.total = dataRows.length
+    processImportProgress.current = 0
+    processImportProgress.success = 0
+    processImportProgress.fail = 0
+    processImporting.value = true
+    
+    for (const r of dataRows) {
+      rowIndex++
+      const name = r[nameIdx]
+      if (!name) {
+        processImportProgress.fail++
+        processImportProgress.current++
+        importErrors.push(`第${rowIndex}行: 工序名称为空`)
+        continue
+      }
+      
+      const code = codeIdx !== -1 ? r[codeIdx] : ''
+      const permStr = permIdx !== -1 ? r[permIdx] : '所有人'
+      const ratioStr = ratioIdx !== -1 ? r[ratioIdx] : '1'
+      const punchStr = punchIdx !== -1 ? r[punchIdx] : '关闭'
+      const goodQty = goodQtyIdx !== -1 ? r[goodQtyIdx] : ''
+      const machine = machineIdx !== -1 ? r[machineIdx] : ''
+      const feed = feedIdx !== -1 ? r[feedIdx] : ''
+      const corrMachine = corrMachineIdx !== -1 ? r[corrMachineIdx] : ''
+      const reqs = reqsIdx !== -1 ? r[reqsIdx] : ''
+      
+      const permArray = permStr.split(',').map(s => s.trim()).filter(Boolean)
+      const ratio = Number(ratioStr) || 1
+      const punch = punchStr.includes('开启') || punchStr.toLowerCase() === 'true'
+      
+      const payload = {
+        code: code || undefined,
+        name: name,
+        reportPermission: permArray.length > 0 ? permArray : ['所有人'],
+        reportRatio: ratio,
+        defectItemIds: [],
+        taskPunchIn: punch,
+        goodQuantity: goodQty,
+        machineName: machine,
+        feedCount: feed,
+        correspondingMachine: corrMachine,
+        requirements: reqs,
+        collectData: []
+      }
+      
+      try {
+        await createProcess(props.token, payload)
+        processImportProgress.success++
+      } catch (err: any) {
+        console.error('工序导入失败', err, name)
+        processImportProgress.fail++
+        const errorMsg = err.message || '网络或接口异常'
+        importErrors.push(`第${rowIndex}行[${name}]: ${errorMsg}`)
+      }
+      processImportProgress.current++
+    }
+    
+    processImporting.value = false
+    await loadProcesses()
+    
+    const now = new Date()
+    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+    processImportLogs.value.unshift({
+      id: `LOG-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
+      fileName: file.name,
+      time: timeStr,
+      count: processImportProgress.success,
+      status: processImportProgress.fail === 0 ? '成功' : processImportProgress.success > 0 ? '部分成功' : '失败',
+      operator: '管理员',
+      errors: importErrors.length > 0 ? importErrors : undefined
+    })
+    
+    let noticeMsg = `导入完成：成功 ${processImportProgress.success} 条，失败 ${processImportProgress.fail} 条`
+    if (importErrors.length > 0) {
+      noticeMsg += `。失败原因：${importErrors.slice(0, 2).join('；')}${importErrors.length > 2 ? ' 等' : ''}`
+    }
+    emit('notice', noticeMsg)
+  }
+  
+  reader.readAsText(file, 'utf-8')
+}
+
 defineExpose({ loadUnits, loadDefects, loadProcesses, loadRoutes })
+
+watch(() => props.token, (newToken) => {
+  if (newToken) {
+    loadUnits()
+    loadDefects()
+    loadProcesses()
+    loadRoutes()
+    fetchDepartments(newToken, { code: '', name: '', page: 1, size: 999 })
+      .then(res => { departments.value = res.items })
+      .catch(() => {})
+  }
+})
+
+watch(() => props.activeBasedataMenu, (newMenu) => {
+  if (newMenu === 'route' && props.token) {
+    loadProcesses()
+    loadRoutes()
+  }
+})
 
 onMounted(() => {
   if (props.token) {
@@ -822,7 +1779,7 @@ onMounted(() => {
             <input v-model="unitFilterForm.remark" placeholder="请输入备注" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="">
+            <button class="primary-btn query-btn" type="button" @click="loadUnits">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
               查询
             </button>
@@ -833,34 +1790,192 @@ onMounted(() => {
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             创建单位
           </button>
+          
+          <button class="toolbar-btn" type="button" @click="handleExportUnits">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            导出
+          </button>
+          
+          <button class="toolbar-btn" type="button" @click="triggerUnitImport">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            导入
+          </button>
+          <input type="file" ref="unitFileInput" style="display:none" accept=".csv" @change="handleImportUnits" />
+
+          <!-- 字段配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showUnitColumnConfig = !showUnitColumnConfig; showUnitRowHeightConfig = false; showUnitSortConfig = false" :class="{ 'active-btn': showUnitColumnConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              字段配置
+            </button>
+            <div v-if="showUnitColumnConfig" class="dropdown-bubble column-config-bubble">
+              <div class="dropdown-header">显示列配置</div>
+              <div class="dropdown-content">
+                <label v-for="col in unitColumns" :key="col.key" class="dropdown-item">
+                  <input type="checkbox" :checked="col.visible" @change="toggleUnitColumn(col.key)" />
+                  <span>{{ col.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 排序配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showUnitSortConfig = !showUnitSortConfig; showUnitColumnConfig = false; showUnitRowHeightConfig = false" :class="{ 'active-btn': showUnitSortConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+              排序
+            </button>
+            <div v-if="showUnitSortConfig" class="dropdown-bubble sort-bubble">
+              <div class="dropdown-header">列表排序配置</div>
+              <div class="dropdown-content">
+                <div class="dropdown-section-title">排序字段</div>
+                <div class="radio-group">
+                  <label class="dropdown-item">
+                    <input type="radio" value="" v-model="unitSortField" />
+                    <span>无 (默认)</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="name" v-model="unitSortField" />
+                    <span>单位名称</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="remark" v-model="unitSortField" />
+                    <span>备注</span>
+                  </label>
+                </div>
+                <div v-if="unitSortField" class="dropdown-section-title" style="margin-top:10px">排序规则</div>
+                <div v-if="unitSortField" class="radio-group">
+                  <label class="dropdown-item">
+                    <input type="radio" value="asc" v-model="unitSortOrder" />
+                    <span>升序</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="desc" v-model="unitSortOrder" />
+                    <span>降序</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 行高配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showUnitRowHeightConfig = !showUnitRowHeightConfig; showUnitColumnConfig = false; showUnitSortConfig = false" :class="{ 'active-btn': showUnitRowHeightConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+              行高
+            </button>
+            <div v-if="showUnitRowHeightConfig" class="dropdown-bubble row-height-bubble">
+              <div class="dropdown-header">表格行高配置</div>
+              <div class="dropdown-content">
+                <label class="dropdown-item">
+                  <input type="radio" value="compact" v-model="unitRowHeight" />
+                  <span>紧凑</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="radio" value="default" v-model="unitRowHeight" />
+                  <span>默认</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="radio" value="relaxed" v-model="unitRowHeight" />
+                  <span>宽松</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-left:auto">
+            <button class="toolbar-btn" type="button" @click="showUnitImportLogs = true">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              导入日志
+            </button>
+          </div>
         </div>
         <div class="table-container">
           <table class="data-table">
             <thead>
               <tr>
-                <th style="width:50px"><input type="checkbox" /></th>
-                <th style="width:60px">序号</th>
-                <th>名称</th>
-                <th>备注</th>
-                <th style="width:120px">操作</th>
+                <th v-if="isUnitColumnVisible('checkbox')" style="width:50px"><input type="checkbox" /></th>
+                <th v-if="isUnitColumnVisible('index')" style="width:60px">序号</th>
+                <th v-if="isUnitColumnVisible('name')">名称</th>
+                <th v-if="isUnitColumnVisible('remark')">备注</th>
+                <th v-if="isUnitColumnVisible('action')" style="width:120px">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(unit, idx) in unitFilteredList" :key="unit.id">
-                <td><input type="checkbox" /></td>
-                <td>{{ idx + 1 }}</td>
-                <td>{{ unit.name }}</td>
-                <td>{{ unit.remark || '-' }}</td>
-                <td class="action-cell">
+              <tr v-for="(unit, idx) in unitFilteredList" :key="unit.id" :class="['unit-row', 'row-height-' + unitRowHeight]">
+                <td v-if="isUnitColumnVisible('checkbox')"><input type="checkbox" /></td>
+                <td v-if="isUnitColumnVisible('index')">{{ idx + 1 }}</td>
+                <td v-if="isUnitColumnVisible('name')">{{ unit.name }}</td>
+                <td v-if="isUnitColumnVisible('remark')">{{ unit.remark || '-' }}</td>
+                <td v-if="isUnitColumnVisible('action')" class="action-cell">
                   <button class="action-link" type="button" @click="openEditUnit(unit)">编辑</button>
                   <button class="action-link danger" type="button" @click="handleDeleteUnit(unit)">删除</button>
                 </td>
               </tr>
               <tr v-if="unitFilteredList.length === 0">
-                <td colspan="5" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
+                <td :colspan="unitColumns.filter(c => c.visible).length" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- 导入进度遮罩层 -->
+        <div v-if="unitImporting" class="import-progress-overlay">
+          <div class="import-progress-card">
+            <div class="import-spinner"></div>
+            <div class="import-title">正在导入数据...</div>
+            <div class="import-progress-bar-container">
+              <div class="import-progress-bar" :style="{ width: (unitImportProgress.current / unitImportProgress.total * 100) + '%' }"></div>
+            </div>
+            <div class="import-stats">
+              <span>已处理: {{ unitImportProgress.current }} / {{ unitImportProgress.total }}</span>
+              <span class="success-text">成功: {{ unitImportProgress.success }}</span>
+              <span class="fail-text">失败: {{ unitImportProgress.fail }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 导入日志毛玻璃弹窗 -->
+        <div v-if="showUnitImportLogs" class="import-logs-overlay" @click.self="showUnitImportLogs = false">
+          <div class="import-logs-modal">
+            <div class="modal-header">
+              <h3>单位导入日志</h3>
+              <button class="close-btn" @click="showUnitImportLogs = false">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <table class="modal-table">
+                <thead>
+                  <tr>
+                    <th>Log ID</th>
+                    <th>文件名</th>
+                    <th>导入时间</th>
+                    <th>成功导入条数</th>
+                    <th>导入状态</th>
+                    <th>操作者</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="log in unitImportLogs" :key="log.id">
+                    <td class="log-id">{{ log.id }}</td>
+                    <td>{{ log.fileName }}</td>
+                    <td>{{ log.time }}</td>
+                    <td>{{ log.count }} 条</td>
+                    <td>
+                      <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
+                        {{ log.status }}
+                      </span>
+                    </td>
+                    <td>{{ log.operator }}</td>
+                  </tr>
+                  <tr v-if="unitImportLogs.length === 0">
+                    <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -877,7 +1992,7 @@ onMounted(() => {
             <input v-model="defectFilterForm.name" placeholder="请输入不良品项名称" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button">
+            <button class="primary-btn query-btn" type="button" @click="loadDefects">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
               查询
             </button>
@@ -885,37 +2000,195 @@ onMounted(() => {
         </div>
         <div class="toolbar">
           <button class="primary-btn" type="button" @click="openCreateDefect">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             创建不良品项
           </button>
+          
+          <button class="toolbar-btn" type="button" @click="handleExportDefects">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            导出
+          </button>
+          
+          <button class="toolbar-btn" type="button" @click="triggerDefectImport">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            导入
+          </button>
+          <input type="file" ref="defectFileInput" style="display:none" accept=".csv" @change="handleImportDefects" />
+
+          <!-- 字段配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showDefectColumnConfig = !showDefectColumnConfig; showDefectRowHeightConfig = false; showDefectSortConfig = false" :class="{ 'active-btn': showDefectColumnConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              字段配置
+            </button>
+            <div v-if="showDefectColumnConfig" class="dropdown-bubble column-config-bubble">
+              <div class="dropdown-header">显示列配置</div>
+              <div class="dropdown-content">
+                <label v-for="col in defectColumns" :key="col.key" class="dropdown-item">
+                  <input type="checkbox" :checked="col.visible" @change="toggleDefectColumn(col.key)" />
+                  <span>{{ col.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 排序配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showDefectSortConfig = !showDefectSortConfig; showDefectColumnConfig = false; showDefectRowHeightConfig = false" :class="{ 'active-btn': showDefectSortConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+              排序
+            </button>
+            <div v-if="showDefectSortConfig" class="dropdown-bubble sort-bubble">
+              <div class="dropdown-header">列表排序配置</div>
+              <div class="dropdown-content">
+                <div class="dropdown-section-title">排序字段</div>
+                <div class="radio-group">
+                  <label class="dropdown-item">
+                    <input type="radio" value="" v-model="defectSortField" />
+                    <span>无 (默认)</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="code" v-model="defectSortField" />
+                    <span>不良品项编号</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="name" v-model="defectSortField" />
+                    <span>不良品项名称</span>
+                  </label>
+                </div>
+                <div v-if="defectSortField" class="dropdown-section-title" style="margin-top:10px">排序规则</div>
+                <div v-if="defectSortField" class="radio-group">
+                  <label class="dropdown-item">
+                    <input type="radio" value="asc" v-model="defectSortOrder" />
+                    <span>升序</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="desc" v-model="defectSortOrder" />
+                    <span>降序</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 行高配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showDefectRowHeightConfig = !showDefectRowHeightConfig; showDefectColumnConfig = false; showDefectSortConfig = false" :class="{ 'active-btn': showDefectRowHeightConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+              行高
+            </button>
+            <div v-if="showDefectRowHeightConfig" class="dropdown-bubble row-height-bubble">
+              <div class="dropdown-header">表格行高配置</div>
+              <div class="dropdown-content">
+                <label class="dropdown-item">
+                  <input type="radio" value="compact" v-model="defectRowHeight" />
+                  <span>紧凑</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="radio" value="default" v-model="defectRowHeight" />
+                  <span>默认</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="radio" value="relaxed" v-model="defectRowHeight" />
+                  <span>宽松</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-left:auto">
+            <button class="toolbar-btn" type="button" @click="showDefectImportLogs = true">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+              导入日志
+            </button>
+          </div>
         </div>
         <div class="table-container">
           <table class="data-table">
             <thead>
               <tr>
-                <th style="width:50px"><input type="checkbox" /></th>
-                <th style="width:60px">序号</th>
-                <th>不良品项编号</th>
-                <th>不良品项名称</th>
-                <th style="width:120px">操作</th>
+                <th v-if="isDefectColumnVisible('checkbox')" style="width:50px"><input type="checkbox" /></th>
+                <th v-if="isDefectColumnVisible('index')" style="width:60px">序号</th>
+                <th v-if="isDefectColumnVisible('code')">不良品项编号</th>
+                <th v-if="isDefectColumnVisible('name')">不良品项名称</th>
+                <th v-if="isDefectColumnVisible('action')" style="width:120px">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(d, idx) in defectFilteredList" :key="d.id">
-                <td><input type="checkbox" /></td>
-                <td>{{ idx + 1 }}</td>
-                <td>{{ d.code }}</td>
-                <td>{{ d.name }}</td>
-                <td class="action-cell">
+              <tr v-for="(d, idx) in defectFilteredList" :key="d.id" :class="['defect-row', 'row-height-' + defectRowHeight]">
+                <td v-if="isDefectColumnVisible('checkbox')"><input type="checkbox" /></td>
+                <td v-if="isDefectColumnVisible('index')">{{ idx + 1 }}</td>
+                <td v-if="isDefectColumnVisible('code')">{{ d.code }}</td>
+                <td v-if="isDefectColumnVisible('name')">{{ d.name }}</td>
+                <td v-if="isDefectColumnVisible('action')" class="action-cell">
                   <button class="action-link" type="button" @click="openEditDefect(d)">编辑</button>
                   <button class="action-link danger" type="button" @click="handleDeleteDefect(d)">删除</button>
                 </td>
               </tr>
               <tr v-if="defectFilteredList.length === 0">
-                <td colspan="5" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
+                <td :colspan="defectColumns.filter(c => c.visible).length" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- 导入进度遮罩层 -->
+        <div v-if="defectImporting" class="import-progress-overlay">
+          <div class="import-progress-card">
+            <div class="import-spinner"></div>
+            <div class="import-title">正在导入数据...</div>
+            <div class="import-progress-bar-container">
+              <div class="import-progress-bar" :style="{ width: (defectImportProgress.current / defectImportProgress.total * 100) + '%' }"></div>
+            </div>
+            <div class="import-stats">
+              <span>已处理: {{ defectImportProgress.current }} / {{ defectImportProgress.total }}</span>
+              <span class="success-text">成功: {{ defectImportProgress.success }}</span>
+              <span class="fail-text">失败: {{ defectImportProgress.fail }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 导入日志毛玻璃弹窗 -->
+        <div v-if="showDefectImportLogs" class="import-logs-overlay" @click.self="showDefectImportLogs = false">
+          <div class="import-logs-modal">
+            <div class="modal-header">
+              <h3>不良品项导入日志</h3>
+              <button class="close-btn" @click="showDefectImportLogs = false">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <table class="modal-table">
+                <thead>
+                  <tr>
+                    <th>日志编号</th>
+                    <th>文件名称</th>
+                    <th>导入时间</th>
+                    <th>成功条数</th>
+                    <th>导入状态</th>
+                    <th>操作人</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="log in defectImportLogs" :key="log.id">
+                    <td class="log-id">{{ log.id }}</td>
+                    <td>{{ log.fileName }}</td>
+                    <td>{{ log.time }}</td>
+                    <td>{{ log.count }} 条</td>
+                    <td>
+                      <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
+                        {{ log.status }}
+                      </span>
+                    </td>
+                    <td>{{ log.operator }}</td>
+                  </tr>
+                  <tr v-if="defectImportLogs.length === 0">
+                    <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -942,7 +2215,7 @@ onMounted(() => {
             </select>
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button">
+            <button class="primary-btn query-btn" type="button" @click="loadProcesses">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               查询
             </button>
@@ -950,36 +2223,131 @@ onMounted(() => {
         </div>
         <div class="toolbar">
           <button class="primary-btn create-btn" type="button" @click="openCreateProcess()">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"/></svg>
             创建工序
           </button>
-          <button class="toolbar-btn" type="button">
+          <button class="toolbar-btn" type="button" @click="handleExportProcesses">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             导出
           </button>
-          <button class="toolbar-btn" type="button">
+          <button class="toolbar-btn" type="button" @click="triggerProcessImport">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             导入
           </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-            默认SOP模板
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            字段配置
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
-            排序
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
-            行高
-          </button>
+          <input type="file" ref="processFileInput" style="display:none" accept=".csv" @change="handleImportProcesses" />
+
+          <!-- 默认SOP模板配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showDefaultSOPConfig = !showDefaultSOPConfig; showProcessColumnConfig = false; showProcessRowHeightConfig = false; showProcessSortConfig = false" :class="{ 'active-btn': showDefaultSOPConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+              默认SOP模板
+            </button>
+            <div v-if="showDefaultSOPConfig" class="dropdown-bubble sop-bubble" style="width: 250px;">
+              <div class="dropdown-header">默认SOP模板配置</div>
+              <div class="dropdown-content" style="padding: 12px;">
+                <div style="font-size: 13px; margin-bottom: 8px;">
+                  <span style="color: #666;">当前默认模板：</span>
+                  <strong style="color: var(--accent);">{{ defaultSOPForm.name }}</strong>
+                </div>
+                <div style="font-size: 11.5px; color: #888; margin-bottom: 12px;">
+                  更新时间：{{ defaultSOPForm.updatedAt }}
+                </div>
+                <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                  <button class="toolbar-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="emit('notice', 'SOP模板下载成功')">下载</button>
+                  <button class="primary-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="emit('notice', '已成功应用默认SOP模板')">应用配置</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 字段配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showProcessColumnConfig = !showProcessColumnConfig; showDefaultSOPConfig = false; showProcessRowHeightConfig = false; showProcessSortConfig = false" :class="{ 'active-btn': showProcessColumnConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              字段配置
+            </button>
+            <div v-if="showProcessColumnConfig" class="dropdown-bubble column-config-bubble">
+              <div class="dropdown-header">显示列配置</div>
+              <div class="dropdown-content">
+                <label v-for="col in processColumns" :key="col.key" class="dropdown-item">
+                  <input type="checkbox" :checked="col.visible" @change="toggleProcessColumn(col.key)" />
+                  <span>{{ col.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- 排序配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showProcessSortConfig = !showProcessSortConfig; showDefaultSOPConfig = false; showProcessColumnConfig = false; showProcessRowHeightConfig = false" :class="{ 'active-btn': showProcessSortConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+              排序
+            </button>
+            <div v-if="showProcessSortConfig" class="dropdown-bubble sort-bubble">
+              <div class="dropdown-header">列表排序配置</div>
+              <div class="dropdown-content">
+                <div class="dropdown-section-title">排序字段</div>
+                <div class="radio-group">
+                  <label class="dropdown-item">
+                    <input type="radio" value="" v-model="processSortField" />
+                    <span>无 (默认)</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="code" v-model="processSortField" />
+                    <span>工序编号</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="name" v-model="processSortField" />
+                    <span>工序名称</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="reportRatio" v-model="processSortField" />
+                    <span>报工数配比</span>
+                  </label>
+                </div>
+                <div v-if="processSortField" class="dropdown-section-title" style="margin-top:10px">排序规则</div>
+                <div v-if="processSortField" class="radio-group">
+                  <label class="dropdown-item">
+                    <input type="radio" value="asc" v-model="processSortOrder" />
+                    <span>升序</span>
+                  </label>
+                  <label class="dropdown-item">
+                    <input type="radio" value="desc" v-model="processSortOrder" />
+                    <span>降序</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 行高配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showProcessRowHeightConfig = !showProcessRowHeightConfig; showDefaultSOPConfig = false; showProcessColumnConfig = false; showProcessSortConfig = false" :class="{ 'active-btn': showProcessRowHeightConfig }">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
+              行高
+            </button>
+            <div v-if="showProcessRowHeightConfig" class="dropdown-bubble row-height-bubble">
+              <div class="dropdown-header">表格行高配置</div>
+              <div class="dropdown-content">
+                <label class="dropdown-item">
+                  <input type="radio" value="compact" v-model="processRowHeight" />
+                  <span>紧凑</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="radio" value="default" v-model="processRowHeight" />
+                  <span>默认</span>
+                </label>
+                <label class="dropdown-item">
+                  <input type="radio" value="relaxed" v-model="processRowHeight" />
+                  <span>宽松</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
           <div style="margin-left:auto">
-            <button class="toolbar-btn" type="button">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <button class="toolbar-btn" type="button" @click="showProcessImportLogs = true">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
               导入日志
             </button>
           </div>
@@ -988,23 +2356,23 @@ onMounted(() => {
           <table class="data-table">
             <thead>
               <tr>
-                <th style="width:40px"><input type="checkbox" /></th>
-                <th style="width:50px">序号</th>
-                <th style="min-width:140px">工序编号</th>
-                <th style="min-width:150px">工序名称</th>
-                <th style="min-width:200px">报工权限</th>
-                <th style="min-width:120px">报工数配比</th>
-                <th style="min-width:100px">任务打卡</th>
-                <th class="action-cell" style="min-width:240px">操作</th>
+                <th v-if="isProcessColumnVisible('checkbox')" style="width:40px"><input type="checkbox" /></th>
+                <th v-if="isProcessColumnVisible('index')" style="width:50px">序号</th>
+                <th v-if="isProcessColumnVisible('code')" style="min-width:140px">工序编号</th>
+                <th v-if="isProcessColumnVisible('name')" style="min-width:150px">工序名称</th>
+                <th v-if="isProcessColumnVisible('reportPermission')" style="min-width:200px">报工权限</th>
+                <th v-if="isProcessColumnVisible('reportRatio')" style="min-width:120px">报工数配比</th>
+                <th v-if="isProcessColumnVisible('taskPunchIn')" style="min-width:100px">任务打卡</th>
+                <th v-if="isProcessColumnVisible('action')" class="action-cell" style="min-width:240px">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(p, index) in processFilteredList" :key="p.id">
-                <td><input type="checkbox" /></td>
-                <td>{{ index + 1 }}</td>
-                <td>{{ p.code }}</td>
-                <td>{{ p.name }}</td>
-                <td class="perm-cell">
+              <tr v-for="(p, index) in processFilteredList" :key="p.id" :class="['process-row', 'row-height-' + processRowHeight]">
+                <td v-if="isProcessColumnVisible('checkbox')"><input type="checkbox" /></td>
+                <td v-if="isProcessColumnVisible('index')">{{ index + 1 }}</td>
+                <td v-if="isProcessColumnVisible('code')">{{ p.code }}</td>
+                <td v-if="isProcessColumnVisible('name')">{{ p.name }}</td>
+                <td v-if="isProcessColumnVisible('reportPermission')" class="perm-cell">
                   <template v-for="(tag, ti) in formatPermissionTags(p.reportPermission)" :key="ti">
                     <span
                       class="perm-cell-tag"
@@ -1014,20 +2382,89 @@ onMounted(() => {
                     >{{ tag.label }}</span>
                   </template>
                 </td>
-                <td>{{ p.reportRatio }}</td>
-                <td>{{ p.taskPunchIn ? '开启' : '关闭' }}</td>
-                <td class="action-cell">
+                <td v-if="isProcessColumnVisible('reportRatio')">{{ p.reportRatio }}</td>
+                <td v-if="isProcessColumnVisible('taskPunchIn')">{{ p.taskPunchIn ? '开启' : '关闭' }}</td>
+                <td v-if="isProcessColumnVisible('action')" class="action-cell">
                   <button class="action-link" type="button" @click="openEditProcess(p)">编辑</button>
-                  <button class="action-link" type="button">打印</button>
-                  <button class="action-link" type="button">SOP模版</button>
+                  <button class="action-link" type="button" @click="emit('notice', '打印工序成功')">打印</button>
+                  <button class="action-link" type="button" @click="emit('notice', '配置SOP模板成功')">SOP模版</button>
                   <button class="action-link danger" type="button" @click="handleDeleteProcess(p)">删除</button>
                 </td>
               </tr>
               <tr v-if="processFilteredList.length === 0">
-                <td colspan="8" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
+                <td :colspan="processColumns.filter(c => c.visible).length" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
               </tr>
             </tbody>
           </table>
+        </div>
+
+        <!-- 工序导入进度遮罩层 -->
+        <div v-if="processImporting" class="import-progress-overlay">
+          <div class="import-progress-card">
+            <div class="import-spinner"></div>
+            <div class="import-title">正在导入数据...</div>
+            <div class="import-progress-bar-container">
+              <div class="import-progress-bar" :style="{ width: (processImportProgress.current / processImportProgress.total * 100) + '%' }"></div>
+            </div>
+            <div class="import-stats">
+              <span>已处理: {{ processImportProgress.current }} / {{ processImportProgress.total }}</span>
+              <span class="success-text">成功: {{ processImportProgress.success }}</span>
+              <span class="fail-text">失败: {{ processImportProgress.fail }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 工序导入日志毛玻璃弹窗 -->
+        <div v-if="showProcessImportLogs" class="import-logs-overlay" @click.self="showProcessImportLogs = false">
+          <div class="import-logs-modal">
+            <div class="modal-header">
+              <h3>工序导入日志</h3>
+              <button class="close-btn" @click="showProcessImportLogs = false">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <table class="modal-table">
+                <thead>
+                  <tr>
+                    <th>Log ID</th>
+                    <th>文件名</th>
+                    <th>导入时间</th>
+                    <th>成功导入条数</th>
+                    <th>导入状态</th>
+                    <th>操作者</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="log in processImportLogs" :key="log.id">
+                    <tr>
+                      <td class="log-id">{{ log.id }}</td>
+                      <td>{{ log.fileName }}</td>
+                      <td>{{ log.time }}</td>
+                      <td>{{ log.count }} 条</td>
+                      <td>
+                        <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
+                          {{ log.status }}
+                        </span>
+                      </td>
+                      <td>{{ log.operator }}</td>
+                    </tr>
+                    <tr v-if="log.errors && log.errors.length > 0">
+                      <td colspan="6" style="padding: 8px 16px; background-color: #fff8f8; color: #d32f2f; font-size: 12.5px; border-bottom: 1px solid #f0d8d8; text-align: left;">
+                        <div style="font-weight: 600; margin-bottom: 4px;">失败原因：</div>
+                        <ul style="margin: 0; padding-left: 18px; list-style-type: decimal;">
+                          <li v-for="(errMsg, eIdx) in log.errors" :key="eIdx">{{ errMsg }}</li>
+                        </ul>
+                      </td>
+                    </tr>
+                  </template>
+                  <tr v-if="processImportLogs.length === 0">
+                    <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1260,7 +2697,7 @@ onMounted(() => {
             <input v-model="routeFilterForm.name" placeholder="请输入工艺路线名称" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button">
+            <button class="primary-btn query-btn" type="button" @click="loadRoutes">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
               查询
             </button>
@@ -1271,45 +2708,60 @@ onMounted(() => {
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             创建工艺路线
           </button>
-          <button class="toolbar-btn" type="button">
+          <button class="toolbar-btn" type="button" @click="handleExportRoutes">
             <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             导出
           </button>
-          <button class="toolbar-btn" type="button">
+          <button class="toolbar-btn" type="button" @click="triggerRouteImport">
             <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             导入
           </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-            字段配置
-          </button>
-          <button class="toolbar-btn" style="margin-left:auto" type="button">导入日志</button>
+          <input type="file" ref="routeFileInput" style="display:none" accept=".csv" @change="handleImportRoutes" />
+          
+          <!-- 字段配置下拉菜单 -->
+          <div class="toolbar-dropdown-container">
+            <button class="toolbar-btn" type="button" @click="showRouteColumnConfig = !showRouteColumnConfig" :class="{ 'active-btn': showRouteColumnConfig }">
+              <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+              字段配置
+            </button>
+            <div v-if="showRouteColumnConfig" class="dropdown-bubble column-config-bubble">
+              <div class="dropdown-header">显示列配置</div>
+              <div class="dropdown-content">
+                <label v-for="col in routeColumns" :key="col.key" class="dropdown-item">
+                  <input type="checkbox" :checked="col.visible" @change="toggleRouteColumn(col.key)" />
+                  <span>{{ col.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <button class="toolbar-btn" style="margin-left:auto" type="button" @click="showRouteImportLogs = true">导入日志</button>
         </div>
         <div class="table-container">
           <table class="data-table">
             <thead>
               <tr>
                 <th style="width:40px"><input type="checkbox" /></th>
-                <th style="min-width:150px">工艺路线编号</th>
-                <th style="min-width:180px">工艺路线名称</th>
-                <th style="min-width:240px">工序/工艺路线列表</th>
-                <th style="min-width:120px">创建人</th>
-                <th style="min-width:180px">创建时间</th>
+                <th v-if="isRouteColumnVisible('code')" style="min-width:150px">工艺路线编号</th>
+                <th v-if="isRouteColumnVisible('name')" style="min-width:180px">工艺路线名称</th>
+                <th v-if="isRouteColumnVisible('steps')" style="min-width:240px">工序/工艺路线列表</th>
+                <th v-if="isRouteColumnVisible('creator')" style="min-width:120px">创建人</th>
+                <th v-if="isRouteColumnVisible('createdAt')" style="min-width:180px">创建时间</th>
                 <th style="min-width:180px">操作</th>
               </tr>
             </thead>
           <tbody>
             <tr v-for="(r, idx) in routeFilteredList" :key="r.id">
               <td style="text-align:center">{{ idx + 1 }}</td>
-              <td>
+              <td v-if="isRouteColumnVisible('code')">
                 <a href="#" style="color:var(--accent);text-decoration:none" @click.prevent="openEditRoute(r)">{{ r.code }}</a>
               </td>
-              <td>{{ r.name }}</td>
-              <td style="color:#586360">
+              <td v-if="isRouteColumnVisible('name')">{{ r.name }}</td>
+              <td v-if="isRouteColumnVisible('steps')" style="color:#586360">
                 {{ r.steps.map(s => getProcessName(s.processId)).filter(Boolean).join('、') || '-' }}
               </td>
-              <td>{{ r.creator }}</td>
-              <td>{{ r.createdAt }}</td>
+              <td v-if="isRouteColumnVisible('creator')">{{ r.creator }}</td>
+              <td v-if="isRouteColumnVisible('createdAt')">{{ r.createdAt }}</td>
               <td style="white-space:nowrap">
                 <button class="link-btn" type="button" @click="openEditRoute(r)" style="margin-right:8px">编辑</button>
                 <button class="link-btn" type="button" style="margin-right:8px">复制</button>
@@ -1317,7 +2769,7 @@ onMounted(() => {
               </td>
             </tr>
             <tr v-if="routeFilteredList.length === 0">
-              <td colspan="7" style="text-align:center;padding:48px;color:#bbb">
+              <td :colspan="visibleRouteColumnsCount" style="text-align:center;padding:48px;color:#bbb">
                 <svg viewBox="0 0 64 64" width="40" height="40" style="display:block;margin:0 auto 10px" fill="none"><rect x="8" y="12" width="48" height="40" rx="4" fill="#f2f4f3" stroke="#dde3e0" stroke-width="1.5"/><line x1="18" y1="24" x2="46" y2="24" stroke="#dde3e0" stroke-width="2"/><line x1="18" y1="32" x2="38" y2="32" stroke="#dde3e0" stroke-width="2"/></svg>
                 暂无工艺路线
               </td>
@@ -1325,13 +2777,82 @@ onMounted(() => {
           </tbody>
         </table>
       </div>
+
+      <!-- 工艺路线导入进度遮罩层 -->
+      <div v-if="routeImporting" class="import-progress-overlay">
+        <div class="import-progress-card">
+          <div class="import-spinner"></div>
+          <div class="import-title">正在导入数据...</div>
+          <div class="import-progress-bar-container">
+            <div class="import-progress-bar" :style="{ width: (routeImportProgress.current / routeImportProgress.total * 100) + '%' }"></div>
+          </div>
+          <div class="import-stats">
+            <span>已处理: {{ routeImportProgress.current }} / {{ routeImportProgress.total }}</span>
+            <span class="success-text">成功: {{ routeImportProgress.success }}</span>
+            <span class="fail-text">失败: {{ routeImportProgress.fail }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 工艺路线导入日志毛玻璃弹窗 -->
+      <div v-if="showRouteImportLogs" class="import-logs-overlay" @click.self="showRouteImportLogs = false">
+        <div class="import-logs-modal">
+          <div class="modal-header">
+            <h3>工艺路线导入日志</h3>
+            <button class="close-btn" @click="showRouteImportLogs = false">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="modal-body">
+            <table class="modal-table">
+              <thead>
+                <tr>
+                  <th>Log ID</th>
+                  <th>文件名</th>
+                  <th>导入时间</th>
+                  <th>成功导入条数</th>
+                  <th>导入状态</th>
+                  <th>操作者</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="log in routeImportLogs" :key="log.id">
+                  <tr>
+                    <td class="log-id">{{ log.id }}</td>
+                    <td>{{ log.fileName }}</td>
+                    <td>{{ log.time }}</td>
+                    <td>{{ log.count }} 条</td>
+                    <td>
+                      <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
+                        {{ log.status }}
+                      </span>
+                    </td>
+                    <td>{{ log.operator }}</td>
+                  </tr>
+                  <tr v-if="log.errors && log.errors.length > 0">
+                    <td colspan="6" style="padding: 8px 16px; background-color: #fff8f8; color: #d32f2f; font-size: 12.5px; border-bottom: 1px solid #f0d8d8; text-align: left;">
+                      <div style="font-weight: 600; margin-bottom: 4px;">失败原因：</div>
+                      <ul style="margin: 0; padding-left: 18px; list-style-type: decimal;">
+                        <li v-for="(errMsg, eIdx) in log.errors" :key="eIdx">{{ errMsg }}</li>
+                      </ul>
+                    </td>
+                  </tr>
+                </template>
+                <tr v-if="routeImportLogs.length === 0">
+                  <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
       </section>
 
 
       <!-- 工艺路线 - 创建/编辑 -->
-      <section class="process-form-page" v-if="activeBasedataMenu === 'route' && routeView !== 'list'">
+      <section class="content process-form-page" v-if="activeBasedataMenu === 'route' && routeView !== 'list'">
         <div class="process-form-scroll">
-          <h2 class="process-form-title">{{ routeView === 'create' ? '创建工艺路线' : '编辑工艺路线' }}</h2>
+          <h2 class="process-form-title" style="margin-left: 32px;">{{ routeView === 'create' ? '创建工艺路线' : '编辑工艺路线' }}</h2>
           <!-- 基本信息 -->
           <div class="process-field">
             <label class="process-label">工艺路线编号</label>
@@ -1363,7 +2884,7 @@ onMounted(() => {
             </div>
 
             <!-- 工序表格 -->
-            <div class="collect-wrap route-steps-wrap">
+            <div class="collect-wrap route-steps-wrap" style="overflow: visible;">
               <table class="collect-table route-steps-table">
                 <thead>
                   <tr>
@@ -1421,10 +2942,10 @@ onMounted(() => {
                         <div
                           class="perm-option"
                           v-for="item in filteredItemsForStep(step.id)" :key="item.id"
-                          :class="{ active: step.processId === item.id }"
+                          :class="{ active: String(step.processId) === String(item.id) }"
                           @click.stop="selectRouteStepItem(step, item.id)">
                           {{ item.name }}
-                          <span v-if="step.processId === item.id" style="margin-left:auto;color:var(--accent)">✓</span>
+                          <span v-if="String(step.processId) === String(item.id)" style="margin-left:auto;color:var(--accent)">✓</span>
                         </div>
                       </div>
                     </td>

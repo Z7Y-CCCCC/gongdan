@@ -16,6 +16,13 @@ public class TokenService {
     private final Map<String, AuthenticatedUser> sessions = new ConcurrentHashMap<>();
 
     public String issue(FactoryUser user) {
+        if (user.getId() != null) {
+            for (AuthenticatedUser existing : sessions.values()) {
+                if (user.getId().equals(existing.getUserId())) {
+                    existing.setKicked(true);
+                }
+            }
+        }
         String token = UUID.randomUUID().toString().replace("-", "");
         sessions.put(token, new AuthenticatedUser(
                 user.getId(),
@@ -48,6 +55,10 @@ public class TokenService {
         AuthenticatedUser currentUser = sessions.get(token);
         if (currentUser == null) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "请先登录");
+        }
+        if (currentUser.isKicked()) {
+            sessions.remove(token);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "您的账号已在其他地方登录，您已被挤下线");
         }
         return currentUser;
     }

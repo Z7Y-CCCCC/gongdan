@@ -1,3 +1,5 @@
+import { handleKickedOut } from './composables/useAuth'
+
 export type Role = 'ADMIN' | 'PRODUCTION'
 
 export interface UserInfo {
@@ -88,10 +90,26 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const method = (options.method || 'GET').toUpperCase()
+  let url = `${API_BASE}${path}`
+
+  // 对 GET 请求进行防缓存处理
+  if (method === 'GET') {
+    const timestamp = Date.now()
+    const separator = url.includes('?') ? '&' : '?'
+    url = `${url}${separator}_t=${timestamp}`
+    options = {
+      ...options,
+      cache: 'no-store'
+    }
+  }
+
+  const response = await fetch(url, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
       ...(options.headers || {})
     }
   })
@@ -103,6 +121,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       message = body.message || message
     } catch {
       message = response.statusText || message
+    }
+    if (response.status === 401 && message === '您的账号已在其他地方登录，您已被挤下线') {
+      handleKickedOut()
     }
     throw new ApiError(message, response.status)
   }
@@ -786,6 +807,7 @@ export interface WorkOrderPayload {
   customValues?: WorkOrderCustomValue[]
   tasks?: WorkOrderTaskPayload[]
   materials?: WorkOrderMaterialPayload[]
+  version?: number
 }
 
 export interface WorkOrderInfo {
@@ -817,6 +839,7 @@ export interface WorkOrderInfo {
   updatedAt?: string
   planCount?: number
   customerName?: string
+  version?: number
 }
 
 export interface WorkOrderListResponse {
@@ -886,6 +909,36 @@ export async function createWorkOrderCategory(token: string, payload: { name: st
 
 export async function deleteWorkOrderCategory(token: string, id: number) {
   return request<void>(`/work-orders/categories/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 产品分类 API =====
+export interface ProductCategoryInfo {
+  id: number
+  name: string
+  creatorId?: number
+  creatorName?: string
+  createdAt: string
+}
+
+export async function fetchProductCategories(token: string) {
+  return request<ProductCategoryInfo[]>('/products/categories', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createProductCategory(token: string, payload: { name: string }) {
+  return request<ProductCategoryInfo>('/products/categories', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteProductCategory(token: string, id: number) {
+  return request<void>(`/products/categories/${id}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` }
   })

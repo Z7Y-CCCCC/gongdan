@@ -38,6 +38,13 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(message));
     }
 
+    @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLockingFailure(org.springframework.orm.ObjectOptimisticLockingFailureException exception) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse("该数据刚刚已被其他同权限账号修改或已删除，请重新刷新数据进行操作"));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnknown(Exception exception) {
         exception.printStackTrace();

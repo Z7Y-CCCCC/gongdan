@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>小工单</title>
     <link rel="icon" type="image/jpeg" href="/logo.jpg" />
+    <style>
+      /* 强力屏蔽浏览器在 type="password" 输入框中有内容时自动注入的原生显隐眼睛与清除图标，杜绝与自定义眼睛重合 */
+      input::-ms-reveal,
+      input::-ms-clear,
+      .create-form input::-ms-reveal,
+      .create-form input::-ms-clear {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>

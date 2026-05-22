@@ -98,7 +98,8 @@ const form = reactive({
   categoryId: '' as number | '',
   customValues: [] as WorkOrderCustomValue[],
   tasks: [] as WorkOrderTaskPayload[],
-  materials: [] as any[]
+  materials: [] as any[],
+  version: 0
 })
 
 function isToday(item: WorkOrderInfo) {
@@ -212,7 +213,8 @@ function resetForm() {
     defectQuantity: 0,
     defectRate: '',
     customValues: [],
-    tasks: []
+    tasks: [],
+    version: 0
   })
 }
 
@@ -290,7 +292,8 @@ function openEdit(item: WorkOrderInfo) {
     defectRate: item.defectRate || '',
     categoryId: item.categoryId || '',
     customValues: JSON.parse(JSON.stringify(item.customValues || [])),
-    tasks: JSON.parse(JSON.stringify(item.tasks || []))
+    tasks: JSON.parse(JSON.stringify(item.tasks || [])),
+    version: item.version
   })
   syncCustomValues()
   activeTab.value = 'basic'
@@ -384,7 +387,8 @@ async function saveOrder() {
     categoryId: form.categoryId ? Number(form.categoryId) : undefined,
     customValues: form.customValues,
     tasks: form.tasks,
-    materials: []
+    materials: [],
+    version: editing.value ? form.version : undefined
   }
   try {
     if (editing.value) {
@@ -517,7 +521,8 @@ async function handleBulkStatus(status: string) {
         defectRate: item.defectRate,
         customValues: item.customValues,
         tasks: item.tasks,
-        materials: item.materials
+        materials: item.materials,
+        version: item.version
       })
     }
   }

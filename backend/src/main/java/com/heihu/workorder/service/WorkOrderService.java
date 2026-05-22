@@ -81,6 +81,9 @@ public class WorkOrderService {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
+        if (request.getVersion() != null) {
+            workOrder.setVersion(request.getVersion());
+        }
         workOrder.setUpdatedAt(LocalDateTime.now());
         applyRequest(factoryId, workOrder, request, false);
         return toResponse(workOrderRepository.save(workOrder));
@@ -196,6 +199,7 @@ public class WorkOrderService {
         response.setCreator(item.getCreator() != null ? item.getCreator().getName() : null);
         response.setCreatedAt(item.getCreatedAt() != null ? item.getCreatedAt().format(FMT) : null);
         response.setUpdatedAt(item.getUpdatedAt() != null ? item.getUpdatedAt().format(FMT) : null);
+        response.setVersion(item.getVersion());
         return response;
     }
 

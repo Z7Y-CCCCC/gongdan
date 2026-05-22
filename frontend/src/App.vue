@@ -3644,7 +3644,10 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <div style="position:relative">
             <input v-model="resetPasswordForm.password" :type="showNewPassword ? 'text' : 'password'" placeholder="请输入新密码" required />
             <button type="button" class="password-toggle" @click="showNewPassword = !showNewPassword">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <!-- 睁眼 -->
+              <svg v-if="showNewPassword" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <!-- 闭眼 -->
+              <svg v-else viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0" /><path d="M6 12v3" /><path d="M10 13.5v3.5" /><path d="M14 13.5v3.5" /><path d="M18 12v3" /></svg>
             </button>
           </div>
         </label>
@@ -3653,7 +3656,10 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <div style="position:relative">
             <input v-model="resetPasswordForm.confirmPassword" :type="showConfirmPassword ? 'text' : 'password'" placeholder="请再次输入密码" required />
             <button type="button" class="password-toggle" @click="showConfirmPassword = !showConfirmPassword">
-              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <!-- 睁眼 -->
+              <svg v-if="showConfirmPassword" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <!-- 闭眼 -->
+              <svg v-else viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0" /><path d="M6 12v3" /><path d="M10 13.5v3.5" /><path d="M14 13.5v3.5" /><path d="M18 12v3" /></svg>
             </button>
           </div>
         </label>

@@ -9,6 +9,7 @@ public class AuthenticatedUser {
     private final String factoryCode;
     private final Role role;
     private final String name;
+    private volatile boolean kicked = false;
 
     public AuthenticatedUser(Long userId, Long factoryId, String factoryCode, Role role, String name) {
         this.userId = userId;
@@ -16,6 +17,14 @@ public class AuthenticatedUser {
         this.factoryCode = factoryCode;
         this.role = role;
         this.name = name;
+    }
+
+    public boolean isKicked() {
+        return kicked;
+    }
+
+    public void setKicked(boolean kicked) {
+        this.kicked = kicked;
     }
 
     public Long getUserId() {

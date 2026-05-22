@@ -22,6 +22,39 @@ const editing = ref<CustomFieldInfo | null>(null)
 const showBatch = ref(false)
 const batchText = ref('')
 
+// Column config
+const allColumns = [
+  { key: 'index', label: '序号', visible: true },
+  { key: 'name', label: '字段名称', visible: true },
+  { key: 'fieldType', label: '字段类型', visible: true },
+  { key: 'createdAt', label: '创建时间', visible: true },
+  { key: 'creator', label: '创建人', visible: true },
+  { key: 'updatedAt', label: '最后更新时间', visible: true },
+  { key: 'actions', label: '操作', visible: true }
+]
+const columns = ref(allColumns.map(c => ({ ...c })))
+const showColumnConfig = ref(false)
+
+// 导入导出与日志
+const fieldFileInput = ref<HTMLInputElement | null>(null)
+const showImportLogs = ref(false)
+const importLogs = ref<Array<{
+  id: number
+  fileName: string
+  time: string
+  count: number
+  status: string
+  operator: string
+  errors?: string[]
+}>>([])
+const importing = ref(false)
+const importProgress = reactive({
+  current: 0,
+  total: 0,
+  success: 0,
+  fail: 0
+})
+
 const form = reactive({
   name: '',
   fieldType: '',
@@ -46,7 +79,8 @@ const fieldTypes = [
   { value: 'file', label: '附件' },
   { value: 'image', label: '图片' },
   { value: 'single_select', label: '单选框' },
-  { value: 'multiple_select', label: '复选框' }
+  { value: 'multiple_select', label: '复选框' },
+  { value: 'reference', label: '关联对象' }
 ]
 
 function fieldTypeLabel(value: string) {
@@ -141,6 +175,14 @@ function applyBatch() {
 }
 
 async function saveField() {
+  if (!form.name.trim()) {
+    emit('notice', '请输入字段名称')
+    return
+  }
+  if (!form.fieldType) {
+    emit('notice', '请选择字段类型')
+    return
+  }
   const options = form.options
     .filter(item => item.label.trim())
     .map(item => ({
@@ -163,15 +205,19 @@ async function saveField() {
     options,
     defaultValues: options.filter(item => item.defaultSelected).map(item => item.value)
   }
-  if (editing.value) {
-    await updateCustomField(props.token, editing.value.id, payload)
-    emit('notice', '字段已更新')
-  } else {
-    await createCustomField(props.token, payload)
-    emit('notice', '字段已创建')
+  try {
+    if (editing.value) {
+      await updateCustomField(props.token, editing.value.id, payload)
+      emit('notice', '字段已更新')
+    } else {
+      await createCustomField(props.token, payload)
+      emit('notice', '字段已创建')
+    }
+    view.value = 'list'
+    await loadFields()
+  } catch (e: any) {
+    emit('notice', e.message || '保存失败')
   }
-  view.value = 'list'
-  await loadFields()
 }
 
 async function removeField(item: CustomFieldInfo) {
@@ -188,41 +234,290 @@ async function removeField(item: CustomFieldInfo) {
   }
 }
 
+// 导出字段功能
+function handleExportFields() {
+  const headers = ['字段名称', '字段类型', '必填', '允许用户添加选项', '提示条件', '显示方式', '引导文字', '字段排序', '提示说明', '可选项列表']
+  const rows = sortedFields.value.map(item => {
+    const typeLabel = fieldTypes.find(t => t.value === item.fieldType)?.label || item.fieldType
+    const isRequired = item.required ? '是' : '否'
+    const isAllowUserOpts = item.allowUserOptions ? '是' : '否'
+    const dispMode = item.displayMode === 'radio' ? '单选按钮' : item.displayMode === 'checkbox' ? '复选按钮' : '下拉选择'
+    const optStr = item.options.map(o => o.label).join('、')
+    return [
+      item.name,
+      typeLabel,
+      isRequired,
+      isAllowUserOpts,
+      item.placeholder || '',
+      dispMode,
+      item.helperText || '',
+      String(item.sortOrder || 0),
+      item.description || '',
+      optStr
+    ]
+  })
+  
+  const content = [headers, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+  const blob = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `自定义字段配置_工单_${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+  emit('notice', '导出成功')
+}
+
+// 导入字段功能
+async function handleImportFields(e: Event) {
+  const target = e.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  
+  const reader = new FileReader()
+  reader.onload = async (evt) => {
+    const text = evt.target?.result as string
+    if (!text) return
+    
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    if (lines.length <= 1) {
+      emit('notice', 'CSV文件内容为空')
+      return
+    }
+    
+    // 解析 CSV 行（考虑双引号包裹逗号的冲突）
+    function parseCSVLine(line: string): string[] {
+      const result: string[] = []
+      let current = ''
+      let inQuotes = false
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i]
+        if (char === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"'
+            i++
+          } else {
+            inQuotes = !inQuotes
+          }
+        } else if (char === ',' && !inQuotes) {
+          result.push(current)
+          current = ''
+        } else {
+          current += char
+        }
+      }
+      result.push(current)
+      return result
+    }
+    
+    const headers = parseCSVLine(lines[0])
+    let nameIdx = -1, typeIdx = -1, reqIdx = -1, allowUserIdx = -1, placeholderIdx = -1, modeIdx = -1, helperIdx = -1, sortIdx = -1, descIdx = -1, optIdx = -1
+    
+    headers.forEach((h, j) => {
+      const cleanH = h.trim()
+      if (cleanH === '字段名称') nameIdx = j
+      else if (cleanH === '字段类型') typeIdx = j
+      else if (cleanH === '必填') reqIdx = j
+      else if (cleanH === '允许用户添加选项') allowUserIdx = j
+      else if (cleanH === '提示条件') placeholderIdx = j
+      else if (cleanH === '显示方式') modeIdx = j
+      else if (cleanH === '引导文字') helperIdx = j
+      else if (cleanH === '字段排序') sortIdx = j
+      else if (cleanH === '提示说明') descIdx = j
+      else if (cleanH === '可选项列表') optIdx = j
+    })
+    
+    if (nameIdx === -1 || typeIdx === -1) {
+      emit('notice', '无法识别必要的字段表头（请包含「字段名称」、「字段类型」）')
+      return
+    }
+    
+    const fieldsToImport: any[] = []
+    const parseErrors: string[] = []
+    
+    for (let i = 1; i < lines.length; i++) {
+      const row = parseCSVLine(lines[i])
+      if (row.length < 2) continue
+      
+      const name = row[nameIdx]?.trim() || ''
+      if (!name) {
+        parseErrors.push(`第 ${i + 1} 行：字段名称为空`)
+        continue
+      }
+      
+      const rawType = row[typeIdx]?.trim() || ''
+      let fieldType = ''
+      if (rawType.toLowerCase() === 'text' || rawType === '文本') fieldType = 'text'
+      else if (rawType.toLowerCase() === 'number' || rawType === '数字') fieldType = 'number'
+      else if (rawType.toLowerCase() === 'date' || rawType === '时间') fieldType = 'date'
+      else if (rawType.toLowerCase() === 'file' || rawType === '附件') fieldType = 'file'
+      else if (rawType.toLowerCase() === 'image' || rawType === '图片') fieldType = 'image'
+      else if (rawType.toLowerCase() === 'single_select' || rawType === '单选框') fieldType = 'single_select'
+      else if (rawType.toLowerCase() === 'multiple_select' || rawType === '复选框') fieldType = 'multiple_select'
+      else if (rawType.toLowerCase() === 'reference' || rawType === '关联对象') fieldType = 'reference'
+      
+      if (!fieldType) {
+        parseErrors.push(`第 ${i + 1} 行：未知的字段类型「${rawType}」`)
+        continue
+      }
+      
+      const required = row[reqIdx]?.trim() === '是' || row[reqIdx]?.trim() === 'true'
+      const allowUserOptions = row[allowUserIdx]?.trim() === '是' || row[allowUserIdx]?.trim() === 'true'
+      const placeholder = row[placeholderIdx]?.trim() || undefined
+      
+      const rawMode = row[modeIdx]?.trim() || ''
+      let displayMode = 'dropdown'
+      if (rawMode === '单选按钮' || rawMode.toLowerCase() === 'radio') displayMode = 'radio'
+      else if (rawMode === '复选按钮' || rawMode.toLowerCase() === 'checkbox') displayMode = 'checkbox'
+      
+      const helperText = row[helperIdx]?.trim() || undefined
+      const sortOrder = Number(row[sortIdx]?.trim() || 0)
+      const description = row[descIdx]?.trim() || undefined
+      
+      const optStr = row[optIdx]?.trim() || ''
+      const optArr = optStr.split(/[、;；,，]/).map(o => o.trim()).filter(Boolean)
+      const options = optArr.map(o => ({
+        label: o,
+        value: o,
+        color: null,
+        defaultSelected: false
+      }))
+      
+      fieldsToImport.push({
+        lineNum: i + 1,
+        payload: {
+          scope: 'workorder',
+          name,
+          fieldType,
+          placeholder,
+          displayMode,
+          required,
+          allowUserOptions,
+          helperText,
+          description,
+          sortOrder,
+          options,
+          defaultValues: []
+        }
+      })
+    }
+    
+    importing.value = true
+    importProgress.total = fieldsToImport.length + parseErrors.length
+    importProgress.current = parseErrors.length
+    importProgress.success = 0
+    importProgress.fail = parseErrors.length
+    
+    const errorsList = [...parseErrors]
+    
+    for (const item of fieldsToImport) {
+      try {
+        await createCustomField(props.token, item.payload)
+        importProgress.success++
+      } catch (err: any) {
+        importProgress.fail++
+        errorsList.push(`第 ${item.lineNum} 行：创建失败 (${err.message || '网络异常'})`)
+      } finally {
+        importProgress.current++
+      }
+    }
+    
+    importing.value = false
+    await loadFields()
+    
+    const status = errorsList.length === 0 ? '成功' : importProgress.success > 0 ? '部分成功' : '失败'
+    importLogs.value.unshift({
+      id: Date.now(),
+      fileName: file.name,
+      time: new Date().toLocaleString(),
+      count: importProgress.success,
+      status,
+      operator: '管理员',
+      errors: errorsList
+    })
+    showImportLogs.value = true
+    emit('notice', `导入完成：成功 ${importProgress.success} 条，失败 ${importProgress.fail} 条`)
+  }
+  reader.readAsText(file)
+  target.value = ''
+}
+
 onMounted(loadFields)
 </script>
 
 <template>
   <section class="content">
     <template v-if="view === 'list'">
-      <div class="toolbar">
-        <button class="primary-btn create-btn" type="button" @click="openCreate">添加新字段</button>
-        <span class="muted">最多支持添加 80 个</span>
-        <button class="toolbar-btn" type="button" style="margin-left:auto">列配置</button>
+      <div class="toolbar" style="margin-bottom: 16px">
+        <button class="primary-btn" type="button" @click="openCreate">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right: 4px;">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="16"></line>
+            <line x1="8" y1="12" x2="16" y2="12"></line>
+          </svg>
+          添加新字段
+        </button>
+        <span class="muted" style="margin-left:8px">最多支持添加 80 个</span>
+
+        <button class="toolbar-btn" type="button" @click="handleExportFields">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          导出
+        </button>
+        <button class="toolbar-btn" type="button" @click="fieldFileInput?.click()">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          导入
+        </button>
+        <input type="file" ref="fieldFileInput" style="display:none" accept=".csv" @change="handleImportFields" />
+
+        <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+          <button class="toolbar-btn" type="button" @click="showImportLogs = true">导入日志</button>
+          <button class="text-btn" type="button" style="color:#586360;" @click="showColumnConfig = true">
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+            列配置
+          </button>
+        </div>
       </div>
       <div class="table-container">
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width:80px">序号</th>
-              <th>字段名称</th>
-              <th>字段类型</th>
-              <th>创建时间</th>
-              <th>创建人</th>
-              <th>最近更新时间</th>
-              <th style="width:140px">操作</th>
+              <th v-if="columns[0].visible" style="width:80px">序号</th>
+              <th v-if="columns[1].visible">字段名称</th>
+              <th v-if="columns[2].visible">字段类型</th>
+              <th v-if="columns[3].visible">创建时间</th>
+              <th v-if="columns[4].visible">创建人</th>
+              <th v-if="columns[5].visible">最近更新时间</th>
+              <th v-if="columns[6].visible" style="width:140px">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(item, index) in sortedFields" :key="item.id">
-              <td>{{ index + 1 }}</td>
-              <td>{{ item.name }}</td>
-              <td>{{ fieldTypeLabel(item.fieldType) }}</td>
-              <td>{{ item.createdAt || '-' }}</td>
-              <td>{{ item.creator || '-' }}</td>
-              <td>{{ item.updatedAt || '-' }}</td>
-              <td class="action-cell">
+              <td v-if="columns[0].visible">{{ index + 1 }}</td>
+              <td v-if="columns[1].visible">{{ item.name }}</td>
+              <td v-if="columns[2].visible">{{ fieldTypeLabel(item.fieldType) }}</td>
+              <td v-if="columns[3].visible">{{ item.createdAt || '-' }}</td>
+              <td v-if="columns[4].visible">{{ item.creator || '-' }}</td>
+              <td v-if="columns[5].visible">{{ item.updatedAt || '-' }}</td>
+              <td v-if="columns[6].visible" class="action-cell">
                 <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
                 <button class="action-link danger" type="button" @click="removeField(item)">删除</button>
+              </td>
+            </tr>
+            <tr v-if="sortedFields.length === 0">
+              <td :colspan="columns.filter(c => c.visible).length" style="text-align: center; color: #8a9693; padding: 32px 0;">
+                暂无自定义字段
               </td>
             </tr>
           </tbody>
@@ -289,6 +584,96 @@ onMounted(loadFields)
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showBatch = false">取消</button>
           <button class="primary-btn wide" type="button" @click="applyBatch">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Column Config Modal -->
+    <div v-if="showColumnConfig" class="modal-backdrop">
+      <div class="modal workorder-modal" style="width: 480px;">
+        <div class="modal-header">
+          <h2>字段显示配置</h2>
+          <button class="close-btn" type="button" @click="showColumnConfig = false">×</button>
+        </div>
+        <div style="padding: 24px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <label v-for="col in columns" :key="col.key" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" v-model="col.visible" style="accent-color: #00b889; width: 16px; height: 16px;" :disabled="col.key === 'name' || col.key === 'actions'" />
+              <span style="font-size: 14px; color: #1e2724;">{{ col.label }}</span>
+            </label>
+          </div>
+          <div style="text-align: right; margin-top: 24px;">
+            <button class="primary-btn" @click="showColumnConfig = false">确定</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 导入进度遮罩层 -->
+    <div v-if="importing" class="import-progress-overlay">
+      <div class="import-progress-card">
+        <div class="import-spinner"></div>
+        <div class="import-title">正在导入数据...</div>
+        <div class="import-progress-bar-container">
+          <div class="import-progress-bar" :style="{ width: (importProgress.current / importProgress.total * 100) + '%' }"></div>
+        </div>
+        <div class="import-stats">
+          <span>已处理: {{ importProgress.current }} / {{ importProgress.total }}</span>
+          <span class="success-text">成功: {{ importProgress.success }}</span>
+          <span class="fail-text">失败: {{ importProgress.fail }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 导入日志毛玻璃弹窗 -->
+    <div v-if="showImportLogs" class="import-logs-overlay" @click.self="showImportLogs = false">
+      <div class="import-logs-modal">
+        <div class="modal-header">
+          <h3>自定义字段导入日志</h3>
+          <button class="close-btn" @click="showImportLogs = false">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <table class="modal-table">
+            <thead>
+              <tr>
+                <th>Log ID</th>
+                <th>文件名</th>
+                <th>导入时间</th>
+                <th>成功导入条数</th>
+                <th>导入状态</th>
+                <th>操作者</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template v-for="log in importLogs" :key="log.id">
+                <tr>
+                  <td class="log-id">{{ log.id }}</td>
+                  <td>{{ log.fileName }}</td>
+                  <td>{{ log.time }}</td>
+                  <td>{{ log.count }} 条</td>
+                  <td>
+                    <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
+                      {{ log.status }}
+                    </span>
+                  </td>
+                  <td>{{ log.operator }}</td>
+                </tr>
+                <tr v-if="log.errors && log.errors.length > 0">
+                  <td colspan="6" style="padding: 8px 16px; background-color: #fff8f8; color: #d32f2f; font-size: 12.5px; border-bottom: 1px solid #f0d8d8; text-align: left;">
+                    <div style="font-weight: 600; margin-bottom: 4px;">失败原因：</div>
+                    <ul style="margin: 0; padding-left: 18px; list-style-type: decimal;">
+                      <li v-for="(errMsg, eIdx) in log.errors" :key="eIdx">{{ errMsg }}</li>
+                    </ul>
+                  </td>
+                </tr>
+              </template>
+              <tr v-if="importLogs.length === 0">
+                <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
