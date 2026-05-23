@@ -2041,6 +2041,9 @@ th {
   padding: 0 10px;
   vertical-align: middle;
 }
+.route-steps-table {
+  overflow: visible !important;
+}
 .route-steps-table td { height: 48px; }
 
 /* 拖拽行高亮 */

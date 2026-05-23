@@ -1763,6 +1763,22 @@ onMounted(() => {
       .then(res => { departments.value = res.items })
       .catch(() => {})
   }
+
+  window.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement
+    // 报工权限下拉：点击非其内部区域时收起
+    if (!target.closest('.perm-dropdown-wrap')) {
+      showProcessPermDropdown.value = false
+    }
+    // 不良品项下拉：点击非其内部区域时收起
+    if (!target.closest('.defect-dropdown-wrap')) {
+      showProcessDefectDropdown.value = false
+    }
+    // 工序下拉框：点击非其内部区域时收起
+    if (!target.closest('.route-step-select') && !target.closest('.route-step-dropdown')) {
+      closeAllRouteStepDropdowns()
+    }
+  })
 })
 </script>
 
