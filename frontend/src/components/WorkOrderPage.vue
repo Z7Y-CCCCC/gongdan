@@ -360,6 +360,135 @@ watch(() => form.plannedQuantity, () => {
   form.tasks = form.tasks.map(task => ({ ...task, plannedQuantity: Number(form.plannedQuantity || 0) }))
 })
 
+// --- 生产任务表单扩展逻辑 ---
+const selectedTaskIndexes = ref<number[]>([])
+const showTaskSelector = ref(false)
+const taskDraggingIdx = ref(-1)
+const taskDragOverIdx = ref(-1)
+const showTaskEditModal = ref(false)
+
+const taskEditForm = reactive({
+  plannedQuantity: 0,
+  planDeadline: '',
+  reportPermission: '',
+  enabled: true
+})
+
+const allTasksSelected = computed(() => form.tasks.length > 0 && selectedTaskIndexes.value.length === form.tasks.length)
+
+function toggleTaskAll(checked: boolean) {
+  selectedTaskIndexes.value = checked ? form.tasks.map((_, i) => i) : []
+}
+
+function toggleTaskOne(idx: number, checked: boolean) {
+  if (checked) {
+    if (!selectedTaskIndexes.value.includes(idx)) selectedTaskIndexes.value.push(idx)
+  } else {
+    selectedTaskIndexes.value = selectedTaskIndexes.value.filter(i => i !== idx)
+  }
+}
+
+function removeSelectedTasks() {
+  if (selectedTaskIndexes.value.length === 0) return
+  form.tasks = form.tasks.filter((_, i) => !selectedTaskIndexes.value.includes(i))
+  // 重排 sequenceNo
+  form.tasks.forEach((t, i) => t.sequenceNo = i + 1)
+  selectedTaskIndexes.value = []
+}
+
+function addTaskFromProcess(p: any) {
+  form.tasks.push({
+    processName: p.name,
+    processCode: p.code,
+    sequenceNo: form.tasks.length + 1,
+    plannedQuantity: Number(form.plannedQuantity || 0),
+    planDeadline: fromInputTime(form.planEnd) || '',
+    reportPermission: p.reportPermission?.[0] || '所有人',
+    assignee: '',
+    enabled: true
+  })
+  showTaskSelector.value = false
+}
+
+function addTaskFromRoute(r: any) {
+  if (!r.steps) return
+  const newTasks = r.steps.map((step: any) => {
+    const process = processes.value.find(item => item.id === step.processId)
+    if (!process) return null
+    return {
+      processName: process.name,
+      processCode: process.code,
+      sequenceNo: 0,
+      plannedQuantity: Number(form.plannedQuantity || 0),
+      planDeadline: fromInputTime(form.planEnd) || '',
+      reportPermission: process.reportPermission?.[0] || '所有人',
+      assignee: '',
+      enabled: true
+    }
+  }).filter(Boolean) as WorkOrderTaskPayload[]
+  
+  form.tasks.push(...newTasks)
+  // 重排
+  form.tasks.forEach((t, i) => t.sequenceNo = i + 1)
+  showTaskSelector.value = false
+}
+
+function openTaskEdit(idx?: number) {
+  if (idx !== undefined) {
+    selectedTaskIndexes.value = [idx]
+  }
+  if (selectedTaskIndexes.value.length === 0) return
+  
+  const first = form.tasks[selectedTaskIndexes.value[0]]
+  taskEditForm.plannedQuantity = first.plannedQuantity || 0
+  taskEditForm.planDeadline = toInputTime(first.planDeadline)
+  taskEditForm.reportPermission = first.reportPermission || ''
+  taskEditForm.enabled = first.enabled ?? true
+  showTaskEditModal.value = true
+}
+
+function saveTaskEdit() {
+  selectedTaskIndexes.value.forEach(idx => {
+    const t = form.tasks[idx]
+    if (t) {
+      t.plannedQuantity = taskEditForm.plannedQuantity
+      t.planDeadline = fromInputTime(taskEditForm.planDeadline) || ''
+      t.reportPermission = taskEditForm.reportPermission
+      t.enabled = taskEditForm.enabled
+    }
+  })
+  showTaskEditModal.value = false
+}
+
+function onTaskDragStart(idx: number, e: DragEvent) {
+  taskDraggingIdx.value = idx
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(idx))
+  }
+}
+function onTaskDragOver(idx: number, e: DragEvent) {
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  taskDragOverIdx.value = idx
+}
+function onTaskDrop(idx: number) {
+  const dragIdx = taskDraggingIdx.value
+  taskDragOverIdx.value = -1
+  taskDraggingIdx.value = -1
+  if (dragIdx === -1 || dragIdx === idx) return
+  
+  const moved = form.tasks.splice(dragIdx, 1)[0]
+  form.tasks.splice(idx, 0, moved)
+  // 重排
+  form.tasks.forEach((t, i) => t.sequenceNo = i + 1)
+  selectedTaskIndexes.value = []
+}
+function onTaskDragEnd() {
+  taskDragOverIdx.value = -1
+  taskDraggingIdx.value = -1
+}
+
 async function saveOrder() {
   if (!form.productId) {
     emit('notice', '请选择产品')
@@ -594,7 +723,23 @@ function doPrint() {
   }, 100)
 }
 
-onMounted(loadData)
+import { onUnmounted } from 'vue'
+
+function closeDropdowns(e: Event) {
+  const target = e.target as HTMLElement
+  if (!target.closest('.add-task-wrap')) {
+    showTaskSelector.value = false
+  }
+}
+
+onMounted(() => {
+  loadData()
+  window.addEventListener('click', closeDropdowns)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('click', closeDropdowns)
+})
 </script>
 
 <template>
@@ -838,19 +983,84 @@ onMounted(loadData)
           </template>
         </div>
 
-        <div v-else-if="activeTab === 'task'" style="padding:18px">
-          <table class="data-table">
-            <thead><tr><th>工序名称</th><th>工序编号</th><th>计划数</th><th>报工权限</th><th>启用</th></tr></thead>
-            <tbody>
-              <tr v-for="(task, index) in form.tasks" :key="index">
-                <td>{{ task.processName }}</td>
-                <td>{{ task.sequenceNo }}</td>
-                <td><input v-model.number="task.plannedQuantity" type="number" /></td>
-                <td><input v-model="task.reportPermission" /></td>
-                <td><input v-model="task.enabled" type="checkbox" /></td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-else-if="activeTab === 'task'" style="padding:18px; display:flex; flex-direction:column; min-height: 300px;">
+          <div class="toolbar" style="margin-bottom: 12px; padding: 0; border: none; background: transparent;">
+            <template v-if="selectedTaskIndexes.length === 0">
+              <div style="position: relative;" class="add-task-wrap">
+                <button class="primary-btn" type="button" @click.stop="showTaskSelector = !showTaskSelector">添加生产任务</button>
+                <div v-if="showTaskSelector" class="column-config-popover" style="width:240px; padding: 0; overflow:hidden; left:0; right:auto;">
+                  <div style="padding: 8px 12px; font-weight: 500; background: #f5f8f6; border-bottom: 1px solid #e2e8e6; font-size: 13px; color: #586360;">按工序添加</div>
+                  <div style="max-height: 150px; overflow-y: auto;">
+                    <div v-if="processes.length === 0" style="padding: 12px; text-align: center; color: #aaa; font-size: 13px;">暂无工序</div>
+                    <div v-for="p in processes" :key="p.id" @click.stop="addTaskFromProcess(p)" class="task-selector-item">{{ p.name }}</div>
+                  </div>
+                  <div style="padding: 8px 12px; font-weight: 500; background: #f5f8f6; border-bottom: 1px solid #e2e8e6; border-top: 1px solid #e2e8e6; font-size: 13px; color: #586360;">按工艺路线添加</div>
+                  <div style="max-height: 150px; overflow-y: auto;">
+                    <div v-if="routes.length === 0" style="padding: 12px; text-align: center; color: #aaa; font-size: 13px;">暂无工艺路线</div>
+                    <div v-for="r in routes" :key="r.id" @click.stop="addTaskFromRoute(r)" class="task-selector-item">{{ r.name }}</div>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <template v-else>
+              <div style="display:flex; align-items:center; width:100%; background: #fdfdfd; border: 1px solid #dce3e0; border-radius: 4px; padding: 6px 12px;">
+                <span style="font-size: 13px; color: #00b889; font-weight: 500; margin-right: 16px;">已选 {{ selectedTaskIndexes.length }} 条</span>
+                <button class="toolbar-btn" type="button" @click="openTaskEdit()">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                  修改
+                </button>
+                <button class="toolbar-btn" type="button" @click="removeSelectedTasks" style="color: #e74c3c; margin-right: auto;">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                  删除
+                </button>
+                <button class="toolbar-btn" type="button" @click="selectedTaskIndexes = []">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"></circle><polyline points="15 9 9 15"></polyline><polyline points="9 9 15 15"></polyline></svg>
+                  撤销多选
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <div class="table-container" style="flex:1; border: 1px solid #dce3e0; border-radius: 4px; overflow: hidden; background: #fff;">
+            <table class="data-table" style="border: none;">
+              <thead>
+                <tr>
+                  <th style="width: 48px; text-align: center;"><input type="checkbox" :checked="allTasksSelected" @change="toggleTaskAll(($event.target as HTMLInputElement).checked)" /></th>
+                  <th style="width: 36px; text-align: center;"></th>
+                  <th>工序名称</th>
+                  <th>工序编号</th>
+                  <th>计划数</th>
+                  <th>计划结束时间</th>
+                  <th>报工权限</th>
+                  <th style="width: 100px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(task, index) in form.tasks" :key="index"
+                    :class="{ 'drag-over': taskDragOverIdx === index }"
+                    draggable="true"
+                    @dragstart="onTaskDragStart(index, $event)"
+                    @dragover="onTaskDragOver(index, $event)"
+                    @drop="onTaskDrop(index)"
+                    @dragend="onTaskDragEnd">
+                  <td style="text-align: center;"><input type="checkbox" :checked="selectedTaskIndexes.includes(index)" @change="toggleTaskOne(index, ($event.target as HTMLInputElement).checked)" /></td>
+                  <td style="text-align: center; cursor: grab; color: #bbb; font-size: 16px; letter-spacing: 1px;">&#8942;&#8942;</td>
+                  <td>{{ task.processName }}</td>
+                  <td>{{ task.sequenceNo }}</td>
+                  <td>{{ task.plannedQuantity }}</td>
+                  <td>{{ task.planDeadline || '-' }}</td>
+                  <td>{{ task.reportPermission || '-' }}</td>
+                  <td class="action-cell">
+                    <button class="action-link" type="button" @click="openTaskEdit(index)">编辑</button>
+                    <button class="action-link danger" type="button" @click="toggleTaskOne(index, true); removeSelectedTasks()">删除</button>
+                  </td>
+                </tr>
+                <tr v-if="form.tasks.length === 0">
+                  <td colspan="8" style="text-align: center; padding: 40px; color: #8a9693;">暂无生产任务，请先添加</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div v-else style="padding:28px;color:#8a9693">用料清单先保留入口，后续按物料清单继续补。</div>
@@ -858,6 +1068,40 @@ onMounted(loadData)
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
           <button class="primary-btn wide" type="button" @click="saveOrder">确定</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 任务编辑微弹窗 -->
+    <div v-if="showTaskEditModal" class="modal-backdrop" style="z-index: 1000;">
+      <div class="modal workorder-modal" style="width: 400px;">
+        <div class="modal-header">
+          <h2>修改任务</h2>
+          <button class="close-btn" type="button" @click="showTaskEditModal = false">×</button>
+        </div>
+        <div style="padding: 24px;">
+          <div class="form-row">
+            <label style="width: 80px;">计划数</label>
+            <div class="process-input-wrap">
+              <input v-model.number="taskEditForm.plannedQuantity" type="number" class="process-input" />
+            </div>
+          </div>
+          <div class="form-row" style="margin-top: 16px;">
+            <label style="width: 80px;">结束时间</label>
+            <div class="process-input-wrap">
+              <input v-model="taskEditForm.planDeadline" type="datetime-local" class="process-input" />
+            </div>
+          </div>
+          <div class="form-row" style="margin-top: 16px;">
+            <label style="width: 80px;">报工权限</label>
+            <div class="process-input-wrap">
+              <input v-model="taskEditForm.reportPermission" class="process-input" />
+            </div>
+          </div>
+          <div style="text-align: right; margin-top: 24px;">
+            <button class="ghost-btn" style="margin-right: 12px;" @click="showTaskEditModal = false">取消</button>
+            <button class="primary-btn" @click="saveTaskEdit">保存</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1133,5 +1377,19 @@ onMounted(loadData)
     text-align: center;
     vertical-align: middle;
   }
+}
+
+.task-selector-item {
+  padding: 8px 16px;
+  font-size: 13px;
+  color: #1e2724;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.task-selector-item:hover {
+  background: #f0f4f2;
+}
+tr.drag-over {
+  border-top: 2px solid #00b889;
 }
 </style>
