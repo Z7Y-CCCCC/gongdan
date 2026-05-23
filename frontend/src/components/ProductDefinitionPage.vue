@@ -11,6 +11,8 @@ import {
   fetchProductCategories,
   createProductCategory,
   deleteProductCategory,
+  fetchSystemImportLogs,
+  createSystemImportLog,
   type ProcessRouteInfo,
   type ProductInfo,
   type ProductPayload,
@@ -19,6 +21,7 @@ import {
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
+import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -207,6 +210,12 @@ async function loadData() {
   units.value = unitRes.items
   routes.value = routeRes.items
   categories.value = categoryRes
+  
+  try {
+    await refreshProductImportLogs()
+  } catch (e) {
+    // ignore
+  }
 }
 
 function openCreate() {
@@ -351,10 +360,24 @@ interface ImportLogItem {
   operator: string
   errors?: string[]
 }
-const productImportLogs = ref<ImportLogItem[]>([
-  { id: 'LOG-20260520-001', fileName: '产品初始导入模板.csv', time: '2026-05-20 10:14:22', count: 12, status: '成功', operator: '管理员' },
-  { id: 'LOG-20260521-002', fileName: '第一批产品数据.csv', time: '2026-05-21 14:32:05', count: 5, status: '成功', operator: '管理员' }
-])
+const productImportLogs = ref<ImportLogItem[]>([])
+
+async function refreshProductImportLogs() {
+  try {
+    const res = await fetchSystemImportLogs(props.token, 'PRODUCT')
+    productImportLogs.value = res.items.map(item => ({
+      id: String(item.id),
+      fileName: item.fileName,
+      time: item.createdAt,
+      count: item.successCount,
+      status: item.status,
+      operator: item.operatorName,
+      errors: item.errors ? item.errors.split('\n') : []
+    }))
+  } catch (e) {
+    // ignore
+  }
+}
 const productImporting = ref(false)
 const productImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
 
@@ -555,17 +578,20 @@ async function handleImportProducts(event: Event) {
     productImporting.value = false
     await loadData()
     
-    const now = new Date()
-    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
-    productImportLogs.value.unshift({
-      id: `LOG-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
-      fileName: file.name,
-      time: timeStr,
-      count: productImportProgress.success,
-      status: productImportProgress.fail === 0 ? '成功' : productImportProgress.success > 0 ? '部分成功' : '失败',
-      operator: '管理员',
-      errors: importErrors.length > 0 ? importErrors : undefined
-    })
+    try {
+      await createSystemImportLog(props.token, {
+        module: 'PRODUCT',
+        fileName: file.name,
+        totalCount: productImportProgress.total,
+        successCount: productImportProgress.success,
+        failCount: productImportProgress.fail,
+        status: productImportProgress.fail === 0 ? '成功' : productImportProgress.success > 0 ? '部分成功' : '失败',
+        errors: importErrors.length > 0 ? importErrors.join('\n') : undefined
+      })
+      await refreshProductImportLogs()
+    } catch (e) {
+      // ignore
+    }
     
     let noticeMsg = `导入完成：成功 ${productImportProgress.success} 条，失败 ${productImportProgress.fail} 条`
     if (importErrors.length > 0) {
@@ -750,7 +776,7 @@ onMounted(loadData)
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           操作记录
         </button>
-        <button class="toolbar-btn" type="button" @click="showProductImportLogs = true">
+        <button class="toolbar-btn" type="button" @click="showProductImportLogs = true; refreshProductImportLogs()">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
           导入日志
         </button>
@@ -838,18 +864,13 @@ onMounted(loadData)
       </div>
     </template>
 
-    <div v-if="showLogs" class="modal-backdrop">
-      <div class="modal">
-        <div class="modal-header">
-          <h2>操作记录</h2>
-          <button class="close-btn" type="button" @click="showLogs = false">×</button>
-        </div>
-        <div style="padding:18px">
-          <p v-for="(item, index) in logs" :key="index">{{ item }}</p>
-          <p v-if="logs.length === 0" style="color:#8a9693">暂无记录</p>
-        </div>
-      </div>
-    </div>
+    <SystemLogsDialog
+      v-model:visible="showLogs"
+      :token="token"
+      module="PRODUCT"
+      type="operation"
+      title="产品操作记录"
+    />
 
     <DeleteConfirmDialog
       v-model:visible="visible"
@@ -897,57 +918,13 @@ onMounted(loadData)
     </div>
 
     <!-- 导入日志毛玻璃弹窗 -->
-    <div v-if="showProductImportLogs" class="import-logs-overlay" @click.self="showProductImportLogs = false">
-      <div class="import-logs-modal">
-        <div class="modal-header">
-          <h3>产品导入日志</h3>
-          <button class="close-btn" @click="showProductImportLogs = false">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <table class="modal-table">
-            <thead>
-              <tr>
-                <th>Log ID</th>
-                <th>文件名</th>
-                <th>导入时间</th>
-                <th>成功导入条数</th>
-                <th>导入状态</th>
-                <th>操作者</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="log in productImportLogs" :key="log.id">
-                <tr>
-                  <td class="log-id">{{ log.id }}</td>
-                  <td>{{ log.fileName }}</td>
-                  <td>{{ log.time }}</td>
-                  <td>{{ log.count }} 条</td>
-                  <td>
-                    <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
-                      {{ log.status }}
-                    </span>
-                  </td>
-                  <td>{{ log.operator }}</td>
-                </tr>
-                <tr v-if="log.errors && log.errors.length > 0">
-                  <td colspan="6" style="padding: 8px 16px; background-color: #fff8f8; color: #d32f2f; font-size: 12.5px; border-bottom: 1px solid #f0d8d8; text-align: left;">
-                    <div style="font-weight: 600; margin-bottom: 4px;">失败原因：</div>
-                    <ul style="margin: 0; padding-left: 18px; list-style-type: decimal;">
-                      <li v-for="(errMsg, eIdx) in log.errors" :key="eIdx">{{ errMsg }}</li>
-                    </ul>
-                  </td>
-                </tr>
-              </template>
-              <tr v-if="productImportLogs.length === 0">
-                <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+    <SystemLogsDialog
+      v-model:visible="showProductImportLogs"
+      :token="token"
+      module="PRODUCT"
+      type="import"
+      title="产品导入日志"
+    />
   </section>
 </template>
 

@@ -191,7 +191,11 @@ async function loadCustomFieldConfigs() {
       fieldId: f.id,
       fieldName: f.name,
       fieldType: f.fieldType,
-      value: f.fieldType === 'multiple_select' ? [] : (f.fieldType === 'number' ? null : '')
+      value: f.fieldType === 'multiple_select' 
+        ? (f.defaultValues || []) 
+        : (f.defaultValues && f.defaultValues.length > 0 
+            ? (f.fieldType === 'number' ? Number(f.defaultValues[0]) : f.defaultValues[0]) 
+            : (f.fieldType === 'number' ? null : ''))
     }))
   } catch (e: any) {
     emit('notice', e.message || '加载自定义字段配置失败')
@@ -300,7 +304,11 @@ function handleCreate() {
     fieldId: f.id,
     fieldName: f.name,
     fieldType: f.fieldType,
-    value: f.fieldType === 'multiple_select' ? [] : (f.fieldType === 'number' ? null : '')
+    value: f.fieldType === 'multiple_select' 
+      ? (f.defaultValues || []) 
+      : (f.defaultValues && f.defaultValues.length > 0 
+          ? (f.fieldType === 'number' ? Number(f.defaultValues[0]) : f.defaultValues[0]) 
+          : (f.fieldType === 'number' ? null : ''))
   }))
   formItems.value = []
   view.value = 'create'

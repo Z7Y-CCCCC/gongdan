@@ -176,7 +176,11 @@ async function loadCustomFieldConfigs() {
       fieldId: f.id,
       fieldName: f.name,
       fieldType: f.fieldType,
-      value: f.fieldType === 'multiple_select' ? [] : (f.fieldType === 'number' ? null : '')
+      value: f.fieldType === 'multiple_select' 
+        ? (f.defaultValues || []) 
+        : (f.defaultValues && f.defaultValues.length > 0 
+            ? (f.fieldType === 'number' ? Number(f.defaultValues[0]) : f.defaultValues[0]) 
+            : (f.fieldType === 'number' ? null : ''))
     }))
   } catch (e: any) {
     emit('notice', e.message || '加载自定义字段配置失败')
@@ -248,7 +252,11 @@ function goToCreate() {
     fieldId: f.id,
     fieldName: f.name,
     fieldType: f.fieldType,
-    value: f.fieldType === 'multiple_select' ? [] : (f.fieldType === 'number' ? null : '')
+    value: f.fieldType === 'multiple_select' 
+      ? (f.defaultValues || []) 
+      : (f.defaultValues && f.defaultValues.length > 0 
+          ? (f.fieldType === 'number' ? Number(f.defaultValues[0]) : f.defaultValues[0]) 
+          : (f.fieldType === 'number' ? null : ''))
   }))
   formItems.value = []
   view.value = 'create'
@@ -402,6 +410,56 @@ function handleTimeRangeChange() {
     filterForm.startTime = ''
     filterForm.endTime = ''
   }
+}
+
+const uploadingFieldId = ref<number | null>(null)
+
+async function handleCustomFieldUpload(field: any, event: Event, customValueObj: any) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  uploadingFieldId.value = field.id
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    
+    const response = await fetch('/api/mobile/reports/images', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${props.token}`
+      },
+      body: formData
+    })
+    
+    if (!response.ok) {
+      let msg = '上传失败'
+      try {
+        const body = await response.json()
+        msg = body.message || msg
+      } catch {}
+      throw new Error(msg)
+    }
+    
+    const data = await response.json()
+    const currentVal = String(customValueObj.value || '')
+    const newPath = data.accessPath
+    const updatedVal = currentVal ? `${currentVal},${newPath}` : newPath
+    customValueObj.value = updatedVal
+    emit('notice', '文件上传成功')
+  } catch (err: any) {
+    emit('notice', err.message || '上传失败')
+  } finally {
+    uploadingFieldId.value = null
+    target.value = ''
+  }
+}
+
+function removeReceiptCustomFieldPath(customValueObj: any, index: number) {
+  const currentVal = String(customValueObj.value || '')
+  const paths = currentVal.split(',').filter(Boolean)
+  paths.splice(index, 1)
+  customValueObj.value = paths.join(',')
 }
 
 onMounted(() => {
@@ -610,6 +668,80 @@ onMounted(() => {
             v-model="createForm.customValues[fIdx].value" 
           />
           
+          <div v-else-if="field.fieldType === 'image' && createForm.customValues[fIdx]" style="flex:1; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; gap:8px; align-items:center; width:100%; max-width:300px;">
+              <input class="form-input" v-model="createForm.customValues[fIdx].value" :placeholder="field.placeholder || '请输入链接或上传'" style="flex:1;" />
+              <button 
+                class="toolbar-btn" 
+                type="button" 
+                @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
+                style="height:34px; margin:0;"
+              >
+                {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
+              </button>
+              <input type="file" accept="image/*" style="display:none;" @change="handleCustomFieldUpload(field, $event, createForm.customValues[fIdx])" />
+            </div>
+            <div v-if="createForm.customValues[fIdx].value" style="margin-top:6px; display:flex; flex-wrap:wrap; gap:8px;">
+              <div 
+                v-for="(path, pIdx) in String(createForm.customValues[fIdx].value || '').split(',').filter(Boolean)" 
+                :key="path" 
+                style="position:relative; display:inline-block; width: fit-content;"
+              >
+                <img 
+                  :src="path" 
+                  alt="预览" 
+                  style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
+                  @error="($event.target as HTMLElement).style.display='none'" 
+                />
+                <button 
+                  type="button" 
+                  @click="removeReceiptCustomFieldPath(createForm.customValues[fIdx], pIdx)" 
+                  style="position:absolute; top:-6px; right:-6px; width:16px; height:16px; border-radius:50%; background:#ff5a5a; color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:9px; line-height:1; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.15); padding:0; z-index:10;"
+                  title="取消图片"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div v-else-if="field.fieldType === 'file' && createForm.customValues[fIdx]" style="flex:1; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; gap:8px; align-items:center; width:100%; max-width:300px;">
+              <input class="form-input" v-model="createForm.customValues[fIdx].value" :placeholder="field.placeholder || '请输入链接或上传'" style="flex:1;" />
+              <button 
+                class="toolbar-btn" 
+                type="button" 
+                @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
+                style="height:34px; margin:0;"
+              >
+                {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
+              </button>
+              <input type="file" style="display:none;" @change="handleCustomFieldUpload(field, $event, createForm.customValues[fIdx])" />
+            </div>
+            <div v-if="createForm.customValues[fIdx].value" style="margin-top:6px; display:flex; flex-wrap:wrap; gap:8px;">
+              <div 
+                v-for="(path, pIdx) in String(createForm.customValues[fIdx].value || '').split(',').filter(Boolean)" 
+                :key="path" 
+                style="position:relative; display:inline-block; width: fit-content;"
+              >
+                <img 
+                  :src="path" 
+                  alt="预览" 
+                  style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
+                  @error="($event.target as HTMLElement).style.display='none'" 
+                />
+                <button 
+                  type="button" 
+                  @click="removeReceiptCustomFieldPath(createForm.customValues[fIdx], pIdx)" 
+                  style="position:absolute; top:-6px; right:-6px; width:16px; height:16px; border-radius:50%; background:#ff5a5a; color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:9px; line-height:1; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.15); padding:0; z-index:10;"
+                  title="取消附件"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+
           <input 
             v-else-if="createForm.customValues[fIdx]" 
             class="form-input" 

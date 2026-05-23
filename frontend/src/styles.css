@@ -862,7 +862,7 @@ th {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 10;
+  z-index: 1000;
   display: grid;
   place-items: center;
   background: rgba(0, 0, 0, 0.48);
@@ -913,19 +913,25 @@ th {
   align-items: center;
 }
 
-.create-form label > span {
+.create-form .custom-checkbox-group-row {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  color: #586360;
+  font-size: 13px;
+}
+
+.create-form label > span,
+.create-form .custom-checkbox-group-row > span {
   text-align: right;
   margin-right: 18px;
   color: #59635f;
   font-size: 14px;
 }
 
-.create-form label span {
-  text-align: right;
-  margin-right: 18px;
-}
-
-.create-form label > span {
+.create-form label span,
+.create-form .custom-checkbox-group-row span {
   text-align: right;
   margin-right: 18px;
 }
@@ -1133,6 +1139,7 @@ th {
 
   .create-form,
   .create-form label,
+  .create-form .custom-checkbox-group-row,
   .filters label {
     grid-template-columns: 1fr;
   }
@@ -1350,6 +1357,7 @@ th {
   box-shadow: -6px 0 12px rgba(0, 0, 0, 0.06);
 }
 .data-table td:last-child {
+  z-index: 9;
   box-shadow: -6px 0 12px rgba(0, 0, 0, 0.06);
 }
 
@@ -1538,7 +1546,8 @@ th {
   grid-template-columns: repeat(2, minmax(260px, 1fr));
 }
 
-.create-form.two-column label {
+.create-form.two-column label,
+.create-form.two-column .custom-checkbox-group-row {
   grid-template-columns: 112px minmax(0, 1fr);
 }
 
@@ -1561,6 +1570,11 @@ th {
   padding: 16px;
   border: 1px solid #e1e9e6;
   background: #f6fffc;
+  overflow-x: auto;
+}
+
+.option-box .data-table {
+  min-width: unset;
 }
 
 .toolbar-title {

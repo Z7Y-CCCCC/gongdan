@@ -3,7 +3,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import {
   createUser, exportUsersCsv, fetchUsers, importUsersCsv,
   resetUserPassword, unbindUserPhone, updateUser, updateUserPermission, updateUserStatus,
-  type CreateUserPayload, type Role, type UpdateUserPayload, type UserInfo, type DepartmentInfo
+  type CreateUserPayload, type Role, type UpdateUserPayload, type UserInfo, type DepartmentInfo,
+  fetchSystemImportLogs, createSystemImportLog
 } from '../api'
 
 const props = defineProps<{
@@ -26,7 +27,23 @@ const showEditModal = ref(false)
 const showPermissionModal = ref(false)
 const selectedUserIds = ref<number[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
-const importLogs = ref<{ time: string; fileName: string; total: number; success: number; fail: number; errors: string[] }[]>([])
+const importLogs = ref<any[]>([])
+
+async function refreshImportLogs() {
+  try {
+    const res = await fetchSystemImportLogs(props.token, 'USER')
+    importLogs.value = res.items.map(item => ({
+      time: item.createdAt,
+      fileName: item.fileName,
+      total: item.totalCount,
+      success: item.successCount,
+      fail: item.failCount,
+      errors: item.errors ? item.errors.split('\n') : []
+    }))
+  } catch (e) {
+    // ignore
+  }
+}
 const importResult = ref<{ total: number; success: number; fail: number; errors: string[] } | null>(null)
 const showImportLogModal = ref(false)
 const currentPage = ref(1)
@@ -413,14 +430,20 @@ async function handleImport(event: Event) {
     const result = await importUsersCsv(props.token, file)
     importResult.value = result
 
-    importLogs.value.unshift({
-      time: new Date().toLocaleString('zh-CN'),
-      fileName,
-      total: result.total,
-      success: result.success,
-      fail: result.fail,
-      errors: result.errors
-    })
+    try {
+      await createSystemImportLog(props.token, {
+        module: 'USER',
+        fileName,
+        totalCount: result.total,
+        successCount: result.success,
+        failCount: result.fail,
+        status: result.fail === 0 ? '成功' : result.success > 0 ? '部分成功' : '失败',
+        errors: result.errors && result.errors.length > 0 ? result.errors.join('\n') : undefined
+      })
+      await refreshImportLogs()
+    } catch (e) {
+      // ignore
+    }
 
     emit('reload-users')
 

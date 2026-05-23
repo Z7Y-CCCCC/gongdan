@@ -6,10 +6,13 @@ import {
   fetchCustomFields,
   updateCustomField,
   type CustomFieldInfo,
-  type CustomFieldOption
+  type CustomFieldOption,
+  fetchSystemImportLogs,
+  createSystemImportLog
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
+import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -38,15 +41,24 @@ const showColumnConfig = ref(false)
 // 导入导出与日志
 const fieldFileInput = ref<HTMLInputElement | null>(null)
 const showImportLogs = ref(false)
-const importLogs = ref<Array<{
-  id: number
-  fileName: string
-  time: string
-  count: number
-  status: string
-  operator: string
-  errors?: string[]
-}>>([])
+const importLogs = ref<any[]>([])
+
+async function refreshImportLogs() {
+  try {
+    const res = await fetchSystemImportLogs(props.token, 'CUSTOM_FIELD_WO')
+    importLogs.value = res.items.map(item => ({
+      id: item.id,
+      fileName: item.fileName,
+      time: item.createdAt,
+      count: item.successCount,
+      status: item.status,
+      operator: item.operatorName,
+      errors: item.errors ? item.errors.split('\n') : []
+    }))
+  } catch (e) {
+    // ignore
+  }
+}
 const importing = ref(false)
 const importProgress = reactive({
   current: 0,
@@ -140,7 +152,7 @@ function openEdit(item: CustomFieldInfo) {
       label: option.label,
       value: option.value,
       color: option.color || '',
-      defaultSelected: Boolean(option.defaultSelected)
+      defaultSelected: item.defaultValues?.includes(option.value) || item.defaultValues?.includes(option.label) || Boolean(option.defaultSelected)
     }))
   })
   view.value = 'form'
@@ -158,6 +170,15 @@ function addOption() {
 
 function removeOption(id: string) {
   form.options = form.options.filter(item => item.id !== id)
+}
+
+function handleDefaultChange(optionId: string, event: Event) {
+  const checked = (event.target as HTMLInputElement).checked
+  if (form.fieldType === 'single_select') {
+    form.options.forEach(opt => {
+      opt.defaultSelected = (opt.id === optionId) ? checked : false
+    })
+  }
 }
 
 function openBatch() {
@@ -428,15 +449,20 @@ async function handleImportFields(e: Event) {
     await loadFields()
     
     const status = errorsList.length === 0 ? '成功' : importProgress.success > 0 ? '部分成功' : '失败'
-    importLogs.value.unshift({
-      id: Date.now(),
-      fileName: file.name,
-      time: new Date().toLocaleString(),
-      count: importProgress.success,
-      status,
-      operator: '管理员',
-      errors: errorsList
-    })
+    try {
+      await createSystemImportLog(props.token, {
+        module: 'CUSTOM_FIELD_WO',
+        fileName: file.name,
+        totalCount: importProgress.total,
+        successCount: importProgress.success,
+        failCount: importProgress.fail,
+        status,
+        errors: errorsList.length > 0 ? errorsList.join('\n') : undefined
+      })
+      await refreshImportLogs()
+    } catch (e) {
+      // ignore
+    }
     showImportLogs.value = true
     emit('notice', `导入完成：成功 ${importProgress.success} 条，失败 ${importProgress.fail} 条`)
   }
@@ -444,7 +470,14 @@ async function handleImportFields(e: Event) {
   target.value = ''
 }
 
-onMounted(loadFields)
+onMounted(async () => {
+  await loadFields()
+  try {
+    await refreshImportLogs()
+  } catch (e) {
+    // ignore
+  }
+})
 </script>
 
 <template>
@@ -472,7 +505,7 @@ onMounted(loadFields)
         <input type="file" ref="fieldFileInput" style="display:none" accept=".csv" @change="handleImportFields" />
 
         <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
-          <button class="toolbar-btn" type="button" @click="showImportLogs = true">导入日志</button>
+          <button class="toolbar-btn" type="button" @click="showImportLogs = true; refreshImportLogs()">导入日志</button>
           <button class="text-btn" type="button" style="color:#586360;" @click="showColumnConfig = true">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
               <line x1="4" y1="21" x2="4" y2="14"></line>
@@ -545,8 +578,21 @@ onMounted(loadFields)
               <tr v-for="option in form.options" :key="option.id">
                 <td><input v-model="option.label" placeholder="请输入" /></td>
                 <td><input v-model="option.value" placeholder="默认等于名称" /></td>
-                <td><input v-model="option.defaultSelected" type="checkbox" /></td>
-                <td><input v-model="option.color" type="color" /></td>
+                <td><input v-model="option.defaultSelected" type="checkbox" @change="handleDefaultChange(option.id, $event)" /></td>
+                <td>
+                  <select 
+                    v-model="option.color" 
+                    :style="{ borderLeft: option.color ? `8px solid ${option.color}` : '1px solid #d5dedb', paddingLeft: '8px', width: '110px', height: '38px', borderRadius: '4px', outline: 'none', border: '1px solid #d5dedb', boxSizing: 'border-box' }"
+                  >
+                    <option value="">无颜色</option>
+                    <option value="#00b889" style="color: #00b889;">■ 清新绿</option>
+                    <option value="#007aff" style="color: #007aff;">■ 常规蓝</option>
+                    <option value="#ff9500" style="color: #ff9500;">■ 警告橙</option>
+                    <option value="#ff3b30" style="color: #ff3b30;">■ 紧急红</option>
+                    <option value="#af52de" style="color: #af52de;">■ 特别紫</option>
+                    <option value="#8e8e93" style="color: #8e8e93;">■ 次要灰</option>
+                  </select>
+                </td>
                 <td><button class="action-link danger" type="button" @click="removeOption(option.id)">删除</button></td>
               </tr>
             </tbody>
@@ -626,57 +672,13 @@ onMounted(loadFields)
     </div>
 
     <!-- 导入日志毛玻璃弹窗 -->
-    <div v-if="showImportLogs" class="import-logs-overlay" @click.self="showImportLogs = false">
-      <div class="import-logs-modal">
-        <div class="modal-header">
-          <h3>自定义字段导入日志</h3>
-          <button class="close-btn" @click="showImportLogs = false">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <table class="modal-table">
-            <thead>
-              <tr>
-                <th>Log ID</th>
-                <th>文件名</th>
-                <th>导入时间</th>
-                <th>成功导入条数</th>
-                <th>导入状态</th>
-                <th>操作者</th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="log in importLogs" :key="log.id">
-                <tr>
-                  <td class="log-id">{{ log.id }}</td>
-                  <td>{{ log.fileName }}</td>
-                  <td>{{ log.time }}</td>
-                  <td>{{ log.count }} 条</td>
-                  <td>
-                    <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
-                      {{ log.status }}
-                    </span>
-                  </td>
-                  <td>{{ log.operator }}</td>
-                </tr>
-                <tr v-if="log.errors && log.errors.length > 0">
-                  <td colspan="6" style="padding: 8px 16px; background-color: #fff8f8; color: #d32f2f; font-size: 12.5px; border-bottom: 1px solid #f0d8d8; text-align: left;">
-                    <div style="font-weight: 600; margin-bottom: 4px;">失败原因：</div>
-                    <ul style="margin: 0; padding-left: 18px; list-style-type: decimal;">
-                      <li v-for="(errMsg, eIdx) in log.errors" :key="eIdx">{{ errMsg }}</li>
-                    </ul>
-                  </td>
-                </tr>
-              </template>
-              <tr v-if="importLogs.length === 0">
-                <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+    <SystemLogsDialog
+      v-model:visible="showImportLogs"
+      :token="token"
+      module="CUSTOM_FIELD_WO"
+      type="import"
+      title="自定义字段导入日志"
+    />
 
     <DeleteConfirmDialog
       v-model:visible="visible"

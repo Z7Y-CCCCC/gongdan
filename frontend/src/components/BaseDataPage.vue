@@ -10,10 +10,13 @@ import {
   type DefectInfo, type DefectPayload,
   type ProcessInfo, type ProcessPayload,
   type ProcessRouteInfo, type ProcessRoutePayload,
-  type DepartmentInfo, type UserInfo
+  type DepartmentInfo, type UserInfo,
+  fetchSystemImportLogs,
+  createSystemImportLog
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
+import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 
 const { visible: deleteVisible, title: deleteTitle, message: deleteMessage, loading: deleteLoading, confirm: deleteConfirm, handleConfirm: deleteHandleConfirm, handleCancel: deleteHandleCancel } = useDeleteConfirm()
 
@@ -66,10 +69,24 @@ const showUnitSortConfig = ref(false)
 
 const unitFileInput = ref<HTMLInputElement | null>(null)
 const showUnitImportLogs = ref(false)
-const unitImportLogs = ref([
-  { id: 'LOG-20260520-001', fileName: '单位初始导入模板.csv', time: '2026-05-20 10:14:22', count: 12, status: '成功', operator: '管理员' },
-  { id: 'LOG-20260521-002', fileName: '第一批单位数据.csv', time: '2026-05-21 14:32:05', count: 5, status: '成功', operator: '管理员' }
-])
+const unitImportLogs = ref<any[]>([])
+
+async function refreshUnitImportLogs() {
+  try {
+    const res = await fetchSystemImportLogs(props.token, 'UNIT')
+    unitImportLogs.value = res.items.map(item => ({
+      id: String(item.id),
+      fileName: item.fileName,
+      time: item.createdAt,
+      count: item.successCount,
+      status: item.status,
+      operator: item.operatorName,
+      errors: item.errors ? item.errors.split('\n') : []
+    }))
+  } catch (e) {
+    // ignore
+  }
+}
 const unitImporting = ref(false)
 const unitImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
 
@@ -289,16 +306,19 @@ async function handleImportUnits(event: Event) {
     
     unitImporting.value = false
     
-    const now = new Date()
-    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
-    unitImportLogs.value.unshift({
-      id: `LOG-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
-      fileName: file.name,
-      time: timeStr,
-      count: unitImportProgress.success,
-      status: unitImportProgress.fail === 0 ? '成功' : unitImportProgress.success > 0 ? '部分成功' : '失败',
-      operator: '管理员'
-    })
+    try {
+      await createSystemImportLog(props.token, {
+        module: 'UNIT',
+        fileName: file.name,
+        totalCount: unitImportProgress.total,
+        successCount: unitImportProgress.success,
+        failCount: unitImportProgress.fail,
+        status: unitImportProgress.fail === 0 ? '成功' : unitImportProgress.success > 0 ? '部分成功' : '失败'
+      })
+      await refreshUnitImportLogs()
+    } catch (e) {
+      // ignore
+    }
     
     emit('notice', `导入完成：成功 ${unitImportProgress.success} 条，失败 ${unitImportProgress.fail} 条`)
   }
@@ -329,10 +349,24 @@ const showDefectSortConfig = ref(false)
 
 const defectFileInput = ref<HTMLInputElement | null>(null)
 const showDefectImportLogs = ref(false)
-const defectImportLogs = ref([
-  { id: 'LOG-20260520-001', fileName: '缺陷初始导入模板.csv', time: '2026-05-20 10:14:22', count: 12, status: '成功', operator: '管理员' },
-  { id: 'LOG-20260521-002', fileName: '第一批不良项数据.csv', time: '2026-05-21 14:32:05', count: 5, status: '成功', operator: '管理员' }
-])
+const defectImportLogs = ref<any[]>([])
+
+async function refreshDefectImportLogs() {
+  try {
+    const res = await fetchSystemImportLogs(props.token, 'DEFECT_ITEM')
+    defectImportLogs.value = res.items.map(item => ({
+      id: String(item.id),
+      fileName: item.fileName,
+      time: item.createdAt,
+      count: item.successCount,
+      status: item.status,
+      operator: item.operatorName,
+      errors: item.errors ? item.errors.split('\n') : []
+    }))
+  } catch (e) {
+    // ignore
+  }
+}
 const defectImporting = ref(false)
 const defectImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
 
@@ -513,16 +547,19 @@ async function handleImportDefects(event: Event) {
     
     defectImporting.value = false
     
-    const now = new Date()
-    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
-    defectImportLogs.value.unshift({
-      id: `LOG-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
-      fileName: file.name,
-      time: timeStr,
-      count: defectImportProgress.success,
-      status: defectImportProgress.fail === 0 ? '成功' : defectImportProgress.success > 0 ? '部分成功' : '失败',
-      operator: '管理员'
-    })
+    try {
+      await createSystemImportLog(props.token, {
+        module: 'DEFECT_ITEM',
+        fileName: file.name,
+        totalCount: defectImportProgress.total,
+        successCount: defectImportProgress.success,
+        failCount: defectImportProgress.fail,
+        status: defectImportProgress.fail === 0 ? '成功' : defectImportProgress.success > 0 ? '部分成功' : '失败'
+      })
+      await refreshDefectImportLogs()
+    } catch (e) {
+      // ignore
+    }
     
     emit('notice', `导入完成：成功 ${defectImportProgress.success} 条，失败 ${defectImportProgress.fail} 条`)
   }
@@ -614,18 +651,24 @@ const showProcessSortConfig = ref(false)
 
 const processFileInput = ref<HTMLInputElement | null>(null)
 const showProcessImportLogs = ref(false)
-const processImportLogs = ref<{
-  id: string
-  fileName: string
-  time: string
-  count: number
-  status: string
-  operator: string
-  errors?: string[]
-}[]>([
-  { id: 'LOG-20260520-101', fileName: '工序初始导入模板.csv', time: '2026-05-20 10:15:33', count: 8, status: '成功', operator: '管理员' },
-  { id: 'LOG-20260521-102', fileName: '核心生产工序列表.csv', time: '2026-05-21 14:35:10', count: 4, status: '成功', operator: '管理员' }
-])
+const processImportLogs = ref<any[]>([])
+
+async function refreshProcessImportLogs() {
+  try {
+    const res = await fetchSystemImportLogs(props.token, 'PROCESS')
+    processImportLogs.value = res.items.map(item => ({
+      id: String(item.id),
+      fileName: item.fileName,
+      time: item.createdAt,
+      count: item.successCount,
+      status: item.status,
+      operator: item.operatorName,
+      errors: item.errors ? item.errors.split('\n') : []
+    }))
+  } catch (e) {
+    // ignore
+  }
+}
 const processImporting = ref(false)
 const processImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
 
@@ -756,9 +799,24 @@ interface RouteImportLog {
   operator: string
   errors?: string[]
 }
-const routeImportLogs = ref<RouteImportLog[]>([
-  { id: 'LOG-R20260520-201', fileName: '工艺路线初始导入模板.csv', time: '2026-05-20 11:22:45', count: 3, status: '成功', operator: '管理员' }
-])
+const routeImportLogs = ref<any[]>([])
+
+async function refreshRouteImportLogs() {
+  try {
+    const res = await fetchSystemImportLogs(props.token, 'PROCESS_ROUTE')
+    routeImportLogs.value = res.items.map(item => ({
+      id: String(item.id),
+      fileName: item.fileName,
+      time: item.createdAt,
+      count: item.successCount,
+      status: item.status,
+      operator: item.operatorName,
+      errors: item.errors ? item.errors.split('\n') : []
+    }))
+  } catch (e) {
+    // ignore
+  }
+}
 
 const showRouteColumnConfig = ref(false)
 const routeColumns = ref([
@@ -963,17 +1021,20 @@ async function handleImportRoutes(event: Event) {
     routeImporting.value = false
     await loadRoutes()
     
-    const now = new Date()
-    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
-    routeImportLogs.value.unshift({
-      id: `LOG-R${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
-      fileName: file.name,
-      time: timeStr,
-      count: routeImportProgress.success,
-      status: routeImportProgress.fail === 0 ? '成功' : routeImportProgress.success > 0 ? '部分成功' : '失败',
-      operator: '管理员',
-      errors: importErrors.length > 0 ? importErrors : undefined
-    })
+    try {
+      await createSystemImportLog(props.token, {
+        module: 'PROCESS_ROUTE',
+        fileName: file.name,
+        totalCount: routeImportProgress.total,
+        successCount: routeImportProgress.success,
+        failCount: routeImportProgress.fail,
+        status: routeImportProgress.fail === 0 ? '成功' : routeImportProgress.success > 0 ? '部分成功' : '失败',
+        errors: importErrors.length > 0 ? importErrors.join('\n') : undefined
+      })
+      await refreshRouteImportLogs()
+    } catch (e) {
+      // ignore
+    }
     
     let noticeMsg = `导入完成：成功 ${routeImportProgress.success} 条，失败 ${routeImportProgress.fail} 条`
     if (importErrors.length > 0) {
@@ -1709,17 +1770,20 @@ async function handleImportProcesses(event: Event) {
     processImporting.value = false
     await loadProcesses()
     
-    const now = new Date()
-    const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
-    processImportLogs.value.unshift({
-      id: `LOG-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Math.floor(Math.random() * 900) + 100)}`,
-      fileName: file.name,
-      time: timeStr,
-      count: processImportProgress.success,
-      status: processImportProgress.fail === 0 ? '成功' : processImportProgress.success > 0 ? '部分成功' : '失败',
-      operator: '管理员',
-      errors: importErrors.length > 0 ? importErrors : undefined
-    })
+    try {
+      await createSystemImportLog(props.token, {
+        module: 'PROCESS',
+        fileName: file.name,
+        totalCount: processImportProgress.total,
+        successCount: processImportProgress.success,
+        failCount: processImportProgress.fail,
+        status: processImportProgress.fail === 0 ? '成功' : processImportProgress.success > 0 ? '部分成功' : '失败',
+        errors: importErrors.length > 0 ? importErrors.join('\n') : undefined
+      })
+      await refreshProcessImportLogs()
+    } catch (e) {
+      // ignore
+    }
     
     let noticeMsg = `导入完成：成功 ${processImportProgress.success} 条，失败 ${processImportProgress.fail} 条`
     if (importErrors.length > 0) {
@@ -1762,6 +1826,13 @@ onMounted(() => {
     fetchDepartments(props.token, { code: '', name: '', page: 1, size: 999 })
       .then(res => { departments.value = res.items })
       .catch(() => {})
+    
+    try {
+      refreshUnitImportLogs()
+      refreshDefectImportLogs()
+      refreshProcessImportLogs()
+      refreshRouteImportLogs()
+    } catch (e) {}
   }
 
   window.addEventListener('click', (e) => {
@@ -1952,47 +2023,13 @@ onMounted(() => {
         </div>
 
         <!-- 导入日志毛玻璃弹窗 -->
-        <div v-if="showUnitImportLogs" class="import-logs-overlay" @click.self="showUnitImportLogs = false">
-          <div class="import-logs-modal">
-            <div class="modal-header">
-              <h3>单位导入日志</h3>
-              <button class="close-btn" @click="showUnitImportLogs = false">
-                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div class="modal-body">
-              <table class="modal-table">
-                <thead>
-                  <tr>
-                    <th>Log ID</th>
-                    <th>文件名</th>
-                    <th>导入时间</th>
-                    <th>成功导入条数</th>
-                    <th>导入状态</th>
-                    <th>操作者</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="log in unitImportLogs" :key="log.id">
-                    <td class="log-id">{{ log.id }}</td>
-                    <td>{{ log.fileName }}</td>
-                    <td>{{ log.time }}</td>
-                    <td>{{ log.count }} 条</td>
-                    <td>
-                      <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
-                        {{ log.status }}
-                      </span>
-                    </td>
-                    <td>{{ log.operator }}</td>
-                  </tr>
-                  <tr v-if="unitImportLogs.length === 0">
-                    <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <SystemLogsDialog
+          v-model:visible="showUnitImportLogs"
+          :token="token"
+          module="UNIT"
+          type="import"
+          title="单位导入日志"
+        />
       </section>
 
 
@@ -2165,47 +2202,13 @@ onMounted(() => {
         </div>
 
         <!-- 导入日志毛玻璃弹窗 -->
-        <div v-if="showDefectImportLogs" class="import-logs-overlay" @click.self="showDefectImportLogs = false">
-          <div class="import-logs-modal">
-            <div class="modal-header">
-              <h3>不良品项导入日志</h3>
-              <button class="close-btn" @click="showDefectImportLogs = false">
-                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div class="modal-body">
-              <table class="modal-table">
-                <thead>
-                  <tr>
-                    <th>日志编号</th>
-                    <th>文件名称</th>
-                    <th>导入时间</th>
-                    <th>成功条数</th>
-                    <th>导入状态</th>
-                    <th>操作人</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="log in defectImportLogs" :key="log.id">
-                    <td class="log-id">{{ log.id }}</td>
-                    <td>{{ log.fileName }}</td>
-                    <td>{{ log.time }}</td>
-                    <td>{{ log.count }} 条</td>
-                    <td>
-                      <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
-                        {{ log.status }}
-                      </span>
-                    </td>
-                    <td>{{ log.operator }}</td>
-                  </tr>
-                  <tr v-if="defectImportLogs.length === 0">
-                    <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <SystemLogsDialog
+          v-model:visible="showDefectImportLogs"
+          :token="token"
+          module="DEFECT_ITEM"
+          type="import"
+          title="不良品项导入日志"
+        />
       </section>
 
 
@@ -2431,57 +2434,13 @@ onMounted(() => {
         </div>
 
         <!-- 工序导入日志毛玻璃弹窗 -->
-        <div v-if="showProcessImportLogs" class="import-logs-overlay" @click.self="showProcessImportLogs = false">
-          <div class="import-logs-modal">
-            <div class="modal-header">
-              <h3>工序导入日志</h3>
-              <button class="close-btn" @click="showProcessImportLogs = false">
-                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-            <div class="modal-body">
-              <table class="modal-table">
-                <thead>
-                  <tr>
-                    <th>Log ID</th>
-                    <th>文件名</th>
-                    <th>导入时间</th>
-                    <th>成功导入条数</th>
-                    <th>导入状态</th>
-                    <th>操作者</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template v-for="log in processImportLogs" :key="log.id">
-                    <tr>
-                      <td class="log-id">{{ log.id }}</td>
-                      <td>{{ log.fileName }}</td>
-                      <td>{{ log.time }}</td>
-                      <td>{{ log.count }} 条</td>
-                      <td>
-                        <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
-                          {{ log.status }}
-                        </span>
-                      </td>
-                      <td>{{ log.operator }}</td>
-                    </tr>
-                    <tr v-if="log.errors && log.errors.length > 0">
-                      <td colspan="6" style="padding: 8px 16px; background-color: #fff8f8; color: #d32f2f; font-size: 12.5px; border-bottom: 1px solid #f0d8d8; text-align: left;">
-                        <div style="font-weight: 600; margin-bottom: 4px;">失败原因：</div>
-                        <ul style="margin: 0; padding-left: 18px; list-style-type: decimal;">
-                          <li v-for="(errMsg, eIdx) in log.errors" :key="eIdx">{{ errMsg }}</li>
-                        </ul>
-                      </td>
-                    </tr>
-                  </template>
-                  <tr v-if="processImportLogs.length === 0">
-                    <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <SystemLogsDialog
+          v-model:visible="showProcessImportLogs"
+          :token="token"
+          module="PROCESS"
+          type="import"
+          title="工序导入日志"
+        />
       </section>
 
 
@@ -2811,57 +2770,13 @@ onMounted(() => {
       </div>
 
       <!-- 工艺路线导入日志毛玻璃弹窗 -->
-      <div v-if="showRouteImportLogs" class="import-logs-overlay" @click.self="showRouteImportLogs = false">
-        <div class="import-logs-modal">
-          <div class="modal-header">
-            <h3>工艺路线导入日志</h3>
-            <button class="close-btn" @click="showRouteImportLogs = false">
-              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
-          <div class="modal-body">
-            <table class="modal-table">
-              <thead>
-                <tr>
-                  <th>Log ID</th>
-                  <th>文件名</th>
-                  <th>导入时间</th>
-                  <th>成功导入条数</th>
-                  <th>导入状态</th>
-                  <th>操作者</th>
-                </tr>
-              </thead>
-              <tbody>
-                <template v-for="log in routeImportLogs" :key="log.id">
-                  <tr>
-                    <td class="log-id">{{ log.id }}</td>
-                    <td>{{ log.fileName }}</td>
-                    <td>{{ log.time }}</td>
-                    <td>{{ log.count }} 条</td>
-                    <td>
-                      <span :class="['status-badge', log.status === '成功' ? 'success' : log.status === '部分成功' ? 'warning' : 'danger']">
-                        {{ log.status }}
-                      </span>
-                    </td>
-                    <td>{{ log.operator }}</td>
-                  </tr>
-                  <tr v-if="log.errors && log.errors.length > 0">
-                    <td colspan="6" style="padding: 8px 16px; background-color: #fff8f8; color: #d32f2f; font-size: 12.5px; border-bottom: 1px solid #f0d8d8; text-align: left;">
-                      <div style="font-weight: 600; margin-bottom: 4px;">失败原因：</div>
-                      <ul style="margin: 0; padding-left: 18px; list-style-type: decimal;">
-                        <li v-for="(errMsg, eIdx) in log.errors" :key="eIdx">{{ errMsg }}</li>
-                      </ul>
-                    </td>
-                  </tr>
-                </template>
-                <tr v-if="routeImportLogs.length === 0">
-                  <td colspan="6" style="text-align:center;color:#aaa;padding:24px">暂无导入记录</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <SystemLogsDialog
+        v-model:visible="showRouteImportLogs"
+        :token="token"
+        module="PROCESS_ROUTE"
+        type="import"
+        title="工艺路线导入日志"
+      />
       </section>
 
 

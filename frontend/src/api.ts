@@ -1653,3 +1653,104 @@ export function deleteSuperAdmin(token: string, id: number) {
     headers: { Authorization: `Bearer ${token}` }
   })
 }
+
+// ===== 系统通用导入与操作日志 API =====
+export interface SystemImportLogInfo {
+  id: number
+  module: string
+  fileName: string
+  totalCount: number
+  successCount: number
+  failCount: number
+  status: string
+  operatorName: string
+  errors?: string
+  createdAt: string
+}
+
+export interface SystemImportLogListResponse {
+  items: SystemImportLogInfo[]
+  total: number
+}
+
+export interface SystemOperationLogInfo {
+  id: number
+  module: string
+  actionType: string
+  actionLabel: string
+  operatorName: string
+  targetCode?: string
+  targetName?: string
+  detail?: string
+  createdAt: string
+  message: string
+}
+
+export interface SystemOperationLogListResponse {
+  items: SystemOperationLogInfo[]
+  total: number
+}
+
+export async function fetchSystemImportLogs(token: string, module: string, page?: number, size?: number) {
+  const query = new URLSearchParams()
+  query.append('module', module)
+  if (page !== undefined) query.append('page', String(page))
+  if (size !== undefined) {
+    query.append('size', String(size))
+  } else {
+    query.append('size', '200')
+  }
+  return request<SystemImportLogListResponse>(`/system-logs/imports?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createSystemImportLog(
+  token: string,
+  payload: {
+    module: string
+    fileName: string
+    totalCount: number
+    successCount: number
+    failCount: number
+    status: string
+    errors?: string
+  }
+) {
+  return request<void>('/system-logs/imports', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function fetchSystemOperationLogs(token: string, module: string, page?: number, size?: number) {
+  const query = new URLSearchParams()
+  query.append('module', module)
+  if (page !== undefined) query.append('page', String(page))
+  if (size !== undefined) {
+    query.append('size', String(size))
+  } else {
+    query.append('size', '200')
+  }
+  return request<SystemOperationLogListResponse>(`/system-logs/operations?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createSystemOperationLog(
+  token: string,
+  payload: {
+    module: string
+    actionType: string
+    targetCode?: string
+    targetName?: string
+    detail?: string
+  }
+) {
+  return request<void>('/system-logs/operations', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
