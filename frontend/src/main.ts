@@ -51,6 +51,10 @@ const iconMap: Record<string, string> = {
 function processTableHeaders() {
   const ths = document.querySelectorAll('th');
   ths.forEach(th => {
+    // 过滤车间看板中的 th
+    if (th.closest('.dashboard-fullscreen')) {
+      return;
+    }
     // 过滤复选框或已被包装的 th
     if (th.querySelector('.th-container') || th.querySelector('input[type="checkbox"]') || th.classList.contains('check-cell')) {
       return;
