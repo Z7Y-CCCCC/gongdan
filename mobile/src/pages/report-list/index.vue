@@ -1,106 +1,166 @@
 <template>
   <view class="container">
-    <!-- 顶部筛选与统计 -->
+    <!-- 顶部筛选 -->
     <view class="dashboard-header">
       <view class="filter-row">
-        <view class="dropdown">上月 <uni-icons type="bottom" size="12" color="#666"></uni-icons></view>
-        <view class="dropdown">张俊健 <uni-icons type="bottom" size="12" color="#666"></uni-icons></view>
+        <view class="dropdown" :class="{ active: period === 'today' }" @tap="period = 'today'; loadReports()">今天</view>
+        <view class="dropdown" :class="{ active: period === 'lastMonth' }" @tap="period = 'lastMonth'; loadReports()">上月</view>
+        <view class="dropdown" :class="{ active: period === '' }" @tap="period = ''; loadReports()">全部</view>
       </view>
 
       <view class="stat-cards">
         <view class="stat-card green">
-          <text class="st">工资总计</text>
-          <text class="sv">956.1</text>
+          <text class="st">已审批</text>
+          <text class="sv">{{ approvedCount }}</text>
         </view>
         <view class="stat-card blue">
-          <text class="st">审批 / 总计</text>
-          <text class="sv">26 / 26</text>
+          <text class="st">待审批</text>
+          <text class="sv">{{ pendingCount }}</text>
         </view>
         <view class="stat-card orange">
-          <text class="st">总数 / 良品 / 不良品</text>
-          <text class="sv">4387 / 4328 / 59</text>
+          <text class="st">总良品 / 总不良品</text>
+          <text class="sv">{{ totalGood }} / {{ totalDefect }}</text>
         </view>
         <view class="stat-card red">
-          <text class="st">不合格率</text>
-          <text class="sv">1.34%</text>
+          <text class="st">已拒绝</text>
+          <text class="sv">{{ rejectedCount }}</text>
         </view>
       </view>
 
       <view class="tab-row">
-        <view class="tab">未审批 0</view>
-        <view class="tab active">已审批 26<view class="line"></view></view>
-        <view class="tab-icons">
-          <uni-icons type="compose" size="20" color="#666"></uni-icons>
-          <uni-icons type="list" size="20" color="#666" style="margin-left: 20rpx;"></uni-icons>
+        <view class="tab" :class="{ active: statusFilter === '' }" @tap="statusFilter = ''; loadReports()">
+          全部 {{ reports.length }}
+          <view v-if="statusFilter === ''" class="line"></view>
+        </view>
+        <view class="tab" :class="{ active: statusFilter === 'PENDING' }" @tap="statusFilter = 'PENDING'; loadReports()">
+          未审批 {{ pendingCount }}
+          <view v-if="statusFilter === 'PENDING'" class="line"></view>
+        </view>
+        <view class="tab" :class="{ active: statusFilter === 'APPROVED' }" @tap="statusFilter = 'APPROVED'; loadReports()">
+          已审批 {{ approvedCount }}
+          <view v-if="statusFilter === 'APPROVED'" class="line"></view>
         </view>
       </view>
     </view>
 
     <!-- 记录列表 -->
     <scroll-view scroll-y class="list-content">
-      <view v-for="i in 3" :key="i" class="report-card">
+      <view v-for="item in filteredReports" :key="item.id" class="report-card">
         <view class="card-header">
-          <text class="user-info">张俊健 | 2023-03-31 17:19:16</text>
+          <text class="user-info">{{ item.reporterName }} | {{ item.createdAt }}</text>
         </view>
         
         <view class="card-body">
           <view class="field">
-            <uni-icons type="paperclip" size="14" color="#ccc"></uni-icons>
+            <text class="field-icon">📋</text>
             <text class="fl">工单编号：</text>
-            <text class="fv">GD20230351-1</text>
+            <text class="fv">{{ item.workOrderCode }}</text>
           </view>
           <view class="field">
-            <uni-icons type="settings" size="14" color="#ccc"></uni-icons>
+            <text class="field-icon">⚙️</text>
             <text class="fl">工序名称：</text>
-            <text class="fv">包装</text>
+            <text class="fv">{{ item.processName }}</text>
           </view>
           <view class="field">
-            <uni-icons type="shop" size="14" color="#ccc"></uni-icons>
+            <text class="field-icon">📦</text>
             <text class="fl">产品信息：</text>
-            <text class="fv">06 | 给水用钢丝SRPT双色管 | 1.2m</text>
+            <text class="fv">{{ item.productCode }} | {{ item.productName }}{{ item.productSpec ? ' | ' + item.productSpec : '' }}</text>
           </view>
-          <view class="field">
-            <uni-icons type="calendar" size="14" color="#ccc"></uni-icons>
+          <view class="field" v-if="item.startTime || item.endTime">
+            <text class="field-icon">📅</text>
             <text class="fl">报工时间：</text>
-            <text class="fv">2023-03-31 17:19:00 - 2023-03-31 17:19:00</text>
+            <text class="fv">{{ item.startTime || '-' }} ~ {{ item.endTime || '-' }}</text>
           </view>
           <view class="field">
-            <uni-icons type="checkbox" size="14" color="#ccc"></uni-icons>
+            <text class="field-icon">✅</text>
             <text class="fl">报工数量：</text>
-            <text class="fv">总304 / 良品 <text class="green">300</text> / 不良品 <text class="red">4</text></text>
+            <text class="fv">总{{ item.reportQuantity }} / 良品 <text class="green">{{ item.goodQuantity }}</text> / 不良品 <text class="red">{{ item.defectQuantity }}</text></text>
           </view>
-          <view class="field">
-            <uni-icons type="wallet" size="14" color="#ccc"></uni-icons>
-            <text class="fl">工资单价：</text>
-            <text class="fv">0.2元</text>
-          </view>
-          <view class="field">
-            <uni-icons type="medal" size="14" color="#ccc"></uni-icons>
-            <text class="fl">预计工资：</text>
-            <text class="fv green">60元</text>
-          </view>
-          <view class="field urgent-row">
-            <view class="left">
-              <uni-icons type="help" size="14" color="#ccc"></uni-icons>
-              <text class="fl">是否加急：-</text>
-            </view>
-            <switch checked color="#00b889" style="transform:scale(0.7)" />
+          <view class="field" v-if="item.remark">
+            <text class="field-icon">💬</text>
+            <text class="fl">备注：</text>
+            <text class="fv">{{ item.remark }}</text>
           </view>
         </view>
 
-        <!-- 审批通过印章样式 -->
-        <view class="stamp">审批通过</view>
+        <!-- 审批状态印章 -->
+        <view v-if="item.status === 'APPROVED'" class="stamp green-stamp">审批通过</view>
+        <view v-else-if="item.status === 'REJECTED'" class="stamp red-stamp">已拒绝</view>
+        <view v-else class="stamp gray-stamp">待审批</view>
       </view>
+      
+      <view v-if="filteredReports.length === 0 && !loading" class="no-more">暂无报工记录</view>
+      <view v-if="filteredReports.length > 0" class="no-more">没有更多了</view>
     </scroll-view>
+
+    <!-- 加载中 -->
+    <view v-if="loading" class="loading-hint">
+      <text>加载中...</text>
+    </view>
   </view>
 </template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
+import { fetchReports, ensureLogin } from '../../services/api'
+import type { WorkOrderReport } from '../../types/api'
+
+const reports = ref<WorkOrderReport[]>([])
+const loading = ref(false)
+const statusFilter = ref('')
+const period = ref('')
+
+const filteredReports = computed(() => {
+  if (!statusFilter.value) return reports.value
+  return reports.value.filter(r => r.status === statusFilter.value)
+})
+
+const pendingCount = computed(() => reports.value.filter(r => r.status === 'PENDING').length)
+const approvedCount = computed(() => reports.value.filter(r => r.status === 'APPROVED').length)
+const rejectedCount = computed(() => reports.value.filter(r => r.status === 'REJECTED').length)
+const totalGood = computed(() => reports.value.reduce((s, r) => s + (r.goodQuantity || 0), 0))
+const totalDefect = computed(() => reports.value.reduce((s, r) => s + (r.defectQuantity || 0), 0))
+
+const loadReports = async () => {
+  loading.value = true
+  try {
+    // 加载所有状态的报工记录
+    const res = await fetchReports(statusFilter.value as any, period.value)
+    reports.value = res.items || []
+  } catch (e) {
+    console.error('加载报工记录失败', e)
+    reports.value = []
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  if (!ensureLogin()) return
+  loadReports()
+})
+
+onShow(() => {
+  if (uni.getStorageSync('token')) {
+    loadReports()
+  }
+})
+</script>
 
 <style scoped>
 .container { background: #f6f7f7; height: 100vh; display: flex; flex-direction: column; }
 
 .dashboard-header { background: white; padding: 20rpx; }
-.filter-row { display: flex; margin-bottom: 20rpx; }
-.dropdown { margin-right: 40rpx; font-size: 28rpx; color: #333; display: flex; align-items: center; }
+.filter-row { display: flex; margin-bottom: 20rpx; gap: 20rpx; }
+.dropdown {
+  padding: 10rpx 24rpx;
+  background: #f1f3f3;
+  border-radius: 30rpx;
+  font-size: 24rpx;
+  color: #666;
+}
+.dropdown.active { background: #00b889; color: white; }
 
 .stat-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 15rpx; margin-bottom: 30rpx; }
 .stat-card { border-radius: 12rpx; padding: 20rpx; color: white; display: flex; flex-direction: column; }
@@ -115,7 +175,6 @@
 .tab { padding: 20rpx 0; margin-right: 40rpx; font-size: 28rpx; color: #999; position: relative; }
 .tab.active { color: #00b889; font-weight: bold; }
 .tab.active .line { position: absolute; bottom: 0; left: 0; right: 0; height: 4rpx; background: #00b889; }
-.tab-icons { flex: 1; display: flex; justify-content: flex-end; align-items: center; }
 
 .list-content { flex: 1; padding: 20rpx; box-sizing: border-box; }
 .report-card { background: white; border-radius: 16rpx; padding: 30rpx; margin-bottom: 20rpx; position: relative; overflow: hidden; }
@@ -123,13 +182,14 @@
 .user-info { font-size: 28rpx; font-weight: bold; color: #333; }
 
 .field { display: flex; align-items: flex-start; margin-bottom: 12rpx; }
-.fl { font-size: 24rpx; color: #999; margin-left: 10rpx; width: 140rpx; flex-shrink: 0; }
+.field-icon { font-size: 22rpx; margin-right: 8rpx; }
+.fl { font-size: 24rpx; color: #999; width: 140rpx; flex-shrink: 0; }
 .fv { font-size: 24rpx; color: #666; }
 .green { color: #00b889; }
 .red { color: #ff4d4f; }
 
-.urgent-row { justify-content: space-between; align-items: center; margin-top: 10rpx; }
-.urgent-row .left { display: flex; align-items: center; }
+.no-more { text-align: center; font-size: 24rpx; color: #ccc; padding: 40rpx 0; }
+.loading-hint { text-align: center; padding: 40rpx 0; font-size: 28rpx; color: #999; }
 
 /* 印章 CSS */
 .stamp {
@@ -138,9 +198,8 @@
   bottom: 80rpx;
   width: 140rpx;
   height: 140rpx;
-  border: 4rpx solid rgba(0, 184, 137, 0.2);
+  border: 4rpx solid;
   border-radius: 50%;
-  color: rgba(0, 184, 137, 0.2);
   font-size: 24rpx;
   display: flex;
   justify-content: center;
@@ -148,11 +207,7 @@
   transform: rotate(-25deg);
   font-weight: bold;
 }
-.stamp::after {
-  content: '';
-  position: absolute;
-  top: 10rpx; left: 10rpx; right: 10rpx; bottom: 10rpx;
-  border: 1px solid rgba(0, 184, 137, 0.1);
-  border-radius: 50%;
-}
+.green-stamp { border-color: rgba(0, 184, 137, 0.2); color: rgba(0, 184, 137, 0.2); }
+.red-stamp { border-color: rgba(255, 77, 79, 0.2); color: rgba(255, 77, 79, 0.2); }
+.gray-stamp { border-color: rgba(153, 153, 153, 0.2); color: rgba(153, 153, 153, 0.2); }
 </style>

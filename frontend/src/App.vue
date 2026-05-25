@@ -187,6 +187,10 @@ const loadDashboardData = async () => {
     // 2. 获取报工记录，聚合任务执行进度
     const reportRes = await fetchReports(token, { page: 1, size: 200 })
     const reports = reportRes.items || []
+    dashboardReports.value = reports.map(r => ({
+      ...r,
+      createdAt: r.createdAt ? r.createdAt.replace('T', ' ').substring(5, 16) : ''
+    }))
     
     const processMap: Record<string, any> = {}
     reports.forEach(r => {
@@ -272,6 +276,20 @@ const scrollMessages = ref([
   { time: '2023-04-19 11:39:49', text: '张俊健 | 驱动包 | T-1白/小T-shirt | 不良品5' }
 ])
 
+const dashboardReports = ref<any[]>([])
+
+const displayReports = computed(() => {
+  if (dashboardReports.value && dashboardReports.value.length > 0) {
+    return dashboardReports.value.slice(0, 5)
+  }
+  return [
+    { createdAt: '03-12 18:02', reporterName: '王艺儒', processName: '制版拼版', productName: '111', goodQuantity: 30, defectQuantity: 0 },
+    { createdAt: '03-12 18:00', reporterName: '王艺儒', processName: '抽检', productName: '111', goodQuantity: 100, defectQuantity: 0 },
+    { createdAt: '04-21 11:30', reporterName: '段超', processName: '包装', productName: '02|宝慧轴承S6...', goodQuantity: 150, defectQuantity: 5 },
+    { createdAt: '04-20 12:16', reporterName: '虞竹', processName: '包装', productName: '04|智能wifi-7组...', goodQuantity: 600, defectQuantity: 0 }
+  ]
+})
+
 const tableData = ref([
   { code: 'GD20230401-6', product: '股骨头髁关节假体', qty: 234, customer: '厦门市医院', urgent: false, progress: 75 },
   { code: 'GD20230401-5', product: '美标维纶绞片M5...', qty: 133, customer: '宁德时代', urgent: true, progress: 60 },
@@ -294,20 +312,117 @@ const taskProgressData = ref([
 ])
 
 const showEditPrintTemplateModal = ref(false)
+
+const workOrderFields = ref([
+  '工单编号',
+  '产品编号',
+  '产品名称',
+  '产品规格',
+  '计划数',
+  '计划开始时间',
+  '计划结束时间',
+  '工单备注',
+  '工单外链',
+  '单位',
+  '创建人',
+  '创建时间',
+  '更新人',
+  '更新时间'
+])
+
 const printTemplates = ref([
   { id: 1, type: '30x40', name: '工单二维码(30*40mm)', qrSource: '工单二维码', row1: '产品名称', row2: '工单编号', titleField: '' },
-  { id: 2, type: '80x60', name: '工单二维码(80*60mm)', qrSource: '工单外链', titleField: '工单编号', row1: '产品名称', row2: '' }
+  { 
+    id: 2, 
+    type: '80x60', 
+    name: '工单二维码(80*60mm)', 
+    qrSource: '工单外链', 
+    titleLabel: '工单编号',
+    titleField: '工单编号',
+    row1Label: '产品编号',
+    row1Field: ['产品编号'],
+    row2Label: '产品名称',
+    row2Field: ['产品名称'],
+    row3Label: '产品规格',
+    row3Field: ['产品规格'],
+    row4Label: '工单计划数',
+    row4Field: ['计划数'],
+    row5Label: '计划时间',
+    row5Field: ['计划开始时间', '计划结束时间'],
+    row6Label: '备注',
+    row6Field: ['工单备注']
+  }
 ])
 const activeTemplateId = ref(1)
 const activeTemplateIndex = computed(() => {
   const index = printTemplates.value.findIndex(t => t.id === activeTemplateId.value)
   return index === -1 ? 0 : index
 })
+const activeTpl = computed(() => {
+  return printTemplates.value[activeTemplateIndex.value] as any
+})
+
+function openEditPrintTemplate() {
+  try {
+    const saved = localStorage.getItem('print_templates_data')
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      // 合并旧数据和新增加的数据项以保证字段完整
+      parsed.forEach((savedTpl: any) => {
+        const localTpl = printTemplates.value.find(t => t.id === savedTpl.id)
+        if (localTpl) {
+          Object.assign(localTpl, savedTpl)
+        }
+      })
+    }
+  } catch(e) {
+    console.error('读取打印模板失败:', e)
+  }
+  showEditPrintTemplateModal.value = true
+}
+
+function savePrintTemplates() {
+  try {
+    localStorage.setItem('print_templates_data', JSON.stringify(printTemplates.value))
+  } catch(e) {
+    console.error('保存打印模板失败:', e)
+  }
+  showAction('保存成功')
+  showEditPrintTemplateModal.value = false
+}
+
+function ensureArray(val: any): string[] {
+  if (Array.isArray(val)) return val
+  if (typeof val === 'string' && val) return [val]
+  return []
+}
+
+function toggleRowField(rowIndex: number, fieldName: string) {
+  const tpl = printTemplates.value[activeTemplateIndex.value] as any
+  const key = `row${rowIndex}Field`
+  let arr = ensureArray(tpl[key])
+  if (arr.includes(fieldName)) {
+    arr = arr.filter((f: string) => f !== fieldName)
+  } else {
+    arr.push(fieldName)
+  }
+  tpl[key] = arr
+}
 
 const qrPreviewUrl = ref('')
 watchEffect(() => {
   const tpl = printTemplates.value[activeTemplateIndex.value]
-  const text = tpl.qrSource === '工单二维码' ? '123456' : `${window.location.origin}/workorder/123456`
+  if (!tpl) return
+  let text = ''
+  if (tpl.qrSource === '工单外链') {
+    text = `${window.location.origin}/workorder/123456`
+  } else if (tpl.qrSource === '工单编号') {
+    text = 'GD20220120'
+  } else if (tpl.qrSource === '工单二维码') {
+    text = '123456'
+  } else {
+    text = tpl.qrSource || '123456'
+  }
   QRCode.toDataURL(text, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } }).then((url: string) => {
     qrPreviewUrl.value = url
   }).catch((err: any) => console.error('QR Generate Error:', err))
@@ -2253,7 +2368,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
               数据分析模板
             </button>
-            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showEditPrintTemplateModal = true">
+            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="openEditPrintTemplate">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
               打印模板
             </button>
@@ -3295,18 +3410,18 @@ function handleNavigate(menu: { main: string; sub: string }) {
               </div>
               <div class="db-bar-chart" style="position: relative;">
                 <!-- SVG 折线 -->
-                <svg style="position:absolute; width:100%; height:100%; left:0; top:0; pointer-events:none;" preserveAspectRatio="none">
+                <svg viewBox="0 0 100 100" style="position:absolute; width:100%; height:100%; left:0; top:0; pointer-events:none;" preserveAspectRatio="none">
                   <polyline 
                     fill="none" 
                     stroke="#f59e0b" 
-                    stroke-width="2" 
-                    :points="barData.map((d, i) => `${(i + 0.5) * (100 / barData.length)}%,${100 - (d.done / 10 * 100)}%`).join(' ')"
+                    stroke-width="0.6" 
+                    :points="barData.map((d, i) => `${(i + 0.5) * (100 / barData.length)},${100 - (d.done / 10 * 100)}`).join(' ')"
                   />
                   <circle 
                     v-for="(d, i) in barData" :key="'pt'+i"
-                    :cx="`${(i + 0.5) * (100 / barData.length)}%`" 
-                    :cy="`${100 - (d.done / 10 * 100)}%`" 
-                    r="3" fill="#041228" stroke="#f59e0b" stroke-width="1.5"
+                    :cx="(i + 0.5) * (100 / barData.length)" 
+                    :cy="100 - (d.done / 10 * 100)" 
+                    r="0.8" fill="#f59e0b"
                   />
                 </svg>
 
@@ -3333,67 +3448,88 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
           <!-- 中上：核心指标 -->
           <div class="db-card db-card-center">
-            <div class="db-kpi-grid">
-              <!-- 第1框 -->
-              <div class="db-kpi-box">
-                <div class="db-kpi-box-title">在制工单计划数</div>
-                <div class="db-kpi-value cyan">{{ dashboardKpi.planCount }}</div>
-                <div class="db-kpi-box-sub mt-2">
-                  <span>在制工单延期数</span>
-                  <span class="red-text">{{ dashboardKpi.delayedOrders }}</span>
-                </div>
-                <div class="db-kpi-box-sub">
-                  <span>今日完成工单数</span>
-                  <span class="green-text">{{ dashboardKpi.todayDone }}</span>
-                </div>
-                <div class="db-kpi-box-sub">
-                  <span>今日工单产出数</span>
-                  <span class="cyan-text">{{ dashboardKpi.todayOutput }}</span>
-                </div>
+            <div class="db-kpi-grid-v4">
+              <div class="db-kpi-box-v4">
+                <div class="db-kpi-box-v4-title">在制工单数</div>
+                <div class="db-kpi-box-v4-value cyan">7</div>
               </div>
-              
-              <!-- 第2框 -->
-              <div class="db-kpi-box">
-                <div style="display:flex; justify-content:space-between;">
-                  <div>
-                    <div class="db-kpi-box-title">在制工单数</div>
-                    <div class="db-kpi-value">7</div>
-                  </div>
-                  <div>
-                    <div class="db-kpi-box-title">在制任务数</div>
-                    <div class="db-kpi-value">37</div>
-                  </div>
+              <div class="db-kpi-box-v4">
+                <div class="db-kpi-box-v4-title">在制工单计划数</div>
+                <div class="db-kpi-box-v4-value cyan">{{ dashboardKpi.planCount }}</div>
+              </div>
+              <div class="db-kpi-box-v4">
+                <div class="db-kpi-box-v4-title">在制任务计划数</div>
+                <div class="db-kpi-box-v4-value cyan">24878</div>
+              </div>
+              <div class="db-kpi-box-v4">
+                <div class="db-kpi-box-v4-title">在制任务数</div>
+                <div class="db-kpi-box-v4-value cyan">37</div>
+              </div>
+            </div>
+
+            <div class="db-center-body">
+              <!-- 左侧指标面板 -->
+              <div class="db-side-panel">
+                <div class="db-side-item">
+                  <span class="db-side-label">在制工单延期数</span>
+                  <span class="db-side-value red">{{ dashboardKpi.delayedOrders }}</span>
+                </div>
+                <div class="db-side-item">
+                  <span class="db-side-label">今日完成工单数</span>
+                  <span class="db-side-value green">{{ dashboardKpi.todayDone }}</span>
+                </div>
+                <div class="db-side-item">
+                  <span class="db-side-label">今日工单产出数</span>
+                  <span class="db-side-value cyan">{{ dashboardKpi.todayOutput }}</span>
                 </div>
               </div>
 
-              <!-- 第3框 -->
-              <div class="db-kpi-box">
-                <div class="db-kpi-box-title">在制任务计划数</div>
-                <div class="db-kpi-value">24878</div>
-                <div class="db-kpi-box-sub mt-2">
-                  <span>在制任务延期数</span>
-                  <span class="red-text">{{ dashboardKpi.delayedTasks }}</span>
+              <!-- 中间三维工厂渲染区 -->
+              <div class="db-factory-center">
+                <img src="/factory.png" alt="Factory" style="max-width: 100%; max-height: 180px; object-fit: contain; filter: drop-shadow(0 0 15px rgba(0,200,255,0.3));" />
+              </div>
+
+              <!-- 右侧指标面板 -->
+              <div class="db-side-panel">
+                <div class="db-side-item">
+                  <span class="db-side-label">在制任务延期数</span>
+                  <span class="db-side-value red">{{ dashboardKpi.delayedTasks }}</span>
                 </div>
-                <div class="db-kpi-box-sub">
-                  <span>今日完成任务数</span>
-                  <span class="green-text">{{ dashboardKpi.todayTasks }}</span>
+                <div class="db-side-item">
+                  <span class="db-side-label">今日完成任务数</span>
+                  <span class="db-side-value green">{{ dashboardKpi.todayTasks }}</span>
                 </div>
-                <div class="db-kpi-box-sub">
-                  <span>今日不良品率</span>
-                  <span class="red-text">{{ dashboardKpi.defectRate }}%</span>
+                <div class="db-side-item">
+                  <span class="db-side-label">今日不良品数</span>
+                  <span class="db-side-value red">0</span>
                 </div>
               </div>
             </div>
-            
-            <div class="db-factory-visual">
-              <img src="/factory.png" alt="Factory" style="max-width: 100%; max-height: 180px; object-fit: contain; filter: drop-shadow(0 0 15px rgba(0,200,255,0.3));" />
-            </div>
-            <!-- 滚动消息 -->
-            <div class="db-scroll-messages">
-              <div v-for="(msg, mi) in scrollMessages" :key="mi" class="db-msg-row">
-                <span class="db-msg-time">{{ msg.time }}</span>
-                <span class="db-msg-text">{{ msg.text }}</span>
-              </div>
+
+            <!-- 报工记录表格 (替代滚动消息: scrollMessages) -->
+            <div class="db-scroll-messages" style="max-height: 140px; overflow: hidden; width: 100%; box-sizing: border-box;">
+              <table class="db-report-table">
+                <thead>
+                  <tr>
+                    <th style="width: 23%;">报工创建时间</th>
+                    <th style="width: 13%;">生产人员</th>
+                    <th style="width: 16%;">工序名称</th>
+                    <th style="width: 26%;">产品名称</th>
+                    <th style="width: 10%;">良品数</th>
+                    <th style="width: 12%;">不良品数</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(rep, ri) in displayReports" :key="ri">
+                    <td :title="rep.createdAt">{{ rep.createdAt }}</td>
+                    <td>{{ rep.reporterName }}</td>
+                    <td>{{ rep.processName }}</td>
+                    <td :title="rep.productName">{{ rep.productName }}</td>
+                    <td class="text-cyan">{{ rep.goodQuantity }}</td>
+                    <td class="text-red">{{ rep.defectQuantity }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -3410,18 +3546,18 @@ function handleNavigate(menu: { main: string; sub: string }) {
             </div>
             <div class="db-defect-chart" style="position: relative;">
               <!-- SVG 折线 -->
-              <svg style="position:absolute; width:100%; height:100%; left:0; top:0; pointer-events:none;" preserveAspectRatio="none">
+              <svg viewBox="0 0 100 100" style="position:absolute; width:100%; height:100%; left:0; top:0; pointer-events:none;" preserveAspectRatio="none">
                 <polyline 
                   fill="none" 
-                  stroke="#3b82f6" 
-                  stroke-width="2" 
-                  :points="defectTrend.map((d, i) => `${(i + 0.5) * (100 / defectTrend.length)}%,${100 - (d.count / 15 * 100)}%`).join(' ')"
+                  stroke="#f59e0b" 
+                  stroke-width="0.6" 
+                  :points="defectTrend.map((d, i) => `${(i + 0.5) * (100 / defectTrend.length)},${100 - (d.count / 15 * 100)}`).join(' ')"
                 />
                 <circle 
                   v-for="(d, i) in defectTrend" :key="'dpt'+i"
-                  :cx="`${(i + 0.5) * (100 / defectTrend.length)}%`" 
-                  :cy="`${100 - (d.count / 15 * 100)}%`" 
-                  r="3" fill="#041228" stroke="#3b82f6" stroke-width="1.5"
+                  :cx="(i + 0.5) * (100 / defectTrend.length)" 
+                  :cy="100 - (d.count / 15 * 100)" 
+                  r="0.8" fill="#f59e0b"
                 />
               </svg>
 
@@ -3870,48 +4006,86 @@ function handleNavigate(menu: { main: string; sub: string }) {
         
         <!-- 中间编辑区 -->
         <div style="flex: 1; border-right: 1px solid #eee; padding: 24px; overflow-y: auto; background: #fdfdfd;">
-          <h3 style="font-size: 14px; margin-top: 0; margin-bottom: 8px; color: #333;">配置打印模板 {{ printTemplates[activeTemplateIndex].type.replace('x', '*') }}mm</h3>
-          <p style="font-size: 12px; color: #8a9693; margin-top: 0; margin-bottom: 24px;">字段1-3个 二维码1个 可通过页面配置模板需要打印的字段</p>
+          <h3 style="font-size: 14px; margin-top: 0; margin-bottom: 8px; color: #333;">配置打印模板 {{ activeTpl.type.replace('x', '*') }}mm</h3>
+          <p style="font-size: 12px; color: #8a9693; margin-top: 0; margin-bottom: 24px;">通过页面配置模板需要打印的标题、字段及二维码内容</p>
           
           <div class="process-field">
             <label class="process-label required" style="font-weight: normal; margin-bottom: 8px; display: block;">模板名称</label>
             <div class="process-input-wrap">
-              <input class="process-input" v-model="printTemplates[activeTemplateIndex].name" />
+              <input class="process-input" v-model="activeTpl.name" />
             </div>
           </div>
-          
-          <div class="process-field" v-if="printTemplates[activeTemplateIndex].type === '80x60'">
-            <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">标题行</label>
-            <div class="process-input-wrap">
-              <input class="process-input" v-model="printTemplates[activeTemplateIndex].titleField" />
+
+          <!-- 30x40 模板配置项 -->
+          <template v-if="activeTpl.type === '30x40'">
+            <div class="process-field" style="margin-top: 16px;">
+              <label class="process-label required" style="font-weight: normal; margin-bottom: 8px; display: block;">二维码内容</label>
+              <div class="process-input-wrap">
+                <select class="process-input" v-model="activeTpl.qrSource" style="cursor: pointer; background: #fff;">
+                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+                </select>
+              </div>
             </div>
-          </div>
-          
-          <div class="process-field">
-            <label class="process-label required" v-if="printTemplates[activeTemplateIndex].type === '30x40'" style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">二维码</label>
-            <label class="process-label" v-else style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">取值</label>
-            <div class="process-input-wrap">
-              <select class="process-input" v-model="printTemplates[activeTemplateIndex].qrSource">
-                <option value="工单二维码">工单二维码</option>
-                <option value="工单外链">工单外链</option>
-              </select>
+            <div class="process-field" style="margin-top: 16px;">
+              <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">第一行取值</label>
+              <div class="process-input-wrap">
+                <select class="process-input" v-model="activeTpl.row1" style="cursor: pointer; background: #fff;">
+                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+                </select>
+              </div>
             </div>
-          </div>
-          
-          <div class="process-field">
-            <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">{{ printTemplates[activeTemplateIndex].type === '30x40' ? '第一行取值' : '第1行' }}</label>
-            <div class="process-input-wrap" style="position: relative;">
-              <input class="process-input" v-model="printTemplates[activeTemplateIndex].row1" />
-              <span style="position: absolute; right: 12px; top: 8px; color: #aaa; cursor: pointer;">✕</span>
+            <div class="process-field" style="margin-top: 16px;">
+              <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">第二行取值</label>
+              <div class="process-input-wrap">
+                <select class="process-input" v-model="activeTpl.row2" style="cursor: pointer; background: #fff;">
+                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+                </select>
+              </div>
             </div>
-          </div>
-          <div class="process-field" v-if="printTemplates[activeTemplateIndex].type === '30x40'">
-            <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block; margin-top: 16px;">第二行取值</label>
-            <div class="process-input-wrap" style="position: relative;">
-              <input class="process-input" v-model="printTemplates[activeTemplateIndex].row2" />
-              <span style="position: absolute; right: 12px; top: 8px; color: #aaa; cursor: pointer;">✕</span>
+          </template>
+
+          <!-- 80x60 模板配置项 -->
+          <template v-else>
+            <div class="process-field" style="margin-top: 16px;">
+              <label class="process-label required" style="font-weight: normal; margin-bottom: 8px; display: block;">二维码内容</label>
+              <div class="process-input-wrap">
+                <select class="process-input" v-model="activeTpl.qrSource" style="cursor: pointer; background: #fff;">
+                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+                </select>
+              </div>
             </div>
-          </div>
+
+            <!-- 标题行配置 -->
+            <div style="display: flex; gap: 12px; align-items: center; margin-top: 16px;">
+              <div style="flex: 1;">
+                <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">标题行名称</label>
+                <input class="process-input" v-model="activeTpl.titleLabel" placeholder="如：工单编号" />
+              </div>
+              <div style="flex: 1;">
+                <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">标题行取值</label>
+                <select class="process-input" v-model="activeTpl.titleField" style="cursor: pointer; background: #fff;">
+                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 第1~6行配置 -->
+            <div v-for="i in 6" :key="`row-${i}`" style="display: flex; gap: 12px; align-items: flex-start; margin-top: 12px;">
+              <div style="flex: 1;">
+                <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">第{{ i }}行名称</label>
+                <input class="process-input" v-model="activeTpl[`row${i}Label`]" />
+              </div>
+              <div style="flex: 1;">
+                <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">第{{ i }}行取值 <span style="font-size: 11px; color: #8a9693;">(可多选)</span></label>
+                <div style="border: 1px solid #dce3e0; border-radius: 4px; background: #fff; max-height: 140px; overflow-y: auto; padding: 4px 0;">
+                  <label v-for="f in workOrderFields" :key="`row${i}-${f}`" style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px; color: #333;" :style="ensureArray(activeTpl[`row${i}Field`]).includes(f) ? 'background: #e8f7f3;' : ''">
+                    <input type="checkbox" :value="f" :checked="ensureArray(activeTpl[`row${i}Field`]).includes(f)" @change="toggleRowField(i, f)" style="accent-color: #00b889; cursor: pointer;" />
+                    {{ f }}
+                  </label>
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
 
         <!-- 右侧预览区 -->
@@ -3919,7 +4093,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <h3 style="font-size: 14px; margin-top: 0; margin-bottom: 24px; color: #333;">模板效果预览</h3>
           <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
             <!-- 30x40 预览 -->
-            <div v-if="printTemplates[activeTemplateIndex].type === '30x40'" style="width: 200px; border: 1px solid #ccc; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05); background: #fff;">
+            <div v-if="activeTpl.type === '30x40'" style="width: 200px; border: 1px solid #ccc; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05); background: #fff;">
               <img v-if="qrPreviewUrl" :src="qrPreviewUrl" width="120" height="120" style="margin-bottom: 16px; mix-blend-mode: multiply;" />
               <svg v-else viewBox="0 0 100 100" width="120" height="120" style="margin-bottom: 16px;">
                 <rect width="100" height="100" fill="#000" />
@@ -3929,45 +4103,37 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 <rect x="60" y="60" width="30" height="30" fill="#fff" />
                 <rect x="45" y="45" width="10" height="10" fill="#fff" />
               </svg>
-              <div style="font-size: 14px; font-weight: bold; margin-bottom: 8px;">${工单.{{ printTemplates[activeTemplateIndex].row1 }}}</div>
-              <div style="font-size: 12px; color: #666;">${工单.{{ printTemplates[activeTemplateIndex].row2 }}}</div>
+              <div style="font-size: 14px; font-weight: bold; margin-bottom: 8px;">${工单.{{ activeTpl.row1 }}}</div>
+              <div style="font-size: 12px; color: #666;">${工单.{{ activeTpl.row2 }}}</div>
             </div>
             
             <!-- 80x60 预览 -->
-            <div v-else style="width: 280px; border: 2px solid #333; padding: 2px; background: #fff; display: flex; flex-direction: column;">
-              <div style="text-align: center; font-size: 14px; font-weight: bold; border-bottom: 1px solid #333; padding: 8px 0;">
-                {{ printTemplates[activeTemplateIndex].titleField }}: ${工单.{{ printTemplates[activeTemplateIndex].titleField }}}
+            <div v-else style="width: 280px; border: 2px solid #333; padding: 2px; background: #fff; display: flex; flex-direction: column; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
+              <div style="text-align: center; font-size: 12px; font-weight: bold; border-bottom: 1px solid #333; padding: 6px 4px; word-break: break-all;">
+                {{ activeTpl.titleLabel }}: ${工单.{{ activeTpl.titleField }}}
               </div>
               <div style="display: flex;">
                 <div style="flex: 1; border-right: 1px solid #333; display: flex; flex-direction: column;">
-                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
-                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">产品编号</div>
-                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.产品编号}</div>
+                  <div v-for="i in 5" :key="`prev-row-${i}`" style="display: flex; border-bottom: 1px solid #333; font-size: 9px; line-height: 1.2;">
+                    <div style="width: 55px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: #fdfdfd; text-align: center;">
+                      {{ activeTpl[`row${i}Label`] }}
+                    </div>
+                    <div style="flex: 1; padding: 4px; display: flex; flex-direction: column; justify-content: center; word-break: break-all;">
+                      <div v-for="(fld, fi) in ensureArray(activeTpl[`row${i}Field`])" :key="fi">${工单.{{ fld }}}</div>
+                    </div>
                   </div>
-                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
-                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">产品名称</div>
-                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.{{ printTemplates[activeTemplateIndex].row1 }}}</div>
-                  </div>
-                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
-                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">产品规格</div>
-                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.产品规格}</div>
-                  </div>
-                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
-                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center; text-align: center;">工单计划数</div>
-                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.计划数}</div>
-                  </div>
-                  <div style="display: flex; border-bottom: 1px solid #333; font-size: 10px;">
-                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">计划时间</div>
-                    <div style="flex: 1; padding: 4px; display: flex; align-items: center; font-size: 8px;">${工单.计划时间}</div>
-                  </div>
-                  <div style="display: flex; font-size: 10px; height: 30px;">
-                    <div style="width: 50px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center;">备注</div>
-                    <div style="flex: 1; padding: 4px; display: flex; align-items: center;">${工单.备注}</div>
+                  <div style="display: flex; font-size: 9px; min-height: 25px; line-height: 1.2;">
+                    <div style="width: 55px; border-right: 1px solid #333; padding: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; background: #fdfdfd; text-align: center;">
+                      {{ activeTpl.row6Label }}
+                    </div>
+                    <div style="flex: 1; padding: 4px; display: flex; flex-direction: column; justify-content: center; word-break: break-all;">
+                      <div v-for="(fld, fi) in ensureArray(activeTpl.row6Field)" :key="fi">${工单.{{ fld }}}</div>
+                    </div>
                   </div>
                 </div>
-                <div style="width: 90px; display: flex; align-items: center; justify-content: center; padding: 8px;">
-                  <img v-if="qrPreviewUrl" :src="qrPreviewUrl" width="70" height="70" style="mix-blend-mode: multiply;" />
-                  <svg v-else viewBox="0 0 100 100" width="70" height="70">
+                <div style="width: 90px; display: flex; align-items: center; justify-content: center; padding: 6px;">
+                  <img v-if="qrPreviewUrl" :src="qrPreviewUrl" width="76" height="76" style="mix-blend-mode: multiply;" />
+                  <svg v-else viewBox="0 0 100 100" width="76" height="76">
                     <rect width="100" height="100" fill="#000" />
                     <rect x="10" y="10" width="30" height="30" fill="#fff" />
                     <rect x="60" y="10" width="30" height="30" fill="#fff" />
@@ -3983,7 +4149,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
       </div>
       <footer class="modal-footer" style="padding: 16px 24px; border-top: 1px solid #eee; background: #fff;">
         <button class="ghost-btn" style="min-width: 80px;" type="button" @click="showEditPrintTemplateModal = false">取消</button>
-        <button class="primary-btn" style="min-width: 80px;" type="button" @click="showAction('保存成功'); showEditPrintTemplateModal = false">保存</button>
+        <button class="primary-btn" style="min-width: 80px;" type="button" @click="savePrintTemplates">保存</button>
       </footer>
     </section>
   </div>

@@ -66,6 +66,13 @@ public class WorkOrderService {
         return toResponse(workOrder);
     }
 
+    @Transactional(readOnly = true)
+    public WorkOrderResponse getByCode(Long factoryId, String code) {
+        WorkOrder workOrder = workOrderRepository.findByFactoryIdAndCode(factoryId, code)
+                .orElseThrow(() -> new IllegalArgumentException("工单不存在：" + code));
+        return toResponse(workOrder);
+    }
+
     public WorkOrderResponse create(Long factoryId, Long userId, WorkOrderRequest request) {
         WorkOrder workOrder = new WorkOrder();
         workOrder.setCreatedAt(LocalDateTime.now());

@@ -7,6 +7,33 @@
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      var __UNI_FEATURE_UNI_CLOUD__ = false;
+      var __UNI_FEATURE_WXS__ = false;
+      var __UNI_FEATURE_RPX__ = false;
+      var __UNI_FEATURE_NVUE__ = false;
+      var __UNI_FEATURE_PROMISE__ = false;
+      var __UNI_FEATURE_LONGPRESS__ = false;
+      var __UNI_FEATURE_I18N_EN__ = false;
+      var __UNI_FEATURE_I18N_ES__ = false;
+      var __UNI_FEATURE_I18N_FR__ = false;
+      var __UNI_FEATURE_I18N_ZH_HANS__ = false;
+      var __UNI_FEATURE_I18N_ZH_HANT__ = false;
+      var __uniConfig = {
+        router: { mode: 'hash', base: '/' },
+        routes: [
+          { path: 'pages/bind/index', style: { navigationBarTitleText: '账号绑定' } },
+          { path: 'pages/home/index', style: { navigationBarTitleText: '黑湖小工单' } },
+          { path: 'pages/work-orders/index', style: { navigationBarTitleText: '工单' } },
+          { path: 'pages/work-order-detail/index', style: { navigationBarTitleText: '工单详情' } },
+          { path: 'pages/report-form/index', style: { navigationBarTitleText: '报工' } },
+          { path: 'pages/report-list/index', style: { navigationBarTitleText: '报工列表' } },
+          { path: 'pages/tasks/index', style: { navigationBarTitleText: '任务' } },
+          { path: 'pages/board/index', style: { navigationBarTitleText: '看板' } }
+        ],
+        locales: {}
+      };
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -256,7 +256,7 @@ const statusCards = computed(() => {
     { key: 'all', label: '全部', count: baseOrders.length },
     { key: 'NOT_STARTED', label: '未开始', count: baseOrders.filter(i => i.status === 'NOT_STARTED').length },
     { key: 'EXECUTING', label: '执行中', count: baseOrders.filter(i => i.status === 'EXECUTING').length },
-    { key: 'COMPLETED', label: '已结束', count: baseOrders.filter(i => i.status === 'COMPLETED').length },
+    { key: 'COMPLETED', label: '已结束', count: baseOrders.filter(i => ['COMPLETED', 'FINISHED', 'CLOSED'].includes(i.status)).length },
     { key: 'CANCELED', label: '已取消', count: baseOrders.filter(i => i.status === 'CANCELED').length }
   ]
 })
@@ -274,6 +274,7 @@ const filteredOrders = computed(() => {
 
     let statusOk = false
     if (statusFilter.value === 'all') statusOk = true
+    else if (statusFilter.value === 'COMPLETED') statusOk = ['COMPLETED', 'FINISHED', 'CLOSED'].includes(item.status)
     else statusOk = item.status === statusFilter.value
 
     const text = `${item.code}${item.productCode}${item.productName}`.toLowerCase()
@@ -333,7 +334,7 @@ const allSelected = computed(() =>
 )
 
 function statusLabel(value: string) {
-  return { NOT_STARTED: '未开始', EXECUTING: '执行中', PAUSED: '已暂停', COMPLETED: '已完成' }[value] || value
+  return { NOT_STARTED: '未开始', EXECUTING: '执行中', PAUSED: '已暂停', COMPLETED: '已完成', FINISHED: '已结束', CLOSED: '已关闭', CANCELED: '已取消' }[value] || value
 }
 
 function priorityLabel(value: string) {
@@ -1462,36 +1463,153 @@ function handleEditSelected() {
   if (item) openEdit(item)
 }
 
-const qrDataUrls = ref<Record<number, string>>({})
-watch(selectedIds, async (ids) => {
-  const newUrls: Record<number, string> = {}
-  for (const id of ids) {
-    const code = workOrders.value.find(o => o.id === id)?.code || String(id)
-    const url = `${window.location.origin}/workorder/${code}`
-    try {
-      newUrls[id] = await QRCode.toDataURL(url, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } })
-    } catch (e) {
-      console.error(e)
-    }
-  }
-  qrDataUrls.value = newUrls
-}, { deep: true, immediate: true })
-
 const showPrintModal = ref(false)
 const selectedBuiltIn = ref<'flow' | 'qr-thermal' | 'qr-30-40' | 'qr-80-60'>('flow')
 const selectedExcelTpl = ref<'flow' | 'qr' | 'list' | 'materials'>('flow')
 const excelMultiImage = ref(false)
 const excelScaleImage = ref(false)
 
+const customTemplates = ref({
+  qr_30_40: { qrSource: '工单二维码', row1: '产品名称', row2: '工单编号' },
+  qr_80_60: {
+    qrSource: '工单外链',
+    titleLabel: '工单编号',
+    titleField: '工单编号',
+    row1Label: '产品编号',
+    row1Field: ['产品编号'],
+    row2Label: '产品名称',
+    row2Field: ['产品名称'],
+    row3Label: '产品规格',
+    row3Field: ['产品规格'],
+    row4Label: '工单计划数',
+    row4Field: ['计划数'],
+    row5Label: '计划时间',
+    row5Field: ['计划开始时间', '计划结束时间'],
+    row6Label: '备注',
+    row6Field: ['工单备注']
+  }
+})
+
+function loadCustomTemplates() {
+  try {
+    const saved = localStorage.getItem('print_templates_data')
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      const t3040 = parsed.find((t: any) => t.type === '30x40')
+      const t8060 = parsed.find((t: any) => t.type === '80x60')
+      if (t3040) {
+        customTemplates.value.qr_30_40 = {
+          qrSource: t3040.qrSource || '工单二维码',
+          row1: t3040.row1 || '产品名称',
+          row2: t3040.row2 || '工单编号'
+        }
+      }
+      if (t8060) {
+        customTemplates.value.qr_80_60 = {
+          qrSource: t8060.qrSource || '工单外链',
+          titleLabel: t8060.titleLabel || '工单编号',
+          titleField: t8060.titleField || '工单编号',
+          row1Label: t8060.row1Label || '产品编号',
+          row1Field: ensureFieldArray(t8060.row1Field, ['产品编号']),
+          row2Label: t8060.row2Label || '产品名称',
+          row2Field: ensureFieldArray(t8060.row2Field, ['产品名称']),
+          row3Label: t8060.row3Label || '产品规格',
+          row3Field: ensureFieldArray(t8060.row3Field, ['产品规格']),
+          row4Label: t8060.row4Label || '工单计划数',
+          row4Field: ensureFieldArray(t8060.row4Field, ['计划数']),
+          row5Label: t8060.row5Label || '计划时间',
+          row5Field: ensureFieldArray(t8060.row5Field, ['计划开始时间', '计划结束时间']),
+          row6Label: t8060.row6Label || '备注',
+          row6Field: ensureFieldArray(t8060.row6Field, ['工单备注'])
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Load custom templates error:', e)
+  }
+}
+
+function ensureFieldArray(val: any, fallback: string[]): string[] {
+  if (Array.isArray(val)) return val
+  if (typeof val === 'string' && val) {
+    // 兼容旧版字符串格式，把“计划时间”自动转换为拆分后的两个字段
+    if (val === '计划时间') return ['计划开始时间', '计划结束时间']
+    return [val]
+  }
+  return fallback
+}
+
+function getFieldValue(order: any, fieldName: string) {
+  if (!order) return ''
+  switch(fieldName) {
+    case '工单编号': return order.code || ''
+    case '产品编号': return order.productCode || ''
+    case '产品名称': return order.productName || ''
+    case '产品规格': return order.productSpec || ''
+    case '计划数': return order.plannedQuantity != null ? String(order.plannedQuantity) : ''
+    case '计划开始时间': return order.planStart || ''
+    case '计划结束时间': return order.planEnd || ''
+    case '计划时间': return (order.planStart || '') + ' | ' + (order.planEnd || '')
+    case '工单备注': return order.remark || ''
+    case '工单外链': return `${window.location.origin}/workorder/${order.code || ''}`
+    case '单位': return 'pcs'
+    case '创建人': return order.creator || '王艺儒'
+    case '创建时间': return order.createdAt || '2026-05-25 10:00'
+    case '更新人': return order.updator || '王艺儒'
+    case '更新时间': return order.updatedAt || '2026-05-25 10:05'
+    default: return ''
+  }
+}
+
+function getMultiFieldValues(order: any, fields: any): string[] {
+  if (!order) return []
+  const arr = Array.isArray(fields) ? fields : (typeof fields === 'string' && fields ? [fields] : [])
+  return arr.map((f: string) => getFieldValue(order, f))
+}
+
+const qrDataUrls = ref<Record<number, string>>({})
+
+async function generateAllQrs() {
+  loadCustomTemplates()
+  const newUrls: Record<number, string> = {}
+  for (const id of selectedIds.value) {
+    const order = workOrders.value.find(o => o.id === id)
+    if (!order) continue
+    const currentTpl = selectedBuiltIn.value === 'qr-30-40' ? customTemplates.value.qr_30_40 : customTemplates.value.qr_80_60
+    const source = currentTpl.qrSource
+    let qrText = ''
+    if (source === '工单外链') {
+      // 使用与当前页面相同的 hostname（局域网 IP），但端口改为移动端 H5 的 5174
+      const hostname = window.location.hostname
+      const mobileBase = `http://${hostname}:5174`
+      qrText = `${mobileBase}/#/pages/work-order-detail/index?id=${order.id}&code=${encodeURIComponent(order.code || '')}`
+    } else {
+      qrText = getFieldValue(order, source) || order.code || String(id)
+    }
+    try {
+      newUrls[id] = await QRCode.toDataURL(qrText, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } })
+    } catch (e) {
+      console.error('QR Generate Error:', e)
+    }
+  }
+  qrDataUrls.value = newUrls
+}
+
+watch([selectedIds, selectedBuiltIn], () => {
+  generateAllQrs()
+}, { deep: true, immediate: true })
+
 function getWorkOrder(id: number) {
   return workOrders.value.find(o => o.id === id)
 }
 
-function openPrint() {
+async function openPrint() {
   if (selectedIds.value.length === 0) {
     emit('notice', '请先选择需要打印的工单')
     return
   }
+  loadCustomTemplates()
+  await generateAllQrs() // 弹窗前确保二维码已全部生成并完成状态更新
   showPrintModal.value = true
 }
 
@@ -2622,27 +2740,37 @@ onUnmounted(() => {
 
           <!-- 3. 30x40mm坚版二维码标签 -->
           <div v-else-if="selectedBuiltIn === 'qr-30-40'" class="qr-30-40-layout">
-            <div class="qr-mini-title">工单卡 (30*40mm)</div>
+            <div class="qr-mini-title">{{ customTemplates.qr_30_40.row1 }}</div>
             <div class="qr-mini-img-wrap">
               <img v-if="qrDataUrls[id]" :src="qrDataUrls[id]" class="qr-img-mini" />
             </div>
-            <div class="qr-mini-info font-mono">{{ getWorkOrder(id)?.code }}</div>
-            <div class="qr-mini-info text-ellipsis">{{ getWorkOrder(id)?.productName }}</div>
+            <div class="qr-mini-info font-mono">{{ getFieldValue(getWorkOrder(id), customTemplates.qr_30_40.row1) }}</div>
+            <div class="qr-mini-info text-ellipsis">{{ getFieldValue(getWorkOrder(id), customTemplates.qr_30_40.row2) }}</div>
           </div>
 
           <!-- 4. 80x60mm横版二维码标签 -->
-          <div v-else-if="selectedBuiltIn === 'qr-80-60'" class="qr-80-60-layout">
-            <div class="qr-left-col">
-              <img v-if="qrDataUrls[id]" :src="qrDataUrls[id]" class="qr-img-std" />
-              <div style="font-size: 11px; text-align: center; color: #586360; margin-top: 4px;">扫码查看工单</div>
+          <div v-else-if="selectedBuiltIn === 'qr-80-60'" class="qr-80-60-card">
+            <div class="qr-80-60-title-row">
+              {{ customTemplates.qr_80_60.titleLabel }}: {{ getFieldValue(getWorkOrder(id), customTemplates.qr_80_60.titleField) }}
             </div>
-            <div class="qr-right-col">
-              <div class="qr-card-header">工单信息标签</div>
-              <div class="qr-card-field"><span class="f-lbl">工单编号:</span> <span class="f-val font-mono">{{ getWorkOrder(id)?.code }}</span></div>
-              <div class="qr-card-field"><span class="f-lbl">产品编号:</span> <span class="f-val">{{ getWorkOrder(id)?.productCode }}</span></div>
-              <div class="qr-card-field"><span class="f-lbl">产品名称:</span> <span class="f-val text-ellipsis">{{ getWorkOrder(id)?.productName }}</span></div>
-              <div class="qr-card-field"><span class="f-lbl">计划数:</span> <span class="f-val font-bold" style="color: #000;">{{ getWorkOrder(id)?.plannedQuantity }}</span></div>
-              <div class="qr-card-field" v-if="getWorkOrder(id)?.productSpec"><span class="f-lbl">规格:</span> <span class="f-val">{{ getWorkOrder(id)?.productSpec }}</span></div>
+            <div class="qr-80-60-body">
+              <div class="qr-80-60-left">
+                <div v-for="i in 5" :key="'print-row-'+i" class="qr-80-60-info-row">
+                  <div class="qr-80-60-lbl">{{ customTemplates.qr_80_60[`row${i}Label`] }}</div>
+                  <div class="qr-80-60-val">
+                    <div v-for="(v, vi) in getMultiFieldValues(getWorkOrder(id), customTemplates.qr_80_60[`row${i}Field`])" :key="vi">{{ v }}</div>
+                  </div>
+                </div>
+                <div class="qr-80-60-info-row qr-80-60-remark-row">
+                  <div class="qr-80-60-lbl">{{ customTemplates.qr_80_60.row6Label }}</div>
+                  <div class="qr-80-60-val">
+                    <div v-for="(v, vi) in getMultiFieldValues(getWorkOrder(id), customTemplates.qr_80_60.row6Field)" :key="vi">{{ v }}</div>
+                  </div>
+                </div>
+              </div>
+              <div class="qr-80-60-right">
+                <img v-if="qrDataUrls[id]" :src="qrDataUrls[id]" class="qr-img-80-60" />
+              </div>
             </div>
           </div>
         </template>
@@ -3373,61 +3501,94 @@ tr.drag-over {
   .tpl-qr-80-60 {
     width: 80mm !important;
     height: 60mm !important;
-    padding: 4mm !important;
+    padding: 2mm !important;
     margin: 0 auto 10mm auto !important;
     box-sizing: border-box !important;
-    border: 1px solid #000000 !important;
+    border: none !important;
     background: #ffffff !important;
     display: flex !important;
-    flex-direction: row !important;
-    gap: 4mm !important;
     align-items: center !important;
+    justify-content: center !important;
     page-break-after: always !important;
   }
-  .qr-left-col {
-    width: 32mm;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
+  .qr-80-60-card {
+    width: 76mm !important;
+    border: 2px solid #333 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    display: flex !important;
+    flex-direction: column !important;
+    box-sizing: border-box !important;
   }
-  .qr-img-std {
-    width: 28mm !important;
-    height: 28mm !important;
-    display: block;
+  .qr-80-60-title-row {
+    text-align: center !important;
+    font-size: 11px !important;
+    font-weight: bold !important;
+    border-bottom: 1px solid #333 !important;
+    padding: 5px 4px !important;
+    word-break: break-all !important;
+    color: #000 !important;
+    line-height: 1.3 !important;
   }
-  .qr-right-col {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    height: 100%;
-    border-left: 1px dashed #cccccc;
-    padding-left: 3mm;
-    text-align: left;
+  .qr-80-60-body {
+    display: flex !important;
   }
-  .qr-card-header {
-    font-size: 12px;
-    font-weight: bold;
-    color: #000000;
-    border-bottom: 1px solid #000000;
-    padding-bottom: 2px;
-    margin-bottom: 4px;
+  .qr-80-60-left {
+    flex: 1 !important;
+    border-right: 1px solid #333 !important;
+    display: flex !important;
+    flex-direction: column !important;
   }
-  .qr-card-field {
-    font-size: 10px;
-    color: #000000;
-    margin-top: 2px;
-    line-height: 1.2;
-    display: flex;
+  .qr-80-60-info-row {
+    display: flex !important;
+    border-bottom: 1px solid #333 !important;
+    font-size: 9px !important;
+    line-height: 1.2 !important;
+    color: #000 !important;
   }
-  .qr-card-field .f-lbl {
-    font-weight: bold;
-    margin-right: 4px;
-    flex-shrink: 0;
+  .qr-80-60-info-row:last-child {
+    border-bottom: none !important;
   }
-  .qr-card-field .f-val {
-    word-break: break-all;
+  .qr-80-60-lbl {
+    width: 16mm !important;
+    min-width: 16mm !important;
+    max-width: 16mm !important;
+    border-right: 1px solid #333 !important;
+    padding: 3px 2px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-weight: bold !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+    word-break: break-all !important;
+  }
+  .qr-80-60-val {
+    flex: 1 !important;
+    padding: 3px 3px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    word-break: break-all !important;
+    box-sizing: border-box !important;
+  }
+  .qr-80-60-remark-row {
+    min-height: 10mm !important;
+  }
+  .qr-80-60-right {
+    width: 26mm !important;
+    min-width: 26mm !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 2mm !important;
+    box-sizing: border-box !important;
+  }
+  .qr-img-80-60 {
+    width: 22mm !important;
+    height: 22mm !important;
+    display: block !important;
+    margin: 0 auto !important;
   }
 }
 </style>

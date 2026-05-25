@@ -5,6 +5,8 @@
   "scripts": {
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:mp-weixin": "uni build -p mp-weixin",
+    "dev:h5": "uni -p h5",
+    "build:h5": "uni build -p h5",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
@@ -12,7 +14,14 @@
     "@dcloudio/uni-components": "^3.0.0-4020920240930001",
     "@dcloudio/uni-mp-weixin": "^3.0.0-4020920240930001",
     "@dcloudio/uni-ui": "^1.5.12",
-    "vue": "^3.5.13"
+    "vue": "3.4.34"
+  },
+  "overrides": {
+    "vue": "3.4.34",
+    "@vue/shared": "3.4.34",
+    "@vue/runtime-core": "3.4.34",
+    "@vue/compiler-sfc": "3.4.34",
+    "@vue/server-renderer": "3.4.34"
   },
   "devDependencies": {
     "@dcloudio/types": "^3.4.14",

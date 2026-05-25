@@ -2714,10 +2714,10 @@ tr.drag-over {
 .db-table-v2 tr { display: table; width: 100%; table-layout: fixed; }
 
 .db-table-v2 thead th {
-  background: #061c47;
-  color: #8ab0d0;
-  border-right: 1px solid #0a265c;
-  border-bottom: 1px solid #00c8ff;
+  background: #061c47 !important;
+  color: #8ab0d0 !important;
+  border-right: 1px solid #0a265c !important;
+  border-bottom: 1px solid #00c8ff !important;
   padding: 8px 6px;
   text-align: left;
   white-space: nowrap;
@@ -3226,4 +3226,251 @@ th.check-cell, th:has(input[type="checkbox"]) {
 .dropdown-bubble .dropdown-item {
   width: 100% !important;
   box-sizing: border-box !important;
+}
+
+/* ================================================
+   车间大屏全屏自适应高度扩充样式 (Wide Cards Stretch)
+   ================================================ */
+.dashboard-fullscreen .db-card-wide {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* 左侧：工单产出趋势图区域与绩效Top5区域拉伸 */
+.dashboard-fullscreen .db-card-wide > .db-chart-area {
+  flex: 1.2 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+}
+
+.dashboard-fullscreen .db-card-wide > .db-perf-section {
+  flex: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  min-height: 0 !important;
+  margin-top: 12px !important;
+}
+
+/* 保证绩效行在拉伸下自动均分高度 */
+.dashboard-fullscreen .db-perf-row {
+  flex: 1 !important;
+  align-items: center !important;
+  margin-bottom: 0 !important;
+}
+
+/* 右侧：不良品折线图与饼图区域弹性伸展 */
+.dashboard-fullscreen .db-defect-chart {
+  flex: 1.2 !important;
+  min-height: 0 !important;
+}
+
+.dashboard-fullscreen .db-pie-container {
+  flex: 1 !important;
+  min-height: 0 !important;
+  margin-top: 8px !important;
+}
+
+.dashboard-fullscreen .db-pie {
+  width: 120px !important;
+  height: 120px !important;
+}
+
+/* ================================================
+   车间大屏中上：4并排指标盒与对称3列指标区样式
+   ================================================ */
+/* 4并排盒网格 */
+.db-kpi-grid-v4 {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 12px !important;
+  margin-bottom: 14px !important;
+}
+
+/* 单个KPI发光盒 */
+.db-kpi-box-v4 {
+  background: rgba(6, 28, 60, 0.45) !important;
+  border: 1px solid rgba(0, 200, 255, 0.18) !important;
+  box-shadow: inset 0 0 15px rgba(0, 200, 255, 0.06), 0 4px 12px rgba(0, 0, 0, 0.25) !important;
+  border-radius: 6px !important;
+  padding: 12px 16px !important;
+  text-align: center !important;
+  transition: all 0.3s ease !important;
+}
+
+.db-kpi-box-v4:hover {
+  border-color: rgba(0, 200, 255, 0.35) !important;
+  box-shadow: inset 0 0 20px rgba(0, 200, 255, 0.12), 0 8px 24px rgba(0, 0, 0, 0.35) !important;
+  transform: translateY(-1px) !important;
+}
+
+.db-kpi-box-v4-title {
+  font-size: 11px !important;
+  color: #7b9ab5 !important;
+  margin-bottom: 8px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.db-kpi-box-v4-value {
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  font-family: 'DIN Alternate', 'Roboto', monospace !important;
+}
+
+.db-kpi-box-v4-value.cyan {
+  color: #00d4ff !important;
+  text-shadow: 0 0 10px rgba(0, 212, 255, 0.3) !important;
+}
+
+/* 下部对称三列区域 */
+.db-center-body {
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: space-between !important;
+  margin-top: 14px !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+  gap: 16px !important;
+}
+
+/* 两侧指标面板 */
+.db-side-panel {
+  width: 145px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-around !important;
+  background: rgba(6, 28, 60, 0.35) !important;
+  border: 1px solid rgba(0, 200, 255, 0.12) !important;
+  border-radius: 8px !important;
+  padding: 14px 16px !important;
+  box-shadow: inset 0 0 12px rgba(0, 200, 255, 0.04) !important;
+}
+
+.db-side-item {
+  display: flex !important;
+  flex-direction: column !important;
+  border-bottom: 1px solid rgba(0, 200, 255, 0.06) !important;
+  padding-bottom: 10px !important;
+}
+
+.db-side-item:last-child {
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+}
+
+.db-side-label {
+  font-size: 11px !important;
+  color: #7b9ab5 !important;
+  margin-bottom: 6px !important;
+  white-space: nowrap !important;
+}
+
+.db-side-value {
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  font-family: 'DIN Alternate', 'Roboto', monospace !important;
+}
+
+.db-side-value.red {
+  color: #ff5252 !important;
+  text-shadow: 0 0 8px rgba(255, 82, 82, 0.35) !important;
+}
+
+.db-side-value.green {
+  color: #00e676 !important;
+  text-shadow: 0 0 8px rgba(0, 230, 118, 0.35) !important;
+}
+
+.db-side-value.cyan {
+  color: #00e5ff !important;
+  text-shadow: 0 0 8px rgba(0, 229, 255, 0.35) !important;
+}
+
+/* 中间三维工厂渲染区 */
+.db-factory-center {
+  flex: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: relative !important;
+  padding: 0 10px !important;
+  background: rgba(6, 28, 60, 0.15) !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(0, 200, 255, 0.04) !important;
+}
+
+.db-factory-center::before {
+  content: '' !important;
+  position: absolute !important;
+  bottom: 8px !important;
+  width: 70% !important;
+  height: 25px !important;
+  background: radial-gradient(ellipse, rgba(0, 200, 255, 0.22), transparent 70%) !important;
+  pointer-events: none !important;
+}
+
+/* 消息框在全屏下的位置微调 */
+.dashboard-fullscreen .db-scroll-messages {
+  margin-top: 14px !important;
+}
+
+/* 隐藏大屏报工记录的滚动条 */
+.db-scroll-messages::-webkit-scrollbar {
+  display: none !important;
+}
+.db-scroll-messages {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* 看板报工记录表格 */
+.db-report-table {
+  width: 100% !important;
+  min-width: unset !important; /* 彻底清除全局 table 的 min-width: 940px，防止表格被强行撑宽 */
+  table-layout: fixed !important; /* 强行固定列宽，防止内容撑开产生水平滚动条 */
+  border-collapse: collapse !important;
+  font-size: 11px !important;
+  margin-top: 4px !important;
+  box-sizing: border-box !important;
+}
+.db-report-table th {
+  background: #061c47 !important;
+  color: #8ab0d0 !important;
+  border: 1px solid #0a265c !important;
+  padding: 6px 8px !important;
+  font-weight: 600 !important;
+  text-align: left !important;
+  height: auto !important; /* 覆盖全局 th 的 height: 46px !important */
+  box-sizing: border-box !important;
+}
+.db-report-table td {
+  background: rgba(6, 28, 60, 0.2) !important;
+  color: #a0c0d8 !important; /* 与车间看板里面其他地方的字体颜色完全一致 */
+  border: 1px solid #0a265c !important;
+  padding: 6px 8px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  height: auto !important; /* 覆盖全局 td 的 height */
+  box-sizing: border-box !important;
+}
+.db-report-table tr:nth-child(even) td {
+  background: rgba(6, 28, 60, 0.4) !important;
+}
+.db-report-table tr:hover td {
+  background: rgba(0, 200, 255, 0.1) !important;
+}
+.db-report-table td.text-cyan {
+  color: #00e5ff !important;
+  text-shadow: 0 0 5px rgba(0, 229, 255, 0.3) !important;
+}
+.db-report-table td.text-red {
+  color: #ff5252 !important;
+  text-shadow: 0 0 5px rgba(255, 82, 82, 0.3) !important;
 }

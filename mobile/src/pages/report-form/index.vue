@@ -3,44 +3,47 @@
     <!-- 顶部状态摘要 -->
     <view class="summary-card">
       <view class="step-header">
-        <view class="step-num">1</view>
+        <view class="step-num">{{ processNo }}</view>
         <text class="step-name">{{ processName }}</text>
-        <uni-icons type="closeempty" size="20" color="#ccc" class="close-icon"></uni-icons>
+        <view class="close-icon" @tap="handleClose">✕</view>
       </view>
       <view class="data-grid">
         <view class="data-item">
           <text class="dl">计划数</text>
-          <text class="dv">2,018</text>
+          <text class="dv">{{ plannedQty }}</text>
         </view>
         <view class="data-item">
           <text class="dl">良品数</text>
-          <text class="dv green">2,298</text>
+          <text class="dv green">{{ completedQty }}</text>
         </view>
         <view class="data-item">
           <text class="dl">不良品数</text>
-          <text class="dv red">24</text>
+          <text class="dv red">{{ defectQtyDisplay }}</text>
         </view>
       </view>
     </view>
 
     <!-- 表单主体 -->
     <view class="form-list">
-      <view class="form-item">
+      <!-- 生产人员 -->
+      <view class="form-item" @tap="showReporterPicker = true">
         <view class="label"><text class="required">*</text>生产人员</view>
         <view class="value-row">
-          <text>张俊健</text>
-          <uni-icons type="right" size="14" color="#ccc"></uni-icons>
+          <text>{{ selectedReporterName }}</text>
+          <text class="arrow">›</text>
         </view>
       </view>
 
+      <!-- 报工数 -->
       <view class="form-item">
         <view class="label"><text class="required">*</text>报工数</view>
         <view class="value-row">
           <input type="number" v-model="form.reportQuantity" placeholder="0" class="num-input" />
-          <text class="unit">套 ></text>
+          <text class="unit">{{ productUnit }} ›</text>
         </view>
       </view>
 
+      <!-- 良品数 -->
       <view class="form-item">
         <view class="label">良品数</view>
         <view class="value-row">
@@ -48,6 +51,7 @@
         </view>
       </view>
 
+      <!-- 不良数 -->
       <view class="form-item">
         <view class="label">不良数</view>
         <view class="value-row">
@@ -55,50 +59,64 @@
         </view>
       </view>
 
-      <view class="form-item" v-if="form.defectQuantity > 0">
+      <!-- 不良品项 -->
+      <view class="form-item" v-if="Number(form.defectQuantity) > 0">
         <view class="label">不良品项</view>
         <view class="value-row">
-          <text class="placeholder">请选择</text>
-          <uni-icons type="right" size="14" color="#ccc"></uni-icons>
+          <text class="placeholder">{{ form.defectItemName || '请选择' }}</text>
+          <text class="arrow">›</text>
         </view>
       </view>
 
+      <!-- 报工时长 -->
       <view class="form-item">
         <view class="label">报工时长</view>
         <view class="value-row">
-          <input type="number" value="0" class="mini-input" />
+          <input type="number" v-model="durationHours" class="mini-input" />
           <text class="unit-s">小时</text>
-          <input type="number" value="0" class="mini-input" />
-          <text class="unit-s">分钟 ></text>
+          <input type="number" v-model="durationMinutes" class="mini-input" />
+          <text class="unit-s">分钟 ›</text>
         </view>
       </view>
 
+      <!-- 开始时间 / 结束时间 -->
       <view class="time-range-box">
-        <view class="time-item">
+        <view class="time-item" @tap="pickStartTime">
           <text class="tl">开始时间 <text class="required">*</text></text>
-          <text class="tv">04-21 18:23</text>
+          <text class="tv">{{ form.startTime || '请选择' }}</text>
         </view>
         <view class="time-divider"></view>
-        <view class="time-item">
+        <view class="time-item" @tap="pickEndTime">
           <text class="tl">结束时间 <text class="required">*</text></text>
-          <text class="tv">04-21 18:23</text>
+          <text class="tv">{{ form.endTime || '请选择' }}</text>
         </view>
       </view>
 
+      <!-- 领料产品 -->
       <view class="form-item">
         <view class="label">领料产品</view>
         <view class="value-row">
-          <text class="placeholder">请选择</text>
-          <uni-icons type="right" size="14" color="#ccc"></uni-icons>
+          <text class="placeholder">{{ form.materialName || '请选择' }}</text>
+          <text class="arrow">›</text>
         </view>
+      </view>
+
+      <!-- 备注 -->
+      <view class="form-item-textarea">
+        <view class="label">备注</view>
+        <textarea class="textarea-input" v-model="form.remark" placeholder="请输入备注..." maxlength="500" />
       </view>
 
       <!-- 底部图片上传 -->
       <view class="upload-section">
         <view class="label">报废/次品照片</view>
         <view class="image-grid">
-          <view class="add-box" @tap="chooseImage">
-            <uni-icons type="camera" size="30" color="#ccc"></uni-icons>
+          <view v-for="(img, idx) in uploadedImages" :key="idx" class="img-box">
+            <image :src="img.accessPath" mode="aspectFill" class="uploaded-img" />
+            <view class="img-delete" @tap="removeImage(idx)">✕</view>
+          </view>
+          <view class="add-box" @tap="chooseImage" v-if="uploadedImages.length < 9">
+            <text class="add-icon">📷</text>
           </view>
         </view>
       </view>
@@ -109,50 +127,250 @@
       <view class="btn outline" @tap="handleSubmit(true)">继续报工</view>
       <view class="btn solid" @tap="handleSubmit(false)">提交</view>
     </view>
+
+    <!-- 生产人员选择弹窗 -->
+    <view v-if="showReporterPicker" class="picker-mask" @tap="showReporterPicker = false">
+      <view class="picker-content" @tap.stop>
+        <view class="picker-header">
+          <text class="picker-title">选择生产人员</text>
+          <view class="picker-close" @tap="showReporterPicker = false">✕</view>
+        </view>
+        <scroll-view scroll-y class="picker-list">
+          <view v-for="user in reporterList" :key="user.id"
+                class="picker-item" :class="{ selected: selectedReporterId === user.id }"
+                @tap="selectReporter(user)">
+            <text>{{ user.name }}</text>
+            <text class="picker-sub">{{ user.username }}</text>
+            <text v-if="selectedReporterId === user.id" class="picker-check">✓</text>
+          </view>
+          <view v-if="reporterList.length === 0" class="picker-empty">暂无可选人员</view>
+        </scroll-view>
+      </view>
+    </view>
   </view>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { createReport } from '../../services/api'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+import { createReport, uploadReportImage, fetchWorkOrderReporters } from '../../services/api'
+import type { ReportImage } from '../../types/api'
 
-const props = defineProps<{
-  orderId: string
-  processNo: string
-  processName: string
-}>()
+// URL 参数
+let paramOrderId = ''
+let paramProcessNo = ''
+let paramProcessName = ''
+let paramPlannedQty = ''
+let paramCompletedQty = ''
+let paramDefectQty = ''
+let paramReportPermission = ''
 
+onLoad((options) => {
+  paramOrderId = options?.orderId || ''
+  paramProcessNo = options?.processNo || '1'
+  paramProcessName = decodeURIComponent(options?.processName || '')
+  paramPlannedQty = options?.plannedQty || '0'
+  paramCompletedQty = options?.completedQty || '0'
+  paramDefectQty = options?.defectQty || '0'
+  paramReportPermission = decodeURIComponent(options?.reportPermission || '')
+})
+
+const processNo = ref(1)
+const processName = ref('')
+const plannedQty = ref(0)
+const completedQty = ref(0)
+const defectQtyDisplay = ref(0)
+const productUnit = ref('个')
+const loading = ref(false)
+const showReporterPicker = ref(false)
+
+// 报工人员列表
+const reporterList = ref<Array<{ id: number; name: string; username: string }>>([])
+const selectedReporterId = ref(0)
+const selectedReporterName = ref('')
+
+// 图片
+const uploadedImages = ref<ReportImage[]>([])
+
+// 时长
+const durationHours = ref('0')
+const durationMinutes = ref('0')
+
+// 表单
 const form = reactive({
   workOrderId: 0,
   processSequenceNo: 0,
   processName: '',
-  goodQuantity: 0,
-  defectQuantity: 0,
-  reportQuantity: 0,
-  reportDurationMinutes: 0
+  goodQuantity: '',
+  defectQuantity: '',
+  reportQuantity: '',
+  reportDurationMinutes: 0,
+  defectItemName: '',
+  startTime: '',
+  endTime: '',
+  materialName: '',
+  remark: ''
 })
 
-onMounted(() => {
-  form.workOrderId = parseInt(props.orderId)
-  form.processSequenceNo = parseInt(props.processNo)
-  form.processName = decodeURIComponent(props.processName)
+onMounted(async () => {
+  processNo.value = parseInt(paramProcessNo) || 1
+  processName.value = paramProcessName
+  plannedQty.value = parseInt(paramPlannedQty) || 0
+  completedQty.value = parseInt(paramCompletedQty) || 0
+  defectQtyDisplay.value = parseInt(paramDefectQty) || 0
+
+  form.workOrderId = parseInt(paramOrderId) || 0
+  form.processSequenceNo = processNo.value
+  form.processName = processName.value
+
+  // 设置默认时间
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const timeStr = `${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+  form.startTime = timeStr
+  form.endTime = timeStr
+
+  // 加载当前登录用户信息
+  const user = uni.getStorageSync('user')
+  if (user) {
+    selectedReporterId.value = user.id
+    selectedReporterName.value = user.name || user.username || '当前用户'
+  }
+
+  // 加载有报工权限的用户列表
+  if (form.workOrderId) {
+    try {
+      const users = await fetchWorkOrderReporters(form.workOrderId)
+      
+      // 根据工序的报工权限过滤人员列表
+      if (paramReportPermission && paramReportPermission !== '所有人' && paramReportPermission !== 'ALL') {
+        const allowedList = paramReportPermission.split(',').map((s: string) => s.trim())
+        reporterList.value = users.filter(u => 
+          allowedList.includes(u.name) || 
+          allowedList.includes(u.username) || 
+          allowedList.includes(String(u.id))
+        )
+      } else {
+        reporterList.value = users
+      }
+    } catch (e) {
+      // 如果接口不存在，用当前用户作为默认
+      if (user) {
+        reporterList.value = [{ id: user.id, name: user.name || user.username, username: user.username }]
+      }
+    }
+  }
 })
+
+const selectReporter = (user: any) => {
+  selectedReporterId.value = user.id
+  selectedReporterName.value = user.name
+  showReporterPicker.value = false
+}
+
+const pickStartTime = () => {
+  if (typeof document !== 'undefined') {
+    const input = document.createElement('input')
+    input.type = 'datetime-local'
+    input.onchange = () => {
+      if (input.value) {
+        const d = new Date(input.value)
+        const pad = (n: number) => String(n).padStart(2, '0')
+        form.startTime = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+      }
+    }
+    input.click()
+    return
+  }
+  uni.showToast({ title: '请在小程序中选择时间', icon: 'none' })
+}
+
+const pickEndTime = () => {
+  if (typeof document !== 'undefined') {
+    const input = document.createElement('input')
+    input.type = 'datetime-local'
+    input.onchange = () => {
+      if (input.value) {
+        const d = new Date(input.value)
+        const pad = (n: number) => String(n).padStart(2, '0')
+        form.endTime = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+      }
+    }
+    input.click()
+    return
+  }
+  uni.showToast({ title: '请在小程序中选择时间', icon: 'none' })
+}
 
 const chooseImage = () => {
-  uni.chooseImage({ count: 1 })
+  uni.chooseImage({
+    count: 9 - uploadedImages.value.length,
+    success: async (res) => {
+      for (const path of res.tempFilePaths) {
+        try {
+          const img = await uploadReportImage(path)
+          uploadedImages.value.push(img)
+        } catch (e) {
+          uni.showToast({ title: '图片上传失败', icon: 'none' })
+        }
+      }
+    }
+  })
+}
+
+const removeImage = (idx: number) => {
+  uploadedImages.value.splice(idx, 1)
 }
 
 const handleSubmit = async (isContinue: boolean) => {
+  if (!form.reportQuantity || Number(form.reportQuantity) <= 0) {
+    uni.showToast({ title: '请填写报工数', icon: 'none' })
+    return
+  }
+
+  const totalMinutes = (parseInt(durationHours.value) || 0) * 60 + (parseInt(durationMinutes.value) || 0)
+
   uni.showLoading({ title: '提交中...' })
   try {
-    await createReport(form as any)
-    uni.showToast({ title: '提交成功' })
+    await createReport({
+      workOrderId: form.workOrderId,
+      processSequenceNo: form.processSequenceNo,
+      processName: form.processName,
+      reportQuantity: Number(form.reportQuantity) || 0,
+      goodQuantity: Number(form.goodQuantity) || 0,
+      defectQuantity: Number(form.defectQuantity) || 0,
+      defectItemName: form.defectItemName || undefined,
+      reportDurationMinutes: totalMinutes,
+      startTime: form.startTime || undefined,
+      endTime: form.endTime || undefined,
+      materialName: form.materialName || undefined,
+      remark: form.remark || undefined,
+      imageIds: uploadedImages.value.map(img => img.id),
+      reporterUserId: selectedReporterId.value || undefined
+    })
+    uni.hideLoading()
+    uni.showToast({ title: '提交成功', icon: 'success' })
     if (!isContinue) {
       setTimeout(() => uni.navigateBack(), 1500)
+    } else {
+      // 继续报工：清空表单
+      form.reportQuantity = ''
+      form.goodQuantity = ''
+      form.defectQuantity = ''
+      form.defectItemName = ''
+      form.remark = ''
+      uploadedImages.value = []
+      durationHours.value = '0'
+      durationMinutes.value = '0'
     }
-  } catch (e) {
-    uni.showToast({ title: '提交失败', icon: 'none' })
+  } catch (e: any) {
+    uni.hideLoading()
+    uni.showToast({ title: e.message || '提交失败', icon: 'none' })
   }
+}
+
+const handleClose = () => {
+  uni.navigateBack()
 }
 </script>
 
@@ -190,6 +408,16 @@ const handleSubmit = async (isContinue: boolean) => {
 
 .step-name { font-size: 32rpx; font-weight: bold; flex: 1; }
 
+.close-icon {
+  width: 40rpx;
+  height: 40rpx;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #ccc;
+  font-size: 28rpx;
+}
+
 .data-grid {
   display: flex;
   justify-content: space-between;
@@ -214,6 +442,11 @@ const handleSubmit = async (isContinue: boolean) => {
   border-bottom: 1px solid #f8f8f8;
 }
 
+.form-item-textarea {
+  padding: 30rpx;
+  border-bottom: 1px solid #f8f8f8;
+}
+
 .label { font-size: 28rpx; color: #333; }
 .required { color: #ff4d4f; margin-right: 4rpx; }
 
@@ -222,9 +455,22 @@ const handleSubmit = async (isContinue: boolean) => {
 .num-input { text-align: right; width: 200rpx; font-size: 28rpx; }
 .red-text { color: #ff4d4f; }
 .unit { font-size: 26rpx; color: #666; margin-left: 10rpx; }
+.arrow { font-size: 32rpx; color: #ccc; margin-left: 10rpx; }
 
-.mini-input { width: 60rpx; text-align: center; font-size: 28rpx; }
+.mini-input { width: 80rpx; text-align: center; font-size: 28rpx; border-bottom: 1px solid #eee; }
 .unit-s { font-size: 24rpx; color: #999; margin: 0 10rpx; }
+
+.textarea-input {
+  width: 100%;
+  min-height: 100rpx;
+  font-size: 28rpx;
+  color: #333;
+  margin-top: 16rpx;
+  padding: 16rpx;
+  box-sizing: border-box;
+  background: #f9f9f9;
+  border-radius: 8rpx;
+}
 
 .time-range-box {
   display: flex;
@@ -241,14 +487,41 @@ const handleSubmit = async (isContinue: boolean) => {
   height: 60rpx;
   border-left: 1px solid #eee;
   margin: 0 20rpx;
-  border-radius: 50% 0 0 50%;
 }
 
 .upload-section {
   padding: 30rpx;
 }
 
-.image-grid { margin-top: 20rpx; }
+.image-grid { margin-top: 20rpx; display: flex; flex-wrap: wrap; gap: 16rpx; }
+
+.img-box {
+  position: relative;
+  width: 120rpx;
+  height: 120rpx;
+}
+
+.uploaded-img {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 8rpx;
+}
+
+.img-delete {
+  position: absolute;
+  top: -10rpx;
+  right: -10rpx;
+  width: 32rpx;
+  height: 32rpx;
+  background: #ff4d4f;
+  color: white;
+  border-radius: 50%;
+  font-size: 18rpx;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
 .add-box {
   width: 120rpx;
   height: 120rpx;
@@ -259,6 +532,8 @@ const handleSubmit = async (isContinue: boolean) => {
   justify-content: center;
   align-items: center;
 }
+
+.add-icon { font-size: 40rpx; }
 
 .footer {
   position: fixed;
@@ -286,4 +561,72 @@ const handleSubmit = async (isContinue: boolean) => {
 
 .btn.outline { border: 1px solid #00b889; color: #00b889; }
 .btn.solid { background: #00b889; color: white; }
+
+/* 人员选择弹窗 */
+.picker-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+}
+
+.picker-content {
+  background: white;
+  width: 100%;
+  max-height: 60vh;
+  border-radius: 24rpx 24rpx 0 0;
+  overflow: hidden;
+}
+
+.picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 30rpx;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.picker-title { font-size: 32rpx; font-weight: bold; }
+.picker-close { font-size: 32rpx; color: #999; padding: 0 10rpx; }
+
+.picker-list {
+  max-height: 50vh;
+  padding: 0 30rpx;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  padding: 30rpx 0;
+  border-bottom: 1px solid #f8f8f8;
+  font-size: 30rpx;
+}
+
+.picker-item.selected {
+  color: #00b889;
+}
+
+.picker-sub {
+  font-size: 24rpx;
+  color: #999;
+  margin-left: 20rpx;
+}
+
+.picker-check {
+  margin-left: auto;
+  color: #00b889;
+  font-weight: bold;
+}
+
+.picker-empty {
+  text-align: center;
+  padding: 60rpx 0;
+  color: #999;
+  font-size: 28rpx;
+}
 </style>

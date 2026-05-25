@@ -86,15 +86,34 @@ onMounted(() => {
   if (user) userInfo.value = user
   
   const now = new Date()
-  currentDate.ref = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`
+  currentDate.value = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`
 })
 
 const handleScan = () => {
+  if (typeof window !== 'undefined' && window.location) {
+    // H5 模式不支持原生扫码
+    uni.showModal({
+      title: '提示',
+      content: 'H5 模式暂不支持扫码，请在工单列表中选择工单进行报工。',
+      showCancel: false
+    })
+    return
+  }
   uni.scanCode({
     success: (res) => {
       console.log('扫码结果：', res.result)
-      // 假设二维码内容是工单ID
       if (res.result) {
+        const url = res.result
+        const idMatch = url.match(/[?&]id=(\d+)/)
+        if (idMatch) {
+          uni.navigateTo({ url: `/pages/work-order-detail/index?id=${idMatch[1]}` })
+          return
+        }
+        const codeMatch = url.match(/[?&]code=([^&]+)/)
+        if (codeMatch) {
+          uni.navigateTo({ url: `/pages/work-order-detail/index?code=${codeMatch[1]}` })
+          return
+        }
         uni.navigateTo({ url: `/pages/work-order-detail/index?id=${res.result}` })
       }
     }

@@ -1,6 +1,10 @@
 import type { ListResponse, MobileAuthResult, ReportImage, ReportStatus, WorkOrderInfo, WorkOrderReport } from '../types/api'
 
-export const API_BASE = 'http://localhost:8080/api'
+// H5 模式下用相对路径（走 Vite proxy），小程序模式下用绝对路径
+const isH5 = typeof window !== 'undefined' && !!(window as any).__UNI_FEATURE_WXS__  === false
+export const API_BASE = (typeof window !== 'undefined' && window.location && window.location.protocol === 'http:')
+  ? '/api'
+  : 'http://localhost:8080/api'
 
 function token() {
   return uni.getStorageSync('token') || ''
@@ -18,18 +22,55 @@ export function clearSession() {
 
 export function ensureLogin() {
   if (!token()) {
-    uni.reLaunch({ url: '/pages/bind/index' })
+    let redirect = ''
+    if (typeof window !== 'undefined' && window.location) {
+      redirect = window.location.hash || ''
+    }
+    try {
+      const pages = getCurrentPages()
+      if (!redirect && pages.length > 0) {
+        const currentPage = pages[pages.length - 1]
+        const path = '/' + currentPage.route
+        // @ts-ignore
+        const options = currentPage.$page?.options || {}
+        const query = Object.keys(options).map(k => `${k}=${encodeURIComponent(options[k])}`).join('&')
+        redirect = path + (query ? `?${query}` : '')
+      }
+    } catch (e) {}
+    const url = redirect ? `/pages/bind/index?redirect=${encodeURIComponent(redirect)}` : '/pages/bind/index'
+    if (typeof window !== 'undefined' && window.location) {
+      window.location.hash = `#${url}`
+      return false
+    }
+    setTimeout(() => {
+      uni.reLaunch({
+        url,
+        fail: (err) => {
+          console.error('[ensureLogin] reLaunch failed, trying navigateTo...', err)
+          uni.navigateTo({
+            url,
+            fail: (err2) => {
+              console.error('[ensureLogin] navigateTo also failed. Fallback to location.href...', err2)
+              if (typeof window !== 'undefined' && window.location) {
+                window.location.hash = `#/pages/bind/index?redirect=${encodeURIComponent(redirect)}`
+              }
+            }
+          })
+        }
+      })
+    }, 100)
     return false
   }
   return true
 }
 
-export function request<T>(path: string, options: UniApp.RequestOptions = {}): Promise<T> {
+export function request<T>(path: string, options: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; data?: any; header?: Record<string, string> } = {}): Promise<T> {
   return new Promise((resolve, reject) => {
     uni.request({
       url: `${API_BASE}${path}`,
       method: options.method || 'GET',
       data: options.data,
+      timeout: 10000,
       header: {
         'Content-Type': 'application/json',
         ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
@@ -38,6 +79,18 @@ export function request<T>(path: string, options: UniApp.RequestOptions = {}): P
       success: (res) => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(res.data as T)
+          return
+        }
+        // token 失效或被挤下线
+        if (res.statusCode === 401) {
+          clearSession()
+          const data = res.data as any
+          const msg = data?.message || '登录已失效，请重新登录'
+          uni.showToast({ title: msg, icon: 'none', duration: 2000 })
+          setTimeout(() => {
+            uni.reLaunch({ url: '/pages/bind/index' })
+          }, 1500)
+          reject(new Error(msg))
           return
         }
         const data = res.data as any
@@ -68,6 +121,14 @@ export function fetchWorkOrders() {
 
 export function fetchWorkOrder(id: number | string) {
   return request<WorkOrderInfo>(`/mobile/work-orders/${id}`)
+}
+
+export function fetchWorkOrderByCode(code: string) {
+  return request<WorkOrderInfo>(`/mobile/work-orders/by-code/${encodeURIComponent(code)}`)
+}
+
+export function fetchWorkOrderReporters(workOrderId: number | string) {
+  return request<Array<{ id: number; name: string; username: string }>>(`/mobile/work-orders/${workOrderId}/reporters`)
 }
 
 export function uploadReportImage(filePath: string): Promise<ReportImage> {
@@ -109,6 +170,7 @@ export function createReport(payload: {
   materialName?: string
   remark?: string
   imageIds: number[]
+  reporterUserId?: number
 }) {
   return request<WorkOrderReport>('/mobile/reports', {
     method: 'POST',
@@ -116,6 +178,10 @@ export function createReport(payload: {
   })
 }
 
-export function fetchReports(status: ReportStatus, period = 'today') {
-  return request<ListResponse<WorkOrderReport>>(`/mobile/reports?status=${status}&period=${period}&size=500`)
+export function fetchReports(status?: string, period = '') {
+  const params = new URLSearchParams()
+  if (status) params.set('status', status)
+  if (period) params.set('period', period)
+  params.set('size', '500')
+  return request<ListResponse<WorkOrderReport>>(`/mobile/reports?${params.toString()}`)
 }

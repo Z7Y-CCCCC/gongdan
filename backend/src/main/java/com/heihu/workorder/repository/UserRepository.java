@@ -20,6 +20,8 @@ public interface UserRepository extends JpaRepository<FactoryUser, Long> {
 
     List<FactoryUser> findByFactoryId(Long factoryId);
 
+    List<FactoryUser> findByFactoryIdAndEnabledTrue(Long factoryId);
+
     List<FactoryUser> findByDepartmentId(Long departmentId);
 
     List<FactoryUser> findAllByPhone(String phone);

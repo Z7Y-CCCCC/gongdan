@@ -1,7 +1,7 @@
 <template>
   <view class="container">
     <view class="header">
-      <image class="logo" src="/static/logo.png" mode="aspectFit"></image>
+      <view class="logo-icon">🏭</view>
       <text class="title">黑湖小工单 - 移动报工</text>
       <text class="subtitle">绑定您的工厂账号以开始工作</text>
     </view>
@@ -22,7 +22,7 @@
         <input class="input" v-model="form.password" password placeholder="请输入登录密码" placeholder-style="color:#ccc" />
       </view>
 
-      <button class="btn-submit" :loading="loading" @tap="handleBind">立即绑定</button>
+      <button class="btn-submit" :loading="loading" @tap="handleBind">立即登录</button>
     </view>
 
     <view class="footer">
@@ -32,16 +32,95 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { bindAccount, saveSession } from '../../services/api'
+import { ref, reactive, onMounted } from 'vue'
+import { bindAccount, saveSession, wechatLogin } from '../../services/api'
 
 const loading = ref(false)
+const redirectUrl = ref('')
 const form = reactive({
   factoryCode: '',
   username: '',
   password: '',
-  openidTicket: 'MOCK_TICKET_' + Date.now() // 实际环境下应通过微信登录获取
+  openidTicket: ''
 })
+
+onMounted(() => {
+  resolveRedirect()
+  tryWechatLogin()
+})
+
+function resolveRedirect() {
+  const pages = getCurrentPages()
+  const currentPage = pages[pages.length - 1] as any
+  if (currentPage?.$page?.options?.redirect) {
+    redirectUrl.value = decodeURIComponent(currentPage.$page.options.redirect)
+  }
+  if (typeof window !== 'undefined' && window.location) {
+    const hashStr = window.location.hash || ''
+    const qIdx = hashStr.indexOf('?')
+    if (qIdx >= 0) {
+      const hashParams = new URLSearchParams(hashStr.substring(qIdx))
+      const r = hashParams.get('redirect')
+      if (r) redirectUrl.value = decodeURIComponent(r)
+    }
+  }
+}
+
+function getMockOpenid() {
+  let mockOpenid = uni.getStorageSync('mockOpenid')
+  if (!mockOpenid) {
+    mockOpenid = 'MOCK_OPENID_LOCAL_' + Math.random().toString(36).slice(2)
+    uni.setStorageSync('mockOpenid', mockOpenid)
+  }
+  return mockOpenid
+}
+
+async function getWxCode() {
+  if (typeof window !== 'undefined') return ''
+  return new Promise<string>((resolve) => {
+    uni.login({
+      provider: 'weixin',
+      success: (res) => resolve(res.code || ''),
+      fail: () => resolve('')
+    })
+  })
+}
+
+async function tryWechatLogin() {
+  loading.value = true
+  try {
+    const code = await getWxCode()
+    const res = await wechatLogin({
+      code,
+      mockOpenid: getMockOpenid()
+    })
+    if (res.bindRequired) {
+      form.openidTicket = res.openidTicket || ''
+      return
+    }
+    saveSession(res)
+    goAfterLogin()
+  } catch (e) {
+    form.openidTicket = getMockOpenid().replace('MOCK_OPENID_', 'MOCK_TICKET_')
+  } finally {
+    loading.value = false
+  }
+}
+
+function goAfterLogin() {
+  if (redirectUrl.value) {
+    if (typeof window !== 'undefined' && redirectUrl.value.startsWith('#')) {
+      window.location.hash = redirectUrl.value.substring(1)
+      window.location.reload()
+      return
+    }
+    if (redirectUrl.value.startsWith('/pages/')) {
+      uni.navigateTo({ url: redirectUrl.value })
+      return
+    }
+  }
+  uni.switchTab({ url: '/pages/home/index' })
+}
 
 const handleBind = async () => {
   if (!form.factoryCode || !form.username || !form.password) {
@@ -59,14 +138,14 @@ const handleBind = async () => {
     })
     
     saveSession(res)
-    uni.showToast({ title: '绑定成功', icon: 'success' })
+    uni.showToast({ title: '登录成功', icon: 'success' })
     
     setTimeout(() => {
-      uni.switchTab({ url: '/pages/home/index' })
+      goAfterLogin()
     }, 1500)
   } catch (e: any) {
     uni.showModal({
-      title: '绑定失败',
+      title: '登录失败',
       content: e.message || '请检查工厂代码或账号密码是否正确',
       showCancel: false
     })
@@ -90,9 +169,8 @@ const handleBind = async () => {
   align-items: center;
 }
 
-.logo {
-  width: 160rpx;
-  height: 160rpx;
+.logo-icon {
+  font-size: 120rpx;
   margin-bottom: 30rpx;
 }
 
