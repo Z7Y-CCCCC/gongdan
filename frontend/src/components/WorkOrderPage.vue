@@ -1490,6 +1490,17 @@ const customTemplates = ref({
   }
 })
 
+function getQr8060RowLabel(row: number): string {
+  const template = customTemplates.value.qr_80_60 as Record<string, string | string[]>
+  const value = template[`row${row}Label`]
+  return typeof value === 'string' ? value : ''
+}
+
+function getQr8060RowFields(row: number): string[] {
+  const template = customTemplates.value.qr_80_60 as Record<string, string | string[]>
+  return ensureFieldArray(template[`row${row}Field`], [])
+}
+
 function loadCustomTemplates() {
   try {
     const saved = localStorage.getItem('print_templates_data')
@@ -2756,9 +2767,9 @@ onUnmounted(() => {
             <div class="qr-80-60-body">
               <div class="qr-80-60-left">
                 <div v-for="i in 5" :key="'print-row-'+i" class="qr-80-60-info-row">
-                  <div class="qr-80-60-lbl">{{ customTemplates.qr_80_60[`row${i}Label`] }}</div>
+                  <div class="qr-80-60-lbl">{{ getQr8060RowLabel(i) }}</div>
                   <div class="qr-80-60-val">
-                    <div v-for="(v, vi) in getMultiFieldValues(getWorkOrder(id), customTemplates.qr_80_60[`row${i}Field`])" :key="vi">{{ v }}</div>
+                    <div v-for="(v, vi) in getMultiFieldValues(getWorkOrder(id), getQr8060RowFields(i))" :key="vi">{{ v }}</div>
                   </div>
                 </div>
                 <div class="qr-80-60-info-row qr-80-60-remark-row">
