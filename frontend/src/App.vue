@@ -1345,6 +1345,12 @@ function persistSession(response: LoginResponse) {
 }
 
 const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
+const genericCustomFieldScopes: Record<string, string> = {
+  product: '产品',
+  bom: '物料清单',
+  process: '工序',
+  customer: '客户'
+}
 
 const searchQuery = ref('')
 function handleSearch() {
@@ -2430,6 +2436,14 @@ function handleNavigate(menu: { main: string; sub: string }) {
         @notice="showAction"
       />
 
+      <CustomReceiptFieldsPage
+        v-if="activeMainMenu === 'custom' && genericCustomFieldScopes[activeCustomMenu]"
+        :token="token"
+        :scope="activeCustomMenu"
+        :scope-label="genericCustomFieldScopes[activeCustomMenu]"
+        @notice="showAction"
+      />
+
       <section
         class="content placeholder-page"
         v-if="activeMainMenu === 'production' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench'"
@@ -2455,7 +2469,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
       <section
         class="content placeholder-page"
-        v-if="activeMainMenu === 'custom' && activeCustomMenu !== 'workorder' && activeCustomMenu !== 'receipt' && activeCustomMenu !== 'receipt_detail'"
+        v-if="activeMainMenu === 'custom' && activeCustomMenu !== 'workorder' && activeCustomMenu !== 'receipt' && activeCustomMenu !== 'receipt_detail' && !genericCustomFieldScopes[activeCustomMenu]"
       >
         <div class="empty-state">该模块待补全。</div>
       </section>
