@@ -6,6 +6,8 @@ import {
   fetchInboundReceipts,
   fetchProducts,
   fetchCustomFields,
+  fetchCustomFieldAttachmentBlob,
+  fetchReportImageBlob,
   type InboundReceiptInfo,
   type InboundReceiptItemPayload,
   type ProductInfo
@@ -411,6 +413,8 @@ function handleTimeRangeChange() {
 
 const uploadingFieldId = ref<number | null>(null)
 const customFieldPreviewUrls = ref<Record<string, string>>({})
+const loadingCustomFieldPreviews = new Set<string>()
+const failedCustomFieldPreviews = new Set<string>()
 
 async function handleCustomFieldUpload(field: any, event: Event, customValueObj: any) {
   const target = event.target as HTMLInputElement
@@ -471,11 +475,46 @@ function removeReceiptCustomFieldPath(customValueObj: any, index: number) {
 
 function customFieldPreview(path: string) {
   if (customFieldPreviewUrls.value[path]) return customFieldPreviewUrls.value[path]
-  return path.startsWith('/api/reports/images/') ||
-    path.startsWith('/api/mobile/reports/images/') ||
-    path.startsWith('/api/custom-field-attachments/')
-    ? ''
-    : path
+  if (isProtectedCustomFieldPath(path)) {
+    void loadProtectedCustomFieldPreview(path)
+    return ''
+  }
+  return path
+}
+
+function isProtectedCustomFieldPath(path: string) {
+  return customFieldAttachmentId(path) !== null || reportImageId(path) !== null
+}
+
+function customFieldAttachmentId(path: string) {
+  const match = path.match(/^\/api\/custom-field-attachments\/(\d+)\/file$/)
+  return match ? Number(match[1]) : null
+}
+
+function reportImageId(path: string) {
+  const match = path.match(/^\/api\/(?:mobile\/)?reports\/images\/(\d+)\/file$/)
+  return match ? Number(match[1]) : null
+}
+
+async function loadProtectedCustomFieldPreview(path: string) {
+  if (customFieldPreviewUrls.value[path] || loadingCustomFieldPreviews.has(path) || failedCustomFieldPreviews.has(path)) {
+    return
+  }
+  loadingCustomFieldPreviews.add(path)
+  try {
+    const attachmentId = customFieldAttachmentId(path)
+    const blob = attachmentId !== null
+      ? await fetchCustomFieldAttachmentBlob(props.token, attachmentId)
+      : await fetchReportImageBlob(props.token, reportImageId(path) as number)
+    customFieldPreviewUrls.value = {
+      ...customFieldPreviewUrls.value,
+      [path]: URL.createObjectURL(blob)
+    }
+  } catch (e) {
+    failedCustomFieldPreviews.add(path)
+  } finally {
+    loadingCustomFieldPreviews.delete(path)
+  }
 }
 
 onMounted(() => {

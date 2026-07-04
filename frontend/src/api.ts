@@ -1053,6 +1053,24 @@ export async function fetchReportImageBlob(token: string, imageId: number) {
   return response.blob()
 }
 
+export async function fetchCustomFieldAttachmentBlob(token: string, attachmentId: number) {
+  const response = await fetch(`${API_BASE}/custom-field-attachments/${attachmentId}/file`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (response.status === 401) {
+    handleKickedOut()
+  }
+  if (!response.ok) {
+    let message = '附件加载失败'
+    try {
+      const data = await response.json()
+      message = data.message || message
+    } catch {}
+    throw new ApiError(message, response.status)
+  }
+  return response.blob()
+}
+
 export async function approveReport(token: string, id: number, remark = '') {
   return request<WorkOrderReportInfo>(`/reports/${id}/approve`, {
     method: 'POST',
