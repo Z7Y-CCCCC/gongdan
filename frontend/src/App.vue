@@ -83,6 +83,7 @@ const BindFactoryPage = defineAsyncComponent(() => import('./components/BindFact
 const WarehousePage = defineAsyncComponent(() => import('./components/WarehousePage.vue'))
 const SupplierPage = defineAsyncComponent(() => import('./components/SupplierPage.vue'))
 const CustomerPage = defineAsyncComponent(() => import('./components/CustomerPage.vue'))
+const ReportCenterPage = defineAsyncComponent(() => import('./components/ReportCenterPage.vue'))
 
 const sharedAuth = useAuth()
 
@@ -2325,6 +2326,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span v-show="!isSidebarCollapsed">报表</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.report }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
+          <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'">生产报表</a>
+          </div>
         </div>
 
         <div class="nav-group">
@@ -2385,6 +2389,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <template v-else-if="activeMainMenu === 'dashboard'">
             车间看板
           </template>
+          <template v-else-if="activeMainMenu === 'report'">
+            报表 <span>></span> 生产报表
+          </template>
           <template v-else-if="activeMainMenu === 'super-admin'">
             授权码管理
           </template>
@@ -2424,6 +2431,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
       <SuperAdminAuthCodesPage
         v-if="activeMainMenu === 'super-admin'"
+      />
+
+      <ReportCenterPage
+        v-if="activeMainMenu === 'report'"
+        :token="token"
+        @notice="showAction"
       />
 
       <ProductDefinitionPage
