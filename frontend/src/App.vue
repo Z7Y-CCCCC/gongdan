@@ -2266,6 +2266,10 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span v-show="!isSidebarCollapsed">上下游管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.upstream }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
+          <div v-show="!isSidebarCollapsed && expandedMenus.upstream" class="sub-items-container">
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true">客户</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true">供应商</a>
+          </div>
         </div>
 
         <div class="nav-group">
