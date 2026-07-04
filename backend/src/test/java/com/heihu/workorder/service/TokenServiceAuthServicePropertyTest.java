@@ -6,15 +6,20 @@ import com.heihu.workorder.exception.ApiException;
 import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.Role;
+import com.heihu.workorder.model.UserSession;
 import com.heihu.workorder.repository.FactoryRepository;
+import com.heihu.workorder.repository.UserSessionRepository;
 import com.heihu.workorder.repository.UserRepository;
 import net.jqwik.api.*;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
@@ -62,6 +67,54 @@ class TokenServiceAuthServicePropertyTest {
     void tokenTtlMustBePositive() {
         assertThatThrownBy(() -> new TokenService(Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Example
+    @Label("Feature: authentication, database session can be required across instances")
+    void databaseSessionCanBeRequiredAcrossInstances() {
+        UserSessionRepository sessionRepository = mock(UserSessionRepository.class);
+        TokenService issuer = new TokenService(Duration.ofMinutes(10), sessionRepository);
+        FactoryUser user = buildUser("HHGD");
+        when(sessionRepository.findByUserIdAndKickedFalse(user.getId())).thenReturn(Collections.emptyList());
+        when(sessionRepository.save(any(UserSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        String token = issuer.issue(user);
+        ArgumentCaptor<UserSession> savedCaptor = ArgumentCaptor.forClass(UserSession.class);
+        verify(sessionRepository).save(savedCaptor.capture());
+        UserSession saved = savedCaptor.getValue();
+        when(sessionRepository.findByToken(token)).thenReturn(Optional.of(saved));
+
+        TokenService reader = new TokenService(Duration.ofMinutes(10), sessionRepository);
+        AuthenticatedUser currentUser = reader.requireUser("Bearer " + token);
+
+        assertThat(currentUser.getUserId()).isEqualTo(user.getId());
+        assertThat(currentUser.getFactoryId()).isEqualTo(user.getFactory().getId());
+        assertThat(currentUser.getFactoryCode()).isEqualTo("HHGD");
+        assertThat(currentUser.getRole()).isEqualTo(Role.ADMIN);
+    }
+
+    @Example
+    @Label("Feature: authentication, database session kicks existing user sessions")
+    void databaseSessionKicksExistingUserSessions() {
+        UserSessionRepository sessionRepository = mock(UserSessionRepository.class);
+        TokenService tokenService = new TokenService(Duration.ofMinutes(10), sessionRepository);
+        FactoryUser user = buildUser("HHGD");
+        UserSession existing = new UserSession();
+        existing.setToken("old-token");
+        existing.setUserId(user.getId());
+        existing.setFactoryId(user.getFactory().getId());
+        existing.setFactoryCode(user.getFactory().getCode());
+        existing.setRole(user.getRole());
+        existing.setDisplayName(user.getName());
+        existing.setExpiresAt(Instant.now().plusSeconds(60));
+        existing.setCreatedAt(LocalDateTime.now());
+        when(sessionRepository.findByUserIdAndKickedFalse(user.getId())).thenReturn(Collections.singletonList(existing));
+        when(sessionRepository.save(any(UserSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        tokenService.issue(user);
+
+        assertThat(existing.isKicked()).isTrue();
+        verify(sessionRepository, times(2)).save(any(UserSession.class));
     }
 
     // ─── Property 2 ──────────────────────────────────────────────────────────────
@@ -288,5 +341,27 @@ class TokenServiceAuthServicePropertyTest {
                         .ofMaxLength(40)
                         .map(s -> "Bearer " + s)
         );
+    }
+
+    private FactoryUser buildUser(String factoryCode) {
+        Factory factory = new Factory();
+        factory.setId(1L);
+        factory.setCode(factoryCode);
+        factory.setName("Test Factory");
+        factory.setEnabled(true);
+        factory.setCreatedAt(LocalDateTime.now());
+
+        FactoryUser user = new FactoryUser();
+        user.setId(1L);
+        user.setFactory(factory);
+        user.setUsername("admin");
+        user.setName("Admin");
+        user.setPasswordHash("hash");
+        user.setRole(Role.ADMIN);
+        user.setEnabled(true);
+        user.setVirtualUser(false);
+        user.setCreatedAt(LocalDateTime.now());
+        user.setUpdatedAt(LocalDateTime.now());
+        return user;
     }
 }

@@ -3,8 +3,11 @@ package com.heihu.workorder.service;
 import com.heihu.workorder.exception.ApiException;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.Role;
+import com.heihu.workorder.model.UserSession;
+import com.heihu.workorder.repository.UserSessionRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,25 +22,55 @@ public class TokenService {
 
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
     private final Duration ttl;
+    private final UserSessionRepository sessionRepository;
 
     public TokenService() {
-        this(Duration.ofMinutes(720L));
+        this(Duration.ofMinutes(720L), null);
     }
 
     @Autowired
-    public TokenService(@Value("${app.session.ttl-minutes:720}") long ttlMinutes) {
-        this(Duration.ofMinutes(ttlMinutes));
+    public TokenService(
+            @Value("${app.session.ttl-minutes:720}") long ttlMinutes,
+            UserSessionRepository sessionRepository
+    ) {
+        this(Duration.ofMinutes(ttlMinutes), sessionRepository);
     }
 
     TokenService(Duration ttl) {
+        this(ttl, null);
+    }
+
+    TokenService(Duration ttl, UserSessionRepository sessionRepository) {
         if (ttl == null || ttl.isZero() || ttl.isNegative()) {
             throw new IllegalArgumentException("session ttl must be greater than 0");
         }
         this.ttl = ttl;
+        this.sessionRepository = sessionRepository;
     }
 
     public String issue(FactoryUser user) {
         cleanupExpiredSessions();
+        String token = UUID.randomUUID().toString().replace("-", "");
+        if (sessionRepository != null) {
+            if (user.getId() != null) {
+                for (UserSession existing : sessionRepository.findByUserIdAndKickedFalse(user.getId())) {
+                    existing.setKicked(true);
+                    sessionRepository.save(existing);
+                }
+            }
+            UserSession session = new UserSession();
+            session.setToken(token);
+            session.setUserId(user.getId());
+            session.setFactoryId(user.getFactory().getId());
+            session.setFactoryCode(user.getFactory().getCode());
+            session.setRole(user.getRole());
+            session.setDisplayName(user.getName());
+            session.setKicked(false);
+            session.setExpiresAt(Instant.now().plus(ttl));
+            session.setCreatedAt(LocalDateTime.now());
+            sessionRepository.save(session);
+            return token;
+        }
         if (user.getId() != null) {
             for (Session existing : sessions.values()) {
                 if (user.getId().equals(existing.getUser().getUserId())) {
@@ -45,7 +78,6 @@ public class TokenService {
                 }
             }
         }
-        String token = UUID.randomUUID().toString().replace("-", "");
         AuthenticatedUser currentUser = new AuthenticatedUser(
                 user.getId(),
                 user.getFactory().getId(),
@@ -75,6 +107,25 @@ public class TokenService {
 
     public AuthenticatedUser requireUser(String authorization) {
         String token = extractToken(authorization);
+        if (sessionRepository != null) {
+            UserSession session = sessionRepository.findByToken(token)
+                    .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "\u8bf7\u5148\u767b\u5f55"));
+            if (!Instant.now().isBefore(session.getExpiresAt())) {
+                sessionRepository.delete(session);
+                throw new ApiException(HttpStatus.UNAUTHORIZED, "\u767b\u5f55\u5df2\u8fc7\u671f\uff0c\u8bf7\u91cd\u65b0\u767b\u5f55");
+            }
+            if (session.isKicked()) {
+                sessionRepository.delete(session);
+                throw new ApiException(HttpStatus.UNAUTHORIZED, "\u60a8\u7684\u8d26\u53f7\u5df2\u5728\u5176\u4ed6\u5730\u65b9\u767b\u5f55\uff0c\u60a8\u5df2\u88ab\u6324\u4e0b\u7ebf");
+            }
+            return new AuthenticatedUser(
+                    session.getUserId(),
+                    session.getFactoryId(),
+                    session.getFactoryCode(),
+                    session.getRole(),
+                    session.getDisplayName()
+            );
+        }
         Session session = sessions.get(token);
         if (session == null) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "\u8bf7\u5148\u767b\u5f55");
@@ -103,6 +154,10 @@ public class TokenService {
     }
 
     private void cleanupExpiredSessions() {
+        if (sessionRepository != null) {
+            sessionRepository.deleteByExpiresAtBefore(Instant.now());
+            return;
+        }
         for (Map.Entry<String, Session> entry : sessions.entrySet()) {
             if (entry.getValue().isExpired()) {
                 sessions.remove(entry.getKey());

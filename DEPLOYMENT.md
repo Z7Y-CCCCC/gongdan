@@ -33,7 +33,7 @@ APP_UPLOAD_REPORT_IMAGE_DIR=/var/lib/heihu-workorder/report-images
 
 Production defaults disable WeChat mock login and set `spring.jpa.hibernate.ddl-auto=validate`.
 Production startup requires explicit seed passwords for both the factory admin and the super admin.
-Current token sessions are stored in backend memory, so deploy the backend as a single instance or add Redis/JWT session storage before horizontal scaling.
+Token sessions are stored in the database when the backend runs through Spring, so multiple backend instances can share login state. Horizontal scaling still requires all instances to share the same database and uploaded image storage path or object storage.
 
 Health checks:
 
