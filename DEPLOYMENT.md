@@ -21,6 +21,8 @@ APP_SEED_FACTORY_NAME=Your Factory
 APP_SEED_ADMIN_USERNAME=admin
 APP_SEED_ADMIN_PASSWORD=change-me
 APP_SEED_ADMIN_NAME=System Admin
+APP_SEED_SUPER_ADMIN_USERNAME=admin
+APP_SEED_SUPER_ADMIN_PASSWORD=change-me-too
 APP_WECHAT_APP_ID=wx...
 APP_WECHAT_SECRET=change-me
 APP_WECHAT_OPENID_TICKET_TTL_MINUTES=10
@@ -30,6 +32,7 @@ APP_UPLOAD_REPORT_IMAGE_DIR=/var/lib/heihu-workorder/report-images
 ```
 
 Production defaults disable WeChat mock login and set `spring.jpa.hibernate.ddl-auto=validate`.
+Production startup requires explicit seed passwords for both the factory admin and the super admin.
 Current token sessions are stored in backend memory, so deploy the backend as a single instance or add Redis/JWT session storage before horizontal scaling.
 
 ### Database Initialization
