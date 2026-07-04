@@ -1348,6 +1348,7 @@ const genericCustomFieldScopes: Record<string, string> = {
   product: '产品',
   bom: '物料清单',
   process: '工序',
+  reporting: '报工',
   customer: '客户'
 }
 
@@ -2424,7 +2425,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
       />
 
       <ReportApprovalPage
-        v-if="activeMainMenu === 'production' && activeProductionMenu === 'workbench'"
+        v-if="activeMainMenu === 'production' && (activeProductionMenu === 'workbench' || activeProductionMenu === 'reporting')"
         :token="token"
         @notice="showAction"
       />
@@ -2445,7 +2446,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
       <section
         class="content placeholder-page"
-        v-if="activeMainMenu === 'production' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench'"
+        v-if="activeMainMenu === 'production' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench' && activeProductionMenu !== 'reporting'"
       >
         <div class="empty-state">该模块待补全。</div>
       </section>
