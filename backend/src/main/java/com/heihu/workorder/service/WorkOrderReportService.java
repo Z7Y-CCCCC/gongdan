@@ -46,6 +46,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class WorkOrderReportService {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final long MAX_IMAGE_SIZE = 10L * 1024L * 1024L;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WorkOrderReportRepository reportRepository;
     private final WorkOrderReportImageRepository imageRepository;
@@ -71,19 +72,26 @@ public class WorkOrderReportService {
         if (file == null || file.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "请选择图片");
         }
-        if (file.getSize() > 10L * 1024L * 1024L) {
+        if (file.getSize() > MAX_IMAGE_SIZE) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "单张图片不能超过10MB");
         }
-        String originalName = StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "image";
+        String originalName = sanitizeOriginalFileName(file.getOriginalFilename());
         String ext = extension(originalName);
-        String contentType = StringUtils.hasText(file.getContentType()) ? file.getContentType() : "";
-        if (!isAllowedImage(ext, contentType)) {
+        String contentType = normalizeContentType(file.getContentType());
+        if (!isAllowedExt(ext)) {
+            ext = extensionFromContentType(contentType);
+        }
+        if (!isAllowedImageMetadata(ext, contentType)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "仅支持 jpg、jpeg、png、webp 图片");
         }
+        validateImageSignature(file, ext);
         FactoryUser uploader = requireUser(factoryId, userId);
         String storedName = UUID.randomUUID().toString().replace("-", "") + "." + ext;
         Path root = Paths.get(reportImageDir).toAbsolutePath().normalize();
         Path target = root.resolve(storedName).normalize();
+        if (!target.startsWith(root)) {
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "图片保存失败");
+        }
         try {
             Files.createDirectories(root);
             try (InputStream input = file.getInputStream()) {
@@ -100,7 +108,7 @@ public class WorkOrderReportService {
         image.setStoredFileName(storedName);
         image.setAccessPath("/uploads/report-images/" + storedName);
         image.setFileSize(file.getSize());
-        image.setContentType(StringUtils.hasText(contentType) ? contentType : "image/" + ext);
+        image.setContentType(StringUtils.hasText(contentType) ? contentType : resolvedContentType(ext));
         image.setCreatedAt(LocalDateTime.now());
         return WorkOrderReportImageResponse.from(imageRepository.save(image));
     }
@@ -355,15 +363,117 @@ public class WorkOrderReportService {
         }
     }
 
-    private boolean isAllowedImage(String ext, String contentType) {
-        boolean extOk = "jpg".equals(ext) || "jpeg".equals(ext) || "png".equals(ext) || "webp".equals(ext);
-        boolean typeOk = contentType == null || contentType.isEmpty() || contentType.toLowerCase(Locale.ROOT).startsWith("image/");
-        return extOk && typeOk;
+    private void validateImageSignature(MultipartFile file, String ext) {
+        byte[] header = new byte[12];
+        int length;
+        try (InputStream input = file.getInputStream()) {
+            length = input.read(header);
+        } catch (IOException ex) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "图片读取失败");
+        }
+        if (!hasImageSignature(ext, header, length)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "图片文件内容不合法");
+        }
+    }
+
+    private boolean hasImageSignature(String ext, byte[] header, int length) {
+        if ("jpg".equals(ext) || "jpeg".equals(ext)) {
+            return length >= 3
+                    && (header[0] & 0xFF) == 0xFF
+                    && (header[1] & 0xFF) == 0xD8
+                    && (header[2] & 0xFF) == 0xFF;
+        }
+        if ("png".equals(ext)) {
+            return length >= 8
+                    && (header[0] & 0xFF) == 0x89
+                    && header[1] == 0x50
+                    && header[2] == 0x4E
+                    && header[3] == 0x47
+                    && header[4] == 0x0D
+                    && header[5] == 0x0A
+                    && header[6] == 0x1A
+                    && header[7] == 0x0A;
+        }
+        if ("webp".equals(ext)) {
+            return length >= 12
+                    && header[0] == 0x52
+                    && header[1] == 0x49
+                    && header[2] == 0x46
+                    && header[3] == 0x46
+                    && header[8] == 0x57
+                    && header[9] == 0x45
+                    && header[10] == 0x42
+                    && header[11] == 0x50;
+        }
+        return false;
+    }
+
+    private boolean isAllowedImageMetadata(String ext, String contentType) {
+        if (!isAllowedExt(ext)) {
+            return false;
+        }
+        if (!StringUtils.hasText(contentType)) {
+            return true;
+        }
+        return resolvedContentType(ext).equals(contentType);
+    }
+
+    private boolean isAllowedExt(String ext) {
+        return "jpg".equals(ext) || "jpeg".equals(ext) || "png".equals(ext) || "webp".equals(ext);
     }
 
     private String extension(String fileName) {
         int dot = fileName.lastIndexOf('.');
-        return dot >= 0 ? fileName.substring(dot + 1).toLowerCase(Locale.ROOT) : "jpg";
+        return dot >= 0 && dot < fileName.length() - 1 ? fileName.substring(dot + 1).toLowerCase(Locale.ROOT) : "";
+    }
+
+    private String extensionFromContentType(String contentType) {
+        if ("image/jpeg".equals(contentType)) {
+            return "jpg";
+        }
+        if ("image/png".equals(contentType)) {
+            return "png";
+        }
+        if ("image/webp".equals(contentType)) {
+            return "webp";
+        }
+        return "";
+    }
+
+    private String resolvedContentType(String ext) {
+        if ("jpg".equals(ext) || "jpeg".equals(ext)) {
+            return "image/jpeg";
+        }
+        if ("png".equals(ext)) {
+            return "image/png";
+        }
+        if ("webp".equals(ext)) {
+            return "image/webp";
+        }
+        return "";
+    }
+
+    private String normalizeContentType(String contentType) {
+        if (!StringUtils.hasText(contentType)) {
+            return "";
+        }
+        String value = contentType.trim().toLowerCase(Locale.ROOT);
+        int semicolon = value.indexOf(';');
+        return semicolon >= 0 ? value.substring(0, semicolon).trim() : value;
+    }
+
+    private String sanitizeOriginalFileName(String fileName) {
+        String value = StringUtils.hasText(fileName) ? fileName.trim() : "image";
+        value = value.replace('\\', '/');
+        int slash = value.lastIndexOf('/');
+        if (slash >= 0) {
+            value = value.substring(slash + 1);
+        }
+        value = value.replaceAll("[\\r\\n\\t\\x00]", "_").trim();
+        if (!StringUtils.hasText(value)) {
+            value = "image";
+        }
+        return value.length() > 255 ? value.substring(value.length() - 255) : value;
     }
 
     private int nonNegative(Integer value) {
