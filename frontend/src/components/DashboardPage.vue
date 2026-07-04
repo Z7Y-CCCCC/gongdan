@@ -36,55 +36,25 @@ const exitDashboard = () => {
 }
 
 const dashboardKpi = reactive({
-  planCount: 5285,
-  delayedOrders: 7,
-  delayedTasks: 37,
-  todayDone: 1,
-  todayTasks: 5,
-  todayOutput: 250,
-  defectRate: 1.96
+  planCount: 0,
+  delayedOrders: 0,
+  delayedTasks: 0,
+  todayDone: 0,
+  todayTasks: 0,
+  todayOutput: 0,
+  defectRate: 0
 })
 
-const barData = ref([
-  { day: 12, done: 3, output: 800 }, { day: 13, done: 5, output: 600 },
-  { day: 14, done: 8, output: 1000 }, { day: 15, done: 4, output: 700 },
-  { day: 16, done: 6, output: 400 }, { day: 17, done: 2, output: 350 },
-  { day: 18, done: 7, output: 900 }, { day: 19, done: 5, output: 500 },
-  { day: 20, done: 3, output: 850 }, { day: 21, done: 4, output: 650 }
-])
+const barData = ref<Array<{ day: number; done: number; output: number; defect: number }>>([])
 
-const perfData = ref([
-  { name: '虞竹', value: 1621 },
-  { name: '张俊健', value: 1224 },
-  { name: '段超', value: 863 },
-  { name: '乔峰', value: 350 },
-  { name: '慕容复', value: 300 }
-])
-const perfMax = computed(() => Math.max(...perfData.value.map(p => p.value)))
+const perfData = ref<Array<{ name: string; value: number }>>([])
+const perfMax = computed(() => Math.max(1, ...perfData.value.map(p => p.value)))
 
-const defectTrend = ref([
-  { day: 12, count: 5, rate: 0.8 }, { day: 13, count: 3, rate: 0.5 },
-  { day: 14, count: 8, rate: 1.2 }, { day: 15, count: 2, rate: 0.3 },
-  { day: 16, count: 6, rate: 0.9 }, { day: 17, count: 4, rate: 0.6 },
-  { day: 18, count: 10, rate: 1.5 }, { day: 19, count: 7, rate: 1.1 },
-  { day: 20, count: 3, rate: 0.4 }, { day: 21, count: 5, rate: 0.8 }
-])
+const defectTrend = ref<Array<{ day: number; count: number; rate: number }>>([])
 
-const pieData = ref([
-  { name: '针扎', color: '#3b82f6', count: 30, pct: '37.50%' },
-  { name: '割纹', color: '#f59e0b', count: 10, pct: '12.50%' },
-  { name: '划边', color: '#10b981', count: 9, pct: '11.25%' },
-  { name: '飞溅', color: '#ef4444', count: 10, pct: '12.50%' },
-  { name: '气泡', color: '#8b5cf6', count: 10, pct: '12.50%' },
-  { name: '其他', color: '#6b7280', count: 11, pct: '13.75%' }
-])
+const pieData = ref<Array<{ name: string; color: string; count: number; pct: string }>>([])
 
-const scrollMessages = ref([
-  { time: '2023-04-21 11:30:09', text: '段超 | 包装 | 02|宝慧轴承S6... | 良品150 | 不良品5' },
-  { time: '2023-04-20 12:16:31', text: '虞竹 | 包装 | 04|智能wifi-7组... | 05|18型支承... | 良品600' },
-  { time: '2023-04-19 11:46:52', text: '张俊健 | 包装仓 | T-1白/小T-shirt | 良品100' },
-  { time: '2023-04-19 11:39:49', text: '张俊健 | 驱动包 | T-1白/小T-shirt | 不良品5' }
-])
+const scrollMessages = ref<Array<{ time: string; text: string }>>([])
 
 const dashboardReports = ref<any[]>([])
 
@@ -92,34 +62,23 @@ const displayReports = computed(() => {
   if (dashboardReports.value && dashboardReports.value.length > 0) {
     return dashboardReports.value.slice(0, 5)
   }
-  return [
-    { createdAt: '03-12 18:02', reporterName: '王艺儒', processName: '制版拼版', productName: '111', goodQuantity: 30, defectQuantity: 0 },
-    { createdAt: '03-12 18:00', reporterName: '王艺儒', processName: '抽检', productName: '111', goodQuantity: 100, defectQuantity: 0 },
-    { createdAt: '04-21 11:30', reporterName: '段超', processName: '包装', productName: '02|宝慧轴承S6...', goodQuantity: 150, defectQuantity: 5 },
-    { createdAt: '04-20 12:16', reporterName: '虞竹', processName: '包装', productName: '04|智能wifi-7组...', goodQuantity: 600, defectQuantity: 0 }
-  ]
+  return []
 })
 
-const tableData = ref([
-  { code: 'GD20230401-6', product: '股骨头髁关节假体', qty: 234, customer: '厦门市医院', urgent: false, progress: 75 },
-  { code: 'GD20230401-5', product: '美标维纶绞片M5...', qty: 133, customer: '宁德时代', urgent: true, progress: 60 },
-  { code: 'GD20230401-4', product: '智能wifi-7组座', qty: 1000, customer: '格力电器', urgent: false, progress: 45 },
-  { code: 'GD20230401-3', product: '弹簧座', qty: 1000, customer: '华为手机', urgent: false, progress: 30 },
-  { code: 'GD20230401-2', product: '18型支承轴', qty: 600, customer: '花花公子', urgent: false, progress: 85 },
-  { code: 'GD20230401-1', product: '黑湖精密模具', qty: 2018, customer: '上汽大众', urgent: false, progress: 90 },
-  { code: 'GD20220120', product: '结构钛铝板', qty: 300, customer: '特斯拉', urgent: false, progress: 55 }
-])
+const tableData = ref<Array<{ code: string; product: string; qty: number; customer: string; urgent: boolean; progress: number }>>([])
 
-const taskProgressData = ref([
-  { process: '注塑', taskCount: 4, planned: 1467, good: 1142, defect: 6, remaining: 325 },
-  { process: '外协 电镀', taskCount: 3, planned: 517, good: 229, defect: 0, remaining: 288 },
-  { process: 'CNC', taskCount: 4, planned: 2985, good: 2021, defect: 7, remaining: 964 },
-  { process: '包装', taskCount: 4, planned: 5235, good: 2830, defect: 63, remaining: 2405 },
-  { process: '折弯', taskCount: 4, planned: 2535, good: 2261, defect: 8, remaining: 274 },
-  { process: '机加', taskCount: 5, planned: 3485, good: 2652, defect: 8, remaining: 833 },
-  { process: '下料', taskCount: 7, planned: 4235, good: 4279, defect: 52, remaining: -44 },
-  { process: '冲压', taskCount: 7, planned: 4785, good: 3534, defect: 19, remaining: 1251 }
-])
+const taskProgressData = ref<Array<{ process: string; taskCount: number; planned: number; good: number; defect: number; remaining: number }>>([])
+
+function workOrderProgress(wo: any) {
+  if (typeof wo.progressPercent === 'number') return Math.max(0, Math.min(100, Math.round(wo.progressPercent)))
+  const planned = Number(wo.plannedQuantity || 0)
+  if (planned <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round(((wo.goodQuantity || 0) + (wo.defectQuantity || 0)) / planned * 100)))
+}
+
+function isClosedStatus(status: string | undefined) {
+  return ['COMPLETED', 'CANCELED', 'CANCELLED', '已完成', '已取消'].includes(status || '')
+}
 
 const loadDashboardData = async () => {
   try {
@@ -136,13 +95,17 @@ const loadDashboardData = async () => {
       product: wo.productName || '未知产品',
       qty: wo.plannedQuantity || 0,
       customer: wo.categoryName || '-',
-      urgent: false, // 假设没有此字段
-      progress: Math.floor(Math.random() * 100) // 模拟进度
+      urgent: wo.priority === 'URGENT',
+      progress: workOrderProgress(wo)
     }))
 
     // 简单的统计聚合
     const totalPlan = realWorkOrders.reduce((sum, wo) => sum + (wo.plannedQuantity || 0), 0)
     dashboardKpi.planCount = totalPlan
+    dashboardKpi.todayTasks = realWorkOrders.filter(wo => !isClosedStatus(wo.status)).length
+    dashboardKpi.delayedOrders = realWorkOrders.filter(wo =>
+      Boolean(wo.planEnd) && !isClosedStatus(wo.status) && new Date(wo.planEnd as string).getTime() < Date.now()
+    ).length
 
     // 2. 获取报工记录，聚合任务执行进度
     const reportRes = await fetchReports(t, { page: 1, size: 200 })
@@ -151,24 +114,71 @@ const loadDashboardData = async () => {
       ...r,
       createdAt: r.createdAt ? r.createdAt.replace('T', ' ').substring(5, 16) : ''
     }))
-    
-    const processMap: Record<string, any> = {}
+
+    const today = new Date().toISOString().slice(0, 10)
+    const todayReports = reports.filter(r => (r.createdAt || '').startsWith(today))
+    const totalGood = reports.reduce((sum, r) => sum + (r.goodQuantity || 0), 0)
+    const totalDefect = reports.reduce((sum, r) => sum + (r.defectQuantity || 0), 0)
+    dashboardKpi.todayDone = todayReports.length
+    dashboardKpi.todayOutput = todayReports.reduce((sum, r) => sum + (r.goodQuantity || 0), 0)
+    dashboardKpi.defectRate = totalGood + totalDefect > 0 ? Number((totalDefect / (totalGood + totalDefect) * 100).toFixed(2)) : 0
+
+    const dailyMap = new Map<string, { day: number; done: number; output: number; defect: number }>()
+    const reporterMap = new Map<string, number>()
+    const defectMap = new Map<string, number>()
     reports.forEach(r => {
-      const pName = r.processName || '未知工序'
+      const dateKey = (r.createdAt || '').slice(0, 10)
+      if (dateKey) {
+        const day = Number(dateKey.slice(8, 10))
+        const item = dailyMap.get(dateKey) || { day, done: 0, output: 0, defect: 0 }
+        item.done += 1
+        item.output += (r.goodQuantity || 0)
+        item.defect += (r.defectQuantity || 0)
+        dailyMap.set(dateKey, item)
+      }
+      reporterMap.set(r.reporterName || '未知员工', (reporterMap.get(r.reporterName || '未知员工') || 0) + (r.goodQuantity || 0))
+      const defectName = r.defectItemName || (r.defectQuantity > 0 ? '未分类不良' : '')
+      if (defectName) defectMap.set(defectName, (defectMap.get(defectName) || 0) + (r.defectQuantity || 0))
+    })
+    barData.value = Array.from(dailyMap.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-10).map(([, item]) => item)
+    perfData.value = Array.from(reporterMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5)
+    const totalDefectItems = Array.from(defectMap.values()).reduce((sum, count) => sum + count, 0)
+    const colors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#6b7280']
+    pieData.value = Array.from(defectMap.entries()).map(([name, count], index) => ({
+      name,
+      color: colors[index % colors.length],
+      count,
+      pct: totalDefectItems > 0 ? (count / totalDefectItems * 100).toFixed(2) + '%' : '0.00%'
+    }))
+    defectTrend.value = barData.value.map(item => ({
+      day: item.day,
+      count: item.defect,
+      rate: item.output + item.defect > 0 ? Number((item.defect / (item.output + item.defect) * 100).toFixed(2)) : 0
+    }))
+    scrollMessages.value = reports.slice(0, 8).map(r => ({
+      time: (r.createdAt || '').replace('T', ' ').substring(0, 19),
+      text: `${r.reporterName || '-'} | ${r.processName || '-'} | ${r.productName || '-'} | 良品${r.goodQuantity || 0} | 不良${r.defectQuantity || 0}`
+    }))
+
+    const processMap: Record<string, any> = {}
+    realWorkOrders.forEach(wo => {
+      ;(wo.tasks || []).forEach((task: any) => {
+      const pName = task.processName || '未知工序'
       if (!processMap[pName]) {
         processMap[pName] = { process: pName, taskCount: 0, planned: 0, good: 0, defect: 0, remaining: 0 }
       }
       processMap[pName].taskCount += 1
-      processMap[pName].good += (r.goodQuantity || 0)
-      processMap[pName].defect += (r.defectQuantity || 0)
-      // 真实业务中计划数应该是工单任务里的计划数
-      processMap[pName].planned += (r.goodQuantity || 0) + (r.defectQuantity || 0) + 100
-      processMap[pName].remaining = processMap[pName].planned - processMap[pName].good
+      processMap[pName].planned += (task.plannedQuantity || 0)
+      processMap[pName].good += (task.completedQuantity || 0)
+      processMap[pName].defect += (task.defectQuantity || 0)
+      processMap[pName].remaining = Math.max(0, processMap[pName].planned - processMap[pName].good)
+      })
     })
-    
-    if (Object.keys(processMap).length > 0) {
-      taskProgressData.value = Object.values(processMap)
-    }
+    taskProgressData.value = Object.values(processMap)
+    dashboardKpi.delayedTasks = taskProgressData.value.filter(item => item.remaining > 0).length
 
   } catch (e) {
     console.error('Failed to load dashboard data:', e)
