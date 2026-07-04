@@ -33,6 +33,8 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.UrlResource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -106,11 +108,34 @@ public class WorkOrderReportService {
         image.setUploader(uploader);
         image.setOriginalFileName(originalName);
         image.setStoredFileName(storedName);
-        image.setAccessPath("/uploads/report-images/" + storedName);
+        image.setAccessPath("/api/reports/images/pending");
         image.setFileSize(file.getSize());
         image.setContentType(StringUtils.hasText(contentType) ? contentType : resolvedContentType(ext));
         image.setCreatedAt(LocalDateTime.now());
-        return WorkOrderReportImageResponse.from(imageRepository.save(image));
+        WorkOrderReportImage saved = imageRepository.save(image);
+        saved.setAccessPath("/api/mobile/reports/images/" + saved.getId() + "/file");
+        return WorkOrderReportImageResponse.from(imageRepository.save(saved));
+    }
+
+    @Transactional(readOnly = true)
+    public ReportImageDownload getImageDownload(Long factoryId, Long imageId) {
+        WorkOrderReportImage image = imageRepository.findById(imageId)
+                .filter(item -> item.getFactory().getId().equals(factoryId))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "图片不存在"));
+        Path root = Paths.get(reportImageDir).toAbsolutePath().normalize();
+        Path file = root.resolve(image.getStoredFileName()).normalize();
+        if (!file.startsWith(root)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "图片不存在");
+        }
+        try {
+            Resource resource = new UrlResource(file.toUri());
+            if (!resource.exists() || !resource.isReadable()) {
+                throw new ApiException(HttpStatus.NOT_FOUND, "图片文件不存在");
+            }
+            return new ReportImageDownload(image, resource);
+        } catch (IOException ex) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "图片文件不存在");
+        }
     }
 
     public WorkOrderReportResponse createReport(Long factoryId, Long userId, WorkOrderReportRequest request) {
@@ -486,5 +511,23 @@ public class WorkOrderReportService {
 
     private String normalizeToEmpty(String value) {
         return normalize(value);
+    }
+
+    public static class ReportImageDownload {
+        private final WorkOrderReportImage image;
+        private final Resource resource;
+
+        public ReportImageDownload(WorkOrderReportImage image, Resource resource) {
+            this.image = image;
+            this.resource = resource;
+        }
+
+        public WorkOrderReportImage getImage() {
+            return image;
+        }
+
+        public Resource getResource() {
+            return resource;
+        }
     }
 }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   approveReport,
+  fetchReportImageBlob,
   fetchReports,
   rejectReport,
   type ReportStatus,
@@ -15,6 +16,7 @@ const status = ref<ReportStatus>('PENDING')
 const reports = ref<WorkOrderReportInfo[]>([])
 const loading = ref(false)
 const detail = ref<WorkOrderReportInfo | null>(null)
+const imageObjectUrls = ref<Record<number, string>>({})
 const rejectTarget = ref<WorkOrderReportInfo | null>(null)
 const rejectRemark = ref('')
 const filters = reactive({
@@ -51,7 +53,7 @@ async function handleApprove(item: WorkOrderReportInfo) {
   try {
     const updated = await approveReport(props.token, item.id)
     emit('notice', `报工「${updated.workOrderCode} / ${updated.processName}」已审批通过`)
-    detail.value = updated
+    await openDetail(updated)
     await loadReports()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '审批失败')
@@ -69,7 +71,7 @@ async function submitReject() {
     const updated = await rejectReport(props.token, rejectTarget.value.id, rejectRemark.value)
     emit('notice', `报工「${updated.workOrderCode} / ${updated.processName}」已驳回`)
     rejectTarget.value = null
-    detail.value = updated
+    await openDetail(updated)
     await loadReports()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '驳回失败')
@@ -86,11 +88,38 @@ function minutesLabel(value: number) {
   return hours > 0 ? `${hours}小时${minutes}分钟` : `${minutes}分钟`
 }
 
-function imageUrl(path: string) {
-  return path
+async function openDetail(item: WorkOrderReportInfo) {
+  revokeImageObjectUrls()
+  detail.value = item
+  for (const image of item.images) {
+    try {
+      const blob = await fetchReportImageBlob(props.token, image.id)
+      imageObjectUrls.value = {
+        ...imageObjectUrls.value,
+        [image.id]: URL.createObjectURL(blob)
+      }
+    } catch (e) {
+      emit('notice', e instanceof Error ? e.message : '图片加载失败')
+    }
+  }
+}
+
+function closeDetail() {
+  detail.value = null
+  revokeImageObjectUrls()
+}
+
+function imageUrl(id: number) {
+  return imageObjectUrls.value[id] || ''
+}
+
+function revokeImageObjectUrls() {
+  Object.values(imageObjectUrls.value).forEach(url => URL.revokeObjectURL(url))
+  imageObjectUrls.value = {}
 }
 
 onMounted(loadReports)
+onBeforeUnmount(revokeImageObjectUrls)
 </script>
 
 <template>
@@ -170,7 +199,7 @@ onMounted(loadReports)
               <span class="status-badge" :class="{ disabled: item.status === 'REJECTED' }">{{ statusLabel(item.status) }}</span>
             </td>
             <td class="action-cell">
-              <button class="action-link" type="button" @click="detail = item">详情</button>
+              <button class="action-link" type="button" @click="openDetail(item)">详情</button>
               <button v-if="item.status === 'PENDING'" class="action-link" type="button" @click="handleApprove(item)">通过</button>
               <button v-if="item.status === 'PENDING'" class="action-link danger" type="button" @click="openReject(item)">驳回</button>
             </td>
@@ -189,7 +218,7 @@ onMounted(loadReports)
       <div class="modal report-detail-modal">
         <div class="modal-header">
           <h2>报工详情</h2>
-          <button class="close-btn" type="button" @click="detail = null">×</button>
+          <button class="close-btn" type="button" @click="closeDetail">×</button>
         </div>
         <div class="report-detail">
           <div><span>工单编号</span><strong>{{ detail.workOrderCode }}</strong></div>
@@ -209,8 +238,8 @@ onMounted(loadReports)
           <div class="full">
             <span>报工图片</span>
             <div class="report-images">
-              <a v-for="image in detail.images" :key="image.id" :href="imageUrl(image.accessPath)" target="_blank">
-                <img :src="imageUrl(image.accessPath)" :alt="image.originalFileName" />
+              <a v-for="image in detail.images" :key="image.id" :href="imageUrl(image.id)" target="_blank">
+                <img v-if="imageUrl(image.id)" :src="imageUrl(image.id)" :alt="image.originalFileName" />
               </a>
               <em v-if="detail.images.length === 0">暂无图片</em>
             </div>

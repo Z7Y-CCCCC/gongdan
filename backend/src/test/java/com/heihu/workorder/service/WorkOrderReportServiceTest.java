@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -115,13 +116,75 @@ class WorkOrderReportServiceTest {
         service.uploadImage(1L, 2L, file);
 
         ArgumentCaptor<WorkOrderReportImage> captor = ArgumentCaptor.forClass(WorkOrderReportImage.class);
-        verify(imageRepository).save(captor.capture());
-        WorkOrderReportImage saved = captor.getValue();
+        verify(imageRepository, times(2)).save(captor.capture());
+        WorkOrderReportImage saved = captor.getAllValues().get(1);
         assertThat(saved.getOriginalFileName()).isEqualTo("report.png");
         assertThat(saved.getContentType()).isEqualTo("image/png");
         assertThat(saved.getStoredFileName()).endsWith(".png");
         assertThat(saved.getStoredFileName()).doesNotContain("..");
+        assertThat(saved.getAccessPath()).isEqualTo("/api/mobile/reports/images/99/file");
         assertThat(Files.exists(uploadDir.resolve(saved.getStoredFileName()))).isTrue();
+    }
+
+    @Test
+    void getImageDownloadRequiresImageInFactoryAndReadableFile() throws Exception {
+        Files.write(uploadDir.resolve("stored.png"), pngBytes());
+        WorkOrderReportImage image = new WorkOrderReportImage();
+        image.setId(10L);
+        image.setFactory(factory(1L));
+        image.setUploader(user(2L, image.getFactory()));
+        image.setOriginalFileName("report.png");
+        image.setStoredFileName("stored.png");
+        image.setAccessPath("/api/reports/images/10/file");
+        image.setFileSize(12L);
+        image.setContentType("image/png");
+        image.setCreatedAt(LocalDateTime.now());
+
+        when(imageRepository.findById(10L)).thenReturn(Optional.of(image));
+
+        WorkOrderReportService.ReportImageDownload download = service.getImageDownload(1L, 10L);
+
+        assertThat(download.getImage()).isSameAs(image);
+        assertThat(download.getResource().exists()).isTrue();
+    }
+
+    @Test
+    void getImageDownloadRejectsCrossFactoryImage() {
+        WorkOrderReportImage image = new WorkOrderReportImage();
+        image.setId(10L);
+        image.setFactory(factory(9L));
+        image.setStoredFileName("stored.png");
+
+        when(imageRepository.findById(10L)).thenReturn(Optional.of(image));
+
+        assertThatThrownBy(() -> service.getImageDownload(1L, 10L))
+                .isInstanceOf(ApiException.class)
+                .extracting("status")
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    private Factory factory(Long id) {
+        Factory factory = new Factory();
+        factory.setId(id);
+        factory.setCode("FAC" + id);
+        factory.setName("Factory " + id);
+        factory.setEnabled(true);
+        factory.setCreatedAt(LocalDateTime.now());
+        return factory;
+    }
+
+    private FactoryUser user(Long id, Factory factory) {
+        FactoryUser user = new FactoryUser();
+        user.setId(id);
+        user.setFactory(factory);
+        user.setUsername("worker" + id);
+        user.setName("Worker " + id);
+        user.setPasswordHash("hash");
+        user.setRole(Role.PRODUCTION);
+        user.setEnabled(true);
+        user.setCreatedAt(LocalDateTime.now());
+        user.setUpdatedAt(LocalDateTime.now());
+        return user;
     }
 
     private byte[] pngBytes() {

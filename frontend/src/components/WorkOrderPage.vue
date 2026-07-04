@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import QRCode from 'qrcode'
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
@@ -534,6 +534,7 @@ function toggleMultipleSelectValue(field: CustomFieldInfo, optValue: string, che
 }
 
 const uploadingFieldId = ref<number | null>(null)
+const customFieldPreviewUrls = ref<Record<string, string>>({})
 
 async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
   const target = event.target as HTMLInputElement
@@ -565,6 +566,7 @@ async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
     const data = await response.json()
     const currentVal = String(getCustomValue(field) || '')
     const newPath = data.accessPath
+    customFieldPreviewUrls.value[newPath] = URL.createObjectURL(file)
     const updatedVal = currentVal ? `${currentVal},${newPath}` : newPath
     setCustomValue(field, updatedVal)
     emit('notice', '文件上传成功')
@@ -579,9 +581,23 @@ async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
 function removeCustomFieldPath(field: CustomFieldInfo, index: number) {
   const currentVal = String(getCustomValue(field) || '')
   const paths = currentVal.split(',').filter(Boolean)
+  const removed = paths[index]
+  if (removed && customFieldPreviewUrls.value[removed]) {
+    URL.revokeObjectURL(customFieldPreviewUrls.value[removed])
+    delete customFieldPreviewUrls.value[removed]
+  }
   paths.splice(index, 1)
   setCustomValue(field, paths.join(','))
 }
+
+function customFieldPreview(path: string) {
+  if (customFieldPreviewUrls.value[path]) return customFieldPreviewUrls.value[path]
+  return path.startsWith('/api/reports/images/') || path.startsWith('/api/mobile/reports/images/') ? '' : path
+}
+
+onBeforeUnmount(() => {
+  Object.values(customFieldPreviewUrls.value).forEach(url => URL.revokeObjectURL(url))
+})
 
 function toInputTime(value?: string) {
   return value ? value.replace(' ', 'T').slice(0, 16) : ''
@@ -2391,7 +2407,8 @@ onUnmounted(() => {
                     style="position:relative; display:inline-block; width: fit-content;"
                   >
                     <img 
-                      :src="path" 
+                      v-if="customFieldPreview(path)"
+                      :src="customFieldPreview(path)"
                       alt="预览" 
                       style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
                       @error="($event.target as HTMLElement).style.display='none'"
@@ -2442,7 +2459,8 @@ onUnmounted(() => {
                     style="position:relative; display:inline-block; width: fit-content;"
                   >
                     <img 
-                      :src="path" 
+                      v-if="customFieldPreview(path)"
+                      :src="customFieldPreview(path)"
                       alt="预览" 
                       style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
                       @error="($event.target as HTMLElement).style.display='none'"

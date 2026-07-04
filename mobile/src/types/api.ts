@@ -60,6 +60,7 @@ export interface ReportImage {
   accessPath: string
   fileSize: number
   contentType: string
+  previewPath?: string
 }
 
 export interface WorkOrderReport {

@@ -1035,6 +1035,24 @@ export async function fetchReport(token: string, id: number) {
   })
 }
 
+export async function fetchReportImageBlob(token: string, imageId: number) {
+  const response = await fetch(`${API_BASE}/reports/images/${imageId}/file`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (response.status === 401) {
+    handleKickedOut()
+  }
+  if (!response.ok) {
+    let message = '图片加载失败'
+    try {
+      const data = await response.json()
+      message = data.message || message
+    } catch {}
+    throw new ApiError(message, response.status)
+  }
+  return response.blob()
+}
+
 export async function approveReport(token: string, id: number, remark = '') {
   return request<WorkOrderReportInfo>(`/reports/${id}/approve`, {
     method: 'POST',

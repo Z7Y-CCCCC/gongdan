@@ -112,7 +112,7 @@
         <view class="label">报废/次品照片</view>
         <view class="image-grid">
           <view v-for="(img, idx) in uploadedImages" :key="idx" class="img-box">
-            <image :src="img.accessPath" mode="aspectFill" class="uploaded-img" />
+            <image :src="img.previewPath || img.accessPath" mode="aspectFill" class="uploaded-img" />
             <view class="img-delete" @tap="removeImage(idx)">✕</view>
           </view>
           <view class="add-box" @tap="chooseImage" v-if="uploadedImages.length < 9">
@@ -309,6 +309,7 @@ const chooseImage = () => {
       for (const path of res.tempFilePaths) {
         try {
           const img = await uploadReportImage(path)
+          img.previewPath = path
           uploadedImages.value.push(img)
         } catch (e) {
           uni.showToast({ title: '图片上传失败', icon: 'none' })
