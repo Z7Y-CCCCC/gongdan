@@ -8,6 +8,9 @@ import com.heihu.workorder.repository.UserSessionRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -59,7 +62,7 @@ public class TokenService {
                 }
             }
             UserSession session = new UserSession();
-            session.setToken(token);
+            session.setTokenHash(hashToken(token));
             session.setUserId(user.getId());
             session.setFactoryId(user.getFactory().getId());
             session.setFactoryCode(user.getFactory().getCode());
@@ -108,7 +111,7 @@ public class TokenService {
     public AuthenticatedUser requireUser(String authorization) {
         String token = extractToken(authorization);
         if (sessionRepository != null) {
-            UserSession session = sessionRepository.findByToken(token)
+            UserSession session = sessionRepository.findByTokenHash(hashToken(token))
                     .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "\u8bf7\u5148\u767b\u5f55"));
             if (!Instant.now().isBefore(session.getExpiresAt())) {
                 sessionRepository.delete(session);
@@ -162,6 +165,20 @@ public class TokenService {
             if (entry.getValue().isExpired()) {
                 sessions.remove(entry.getKey());
             }
+        }
+    }
+
+    private String hashToken(String token) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(token.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(String.format("%02x", b));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 digest is not available", ex);
         }
     }
 

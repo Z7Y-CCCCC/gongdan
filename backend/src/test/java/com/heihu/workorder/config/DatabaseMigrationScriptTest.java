@@ -49,6 +49,12 @@ class DatabaseMigrationScriptTest {
 
     @Test
     void flywayMigrationsRunOnEmptyDatabase() {
+        int migrationCount;
+        try {
+            migrationCount = migrationScriptNames().size();
+        } catch (IOException ex) {
+            throw new AssertionError("Unable to list migration scripts", ex);
+        }
         Flyway flyway = Flyway.configure()
                 .dataSource(
                         "jdbc:h2:mem:flyway_migration_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH",
@@ -61,7 +67,7 @@ class DatabaseMigrationScriptTest {
         MigrateResult result = flyway.migrate();
 
         assertThat(result.success).isTrue();
-        assertThat(result.migrationsExecuted).isEqualTo(2);
+        assertThat(result.migrationsExecuted).isEqualTo(migrationCount);
     }
 
     private List<String> migrationScriptNames() throws IOException {

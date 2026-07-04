@@ -82,11 +82,13 @@ class TokenServiceAuthServicePropertyTest {
         ArgumentCaptor<UserSession> savedCaptor = ArgumentCaptor.forClass(UserSession.class);
         verify(sessionRepository).save(savedCaptor.capture());
         UserSession saved = savedCaptor.getValue();
-        when(sessionRepository.findByToken(token)).thenReturn(Optional.of(saved));
+        when(sessionRepository.findByTokenHash(saved.getTokenHash())).thenReturn(Optional.of(saved));
 
         TokenService reader = new TokenService(Duration.ofMinutes(10), sessionRepository);
         AuthenticatedUser currentUser = reader.requireUser("Bearer " + token);
 
+        assertThat(saved.getTokenHash()).isNotEqualTo(token);
+        assertThat(saved.getTokenHash()).hasSize(64);
         assertThat(currentUser.getUserId()).isEqualTo(user.getId());
         assertThat(currentUser.getFactoryId()).isEqualTo(user.getFactory().getId());
         assertThat(currentUser.getFactoryCode()).isEqualTo("HHGD");
@@ -100,7 +102,7 @@ class TokenServiceAuthServicePropertyTest {
         TokenService tokenService = new TokenService(Duration.ofMinutes(10), sessionRepository);
         FactoryUser user = buildUser("HHGD");
         UserSession existing = new UserSession();
-        existing.setToken("old-token");
+        existing.setTokenHash("old-token-hash");
         existing.setUserId(user.getId());
         existing.setFactoryId(user.getFactory().getId());
         existing.setFactoryCode(user.getFactory().getCode());

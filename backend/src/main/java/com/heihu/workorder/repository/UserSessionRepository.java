@@ -8,7 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface UserSessionRepository extends JpaRepository<UserSession, Long> {
 
-    Optional<UserSession> findByToken(String token);
+    Optional<UserSession> findByTokenHash(String tokenHash);
 
     List<UserSession> findByUserIdAndKickedFalse(Long userId);
 
