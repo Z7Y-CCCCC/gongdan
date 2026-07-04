@@ -82,6 +82,7 @@ const SuperAdminAuthCodesPage = defineAsyncComponent(() => import('./components/
 const BindFactoryPage = defineAsyncComponent(() => import('./components/BindFactoryPage.vue'))
 const WarehousePage = defineAsyncComponent(() => import('./components/WarehousePage.vue'))
 const SupplierPage = defineAsyncComponent(() => import('./components/SupplierPage.vue'))
+const CustomerPage = defineAsyncComponent(() => import('./components/CustomerPage.vue'))
 
 const sharedAuth = useAuth()
 
@@ -1383,6 +1384,7 @@ function handleSearch() {
     { label: '工艺路线', mainMenu: 'basedata', subMenu: 'route', expandedMenu: 'basedata' },
     { label: '仓库', mainMenu: 'basedata', subMenu: 'warehouse', expandedMenu: 'basedata' },
     { label: '供应商', mainMenu: 'basedata', subMenu: 'supplier', expandedMenu: 'basedata' },
+    { label: '客户', mainMenu: 'basedata', subMenu: 'customer', expandedMenu: 'basedata' },
     { label: '产品', mainMenu: 'custom', subMenu: 'product', expandedMenu: 'custom' },
     { label: '客户', mainMenu: 'custom', subMenu: 'customer', expandedMenu: 'custom' },
     { label: '部门', mainMenu: 'sysconfig', subMenu: 'department', expandedMenu: 'sysconfig' },
@@ -2295,6 +2297,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'">工艺路线</a>
             <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'">仓库</a>
             <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'">供应商</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'">客户</a>
           </div>
         </div>
 
@@ -2367,7 +2370,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
               基础数据 <span>></span> <a href="#" style="color:inherit;text-decoration:none" @click.prevent="routeView = 'list'">工艺路线</a> <span>></span> {{ routeView === 'create' ? '创建工艺路线' : '编辑工艺路线' }}
             </template>
             <template v-else>
-              基础数据 <span>></span> {{ activeBasedataMenu === 'unit' ? '单位' : activeBasedataMenu === 'product' ? '产品定义' : activeBasedataMenu === 'bom' ? '物料清单' : activeBasedataMenu === 'defect' ? '不良品项' : activeBasedataMenu === 'process' ? '工序' : activeBasedataMenu === 'route' ? '工艺路线' : activeBasedataMenu === 'warehouse' ? '仓库' : '供应商' }}
+              基础数据 <span>></span> {{ activeBasedataMenu === 'unit' ? '单位' : activeBasedataMenu === 'product' ? '产品定义' : activeBasedataMenu === 'bom' ? '物料清单' : activeBasedataMenu === 'defect' ? '不良品项' : activeBasedataMenu === 'process' ? '工序' : activeBasedataMenu === 'route' ? '工艺路线' : activeBasedataMenu === 'warehouse' ? '仓库' : activeBasedataMenu === 'customer' ? '客户' : '供应商' }}
             </template>
           </template>
           <template v-else-if="activeMainMenu === 'production'">
@@ -2443,6 +2446,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
       <SupplierPage
         v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier'"
+        :token="token"
+        @notice="showAction"
+      />
+
+      <CustomerPage
+        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'customer'"
         :token="token"
         @notice="showAction"
       />
@@ -2567,7 +2576,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
       <!-- 单位管理 -->
       <section
         class="content placeholder-page"
-        v-if="activeMainMenu === 'basedata' && !['product', 'bom', 'warehouse', 'supplier', 'unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
+        v-if="activeMainMenu === 'basedata' && !['product', 'bom', 'warehouse', 'supplier', 'customer', 'unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
       >
         <div class="empty-state">该模块待补全。</div>
       </section>

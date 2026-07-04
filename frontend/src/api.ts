@@ -513,6 +513,67 @@ export async function deleteSupplier(token: string, id: number) {
 }
 
 // ---- 不良品项 ----
+// ---- 客户 ----
+export interface CustomerInfo {
+  id: number
+  code: string
+  name: string
+  contactName?: string
+  phone?: string
+  address?: string
+  remark?: string
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+export interface CustomerListResponse {
+  items: CustomerInfo[]
+  total: number
+}
+export interface CustomerPayload {
+  code?: string
+  name: string
+  contactName?: string
+  phone?: string
+  address?: string
+  remark?: string
+  enabled?: boolean
+}
+
+export async function fetchCustomers(token: string, params: { code?: string; name?: string; page?: number; size?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.name) query.append('name', params.name)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<CustomerListResponse>(`/customers?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createCustomer(token: string, payload: CustomerPayload) {
+  return request<CustomerInfo>('/customers', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateCustomer(token: string, id: number, payload: CustomerPayload) {
+  return request<CustomerInfo>(`/customers/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteCustomer(token: string, id: number) {
+  return request<void>(`/customers/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 export interface DefectInfo {
   id: number
   code: string
