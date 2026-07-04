@@ -95,6 +95,27 @@ docker compose up --build -d
 The stack starts MySQL, the Spring Boot backend with the `prod` profile, and an nginx-served admin frontend that proxies `/api` to the backend.
 Uploaded report images are stored in the `report-images` Docker volume.
 
+## Backup
+
+Back up both MySQL and uploaded report/custom-field attachments before every migration or release:
+
+```bash
+sh ops/backup-compose.sh
+```
+
+The script reads `.env`, writes timestamped files under `backups/`, and captures:
+
+- `mysql_YYYYMMDD_HHMMSS.sql`
+- `report-images_YYYYMMDD_HHMMSS.tar.gz`
+
+Set `ENV_FILE` or `BACKUP_DIR` when needed:
+
+```bash
+ENV_FILE=/opt/gongdan/.env BACKUP_DIR=/data/gongdan-backups sh ops/backup-compose.sh
+```
+
+Store backup copies outside the Docker host as well. A local-only backup does not protect against disk loss.
+
 ## Reverse Proxy and Browser Security
 
 The bundled frontend nginx config sets baseline browser security headers (`Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy`) and caches fingerprinted `/assets/` files for 30 days. Keep API traffic under the same site path (`/api`) where possible.

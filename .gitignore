@@ -24,6 +24,7 @@ Thumbs.db
 
 # Local backups
 *.bak
+backups/
 
 # Uploads
 backend/uploads/
