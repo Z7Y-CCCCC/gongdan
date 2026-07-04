@@ -188,7 +188,6 @@ let orderId = ''
 let orderCode = ''
 
 onLoad((options) => {
-  console.log('[work-order-detail] onLoad options:', options)
   if (options?.id) {
     orderId = options.id
   }
@@ -198,7 +197,6 @@ onLoad((options) => {
 })
 
 onMounted(async () => {
-  console.log('[work-order-detail] onMounted, orderId:', orderId, 'orderCode:', orderCode)
 
   // 设置 5 秒的加载安全网，防止网络挂起时永久白屏
   const safetyTimer = setTimeout(() => {
@@ -215,7 +213,6 @@ onMounted(async () => {
     if (idMatch) orderId = idMatch[1]
     const codeMatch = hash.match(/[?&]code=([^&]+)/)
     if (codeMatch) orderCode = decodeURIComponent(codeMatch[1])
-    console.log('[work-order-detail] parsed from hash, orderId:', orderId, 'orderCode:', orderCode)
   }
 
   if (!ensureLogin()) {

@@ -101,7 +101,6 @@ const handleScan = () => {
   }
   uni.scanCode({
     success: (res) => {
-      console.log('扫码结果：', res.result)
       if (res.result) {
         const url = res.result
         const idMatch = url.match(/[?&]id=(\d+)/)

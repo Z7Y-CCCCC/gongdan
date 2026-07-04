@@ -1075,7 +1075,6 @@ function openRouteStepDropdown(stepId: number) {
   })
   newMap[stepId] = !isOpen
   routeStepDropdownOpen.value = newMap
-  console.log('Toggle route step dropdown', stepId, 'isOpen:', !isOpen)
 }
 
 function closeAllRouteStepDropdowns() {
