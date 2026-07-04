@@ -119,7 +119,25 @@
 
     <!-- 生产履历 tab -->
     <scroll-view v-if="activeTab === 'history'" scroll-y class="process-list">
-      <view class="empty-hint"><text>暂无生产履历</text></view>
+      <view v-if="reports.length === 0" class="empty-hint"><text>暂无生产履历</text></view>
+      <view v-for="item in reports" :key="item.id" class="history-card">
+        <view class="history-head">
+          <text class="history-title">{{ item.processName || '工序' }}</text>
+          <text class="history-status" :class="reportStatusClass(item.status)">{{ reportStatusLabel(item.status) }}</text>
+        </view>
+        <view class="history-meta">
+          <text>{{ item.reporterName || '-' }}</text>
+          <text>{{ formatDate(item.createdAt) }}</text>
+        </view>
+        <view class="history-qty">
+          <text>总数 {{ item.reportQuantity || 0 }}</text>
+          <text class="green">良品 {{ item.goodQuantity || 0 }}</text>
+          <text class="red">不良 {{ item.defectQuantity || 0 }}</text>
+        </view>
+        <view v-if="item.defectItemName || item.remark" class="history-note">
+          <text>{{ item.defectItemName || item.remark }}</text>
+        </view>
+      </view>
     </scroll-view>
 
     <!-- 底部操作栏 -->
@@ -142,8 +160,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { fetchWorkOrder, fetchWorkOrderByCode, ensureLogin } from '../../services/api'
-import type { WorkOrderInfo } from '../../types/api'
+import { fetchReports, fetchWorkOrder, fetchWorkOrderByCode, ensureLogin } from '../../services/api'
+import type { WorkOrderInfo, WorkOrderReport } from '../../types/api'
 
 const order = ref<WorkOrderInfo>({
   id: 0,
@@ -163,6 +181,7 @@ const order = ref<WorkOrderInfo>({
 const loading = ref(true)
 const activeTab = ref('progress')
 const productUnit = ref('个')
+const reports = ref<WorkOrderReport[]>([])
 
 // 从 URL 参数中获取 id 或 code
 let orderId = ''
@@ -231,10 +250,24 @@ const loadData = async () => {
       return
     }
     order.value = res
+    await loadReports()
   } catch (e: any) {
     uni.showToast({ title: e.message || '加载失败', icon: 'none' })
   } finally {
     loading.value = false
+  }
+}
+
+const loadReports = async () => {
+  if (!order.value.id && !order.value.code) return
+  try {
+    const res = await fetchReports()
+    const items = res.items || []
+    reports.value = items
+      .filter(item => item.workOrderId === order.value.id || item.workOrderCode === order.value.code)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+  } catch (e) {
+    reports.value = []
   }
 }
 
@@ -302,6 +335,24 @@ function formatDate(dateStr?: string) {
   return d
 }
 
+function reportStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    PENDING: '待审核',
+    APPROVED: '已通过',
+    REJECTED: '已驳回'
+  }
+  return map[status] || status || '未知'
+}
+
+function reportStatusClass(status: string) {
+  const map: Record<string, string> = {
+    PENDING: 'report-status-pending',
+    APPROVED: 'report-status-approved',
+    REJECTED: 'report-status-rejected'
+  }
+  return map[status] || 'report-status-pending'
+}
+
 const hasReportPermission = (step: any) => {
   const perm = step.reportPermission
   if (!perm || perm === '所有人' || perm === 'ALL') {
@@ -332,27 +383,45 @@ const handleReport = (step: any) => {
 }
 
 const viewStepDetail = (step: any) => {
-  uni.showToast({ title: '详情功能开发中', icon: 'none' })
+  uni.showModal({
+    title: step.processName || '工序详情',
+    content: `计划数：${step.plannedQuantity || order.value.plannedQuantity || 0}\n良品数：${step.completedQuantity || 0}\n不良数：${step.defectQuantity || 0}\n报工权限：${step.reportPermission || '所有人'}`,
+    showCancel: false
+  })
 }
 
 const showMore = () => {
-  uni.showToast({ title: '更多功能开发中', icon: 'none' })
+  uni.showModal({
+    title: '工单备注',
+    content: order.value.remark || '暂无备注',
+    showCancel: false
+  })
 }
 
 const showPriority = () => {
-  uni.showToast({ title: '优先级功能开发中', icon: 'none' })
+  uni.showModal({
+    title: '优先级',
+    content: priorityLabel(order.value.priority),
+    showCancel: false
+  })
 }
 
 const handleFinish = () => {
   uni.showModal({
-    title: '确认结束',
-    content: '确定要结束此工单吗？',
-    success: (res) => {
-      if (res.confirm) {
-        uni.showToast({ title: '工单已结束', icon: 'success' })
-      }
-    }
+    title: '结束工单',
+    content: '移动端暂不支持结束工单，请在管理后台处理。',
+    showCancel: false
   })
+}
+
+function priorityLabel(priority?: string) {
+  const map: Record<string, string> = {
+    URGENT: '紧急',
+    HIGH: '高',
+    NORMAL: '普通',
+    LOW: '低'
+  }
+  return map[priority || ''] || priority || '未设置'
 }
 </script>
 
@@ -608,6 +677,63 @@ const handleFinish = () => {
 .btn.ghost { border: 1px solid #ddd; color: #666; }
 .btn.primary { border: 1px solid #00b889; color: #00b889; }
 .btn.disabled { border: 1px solid #eee; background: #fafafa; color: #ccc; cursor: not-allowed; }
+
+.history-card {
+  background: white;
+  border-radius: 16rpx;
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+}
+
+.history-head,
+.history-meta,
+.history-qty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.history-head {
+  margin-bottom: 14rpx;
+}
+
+.history-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #222;
+}
+
+.history-status {
+  font-size: 22rpx;
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+}
+
+.report-status-pending { background: #fff7e6; color: #fa8c16; }
+.report-status-approved { background: #e6f7f3; color: #00a870; }
+.report-status-rejected { background: #fff1f0; color: #ff4d4f; }
+
+.history-meta {
+  font-size: 24rpx;
+  color: #999;
+  margin-bottom: 18rpx;
+}
+
+.history-qty {
+  font-size: 26rpx;
+  color: #555;
+}
+
+.history-qty .green { color: #00b889; }
+.history-qty .red { color: #ff4d4f; }
+
+.history-note {
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1px solid #f2f2f2;
+  font-size: 24rpx;
+  color: #777;
+}
 
 .footer {
   height: 110rpx;
