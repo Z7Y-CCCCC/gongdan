@@ -12,6 +12,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface WorkOrderReportRepository extends JpaRepository<WorkOrderReport, Long> {
 
+    boolean existsByFactoryIdAndWorkOrderId(Long factoryId, Long workOrderId);
+
     @Query("select r from WorkOrderReport r where r.factory.id = :factoryId " +
             "and (:status is null or r.status = :status) " +
             "and (:workOrderCode = '' or r.workOrderCode like concat('%', :workOrderCode, '%')) " +

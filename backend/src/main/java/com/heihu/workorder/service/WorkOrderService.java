@@ -11,6 +11,7 @@ import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
 import com.heihu.workorder.repository.WorkOrderCategoryRepository;
+import com.heihu.workorder.repository.WorkOrderReportRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -33,15 +34,18 @@ public class WorkOrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final WorkOrderCategoryRepository categoryRepository;
+    private final WorkOrderReportRepository reportRepository;
 
     public WorkOrderService(WorkOrderRepository workOrderRepository,
                             ProductRepository productRepository,
                             UserRepository userRepository,
-                            WorkOrderCategoryRepository categoryRepository) {
+                            WorkOrderCategoryRepository categoryRepository,
+                            WorkOrderReportRepository reportRepository) {
         this.workOrderRepository = workOrderRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.categoryRepository = categoryRepository;
+        this.reportRepository = reportRepository;
     }
 
     public Page<WorkOrderResponse> list(Long factoryId, String code, String productName, Pageable pageable) {
@@ -100,6 +104,9 @@ public class WorkOrderService {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
+        if (reportRepository.existsByFactoryIdAndWorkOrderId(factoryId, id)) {
+            throw new IllegalArgumentException("工单已有报工记录，不能删除");
+        }
         workOrderRepository.delete(workOrder);
     }
 
