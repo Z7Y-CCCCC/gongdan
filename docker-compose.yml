@@ -1,0 +1,68 @@
+services:
+  db:
+    image: mysql:9.2
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-heihu_workorder}
+      MYSQL_USER: ${MYSQL_USER:?set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${MYSQL_DATABASE:-heihu_workorder}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:?set MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      APP_SEED_FACTORY_CODE: ${APP_SEED_FACTORY_CODE:-HHGD}
+      APP_SEED_FACTORY_NAME: ${APP_SEED_FACTORY_NAME:?set APP_SEED_FACTORY_NAME}
+      APP_SEED_ADMIN_USERNAME: ${APP_SEED_ADMIN_USERNAME:-admin}
+      APP_SEED_ADMIN_PASSWORD: ${APP_SEED_ADMIN_PASSWORD:?set APP_SEED_ADMIN_PASSWORD}
+      APP_SEED_ADMIN_NAME: ${APP_SEED_ADMIN_NAME:-System Admin}
+      APP_SEED_SUPER_ADMIN_USERNAME: ${APP_SEED_SUPER_ADMIN_USERNAME:-admin}
+      APP_SEED_SUPER_ADMIN_PASSWORD: ${APP_SEED_SUPER_ADMIN_PASSWORD:?set APP_SEED_SUPER_ADMIN_PASSWORD}
+      APP_WECHAT_APP_ID: ${APP_WECHAT_APP_ID:?set APP_WECHAT_APP_ID}
+      APP_WECHAT_SECRET: ${APP_WECHAT_SECRET:?set APP_WECHAT_SECRET}
+      APP_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:8080,http://127.0.0.1:8080}
+      APP_UPLOAD_REPORT_IMAGE_DIR: /var/lib/heihu-workorder/report-images
+    volumes:
+      - report-images:/var/lib/heihu-workorder/report-images
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+
+volumes:
+  db-data:
+  report-images:

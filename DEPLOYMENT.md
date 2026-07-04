@@ -79,3 +79,15 @@ npm run build:h5
 ```
 
 For WeChat Mini Program builds, `VITE_API_BASE_URL` must be an absolute HTTPS API URL.
+
+## Docker Compose
+
+The repository includes a minimal production-style Compose stack:
+
+```bash
+cp .env.deploy.example .env
+docker compose up --build -d
+```
+
+The stack starts MySQL, the Spring Boot backend with the `prod` profile, and an nginx-served admin frontend that proxies `/api` to the backend.
+Uploaded report images are stored in the `report-images` Docker volume.
