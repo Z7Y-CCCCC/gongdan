@@ -122,6 +122,10 @@ function goAfterLogin() {
       return
     }
   }
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = '#/pages/home/index'
+    return
+  }
   uni.switchTab({ url: '/pages/home/index' })
 }
 

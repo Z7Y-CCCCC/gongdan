@@ -2,7 +2,7 @@ import { createSSRApp } from 'vue'
 import App from './App.vue'
 // #ifdef H5
 import './h5-routes'
-import { UniServiceJSBridge, getCurrentPages, plugin, setupApp, uni } from '@dcloudio/uni-h5'
+import { UniServiceJSBridge, getApp, getCurrentPages, plugin, setupApp, uni } from '@dcloudio/uni-h5'
 // #endif
 
 export function createApp() {
@@ -14,6 +14,7 @@ export function createApp() {
 if (typeof window !== 'undefined') {
   Object.assign(window, {
     UniServiceJSBridge,
+    getApp,
     getCurrentPages,
     uni
   })

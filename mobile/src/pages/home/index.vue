@@ -130,11 +130,11 @@ const handleScan = () => {
 }
 
 const navigateTo = (url: string) => {
-  if (url.includes('work-orders') || url.includes('report-list') || url.includes('board')) {
-    uni.switchTab({ url })
-  } else {
-    uni.navigateTo({ url })
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = `#${url}`
+    return
   }
+  uni.navigateTo({ url })
 }
 
 const handleLogout = () => {
