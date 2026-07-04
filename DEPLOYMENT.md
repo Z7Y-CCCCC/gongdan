@@ -76,7 +76,7 @@ Set `VITE_API_BASE_URL` to the backend API path exposed by nginx, usually `/api`
 cd mobile
 cp .env.example .env.production
 npm ci
-npm run build:h5
+npm run build
 ```
 
 For WeChat Mini Program builds, `VITE_API_BASE_URL` must be an absolute HTTPS API URL.
