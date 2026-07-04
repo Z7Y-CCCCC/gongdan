@@ -33,7 +33,8 @@ APP_UPLOAD_REPORT_IMAGE_DIR=/var/lib/heihu-workorder/report-images
 
 Production defaults disable WeChat mock login, enable Flyway migrations, and set `spring.jpa.hibernate.ddl-auto=validate`.
 Production startup requires explicit seed passwords for both the factory admin and the super admin.
-Token sessions are stored in the database as token hashes when the backend runs through Spring, so multiple backend instances can share login state without storing reusable bearer tokens. Horizontal scaling still requires all instances to share the same database and uploaded image storage path or object storage.
+Token sessions are stored in the database as token hashes when the backend runs through Spring, so multiple backend instances can share login state without storing reusable bearer tokens. Horizontal scaling still requires all instances to share the same database and uploaded file storage path or object storage.
+`APP_UPLOAD_REPORT_IMAGE_DIR` is currently the shared upload root for report images and custom-field attachments.
 
 Health checks:
 
@@ -44,7 +45,7 @@ Health checks:
 ### Database Initialization
 
 The production profile runs Flyway from `backend/src/main/resources/db/migration`.
-`V1__baseline_schema.sql` creates the baseline business schema for an empty database, `V2__create_user_sessions.sql` adds persistent login sessions, and `V3__clear_plaintext_user_sessions.sql` clears old plaintext sessions so new logins store token hashes only.
+`V1__baseline_schema.sql` creates the baseline business schema for an empty database. `V2__create_user_sessions.sql` and `V3__clear_plaintext_user_sessions.sql` move login sessions to hashed database-backed tokens. `V4__create_auth_attempts.sql` adds login lockout tracking, `V5__create_sms_codes.sql` and `V6__create_sms_ip_rate_limits.sql` add SMS login controls, and `V7__create_custom_field_attachments.sql` adds protected attachment metadata for custom fields.
 
 For a fresh commercial database:
 

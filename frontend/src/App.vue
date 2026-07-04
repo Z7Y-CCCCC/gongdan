@@ -2495,7 +2495,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         class="content placeholder-page"
         v-if="activeMainMenu === 'inventory' && activeInventoryMenu !== 'inbound' && activeInventoryMenu !== 'balance' && activeInventoryMenu !== 'outbound' && activeInventoryMenu !== 'detail' && activeInventoryMenu !== 'summary'"
       >
-        <div class="empty-state">进销存汇总模块待补全。</div>
+        <div class="empty-state">该模块待补全。</div>
       </section>
 
       <!-- 基础数据（组件化） -->
