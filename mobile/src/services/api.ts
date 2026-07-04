@@ -1,10 +1,8 @@
 import type { ListResponse, MobileAuthResult, ReportImage, ReportStatus, WorkOrderInfo, WorkOrderReport } from '../types/api'
 
-// H5 模式下用相对路径（走 Vite proxy），小程序模式下用绝对路径
-const isH5 = typeof window !== 'undefined' && !!(window as any).__UNI_FEATURE_WXS__  === false
-export const API_BASE = (typeof window !== 'undefined' && window.location && window.location.protocol === 'http:')
-  ? '/api'
-  : 'http://localhost:8080/api'
+// H5 can use /api through a reverse proxy. Mini Program builds should set VITE_API_BASE_URL to HTTPS.
+const configuredApiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+export const API_BASE = configuredApiBase || '/api'
 
 function token() {
   return uni.getStorageSync('token') || ''
