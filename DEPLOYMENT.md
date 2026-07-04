@@ -31,7 +31,7 @@ APP_SESSION_TTL_MINUTES=720
 APP_UPLOAD_REPORT_IMAGE_DIR=/var/lib/heihu-workorder/report-images
 ```
 
-Production defaults disable WeChat mock login and set `spring.jpa.hibernate.ddl-auto=validate`.
+Production defaults disable WeChat mock login, enable Flyway migrations, and set `spring.jpa.hibernate.ddl-auto=validate`.
 Production startup requires explicit seed passwords for both the factory admin and the super admin.
 Token sessions are stored in the database when the backend runs through Spring, so multiple backend instances can share login state. Horizontal scaling still requires all instances to share the same database and uploaded image storage path or object storage.
 
@@ -43,22 +43,20 @@ Health checks:
 
 ### Database Initialization
 
-The current `backend/src/main/resources/db/migration` scripts are manual patch scripts, not an enabled Flyway/Liquibase migration chain.
+The production profile runs Flyway from `backend/src/main/resources/db/migration`.
+`V1__baseline_schema.sql` creates the baseline business schema for an empty database, and `V2__create_user_sessions.sql` adds persistent login sessions.
 
 For a fresh commercial database:
 
 1. Create the MySQL database and application user.
-2. Run a controlled one-time initialization against an empty database with `SPRING_JPA_HIBERNATE_DDL_AUTO=update`.
+2. Start with the `prod` profile; Flyway will create the schema before Hibernate validates it.
 3. Verify the seed factory/admin can login.
-4. Switch back to the production default `SPRING_JPA_HIBERNATE_DDL_AUTO=validate` before opening traffic.
 
 For an existing database:
 
 1. Back up the database.
-2. Apply the `V*.sql` scripts in version order if the target schema does not already contain those columns.
-3. Start with the `prod` profile and keep `ddl-auto=validate`.
-
-A full Flyway baseline migration should be added before multi-customer SaaS deployment.
+2. Keep the production default `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true` for the first Flyway-managed start. Flyway records the existing schema as version 1, then applies version 2+ migrations.
+3. Keep `SPRING_JPA_HIBERNATE_DDL_AUTO=validate` before opening traffic.
 
 ## Frontend
 
