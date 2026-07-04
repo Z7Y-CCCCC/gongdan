@@ -35,6 +35,12 @@ Production defaults disable WeChat mock login and set `spring.jpa.hibernate.ddl-
 Production startup requires explicit seed passwords for both the factory admin and the super admin.
 Current token sessions are stored in backend memory, so deploy the backend as a single instance or add Redis/JWT session storage before horizontal scaling.
 
+Health checks:
+
+- `/actuator/health`
+- `/actuator/health/liveness`
+- `/actuator/health/readiness`
+
 ### Database Initialization
 
 The current `backend/src/main/resources/db/migration` scripts are manual patch scripts, not an enabled Flyway/Liquibase migration chain.
