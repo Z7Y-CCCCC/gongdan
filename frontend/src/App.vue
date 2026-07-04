@@ -425,13 +425,13 @@ watchEffect(() => {
   if (!tpl) return
   let text = ''
   if (tpl.qrSource === '工单外链') {
-    text = `${window.location.origin}/workorder/123456`
+    text = `${window.location.origin}/workorder/preview`
   } else if (tpl.qrSource === '工单编号') {
-    text = 'GD20220120'
+    text = 'GD-PREVIEW'
   } else if (tpl.qrSource === '工单二维码') {
-    text = '123456'
+    text = 'WORK_ORDER_QR_PREVIEW'
   } else {
-    text = tpl.qrSource || '123456'
+    text = tpl.qrSource || 'WORK_ORDER_PREVIEW'
   }
   QRCode.toDataURL(text, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } }).then((url: string) => {
     qrPreviewUrl.value = url

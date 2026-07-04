@@ -11,6 +11,7 @@ import com.heihu.workorder.model.Role;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.DepartmentRepository;
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -23,7 +24,8 @@ import org.springframework.util.StringUtils;
 @Service
 public class UserService {
 
-    private static final String DEFAULT_RESET_PASSWORD = "123456";
+    private static final String PASSWORD_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    private static final int GENERATED_PASSWORD_LENGTH = 12;
 
     private final FactoryRepository factoryRepository;
     private final UserRepository userRepository;
@@ -103,12 +105,16 @@ public class UserService {
     }
 
     @Transactional
-    public ResetPasswordResponse resetPassword(Long factoryId, Long userId) {
+    public ResetPasswordResponse resetPassword(Long factoryId, Long userId, String password) {
         FactoryUser user = getFactoryUser(factoryId, userId);
-        user.setPasswordHash(passwordEncoder.encode(DEFAULT_RESET_PASSWORD));
+        String newPassword = StringUtils.hasText(password) ? password.trim() : generateRandomPassword();
+        if (newPassword.length() < 6 || newPassword.length() > 64) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "密码长度需为6到64个字符");
+        }
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
         user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
-        return new ResetPasswordResponse("密码已重置", DEFAULT_RESET_PASSWORD);
+        return new ResetPasswordResponse("密码已重置", newPassword);
     }
 
     @Transactional
@@ -174,6 +180,15 @@ public class UserService {
         return value.trim();
     }
 
+    private String generateRandomPassword() {
+        SecureRandom random = new SecureRandom();
+        StringBuilder sb = new StringBuilder(GENERATED_PASSWORD_LENGTH);
+        for (int i = 0; i < GENERATED_PASSWORD_LENGTH; i++) {
+            sb.append(PASSWORD_CHARS.charAt(random.nextInt(PASSWORD_CHARS.length())));
+        }
+        return sb.toString();
+    }
+
     @Transactional(readOnly = true)
     public String exportUsersCsv(Long factoryId) {
         List<FactoryUser> users = userRepository.findByFactoryIdOrderByCreatedAtAsc(factoryId);
@@ -223,13 +238,25 @@ public class UserService {
             String roleStr = cols[2].trim();
             String phone = cols.length > 3 ? cols[3].trim() : "";
             String department = cols.length > 4 ? cols[4].trim() : "";
-            String passwordOrHash = cols.length > 5 ? cols[5].trim() : "123456";
+            String passwordOrHash = cols.length > 5 ? cols[5].trim() : "";
             boolean isVirtual = cols.length > 6 && "是".equals(cols[6].trim());
             boolean isEnabled = cols.length <= 7 || !"停用".equals(cols[7].trim());
 
             if (username.isEmpty() || name.isEmpty()) {
                 failCount++;
                 errors.add("第 " + (i + 1) + " 行：账号或姓名为空，已跳过");
+                continue;
+            }
+
+            if (!StringUtils.hasText(passwordOrHash)) {
+                failCount++;
+                errors.add("第 " + (i + 1) + " 行「" + username + "」：密码为空，已跳过");
+                continue;
+            }
+
+            if (!passwordOrHash.startsWith("$2") && (passwordOrHash.length() < 6 || passwordOrHash.length() > 64)) {
+                failCount++;
+                errors.add("第 " + (i + 1) + " 行「" + username + "」：密码长度需为6到64个字符，已跳过");
                 continue;
             }
 

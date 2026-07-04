@@ -179,7 +179,8 @@ export function resetUserPassword(token: string, id: number, password?: string) 
   const options: RequestInit = {
     method: 'PATCH',
     headers: {
-      Authorization: `Bearer ${token}`
+      Authorization: `Bearer ${token}`,
+      ...(password ? { 'Content-Type': 'application/json' } : {})
     }
   }
   if (password) {
