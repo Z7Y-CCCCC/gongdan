@@ -102,6 +102,20 @@ class SmsServiceTest {
     }
 
     @Test
+    @DisplayName("短信发送器失败时返回服务不可用")
+    void sendCode_senderFailure_shouldThrowServiceUnavailable() {
+        SmsService service = new SmsService(null, null, (phone, code) -> {
+            throw new IllegalStateException("provider failed");
+        });
+
+        ApiException exception = assertThrows(ApiException.class, () ->
+                service.sendCode("13800138005", "192.168.1.3"));
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatus());
+        assertEquals("短信发送失败，请稍后再试", exception.getMessage());
+    }
+
+    @Test
     @DisplayName("IP 每小时 10 次限制")
     void sendCode_sameIpExceeds10Times_shouldThrowTooManyRequests() {
         String ip = "10.0.0.1";

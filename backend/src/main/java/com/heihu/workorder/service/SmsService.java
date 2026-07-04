@@ -37,19 +37,29 @@ public class SmsService {
     private final ConcurrentHashMap<String, IpRateEntry> ipRateStore = new ConcurrentHashMap<>();
     private final SmsCodeRepository smsCodeRepository;
     private final SmsIpRateLimitRepository smsIpRateLimitRepository;
+    private final SmsSender smsSender;
 
     public SmsService() {
-        this(null, null);
+        this(null, null, new LoggingSmsSender(true));
     }
 
     public SmsService(SmsCodeRepository smsCodeRepository) {
-        this(smsCodeRepository, null);
+        this(smsCodeRepository, null, new LoggingSmsSender(true));
+    }
+
+    public SmsService(SmsCodeRepository smsCodeRepository, SmsIpRateLimitRepository smsIpRateLimitRepository) {
+        this(smsCodeRepository, smsIpRateLimitRepository, new LoggingSmsSender(true));
     }
 
     @Autowired
-    public SmsService(SmsCodeRepository smsCodeRepository, SmsIpRateLimitRepository smsIpRateLimitRepository) {
+    public SmsService(
+            SmsCodeRepository smsCodeRepository,
+            SmsIpRateLimitRepository smsIpRateLimitRepository,
+            SmsSender smsSender
+    ) {
         this.smsCodeRepository = smsCodeRepository;
         this.smsIpRateLimitRepository = smsIpRateLimitRepository;
+        this.smsSender = smsSender;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -62,7 +72,13 @@ public class SmsService {
         storeCode(phone, code, now);
         phoneLastSendTime.put(phone, now);
 
-        log.info("验证码已生成 [phone={}, code={}]", phone, code);
+        try {
+            smsSender.sendVerificationCode(phone, code);
+        } catch (RuntimeException ex) {
+            log.warn("SMS delivery failed [phone={}, reason={}]", phone, ex.toString());
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "短信发送失败，请稍后再试");
+        }
+        log.info("SMS code sent [phone={}]", phone);
     }
 
     private void checkPhoneRateLimit(String phone, LocalDateTime now) {
