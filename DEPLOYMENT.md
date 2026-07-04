@@ -95,6 +95,14 @@ docker compose up --build -d
 The stack starts MySQL, the Spring Boot backend with the `prod` profile, and an nginx-served admin frontend that proxies `/api` to the backend.
 Uploaded report images are stored in the `report-images` Docker volume.
 
+Run the non-destructive preflight before starting or updating the stack:
+
+```bash
+sh ops/preflight-compose.sh
+```
+
+The preflight checks required `.env` values, rejects known placeholders and wildcard/non-HTTPS production CORS values, and validates the rendered Compose config.
+
 ## Backup
 
 Back up both MySQL and uploaded report/custom-field attachments before every migration or release:
