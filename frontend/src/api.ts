@@ -31,6 +31,18 @@ export interface DepartmentListResponse {
   total: number
 }
 
+export interface CurrentFactoryInfo {
+  id: number
+  code: string
+  name: string
+  enabled: boolean
+  createdAt?: string
+}
+
+export interface UpdateCurrentFactoryPayload {
+  name: string
+}
+
 export interface CreateDepartmentPayload {
   code: string
   name: string
@@ -195,6 +207,24 @@ export function unbindUserPhone(token: string, id: number) {
     headers: {
       Authorization: `Bearer ${token}`
     }
+  })
+}
+
+export function fetchCurrentFactory(token: string) {
+  return request<CurrentFactoryInfo>('/factory', {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  })
+}
+
+export function updateCurrentFactory(token: string, payload: UpdateCurrentFactoryPayload) {
+  return request<CurrentFactoryInfo>('/factory', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
   })
 }
 

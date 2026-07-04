@@ -70,6 +70,7 @@ const ReportApprovalPage = defineAsyncComponent(() => import('./components/Repor
 const BaseDataPage = defineAsyncComponent(() => import('./components/BaseDataPage.vue'))
 const UserManagementPage = defineAsyncComponent(() => import('./components/UserManagementPage.vue'))
 const DepartmentManagementPage = defineAsyncComponent(() => import('./components/DepartmentManagementPage.vue'))
+const FactorySettingsPage = defineAsyncComponent(() => import('./components/FactorySettingsPage.vue'))
 const HomeDashboardPage = defineAsyncComponent(() => import('./views/HomeDashboardPage.vue'))
 const InboundReceiptPage = defineAsyncComponent(() => import('./components/InboundReceiptPage.vue'))
 const OutboundReceiptPage = defineAsyncComponent(() => import('./components/OutboundReceiptPage.vue'))
@@ -2332,7 +2333,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
             <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
             <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
-            <a class="sub-item">工厂</a>
+            <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'">工厂</a>
           </div>
         </div>
 
@@ -2384,7 +2385,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <template v-else-if="activeMainMenu === 'super-admin'">
             授权码管理
           </template>
-          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : '用户' }}</template>
+          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : activeConfigMenu === 'factory' ? '工厂' : '用户' }}</template>
         </div>
         <div class="top-actions">
           <template v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'">
@@ -3229,6 +3230,13 @@ function handleNavigate(menu: { main: string; sub: string }) {
         @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
         @reload-users="loadUsers"
         @update-current-user="syncCurrentUser"
+      />
+
+      <FactorySettingsPage
+        v-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory'"
+        :token="token"
+        @error="msg => errorMessage = msg"
+        @notice="msg => actionMessage = msg"
       />
 
       <!-- 用户管理 -->

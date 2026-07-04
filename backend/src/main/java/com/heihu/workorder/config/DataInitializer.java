@@ -101,11 +101,6 @@ public class DataInitializer implements ApplicationRunner {
                     return factoryRepository.save(item);
                 });
 
-        if (!factoryName.equals(factory.getName())) {
-            factory.setName(factoryName);
-            factory = factoryRepository.save(factory);
-        }
-
         seedDefaultUnits(factory);
         Factory targetFactory = factory;
 
