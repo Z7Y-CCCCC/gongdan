@@ -135,6 +135,9 @@ const resetPasswordForm = reactive({
   confirmPassword: ''
 })
 const showUserDropdown = ref(false)
+const showNotificationDropdown = ref(false)
+const notificationsLoading = ref(false)
+const notificationError = ref('')
 const showNewPassword = ref(false)
 const showConfirmPassword = ref(false)
 const activeConfigMenu = ref('department') // default to department based on user request
@@ -319,6 +322,102 @@ const pieData = ref<Array<{ name: string; color: string; count: number; pct: str
 const scrollMessages = ref<Array<{ time: string; text: string }>>([])
 
 const dashboardReports = ref<any[]>([])
+
+type NotificationItem = {
+  id: string
+  type: 'approval' | 'overdue' | 'report'
+  title: string
+  detail: string
+  time?: string
+  target: { main: string; sub: string }
+}
+
+const notificationItems = ref<NotificationItem[]>([])
+const notificationCount = computed(() => notificationItems.value.length)
+const notificationPreview = computed(() => notificationItems.value.slice(0, 8))
+
+function normalizeDate(value?: string) {
+  if (!value) return ''
+  return value.replace('T', ' ').substring(0, 16)
+}
+
+async function loadNotifications() {
+  if (!token.value || currentUser.value?.role !== 'ADMIN') {
+    notificationItems.value = []
+    return
+  }
+  notificationsLoading.value = true
+  notificationError.value = ''
+  try {
+    const [pendingReports, workOrders, todayReports] = await Promise.all([
+      fetchReports(token.value, { status: 'PENDING', page: 1, size: 50 }),
+      fetchWorkOrders(token.value, { page: 1, size: 100 }),
+      fetchReports(token.value, { period: 'today', page: 1, size: 50 })
+    ])
+    const now = Date.now()
+    const items: NotificationItem[] = []
+
+    ;(pendingReports.items || []).slice(0, 5).forEach(report => {
+      items.push({
+        id: `approval-${report.id}`,
+        type: 'approval',
+        title: '待审批报工',
+        detail: `${report.workOrderCode || '-'} / ${report.processName || '-'} / ${report.reporterName || '-'}`,
+        time: normalizeDate(report.createdAt),
+        target: { main: 'production', sub: 'workbench' }
+      })
+    })
+
+    ;(workOrders.items || [])
+      .filter(order => Boolean(order.planEnd) && !isClosedStatus(order.status) && new Date(order.planEnd as string).getTime() < now)
+      .slice(0, 5)
+      .forEach(order => {
+        items.push({
+          id: `overdue-${order.id}`,
+          type: 'overdue',
+          title: '逾期工单',
+          detail: `${order.code || '-'} / ${order.productName || '-'} / 计划完工 ${normalizeDate(order.planEnd) || '-'}`,
+          time: normalizeDate(order.planEnd),
+          target: { main: 'production', sub: 'workorder' }
+        })
+      })
+
+    ;(todayReports.items || []).slice(0, 4).forEach(report => {
+      items.push({
+        id: `report-${report.id}`,
+        type: 'report',
+        title: '今日报工',
+        detail: `${report.reporterName || '-'} 提交 ${report.goodQuantity || 0} 良品 / ${report.defectQuantity || 0} 不良`,
+        time: normalizeDate(report.createdAt),
+        target: { main: 'production', sub: 'reporting' }
+      })
+    })
+
+    notificationItems.value = items
+  } catch (error) {
+    notificationItems.value = []
+    notificationError.value = error instanceof Error ? error.message : '通知加载失败'
+  } finally {
+    notificationsLoading.value = false
+  }
+}
+
+async function toggleNotifications() {
+  showNotificationDropdown.value = !showNotificationDropdown.value
+  showUserDropdown.value = false
+  if (showNotificationDropdown.value) {
+    await loadNotifications()
+  }
+}
+
+function openNotification(item: NotificationItem) {
+  activeMainMenu.value = item.target.main
+  if (item.target.main === 'production') {
+    activeProductionMenu.value = item.target.sub
+    expandedMenus.production = true
+  }
+  showNotificationDropdown.value = false
+}
 
 const displayReports = computed(() => {
   if (dashboardReports.value && dashboardReports.value.length > 0) {
@@ -1355,6 +1454,7 @@ function persistSession(response: LoginResponse) {
   sharedAuth.persistSession(response)
   // 登录后默认进入主页仪表盘
   activeMainMenu.value = 'home'
+  loadNotifications()
 }
 
 const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
@@ -2038,6 +2138,9 @@ function logout() {
   currentUser.value = null
   isSuperAdmin.value = false
   users.value = []
+  notificationItems.value = []
+  notificationError.value = ''
+  showNotificationDropdown.value = false
   localStorage.removeItem('heihu_token')
   localStorage.removeItem('heihu_user')
   localStorage.removeItem('heihu_is_super_admin')
@@ -2056,6 +2159,7 @@ onMounted(() => {
     loadDefects()
     loadProcesses()
     loadRoutes()
+    loadNotifications()
     // 额外全量拉取部门（供报工权限树使用，不受列表分页影响）
     fetchDepartments(token.value, { code: '', name: '', page: 1, size: 999 })
       .then(res => { departments.value = res.items })
@@ -2066,6 +2170,9 @@ onMounted(() => {
     const target = e.target as HTMLElement
     if (!target.closest('.user-profile')) {
       showUserDropdown.value = false
+    }
+    if (!target.closest('.notification-wrap')) {
+      showNotificationDropdown.value = false
     }
     if (!target.closest('.custom-multiselect')) {
       showUserSelectDropdown.value = false
@@ -2410,9 +2517,42 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <div class="topbar-divider" style="height:14px;background:#dce3e0;width:1px;margin:0 12px"></div>
           </template>
 
-          <button class="topbar-icon-btn" type="button" title="通知">
-            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          </button>
+          <div class="notification-wrap">
+            <button class="topbar-icon-btn notification-btn" type="button" title="通知" @click.stop="toggleNotifications">
+              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              <span v-if="notificationCount" class="notification-badge">{{ notificationCount > 99 ? '99+' : notificationCount }}</span>
+            </button>
+            <div v-if="showNotificationDropdown" class="notification-dropdown">
+              <div class="notification-head">
+                <div>
+                  <strong>通知中心</strong>
+                  <span>工单与报工待办</span>
+                </div>
+                <button type="button" class="notification-refresh" title="刷新" @click.stop="loadNotifications">
+                  <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                </button>
+              </div>
+              <div v-if="notificationsLoading" class="notification-state">加载中...</div>
+              <div v-else-if="notificationError" class="notification-state error">{{ notificationError }}</div>
+              <div v-else-if="notificationPreview.length === 0" class="notification-state">暂无待办</div>
+              <template v-else>
+                <button
+                  v-for="item in notificationPreview"
+                  :key="item.id"
+                  type="button"
+                  class="notification-item"
+                  @click.stop="openNotification(item)"
+                >
+                  <span class="notification-dot" :class="item.type"></span>
+                  <span class="notification-content">
+                    <strong>{{ item.title }}</strong>
+                    <span>{{ item.detail }}</span>
+                  </span>
+                  <time>{{ item.time || '-' }}</time>
+                </button>
+              </template>
+            </div>
+          </div>
           <div class="topbar-divider"></div>
           <div class="user-profile" @click="showUserDropdown = !showUserDropdown">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
