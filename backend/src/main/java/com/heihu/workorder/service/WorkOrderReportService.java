@@ -116,7 +116,11 @@ public class WorkOrderReportService {
     }
 
     public WorkOrderReportResponse createReport(Long factoryId, Long userId, WorkOrderReportRequest request) {
-        FactoryUser reporter = requireUser(factoryId, userId);
+        if (request == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "请填写报工信息");
+        }
+        FactoryUser currentUser = requireUser(factoryId, userId);
+        FactoryUser reporter = resolveReporter(factoryId, request.getReporterUserId(), currentUser);
         if (request.getWorkOrderId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "请选择工单");
         }
@@ -311,6 +315,15 @@ public class WorkOrderReportService {
     private FactoryUser requireUser(Long factoryId, Long userId) {
         return userRepository.findByIdAndFactoryId(userId, factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "用户不存在"));
+    }
+
+    private FactoryUser resolveReporter(Long factoryId, Long reporterUserId, FactoryUser currentUser) {
+        if (reporterUserId == null || reporterUserId.equals(currentUser.getId())) {
+            return currentUser;
+        }
+        return userRepository.findByIdAndFactoryId(reporterUserId, factoryId)
+                .filter(FactoryUser::isEnabled)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "生产人员不存在或已停用"));
     }
 
     private WorkOrderReportResponse toResponse(WorkOrderReport report) {

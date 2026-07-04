@@ -8,9 +8,9 @@
       <view class="nav-right">
         <view class="search-box" v-if="showSearch">
           <input class="search-input" v-model="keyword" placeholder="搜索工单编号/产品名" @confirm="doSearch" />
-          <view @tap="showSearch = false; keyword = ''; doSearch()">✕</view>
+          <view @click="showSearch = false; keyword = ''; doSearch()">✕</view>
         </view>
-        <view v-else class="search-icon" @tap="showSearch = true">🔍</view>
+        <view v-else class="search-icon" @click="showSearch = true">🔍</view>
       </view>
     </view>
 
@@ -18,7 +18,7 @@
     <view class="status-tabs">
       <view v-for="tab in statusTabs" :key="tab.key"
             class="tab" :class="{ active: currentTab === tab.key }"
-            @tap="currentTab = tab.key">
+            @click="currentTab = tab.key">
         {{ tab.label }} {{ tab.count > 0 ? tab.count : '' }}
       </view>
     </view>
@@ -27,7 +27,7 @@
     <view class="total-count">总计 ({{ filteredOrders.length }})</view>
 
     <scroll-view scroll-y class="order-list" @scrolltolower="loadMore">
-      <view v-for="item in filteredOrders" :key="item.id" class="order-card" @tap="goToDetail(item)">
+      <view v-for="item in filteredOrders" :key="item.id" class="order-card" @click="goToDetail(item)">
         <view class="card-main">
           <view class="card-info">
             <view class="info-top">
@@ -74,7 +74,7 @@
     </scroll-view>
 
     <!-- 悬浮扫码按钮 -->
-    <view class="scan-fab" @tap="handleScan">
+    <view class="scan-fab" @click="handleScan">
       <text class="scan-icon">📷</text>
     </view>
 
@@ -171,6 +171,10 @@ function calculateStepPercent(order: WorkOrderInfo, step: any) {
 }
 
 const goToDetail = (item: WorkOrderInfo) => {
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = `#/pages/work-order-detail/index?id=${item.id}`
+    return
+  }
   uni.navigateTo({
     url: `/pages/work-order-detail/index?id=${item.id}`
   })

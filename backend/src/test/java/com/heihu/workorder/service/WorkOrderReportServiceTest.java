@@ -1,9 +1,13 @@
 package com.heihu.workorder.service;
 
 import com.heihu.workorder.exception.ApiException;
+import com.heihu.workorder.dto.WorkOrderReportRequest;
+import com.heihu.workorder.dto.WorkOrderReportResponse;
 import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.Role;
+import com.heihu.workorder.model.WorkOrder;
+import com.heihu.workorder.model.WorkOrderReport;
 import com.heihu.workorder.model.WorkOrderReportImage;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderReportImageRepository;
@@ -164,6 +168,40 @@ class WorkOrderReportServiceTest {
     }
 
     @Test
+    void createReportUsesSelectedEnabledReporterInSameFactory() {
+        Factory factory = factory(1L);
+        FactoryUser currentUser = user(2L, factory);
+        FactoryUser selectedReporter = user(3L, factory);
+        selectedReporter.setName("Selected Worker");
+        WorkOrder order = workOrder(5L, factory);
+
+        WorkOrderReportRequest request = new WorkOrderReportRequest();
+        request.setWorkOrderId(order.getId());
+        request.setProcessSequenceNo(1);
+        request.setProcessName("裁切");
+        request.setReportQuantity(4);
+        request.setGoodQuantity(4);
+        request.setDefectQuantity(0);
+        request.setReporterUserId(selectedReporter.getId());
+        request.setImageIds(Collections.emptyList());
+
+        when(userRepository.findByIdAndFactoryId(currentUser.getId(), factory.getId())).thenReturn(Optional.of(currentUser));
+        when(userRepository.findByIdAndFactoryId(selectedReporter.getId(), factory.getId())).thenReturn(Optional.of(selectedReporter));
+        when(workOrderRepository.findById(order.getId())).thenReturn(Optional.of(order));
+        when(reportRepository.save(any(WorkOrderReport.class))).thenAnswer(invocation -> {
+            WorkOrderReport report = invocation.getArgument(0);
+            report.setId(9L);
+            return report;
+        });
+        when(imageRepository.findByReportIdOrderByCreatedAtAsc(9L)).thenReturn(Collections.emptyList());
+
+        WorkOrderReportResponse response = service.createReport(factory.getId(), currentUser.getId(), request);
+
+        assertThat(response.getReporterId()).isEqualTo(selectedReporter.getId());
+        assertThat(response.getReporterName()).isEqualTo("Selected Worker");
+    }
+
+    @Test
     void cleanupExpiredPendingImagesDeletesFileAndDatabaseRecord() throws Exception {
         Files.write(uploadDir.resolve("pending.png"), pngBytes());
         WorkOrderReportImage image = new WorkOrderReportImage();
@@ -209,6 +247,24 @@ class WorkOrderReportServiceTest {
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
         return user;
+    }
+
+    private WorkOrder workOrder(Long id, Factory factory) {
+        WorkOrder order = new WorkOrder();
+        order.setId(id);
+        order.setFactory(factory);
+        order.setCode("WO-" + id);
+        order.setProductCode("P-" + id);
+        order.setProductName("Product " + id);
+        order.setProductSpec("Spec");
+        order.setPlannedQuantity(100);
+        order.setGoodQuantity(0);
+        order.setDefectQuantity(0);
+        order.setStatus("进行中");
+        order.setPriority("中");
+        order.setCreatedAt(LocalDateTime.now());
+        order.setUpdatedAt(LocalDateTime.now());
+        return order;
     }
 
     private byte[] pngBytes() {

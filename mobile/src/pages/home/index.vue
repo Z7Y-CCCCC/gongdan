@@ -9,7 +9,7 @@
     </view>
 
     <view class="action-grid">
-      <view class="action-card scan" @tap="handleScan">
+      <view class="action-card scan" @click="handleScan">
         <view class="icon-wrapper">
           <uni-icons type="scan" size="30" color="#fff"></uni-icons>
         </view>
@@ -18,7 +18,7 @@
       </view>
 
       <view class="menu-list">
-        <view class="menu-item" @tap="navigateTo('/pages/work-orders/index')">
+        <view class="menu-item" @click="navigateTo('/pages/work-orders/index')">
           <view class="menu-left">
             <view class="menu-icon bg-green">
               <uni-icons type="list" size="20" color="#fff"></uni-icons>
@@ -28,7 +28,7 @@
           <uni-icons type="right" size="16" color="#ccc"></uni-icons>
         </view>
 
-        <view class="menu-item" @tap="navigateTo('/pages/report-list/index')">
+        <view class="menu-item" @click="navigateTo('/pages/report-list/index')">
           <view class="menu-left">
             <view class="menu-icon bg-blue">
               <uni-icons type="paperplane" size="20" color="#fff"></uni-icons>
@@ -38,7 +38,7 @@
           <uni-icons type="right" size="16" color="#ccc"></uni-icons>
         </view>
 
-        <view class="menu-item" @tap="navigateTo('/pages/field-events/index')">
+        <view class="menu-item" @click="navigateTo('/pages/field-events/index')">
           <view class="menu-left">
             <view class="menu-icon bg-purple">
               <uni-icons type="sound" size="20" color="#fff"></uni-icons>
@@ -48,7 +48,7 @@
           <uni-icons type="right" size="16" color="#ccc"></uni-icons>
         </view>
 
-        <view class="menu-item" @tap="navigateTo('/pages/board/index')">
+        <view class="menu-item" @click="navigateTo('/pages/board/index')">
           <view class="menu-left">
             <view class="menu-icon bg-orange">
               <uni-icons type="bars" size="20" color="#fff"></uni-icons>
@@ -78,7 +78,7 @@
       </view>
     </view>
 
-    <button class="logout-link" @tap="handleLogout">退出登录</button>
+    <button class="logout-link" @click="handleLogout">退出登录</button>
   </view>
 </template>
 

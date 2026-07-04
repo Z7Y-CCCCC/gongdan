@@ -11,11 +11,11 @@
 
     <view v-else-if="errorMessage" class="state">
       <text>{{ errorMessage }}</text>
-      <button class="retry-btn" @tap="loadTasks">重试</button>
+      <button class="retry-btn" @click="loadTasks">重试</button>
     </view>
 
     <scroll-view v-else scroll-y class="task-list">
-      <view v-for="task in tasks" :key="task.id" class="task-card" @tap="handleTask(task)">
+      <view v-for="task in tasks" :key="task.id" class="task-card" @click="handleTask(task)">
         <view class="task-icon">
           <uni-icons type="paperplane-filled" size="24" color="#00b889"></uni-icons>
         </view>

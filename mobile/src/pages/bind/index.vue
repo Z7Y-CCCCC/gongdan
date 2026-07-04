@@ -22,7 +22,7 @@
         <input class="input" v-model="form.password" password placeholder="请输入登录密码" placeholder-style="color:#ccc" />
       </view>
 
-      <button class="btn-submit" :loading="loading" @tap="handleBind">立即登录</button>
+      <button class="btn-submit" :loading="loading" @click="handleBind">立即登录</button>
     </view>
 
     <view class="footer">
@@ -37,7 +37,11 @@ import { bindAccount, saveSession, wechatLogin } from '../../services/api'
 
 const loading = ref(false)
 const redirectUrl = ref('')
-const wechatMockEnabled = import.meta.env.VITE_WECHAT_MOCK_ENABLED === 'true'
+function isLocalH5() {
+  return typeof window !== 'undefined' && window.location && ['127.0.0.1', 'localhost'].includes(window.location.hostname)
+}
+const configuredWechatMock = import.meta.env.VITE_WECHAT_MOCK_ENABLED
+const wechatMockEnabled = configuredWechatMock === 'true' || (!configuredWechatMock && isLocalH5())
 const form = reactive({
   factoryCode: '',
   username: '',
@@ -212,6 +216,8 @@ const handleBind = async () => {
 }
 
 .input {
+  width: 100%;
+  display: block;
   height: 90rpx;
   background: #f9f9f9;
   border-radius: 10rpx;
@@ -221,6 +227,10 @@ const handleBind = async () => {
 }
 
 .btn-submit {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background-color: #00b889;
   color: white;
   border-radius: 45rpx;
@@ -229,6 +239,7 @@ const handleBind = async () => {
   font-size: 32rpx;
   font-weight: bold;
   margin-top: 20rpx;
+  border: none;
 }
 
 .btn-submit::after {

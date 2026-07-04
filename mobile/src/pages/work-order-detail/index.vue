@@ -37,15 +37,15 @@
 
     <!-- 页签切换 -->
     <view class="tabs">
-      <view class="tab-item" :class="{ active: activeTab === 'progress' }" @tap="activeTab = 'progress'">
+      <view class="tab-item" :class="{ active: activeTab === 'progress' }" @click="activeTab = 'progress'">
         生产进度
         <view v-if="activeTab === 'progress'" class="line"></view>
       </view>
-      <view class="tab-item" :class="{ active: activeTab === 'material' }" @tap="activeTab = 'material'">
+      <view class="tab-item" :class="{ active: activeTab === 'material' }" @click="activeTab = 'material'">
         用料明细
         <view v-if="activeTab === 'material'" class="line"></view>
       </view>
-      <view class="tab-item" :class="{ active: activeTab === 'history' }" @tap="activeTab = 'history'">
+      <view class="tab-item" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
         生产履历
         <view v-if="activeTab === 'history'" class="line"></view>
       </view>
@@ -102,11 +102,11 @@
         </view>
 
         <view class="card-btns">
-          <view class="btn ghost" @tap="viewStepDetail(step)">详情</view>
+          <view class="btn ghost" @click="viewStepDetail(step)">详情</view>
           <view
             class="btn"
             :class="hasReportPermission(step) ? 'primary' : 'disabled'"
-            @tap="hasReportPermission(step) ? handleReport(step) : handleNoPermission()"
+            @click="hasReportPermission(step) ? handleReport(step) : handleNoPermission()"
           >报工</view>
         </view>
       </view>
@@ -142,9 +142,9 @@
 
     <!-- 底部操作栏 -->
     <view class="footer">
-      <view class="f-btn" @tap="showMore">更多</view>
-      <view class="f-btn" @tap="showPriority">优先级</view>
-      <view class="f-btn finish" @tap="handleFinish">
+      <view class="f-btn" @click="showMore">更多</view>
+      <view class="f-btn" @click="showPriority">优先级</view>
+      <view class="f-btn finish" @click="handleFinish">
         <text class="finish-icon">⊘</text>
         结束
       </view>
@@ -365,6 +365,7 @@ const hasReportPermission = (step: any) => {
   return allowedList.includes(user.name) ||
          allowedList.includes(user.username) ||
          allowedList.includes(String(user.id)) ||
+         allowedList.includes(user.role) ||
          allowedList.includes(user.roleLabel)
 }
 
@@ -374,8 +375,13 @@ const handleNoPermission = () => {
 
 const handleReport = (step: any) => {
   if (!ensureLogin()) return
+  const url = `/pages/report-form/index?orderId=${order.value.id}&processNo=${step.sequenceNo || 1}&processName=${encodeURIComponent(step.processName || '')}&plannedQty=${step.plannedQuantity || order.value.plannedQuantity || 0}&completedQty=${step.completedQuantity || 0}&defectQty=${step.defectQuantity || 0}&reportPermission=${encodeURIComponent(step.reportPermission || '')}`
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = `#${url}`
+    return
+  }
   uni.navigateTo({
-    url: `/pages/report-form/index?orderId=${order.value.id}&processNo=${step.sequenceNo || 1}&processName=${encodeURIComponent(step.processName || '')}&plannedQty=${step.plannedQuantity || order.value.plannedQuantity || 0}&completedQty=${step.completedQuantity || 0}&defectQty=${step.defectQuantity || 0}&reportPermission=${encodeURIComponent(step.reportPermission || '')}`
+    url
   })
 }
 

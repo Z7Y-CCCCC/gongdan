@@ -16,6 +16,7 @@ public class WorkOrderReportRequest {
     private String materialName;
     private String remark;
     private List<Long> imageIds;
+    private Long reporterUserId;
 
     public Long getWorkOrderId() { return workOrderId; }
     public void setWorkOrderId(Long workOrderId) { this.workOrderId = workOrderId; }
@@ -43,4 +44,6 @@ public class WorkOrderReportRequest {
     public void setRemark(String remark) { this.remark = remark; }
     public List<Long> getImageIds() { return imageIds; }
     public void setImageIds(List<Long> imageIds) { this.imageIds = imageIds; }
+    public Long getReporterUserId() { return reporterUserId; }
+    public void setReporterUserId(Long reporterUserId) { this.reporterUserId = reporterUserId; }
 }

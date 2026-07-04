@@ -1,8 +1,15 @@
 import type { FieldEventPayload, FieldEventRecord, ListResponse, MobileAuthResult, ReportImage, ReportStatus, WorkOrderInfo, WorkOrderReport } from '../types/api'
 
-// H5 can use /api through a reverse proxy. Mini Program builds should set VITE_API_BASE_URL to HTTPS.
+// H5 can use /api through a reverse proxy. Local static demos use the backend port directly.
+// Mini Program builds should set VITE_API_BASE_URL to HTTPS.
 const configuredApiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
-export const API_BASE = configuredApiBase || '/api'
+function defaultApiBase() {
+  if (typeof window !== 'undefined' && window.location && ['127.0.0.1', 'localhost'].includes(window.location.hostname)) {
+    return 'http://127.0.0.1:18080/api'
+  }
+  return '/api'
+}
+export const API_BASE = configuredApiBase || defaultApiBase()
 
 function token() {
   return uni.getStorageSync('token') || ''

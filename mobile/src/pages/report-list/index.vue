@@ -3,9 +3,9 @@
     <!-- 顶部筛选 -->
     <view class="dashboard-header">
       <view class="filter-row">
-        <view class="dropdown" :class="{ active: period === 'today' }" @tap="period = 'today'; loadReports()">今天</view>
-        <view class="dropdown" :class="{ active: period === 'lastMonth' }" @tap="period = 'lastMonth'; loadReports()">上月</view>
-        <view class="dropdown" :class="{ active: period === '' }" @tap="period = ''; loadReports()">全部</view>
+        <view class="dropdown" :class="{ active: period === 'today' }" @click="period = 'today'; loadReports()">今天</view>
+        <view class="dropdown" :class="{ active: period === 'lastMonth' }" @click="period = 'lastMonth'; loadReports()">上月</view>
+        <view class="dropdown" :class="{ active: period === '' }" @click="period = ''; loadReports()">全部</view>
       </view>
 
       <view class="stat-cards">
@@ -28,15 +28,15 @@
       </view>
 
       <view class="tab-row">
-        <view class="tab" :class="{ active: statusFilter === '' }" @tap="statusFilter = ''; loadReports()">
+        <view class="tab" :class="{ active: statusFilter === '' }" @click="statusFilter = ''; loadReports()">
           全部 {{ reports.length }}
           <view v-if="statusFilter === ''" class="line"></view>
         </view>
-        <view class="tab" :class="{ active: statusFilter === 'PENDING' }" @tap="statusFilter = 'PENDING'; loadReports()">
+        <view class="tab" :class="{ active: statusFilter === 'PENDING' }" @click="statusFilter = 'PENDING'; loadReports()">
           未审批 {{ pendingCount }}
           <view v-if="statusFilter === 'PENDING'" class="line"></view>
         </view>
-        <view class="tab" :class="{ active: statusFilter === 'APPROVED' }" @tap="statusFilter = 'APPROVED'; loadReports()">
+        <view class="tab" :class="{ active: statusFilter === 'APPROVED' }" @click="statusFilter = 'APPROVED'; loadReports()">
           已审批 {{ approvedCount }}
           <view v-if="statusFilter === 'APPROVED'" class="line"></view>
         </view>
@@ -101,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { fetchReports, ensureLogin } from '../../services/api'
 import type { WorkOrderReport } from '../../types/api'
@@ -122,6 +122,10 @@ const rejectedCount = computed(() => reports.value.filter(r => r.status === 'REJ
 const totalGood = computed(() => reports.value.reduce((s, r) => s + (r.goodQuantity || 0), 0))
 const totalDefect = computed(() => reports.value.reduce((s, r) => s + (r.defectQuantity || 0), 0))
 
+function isCurrentH5Route() {
+  return typeof window !== 'undefined' && (window.location.hash || '').includes('/pages/report-list/index')
+}
+
 const loadReports = async () => {
   loading.value = true
   try {
@@ -136,9 +140,36 @@ const loadReports = async () => {
   }
 }
 
+function reloadWhenCurrentRoute() {
+  if (uni.getStorageSync('token') && isCurrentH5Route()) {
+    loadReports()
+  }
+}
+
+function reloadWhenVisible() {
+  if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+    reloadWhenCurrentRoute()
+  }
+}
+
 onMounted(() => {
   if (!ensureLogin()) return
   loadReports()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('hashchange', reloadWhenCurrentRoute)
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', reloadWhenVisible)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('hashchange', reloadWhenCurrentRoute)
+  }
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', reloadWhenVisible)
+  }
 })
 
 onShow(() => {

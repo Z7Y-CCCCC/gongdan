@@ -12,7 +12,7 @@
           :key="item"
           class="type-pill"
           :class="{ active: form.eventType === item }"
-          @tap="form.eventType = item"
+          @click="form.eventType = item"
         >
           {{ item }}
         </view>
@@ -35,12 +35,12 @@
         <textarea v-model="form.description" placeholder="描述现场情况、影响数量、需要谁处理" />
       </view>
 
-      <button class="submit-btn" :loading="saving" @tap="submitEvent">提交上报</button>
+      <button class="submit-btn" :loading="saving" @click="submitEvent">提交上报</button>
     </view>
 
     <view class="recent-head">
       <text>最近上报</text>
-      <text class="refresh" @tap="loadEvents">刷新</text>
+      <text class="refresh" @click="loadEvents">刷新</text>
     </view>
 
     <view class="event-list">

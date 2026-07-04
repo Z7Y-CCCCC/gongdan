@@ -1330,8 +1330,8 @@ export async function deleteProductCategory(token: string, id: number) {
 // ===== 用户偏好 API =====
 export interface UserPreferenceInfo {
   key: string
-  value: string
-  updatedAt: string
+  value: string | null
+  updatedAt: string | null
 }
 
 export async function fetchUserPreference(token: string, key: string) {

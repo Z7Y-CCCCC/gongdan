@@ -5,7 +5,7 @@
       <view class="step-header">
         <view class="step-num">{{ processNo }}</view>
         <text class="step-name">{{ processName }}</text>
-        <view class="close-icon" @tap="handleClose">✕</view>
+        <view class="close-icon" @click="handleClose">✕</view>
       </view>
       <view class="data-grid">
         <view class="data-item">
@@ -26,7 +26,7 @@
     <!-- 表单主体 -->
     <view class="form-list">
       <!-- 生产人员 -->
-      <view class="form-item" @tap="showReporterPicker = true">
+      <view class="form-item" @click="showReporterPicker = true">
         <view class="label"><text class="required">*</text>生产人员</view>
         <view class="value-row">
           <text>{{ selectedReporterName }}</text>
@@ -81,12 +81,12 @@
 
       <!-- 开始时间 / 结束时间 -->
       <view class="time-range-box">
-        <view class="time-item" @tap="pickStartTime">
+        <view class="time-item" @click="pickStartTime">
           <text class="tl">开始时间 <text class="required">*</text></text>
           <text class="tv">{{ form.startTime || '请选择' }}</text>
         </view>
         <view class="time-divider"></view>
-        <view class="time-item" @tap="pickEndTime">
+        <view class="time-item" @click="pickEndTime">
           <text class="tl">结束时间 <text class="required">*</text></text>
           <text class="tv">{{ form.endTime || '请选择' }}</text>
         </view>
@@ -113,9 +113,9 @@
         <view class="image-grid">
           <view v-for="(img, idx) in uploadedImages" :key="idx" class="img-box">
             <image :src="img.previewPath || img.accessPath" mode="aspectFill" class="uploaded-img" />
-            <view class="img-delete" @tap="removeImage(idx)">✕</view>
+            <view class="img-delete" @click="removeImage(idx)">✕</view>
           </view>
-          <view class="add-box" @tap="chooseImage" v-if="uploadedImages.length < 9">
+          <view class="add-box" @click="chooseImage" v-if="uploadedImages.length < 9">
             <text class="add-icon">📷</text>
           </view>
         </view>
@@ -124,21 +124,21 @@
 
     <!-- 底部按钮 -->
     <view class="footer">
-      <view class="btn outline" @tap="handleSubmit(true)">继续报工</view>
-      <view class="btn solid" @tap="handleSubmit(false)">提交</view>
+      <view class="btn outline" @click="handleSubmit(true)">继续报工</view>
+      <view class="btn solid" @click="handleSubmit(false)">提交</view>
     </view>
 
     <!-- 生产人员选择弹窗 -->
-    <view v-if="showReporterPicker" class="picker-mask" @tap="showReporterPicker = false">
-      <view class="picker-content" @tap.stop>
+    <view v-if="showReporterPicker" class="picker-mask" @click="showReporterPicker = false">
+      <view class="picker-content" @click.stop>
         <view class="picker-header">
           <text class="picker-title">选择生产人员</text>
-          <view class="picker-close" @tap="showReporterPicker = false">✕</view>
+          <view class="picker-close" @click="showReporterPicker = false">✕</view>
         </view>
         <scroll-view scroll-y class="picker-list">
           <view v-for="user in reporterList" :key="user.id"
                 class="picker-item" :class="{ selected: selectedReporterId === user.id }"
-                @tap="selectReporter(user)">
+                @click="selectReporter(user)">
             <text>{{ user.name }}</text>
             <text class="picker-sub">{{ user.username }}</text>
             <text v-if="selectedReporterId === user.id" class="picker-check">✓</text>
@@ -165,14 +165,47 @@ let paramCompletedQty = ''
 let paramDefectQty = ''
 let paramReportPermission = ''
 
+function safeDecode(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function applyRouteOptions(options: Record<string, any> = {}) {
+  paramOrderId = String(options.orderId || '')
+  paramProcessNo = String(options.processNo || '1')
+  paramProcessName = safeDecode(String(options.processName || ''))
+  paramPlannedQty = String(options.plannedQty || '0')
+  paramCompletedQty = String(options.completedQty || '0')
+  paramDefectQty = String(options.defectQty || '0')
+  paramReportPermission = safeDecode(String(options.reportPermission || ''))
+}
+
+function readH5RouteOptions() {
+  if (typeof window === 'undefined' || !window.location) {
+    return {}
+  }
+  const hash = window.location.hash || ''
+  const queryIndex = hash.indexOf('?')
+  if (queryIndex < 0) {
+    return {}
+  }
+  const result: Record<string, string> = {}
+  new URLSearchParams(hash.slice(queryIndex + 1)).forEach((value, key) => {
+    result[key] = value
+  })
+  return result
+}
+
+function formatDateTime(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:00`
+}
+
 onLoad((options) => {
-  paramOrderId = options?.orderId || ''
-  paramProcessNo = options?.processNo || '1'
-  paramProcessName = decodeURIComponent(options?.processName || '')
-  paramPlannedQty = options?.plannedQty || '0'
-  paramCompletedQty = options?.completedQty || '0'
-  paramDefectQty = options?.defectQty || '0'
-  paramReportPermission = decodeURIComponent(options?.reportPermission || '')
+  applyRouteOptions(options || {})
 })
 
 const processNo = ref(1)
@@ -213,6 +246,10 @@ const form = reactive({
 })
 
 onMounted(async () => {
+  if (!paramOrderId) {
+    applyRouteOptions(readH5RouteOptions())
+  }
+
   processNo.value = parseInt(paramProcessNo) || 1
   processName.value = paramProcessName
   plannedQty.value = parseInt(paramPlannedQty) || 0
@@ -225,8 +262,7 @@ onMounted(async () => {
 
   // 设置默认时间
   const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const timeStr = `${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+  const timeStr = formatDateTime(now)
   form.startTime = timeStr
   form.endTime = timeStr
 
@@ -275,8 +311,7 @@ const pickStartTime = () => {
     input.onchange = () => {
       if (input.value) {
         const d = new Date(input.value)
-        const pad = (n: number) => String(n).padStart(2, '0')
-        form.startTime = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+        form.startTime = formatDateTime(d)
       }
     }
     input.click()
@@ -292,8 +327,7 @@ const pickEndTime = () => {
     input.onchange = () => {
       if (input.value) {
         const d = new Date(input.value)
-        const pad = (n: number) => String(n).padStart(2, '0')
-        form.endTime = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+        form.endTime = formatDateTime(d)
       }
     }
     input.click()
@@ -323,9 +357,29 @@ const removeImage = (idx: number) => {
   uploadedImages.value.splice(idx, 1)
 }
 
+function goBack() {
+  if (typeof window !== 'undefined' && window.history.length > 1) {
+    window.history.back()
+    return
+  }
+  uni.navigateBack()
+}
+
 const handleSubmit = async (isContinue: boolean) => {
+  if (!form.workOrderId || !form.processSequenceNo) {
+    uni.showToast({ title: '工单或工序信息未加载，请返回重进', icon: 'none' })
+    return
+  }
+  if (!selectedReporterId.value) {
+    uni.showToast({ title: '请选择生产人员', icon: 'none' })
+    return
+  }
   if (!form.reportQuantity || Number(form.reportQuantity) <= 0) {
     uni.showToast({ title: '请填写报工数', icon: 'none' })
+    return
+  }
+  if (!form.startTime || !form.endTime) {
+    uni.showToast({ title: '请选择开始和结束时间', icon: 'none' })
     return
   }
 
@@ -352,7 +406,7 @@ const handleSubmit = async (isContinue: boolean) => {
     uni.hideLoading()
     uni.showToast({ title: '提交成功', icon: 'success' })
     if (!isContinue) {
-      setTimeout(() => uni.navigateBack(), 1500)
+      setTimeout(() => goBack(), 1500)
     } else {
       // 继续报工：清空表单
       form.reportQuantity = ''
@@ -371,7 +425,7 @@ const handleSubmit = async (isContinue: boolean) => {
 }
 
 const handleClose = () => {
-  uni.navigateBack()
+  goBack()
 }
 </script>
 
@@ -541,11 +595,13 @@ const handleClose = () => {
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 20;
   background: white;
   padding: 20rpx 40rpx;
   display: flex;
   padding-bottom: env(safe-area-inset-bottom);
   box-shadow: 0 -4rpx 20rpx rgba(0,0,0,0.05);
+  pointer-events: auto;
 }
 
 .btn {

@@ -3,7 +3,7 @@
  *
  * 加载并管理用户的工序卡片偏好设置。
  * - 使用 GET /api/user/preferences/home_dashboard.process_cards 加载偏好
- * - 偏好不存在时（404），按工序创建时间升序取前 4 个，分配蓝灰黄绿预设颜色
+ * - 偏好不存在时，按工序创建时间升序取前 4 个，分配蓝灰黄绿预设颜色
  * - 偏好中的 processId 在工序列表中不存在时跳过
  * - 不主动写回偏好（懒持久化），仅在用户保存设置时 PUT
  *
@@ -46,6 +46,10 @@ export function useProcessCardSettings() {
     loading.value = true
     try {
       const pref = await fetchUserPreference(token, PREFERENCE_KEY)
+      if (!pref.value) {
+        settings.value = generateDefaultSettings(processes)
+        return
+      }
       const parsed = JSON.parse(pref.value) as ProcessCardSettings
 
       // 构建当前工序 ID 集合，用于过滤不存在的 processId
