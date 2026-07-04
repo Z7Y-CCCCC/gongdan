@@ -1087,6 +1087,95 @@ export async function deleteWorkOrder(token: string, id: number) {
   })
 }
 
+// ===== 销售订单 API =====
+export type SalesOrderStatus = 'DRAFT' | 'CONFIRMED' | 'FINISHED' | 'CANCELLED'
+
+export interface SalesOrderItemPayload {
+  productId: number
+  quantity: number
+  remark?: string
+}
+
+export interface SalesOrderPayload {
+  code?: string
+  customerName: string
+  orderDate?: string
+  deliveryDate?: string
+  status?: SalesOrderStatus
+  remark?: string
+  items: SalesOrderItemPayload[]
+}
+
+export interface SalesOrderItemInfo {
+  id: number
+  productId: number
+  productCode: string
+  productName: string
+  productSpec?: string
+  unitName?: string
+  quantity: number
+  remark?: string
+}
+
+export interface SalesOrderInfo {
+  id: number
+  code: string
+  customerName: string
+  orderDate?: string
+  deliveryDate?: string
+  status: SalesOrderStatus
+  statusLabel: string
+  remark?: string
+  creator?: string
+  createdAt?: string
+  updatedAt?: string
+  totalQuantity: number
+  items: SalesOrderItemInfo[]
+}
+
+export interface SalesOrderListResponse {
+  items: SalesOrderInfo[]
+  total: number
+}
+
+export async function fetchSalesOrders(
+  token: string,
+  params: { code?: string; customerName?: string; status?: SalesOrderStatus | ''; page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.customerName) query.append('customerName', params.customerName)
+  if (params.status) query.append('status', params.status)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<SalesOrderListResponse>(`/sales-orders?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createSalesOrder(token: string, payload: SalesOrderPayload) {
+  return request<SalesOrderInfo>('/sales-orders', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateSalesOrder(token: string, id: number, payload: SalesOrderPayload) {
+  return request<SalesOrderInfo>(`/sales-orders/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteSalesOrder(token: string, id: number) {
+  return request<void>(`/sales-orders/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 // ===== 工单分类 API =====
 export interface WorkOrderCategoryInfo {
   id: number

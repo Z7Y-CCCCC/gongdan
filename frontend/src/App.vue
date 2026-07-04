@@ -62,6 +62,7 @@ import { useAuth } from './composables/useAuth'
 
 const ProductDefinitionPage = defineAsyncComponent(() => import('./components/ProductDefinitionPage.vue'))
 const BomPage = defineAsyncComponent(() => import('./components/BomPage.vue'))
+const SalesOrderPage = defineAsyncComponent(() => import('./components/SalesOrderPage.vue'))
 const WorkOrderPage = defineAsyncComponent(() => import('./components/WorkOrderPage.vue'))
 const TaskPage = defineAsyncComponent(() => import('./components/TaskPage.vue'))
 const CustomWorkOrderFieldsPage = defineAsyncComponent(() => import('./components/CustomWorkOrderFieldsPage.vue'))
@@ -2446,6 +2447,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
         @notice="showAction"
       />
 
+      <SalesOrderPage
+        v-if="activeMainMenu === 'production' && activeProductionMenu === 'sales'"
+        :token="token"
+        @notice="showAction"
+      />
+
       <ReportApprovalPage
         v-if="activeMainMenu === 'production' && (activeProductionMenu === 'workbench' || activeProductionMenu === 'reporting')"
         :token="token"
@@ -2474,7 +2481,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
       <section
         class="content placeholder-page"
-        v-if="activeMainMenu === 'production' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench' && activeProductionMenu !== 'reporting' && activeProductionMenu !== 'task'"
+        v-if="activeMainMenu === 'production' && activeProductionMenu !== 'sales' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench' && activeProductionMenu !== 'reporting' && activeProductionMenu !== 'task'"
       >
         <div class="empty-state">该模块待补全。</div>
       </section>

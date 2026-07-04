@@ -16,6 +16,7 @@ import com.heihu.workorder.repository.OutboundReceiptRepository;
 import com.heihu.workorder.repository.ProcessRouteRepository;
 import com.heihu.workorder.repository.ProductOperationLogRepository;
 import com.heihu.workorder.repository.ProductRepository;
+import com.heihu.workorder.repository.SalesOrderRepository;
 import com.heihu.workorder.repository.UnitRepository;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
@@ -44,6 +45,7 @@ public class ProductService {
     private final InboundReceiptRepository inboundReceiptRepository;
     private final OutboundReceiptRepository outboundReceiptRepository;
     private final BomRepository bomRepository;
+    private final SalesOrderRepository salesOrderRepository;
 
     public ProductService(ProductRepository productRepository,
                           ProductOperationLogRepository productOperationLogRepository,
@@ -54,7 +56,8 @@ public class ProductService {
                           WorkOrderRepository workOrderRepository,
                           InboundReceiptRepository inboundReceiptRepository,
                           OutboundReceiptRepository outboundReceiptRepository,
-                          BomRepository bomRepository) {
+                          BomRepository bomRepository,
+                          SalesOrderRepository salesOrderRepository) {
         this.productRepository = productRepository;
         this.productOperationLogRepository = productOperationLogRepository;
         this.factoryRepository = factoryRepository;
@@ -65,6 +68,7 @@ public class ProductService {
         this.inboundReceiptRepository = inboundReceiptRepository;
         this.outboundReceiptRepository = outboundReceiptRepository;
         this.bomRepository = bomRepository;
+        this.salesOrderRepository = salesOrderRepository;
     }
 
     private ProductResponse toResponse(Product product) {
@@ -270,6 +274,9 @@ public class ProductService {
         if (bomRepository.existsByFactoryIdAndProductId(factoryId, productId)
                 || bomRepository.existsItemByFactoryIdAndProductId(factoryId, productId)) {
             throw new IllegalArgumentException("产品已被BOM引用，不能删除");
+        }
+        if (salesOrderRepository.existsItemByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被销售订单引用，不能删除");
         }
     }
 
