@@ -6,6 +6,7 @@ import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.WorkOrderCategory;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderCategoryRepository;
+import com.heihu.workorder.repository.WorkOrderRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,9 @@ public class WorkOrderCategoryService {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private WorkOrderRepository workOrderRepository;
 
     @Transactional(readOnly = true)
     public List<WorkOrderCategoryResponse> getCategories(Long factoryId) {
@@ -56,6 +60,9 @@ public class WorkOrderCategoryService {
                 .orElseThrow(() -> new RuntimeException("Category not found"));
         if (!category.getFactory().getId().equals(factoryId)) {
             throw new RuntimeException("Forbidden");
+        }
+        if (workOrderRepository.existsByFactoryIdAndCategoryId(factoryId, categoryId)) {
+            throw new IllegalArgumentException("工单分类已被工单引用，不能删除");
         }
         categoryRepository.delete(category);
     }

@@ -21,6 +21,10 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     Optional<Product> findByFactoryIdAndCode(Long factoryId, String code);
 
+    boolean existsByFactoryIdAndUnitId(Long factoryId, Long unitId);
+
+    boolean existsByFactoryIdAndProcessRouteId(Long factoryId, Long routeId);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from Product p where p.id = :id and p.factory.id = :factoryId")
     Optional<Product> findByIdAndFactoryIdForUpdate(@Param("id") Long id, @Param("factoryId") Long factoryId);

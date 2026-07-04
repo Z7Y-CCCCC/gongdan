@@ -5,6 +5,7 @@ import com.heihu.workorder.dto.UnitResponse;
 import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.Unit;
 import com.heihu.workorder.repository.FactoryRepository;
+import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UnitRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -20,10 +21,12 @@ public class UnitService {
 
     private final UnitRepository unitRepository;
     private final FactoryRepository factoryRepository;
+    private final ProductRepository productRepository;
 
-    public UnitService(UnitRepository unitRepository, FactoryRepository factoryRepository) {
+    public UnitService(UnitRepository unitRepository, FactoryRepository factoryRepository, ProductRepository productRepository) {
         this.unitRepository = unitRepository;
         this.factoryRepository = factoryRepository;
+        this.productRepository = productRepository;
     }
 
     private UnitResponse toResponse(Unit u) {
@@ -82,6 +85,9 @@ public class UnitService {
         Unit unit = unitRepository.findById(id)
                 .filter(u -> u.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("单位不存在"));
+        if (productRepository.existsByFactoryIdAndUnitId(factoryId, id)) {
+            throw new IllegalArgumentException("单位已被产品引用，不能删除");
+        }
         unitRepository.delete(unit);
     }
 }

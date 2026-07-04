@@ -21,6 +21,8 @@ public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long> {
 
     boolean existsByFactoryIdAndProductId(Long factoryId, Long productId);
 
+    boolean existsByFactoryIdAndCategoryId(Long factoryId, Long categoryId);
+
     // --- Home Dashboard: Work Order Progress Report queries ---
 
     @Query("SELECT w FROM WorkOrder w WHERE w.factory.id = :factoryId AND w.status = 'NOT_STARTED' ORDER BY w.createdAt DESC")

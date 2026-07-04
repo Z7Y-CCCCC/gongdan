@@ -9,6 +9,7 @@ import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.ProcessRoute;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.ProcessRouteRepository;
+import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -31,13 +32,16 @@ public class ProcessRouteService {
     private final ProcessRouteRepository routeRepository;
     private final FactoryRepository factoryRepository;
     private final UserRepository userRepository;
+    private final ProductRepository productRepository;
 
     public ProcessRouteService(ProcessRouteRepository routeRepository,
                                FactoryRepository factoryRepository,
-                               UserRepository userRepository) {
+                               UserRepository userRepository,
+                               ProductRepository productRepository) {
         this.routeRepository = routeRepository;
         this.factoryRepository = factoryRepository;
         this.userRepository = userRepository;
+        this.productRepository = productRepository;
     }
 
     private ProcessRouteResponse toResponse(ProcessRoute r) {
@@ -142,6 +146,9 @@ public class ProcessRouteService {
         ProcessRoute route = routeRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("工艺路线不存在"));
+        if (productRepository.existsByFactoryIdAndProcessRouteId(factoryId, id)) {
+            throw new IllegalArgumentException("工艺路线已被产品引用，不能删除");
+        }
         routeRepository.delete(route);
     }
 }
