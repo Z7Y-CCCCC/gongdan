@@ -12,6 +12,8 @@ java -jar target/workorder-0.0.1-SNAPSHOT.jar --spring.profiles.active=prod
 
 Required production environment variables:
 
+Do not deploy with the `change-*`, `wx...`, or `example.com` placeholder values below. The backend `prod` profile fails fast when known placeholder passwords or secrets are detected.
+
 ```bash
 SPRING_DATASOURCE_URL=jdbc:mysql://db-host:3306/heihu_workorder?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
 SPRING_DATASOURCE_USERNAME=heihu_app
@@ -32,7 +34,7 @@ APP_UPLOAD_REPORT_IMAGE_DIR=/var/lib/heihu-workorder/report-images
 ```
 
 Production defaults disable WeChat mock login, enable Flyway migrations, and set `spring.jpa.hibernate.ddl-auto=validate`.
-Production startup requires explicit seed passwords for both the factory admin and the super admin.
+Production startup requires explicit seed passwords for both the factory admin and the super admin, and rejects common sample values for database passwords, seed passwords, WeChat credentials, and SMS auth headers.
 Token sessions are stored in the database as token hashes when the backend runs through Spring, so multiple backend instances can share login state without storing reusable bearer tokens. Horizontal scaling still requires all instances to share the same database and uploaded file storage path or object storage.
 `APP_UPLOAD_REPORT_IMAGE_DIR` is currently the shared upload root for report images and custom-field attachments.
 
