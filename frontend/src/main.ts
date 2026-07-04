@@ -88,9 +88,21 @@ function processTableHeaders() {
   });
 }
 
+let headerProcessTimer: number | undefined;
+
+function scheduleTableHeaderProcessing() {
+  if (headerProcessTimer !== undefined) {
+    window.clearTimeout(headerProcessTimer);
+  }
+  headerProcessTimer = window.setTimeout(() => {
+    headerProcessTimer = undefined;
+    processTableHeaders();
+  }, 50);
+}
+
 // 采用 MutationObserver 高效感知 DOM 变化，自动为所有新表格表头注入图标
 const observer = new MutationObserver(() => {
-  processTableHeaders();
+  scheduleTableHeaderProcessing();
 });
 
 // 在 DOM 加载就绪后启动监听
@@ -104,8 +116,4 @@ if (document.readyState === 'loading') {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
-// 额外每 200ms 执行一次兜底处理，确保任何极其复杂的动态异步场景 100% 被覆盖
-setInterval(processTableHeaders, 200);
-
 createApp(App).mount('#app')
-
