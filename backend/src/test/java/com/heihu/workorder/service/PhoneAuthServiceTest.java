@@ -39,6 +39,9 @@ class PhoneAuthServiceTest {
     @Mock
     private SmsService smsService;
 
+    @Mock
+    private AuthAttemptLimiter authAttemptLimiter;
+
     @InjectMocks
     private PhoneAuthService phoneAuthService;
 

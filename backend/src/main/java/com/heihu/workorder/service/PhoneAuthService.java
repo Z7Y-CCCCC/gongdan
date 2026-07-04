@@ -8,6 +8,7 @@ import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.repository.UserRepository;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,22 @@ public class PhoneAuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final SmsService smsService;
+    private final AuthAttemptLimiter authAttemptLimiter;
+
+    @Autowired
+    public PhoneAuthService(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            TokenService tokenService,
+            SmsService smsService,
+            AuthAttemptLimiter authAttemptLimiter
+    ) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.tokenService = tokenService;
+        this.smsService = smsService;
+        this.authAttemptLimiter = authAttemptLimiter;
+    }
 
     public PhoneAuthService(
             UserRepository userRepository,
@@ -27,10 +44,7 @@ public class PhoneAuthService {
             TokenService tokenService,
             SmsService smsService
     ) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.tokenService = tokenService;
-        this.smsService = smsService;
+        this(userRepository, passwordEncoder, tokenService, smsService, new AuthAttemptLimiter());
     }
 
     /**
@@ -39,6 +53,8 @@ public class PhoneAuthService {
      */
     @Transactional(readOnly = true)
     public PhoneLoginResponse loginByPassword(String phone, String password) {
+        String limitKey = AuthAttemptLimiter.key("phone-password", phone);
+        authAttemptLimiter.checkAllowed(limitKey);
         List<FactoryUser> users = userRepository.findAllByPhone(phone);
         if (users.isEmpty()) {
             PhoneLoginResponse response = new PhoneLoginResponse();
@@ -53,6 +69,7 @@ public class PhoneAuthService {
                 .collect(Collectors.toList());
 
         if (matched.isEmpty()) {
+            authAttemptLimiter.recordFailure(limitKey);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "手机号或密码不正确");
         }
 
@@ -66,6 +83,7 @@ public class PhoneAuthService {
         }
 
         if (enabled.size() == 1) {
+            authAttemptLimiter.recordSuccess(limitKey);
             FactoryUser user = enabled.get(0);
             String token = tokenService.issue(user);
             PhoneLoginResponse response = new PhoneLoginResponse();
@@ -76,6 +94,7 @@ public class PhoneAuthService {
         }
 
         // 多个启用用户 — 返回工厂列表
+        authAttemptLimiter.recordSuccess(limitKey);
         PhoneLoginResponse response = new PhoneLoginResponse();
         response.setSelectRequired(true);
         response.setFactories(buildFactoryList(enabled));
@@ -89,9 +108,13 @@ public class PhoneAuthService {
      */
     @Transactional(readOnly = true)
     public PhoneLoginResponse loginBySmsCode(String phone, String code) {
+        String limitKey = AuthAttemptLimiter.key("phone-sms", phone);
+        authAttemptLimiter.checkAllowed(limitKey);
         if (!smsService.verifyCode(phone, code, false)) {
+            authAttemptLimiter.recordFailure(limitKey);
             throw new ApiException(HttpStatus.UNAUTHORIZED, "验证码错误或已过期");
         }
+        authAttemptLimiter.recordSuccess(limitKey);
 
         List<FactoryUser> users = userRepository.findAllByPhone(phone);
         if (users.isEmpty()) {
@@ -137,6 +160,8 @@ public class PhoneAuthService {
      */
     @Transactional(readOnly = true)
     public PhoneLoginResponse selectFactory(String phone, Long factoryId, String loginType, String credential) {
+        String limitKey = AuthAttemptLimiter.key("phone-select", loginType, phone);
+        authAttemptLimiter.checkAllowed(limitKey);
         List<FactoryUser> users = userRepository.findAllByPhone(phone);
 
         FactoryUser user = users.stream()
@@ -146,10 +171,12 @@ public class PhoneAuthService {
 
         if ("password".equals(loginType)) {
             if (!passwordEncoder.matches(credential, user.getPasswordHash())) {
+                authAttemptLimiter.recordFailure(limitKey);
                 throw new ApiException(HttpStatus.UNAUTHORIZED, "手机号或密码不正确");
             }
         } else if ("sms".equals(loginType)) {
             if (!smsService.verifyCode(phone, credential)) {
+                authAttemptLimiter.recordFailure(limitKey);
                 throw new ApiException(HttpStatus.UNAUTHORIZED, "验证码错误或已过期");
             }
         } else {
@@ -160,6 +187,7 @@ public class PhoneAuthService {
             throw new ApiException(HttpStatus.FORBIDDEN, "账号已被禁用");
         }
 
+        authAttemptLimiter.recordSuccess(limitKey);
         String token = tokenService.issue(user);
         PhoneLoginResponse response = new PhoneLoginResponse();
         response.setSelectRequired(false);
