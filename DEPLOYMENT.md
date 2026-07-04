@@ -94,3 +94,15 @@ docker compose up --build -d
 
 The stack starts MySQL, the Spring Boot backend with the `prod` profile, and an nginx-served admin frontend that proxies `/api` to the backend.
 Uploaded report images are stored in the `report-images` Docker volume.
+
+## Reverse Proxy and Browser Security
+
+The bundled frontend nginx config sets baseline browser security headers (`Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy`) and caches fingerprinted `/assets/` files for 30 days. Keep API traffic under the same site path (`/api`) where possible.
+
+Terminate TLS at the public load balancer or reverse proxy and add HSTS there after the domain is confirmed HTTPS-only:
+
+```nginx
+add_header Strict-Transport-Security "max-age=15552000" always;
+```
+
+For commercial production, set `APP_CORS_ALLOWED_ORIGIN_PATTERNS` to explicit HTTPS origins. Wildcard CORS origins are rejected by the backend prod startup guard.

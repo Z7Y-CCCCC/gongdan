@@ -55,6 +55,9 @@ public class ProductionConfigGuard {
     @Value("${app.sms.http.auth-header-value:}")
     private String smsAuthHeaderValue;
 
+    @Value("${app.cors.allowed-origin-patterns:}")
+    private String corsAllowedOriginPatterns;
+
     public ProductionConfigGuard(Environment environment) {
         this.environment = environment;
     }
@@ -71,6 +74,7 @@ public class ProductionConfigGuard {
         requireRealValue(wechatAppId, "app.wechat.app-id");
         requireRealValue(wechatSecret, "app.wechat.secret");
         rejectPlaceholderIfPresent(smsAuthHeaderValue, "app.sms.http.auth-header-value");
+        requireRestrictedCorsOrigins();
     }
 
     private boolean isProd() {
@@ -99,5 +103,18 @@ public class ProductionConfigGuard {
                 || normalized.contains("change-")
                 || normalized.contains("change_me")
                 || normalized.contains("example-token");
+    }
+
+    private void requireRestrictedCorsOrigins() {
+        requireRealValue(corsAllowedOriginPatterns, "app.cors.allowed-origin-patterns");
+        Arrays.stream(corsAllowedOriginPatterns.split(","))
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .forEach(origin -> {
+                    String normalized = origin.toLowerCase(Locale.ROOT);
+                    if (normalized.contains("*")) {
+                        throw new IllegalStateException("app.cors.allowed-origin-patterns must not allow wildcard origins in prod");
+                    }
+                });
     }
 }

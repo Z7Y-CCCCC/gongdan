@@ -55,6 +55,17 @@ class ProductionConfigGuardTest {
     }
 
     @Test
+    void rejectsWildcardCorsOriginsInProd() {
+        ProductionConfigGuard guard = prodGuard();
+        setValidValues(guard);
+        ReflectionTestUtils.setField(guard, "corsAllowedOriginPatterns", "https://workorder.example.com,*");
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, guard::validate);
+
+        assertThat(exception.getMessage()).contains("app.cors.allowed-origin-patterns");
+    }
+
+    @Test
     void allowsRealValuesInProd() {
         ProductionConfigGuard guard = prodGuard();
         setValidValues(guard);
@@ -87,5 +98,6 @@ class ProductionConfigGuardTest {
         ReflectionTestUtils.setField(guard, "wechatAppId", "wx1234567890abcdef");
         ReflectionTestUtils.setField(guard, "wechatSecret", "WechatSecret_9x8y7z");
         ReflectionTestUtils.setField(guard, "smsAuthHeaderValue", "Bearer real-token-9x8y7z");
+        ReflectionTestUtils.setField(guard, "corsAllowedOriginPatterns", "https://workorder.example.com,https://admin.example.com");
     }
 }
