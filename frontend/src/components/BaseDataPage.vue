@@ -678,6 +678,158 @@ const defaultSOPForm = reactive({
   updatedAt: '2026-05-18 16:30'
 })
 
+const showProcessSopModal = ref(false)
+const selectedSopProcess = ref<ProcessItem | null>(null)
+const processSopForm = reactive({
+  title: '',
+  version: 'V1.0',
+  owner: '',
+  content: ''
+})
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function downloadTextFile(fileName: string, content: string) {
+  const blob = new Blob(['\uFEFF' + content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+function downloadDefaultSopTemplate() {
+  const content = [
+    defaultSOPForm.name,
+    `更新时间：${defaultSOPForm.updatedAt}`,
+    '',
+    '一、作业准备',
+    '二、操作步骤',
+    '三、质量检查',
+    '四、安全注意事项',
+    '五、异常处理'
+  ].join('\n')
+  downloadTextFile('默认SOP模板.txt', content)
+  emit('notice', 'SOP模板已下载')
+}
+
+function applyDefaultSopTemplate() {
+  defaultSOPForm.updatedAt = new Date().toLocaleString('zh-CN')
+  localStorage.setItem('gongdan_default_sop_template', JSON.stringify(defaultSOPForm))
+  emit('notice', '已应用默认SOP模板')
+}
+
+function loadSopConfig() {
+  try {
+    const savedDefault = localStorage.getItem('gongdan_default_sop_template')
+    if (savedDefault) {
+      Object.assign(defaultSOPForm, JSON.parse(savedDefault))
+    }
+  } catch (e) {
+    // ignore invalid local config
+  }
+}
+
+function processSopKey(processId: number) {
+  return `gongdan_process_sop_${processId}`
+}
+
+function openProcessSop(p: ProcessItem) {
+  selectedSopProcess.value = p
+  processSopForm.title = `${p.name} SOP`
+  processSopForm.version = 'V1.0'
+  processSopForm.owner = ''
+  processSopForm.content = ''
+  try {
+    const saved = localStorage.getItem(processSopKey(p.id))
+    if (saved) {
+      Object.assign(processSopForm, JSON.parse(saved))
+    }
+  } catch (e) {
+    // ignore invalid local config
+  }
+  showProcessSopModal.value = true
+}
+
+function saveProcessSop() {
+  if (!selectedSopProcess.value) return
+  const payload = {
+    title: processSopForm.title.trim() || `${selectedSopProcess.value.name} SOP`,
+    version: processSopForm.version.trim() || 'V1.0',
+    owner: processSopForm.owner.trim(),
+    content: processSopForm.content.trim(),
+    updatedAt: new Date().toLocaleString('zh-CN')
+  }
+  localStorage.setItem(processSopKey(selectedSopProcess.value.id), JSON.stringify(payload))
+  showProcessSopModal.value = false
+  emit('notice', 'SOP模板已保存')
+}
+
+function printProcess(p: ProcessItem) {
+  const printWindow = window.open('', '_blank', 'width=760,height=860')
+  if (!printWindow) {
+    emit('error', '浏览器阻止打印窗口，请允许弹窗后重试')
+    return
+  }
+  const defectNames = p.defectItemIds.length > 0 ? p.defectItemIds.map(getDefectLabel).join('、') : '-'
+  const collectRows = p.collectData.length > 0
+    ? p.collectData.map((row, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(row.type || '-')}</td><td>${escapeHtml(row.name || '-')}</td></tr>`).join('')
+    : '<tr><td colspan="3">-</td></tr>'
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="UTF-8" />
+        <title>工序资料 - ${escapeHtml(p.name)}</title>
+        <style>
+          body { font-family: "Microsoft YaHei", Arial, sans-serif; padding: 28px; color: #1f2725; }
+          h1 { font-size: 22px; margin: 0 0 18px; text-align: center; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
+          th, td { border: 1px solid #dfe7e4; padding: 9px 11px; font-size: 13px; text-align: left; }
+          th { width: 128px; background: #f6f8f7; color: #59635f; }
+          .section-title { margin: 18px 0 8px; font-weight: 700; font-size: 14px; }
+          .meta { text-align: right; color: #87918e; font-size: 12px; margin-bottom: 10px; }
+        </style>
+      </head>
+      <body>
+        <h1>工序资料卡</h1>
+        <div class="meta">打印时间：${new Date().toLocaleString('zh-CN')}</div>
+        <table>
+          <tr><th>工序编号</th><td>${escapeHtml(p.code || '-')}</td></tr>
+          <tr><th>工序名称</th><td>${escapeHtml(p.name || '-')}</td></tr>
+          <tr><th>报工权限</th><td>${escapeHtml((p.reportPermission || []).join('、') || '-')}</td></tr>
+          <tr><th>报工数配比</th><td>${escapeHtml(p.reportRatio)}</td></tr>
+          <tr><th>任务打卡</th><td>${p.taskPunchIn ? '开启' : '关闭'}</td></tr>
+          <tr><th>良品数量字段</th><td>${escapeHtml(p.goodQuantity || '-')}</td></tr>
+          <tr><th>机械/机台</th><td>${escapeHtml(p.machineName || '-')}</td></tr>
+          <tr><th>投料数</th><td>${escapeHtml(p.feedCount || '-')}</td></tr>
+          <tr><th>对应机台</th><td>${escapeHtml(p.correspondingMachine || '-')}</td></tr>
+          <tr><th>不良品项</th><td>${escapeHtml(defectNames)}</td></tr>
+          <tr><th>要求</th><td>${escapeHtml(p.requirements || '-')}</td></tr>
+        </table>
+        <div class="section-title">采集数据</div>
+        <table>
+          <thead><tr><th style="width:60px">序号</th><th>类型</th><th>名称</th></tr></thead>
+          <tbody>${collectRows}</tbody>
+        </table>
+        <script>window.print();<\/script>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
+  printWindow.focus()
+}
+
 function isProcessColumnVisible(key: string) {
   return processColumns.value.find(c => c.key === key)?.visible ?? true
 }
@@ -1816,6 +1968,7 @@ watch(() => props.activeBasedataMenu, (newMenu) => {
 })
 
 onMounted(() => {
+  loadSopConfig()
   if (props.token) {
     loadUnits()
     loadDefects()
@@ -2271,8 +2424,8 @@ onMounted(() => {
                   更新时间：{{ defaultSOPForm.updatedAt }}
                 </div>
                 <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                  <button class="toolbar-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="emit('notice', 'SOP模板下载成功')">下载</button>
-                  <button class="primary-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="emit('notice', '已成功应用默认SOP模板')">应用配置</button>
+                  <button class="toolbar-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="downloadDefaultSopTemplate">下载</button>
+                  <button class="primary-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="applyDefaultSopTemplate">应用配置</button>
                 </div>
               </div>
             </div>
@@ -2404,8 +2557,8 @@ onMounted(() => {
                 <td v-if="isProcessColumnVisible('taskPunchIn')">{{ p.taskPunchIn ? '开启' : '关闭' }}</td>
                 <td v-if="isProcessColumnVisible('action')" class="action-cell">
                   <button class="action-link" type="button" @click="openEditProcess(p)">编辑</button>
-                  <button class="action-link" type="button" @click="emit('notice', '打印工序成功')">打印</button>
-                  <button class="action-link" type="button" @click="emit('notice', '配置SOP模板成功')">SOP模版</button>
+                  <button class="action-link" type="button" @click="printProcess(p)">打印</button>
+                  <button class="action-link" type="button" @click="openProcessSop(p)">SOP模版</button>
                   <button class="action-link danger" type="button" @click="handleDeleteProcess(p)">删除</button>
                 </td>
               </tr>
@@ -2956,6 +3109,41 @@ onMounted(() => {
         <footer class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showDefectModal = false">取消</button>
           <button class="primary-btn wide" type="submit">确定</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+
+  <div v-if="showProcessSopModal" class="modal-backdrop">
+    <section class="modal">
+      <header class="modal-header">
+        <h2>SOP模板</h2>
+        <button class="close-btn" type="button" @click="showProcessSopModal = false">×</button>
+      </header>
+      <form class="create-form" @submit.prevent="saveProcessSop">
+        <label>
+          <span>工序</span>
+          <input :value="selectedSopProcess ? `${selectedSopProcess.code} / ${selectedSopProcess.name}` : '-'" disabled />
+        </label>
+        <label>
+          <span><em>*</em> 标题</span>
+          <input v-model="processSopForm.title" placeholder="请输入SOP标题" required />
+        </label>
+        <label>
+          <span>版本</span>
+          <input v-model="processSopForm.version" placeholder="如 V1.0" />
+        </label>
+        <label>
+          <span>负责人</span>
+          <input v-model="processSopForm.owner" placeholder="请输入负责人" />
+        </label>
+        <label>
+          <span>内容摘要</span>
+          <textarea v-model="processSopForm.content" rows="5" placeholder="填写作业准备、操作步骤、质量检查、安全注意事项"></textarea>
+        </label>
+        <footer class="modal-footer">
+          <button class="ghost-btn wide" type="button" @click="showProcessSopModal = false">取消</button>
+          <button class="primary-btn wide" type="submit">保存</button>
         </footer>
       </form>
     </section>

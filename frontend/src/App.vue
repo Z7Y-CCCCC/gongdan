@@ -2766,7 +2766,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <input v-model="unitFilterForm.remark" placeholder="请输入备注" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="">
+            <button class="primary-btn query-btn" type="button" @click="loadUnits">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
               查询
             </button>
