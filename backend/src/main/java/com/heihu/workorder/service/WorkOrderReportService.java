@@ -20,10 +20,6 @@ import com.heihu.workorder.repository.WorkOrderReportRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -34,7 +30,6 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -58,9 +53,7 @@ public class WorkOrderReportService {
     private final WorkOrderReportImageRepository imageRepository;
     private final WorkOrderRepository workOrderRepository;
     private final UserRepository userRepository;
-
-    @Value("${app.upload.report-image-dir:uploads/report-images}")
-    private String reportImageDir;
+    private final ReportImageStorage reportImageStorage;
 
     @Value("${app.upload.pending-image-ttl-hours:24}")
     private int pendingImageTtlHours;
@@ -69,12 +62,14 @@ public class WorkOrderReportService {
             WorkOrderReportRepository reportRepository,
             WorkOrderReportImageRepository imageRepository,
             WorkOrderRepository workOrderRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            ReportImageStorage reportImageStorage
     ) {
         this.reportRepository = reportRepository;
         this.imageRepository = imageRepository;
         this.workOrderRepository = workOrderRepository;
         this.userRepository = userRepository;
+        this.reportImageStorage = reportImageStorage;
     }
 
     public WorkOrderReportImageResponse uploadImage(Long factoryId, Long userId, MultipartFile file) {
@@ -96,19 +91,7 @@ public class WorkOrderReportService {
         validateImageSignature(file, ext);
         FactoryUser uploader = requireUser(factoryId, userId);
         String storedName = UUID.randomUUID().toString().replace("-", "") + "." + ext;
-        Path root = Paths.get(reportImageDir).toAbsolutePath().normalize();
-        Path target = root.resolve(storedName).normalize();
-        if (!target.startsWith(root)) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "图片保存失败");
-        }
-        try {
-            Files.createDirectories(root);
-            try (InputStream input = file.getInputStream()) {
-                Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException ex) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "图片保存失败");
-        }
+        reportImageStorage.store(storedName, file);
 
         WorkOrderReportImage image = new WorkOrderReportImage();
         image.setFactory(uploader.getFactory());
@@ -129,20 +112,7 @@ public class WorkOrderReportService {
         WorkOrderReportImage image = imageRepository.findById(imageId)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "图片不存在"));
-        Path root = Paths.get(reportImageDir).toAbsolutePath().normalize();
-        Path file = root.resolve(image.getStoredFileName()).normalize();
-        if (!file.startsWith(root)) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "图片不存在");
-        }
-        try {
-            Resource resource = new UrlResource(file.toUri());
-            if (!resource.exists() || !resource.isReadable()) {
-                throw new ApiException(HttpStatus.NOT_FOUND, "图片文件不存在");
-            }
-            return new ReportImageDownload(image, resource);
-        } catch (IOException ex) {
-            throw new ApiException(HttpStatus.NOT_FOUND, "图片文件不存在");
-        }
+        return new ReportImageDownload(image, reportImageStorage.load(image.getStoredFileName()));
     }
 
     public WorkOrderReportResponse createReport(Long factoryId, Long userId, WorkOrderReportRequest request) {
@@ -263,9 +233,8 @@ public class WorkOrderReportService {
             return 0;
         }
 
-        Path root = Paths.get(reportImageDir).toAbsolutePath().normalize();
         List<WorkOrderReportImage> removable = expired.stream()
-                .filter(image -> deleteStoredImage(root, image.getStoredFileName()))
+                .filter(image -> reportImageStorage.delete(image.getStoredFileName()))
                 .collect(Collectors.toList());
         if (!removable.isEmpty()) {
             imageRepository.deleteAll(removable);
@@ -290,20 +259,6 @@ public class WorkOrderReportService {
             image.setReport(report);
         }
         imageRepository.saveAll(images);
-    }
-
-    private boolean deleteStoredImage(Path root, String storedFileName) {
-        Path file = root.resolve(storedFileName).normalize();
-        if (!file.startsWith(root)) {
-            log.warn("跳过异常图片路径：{}", storedFileName);
-            return false;
-        }
-        try {
-            return Files.deleteIfExists(file) || !Files.exists(file);
-        } catch (IOException ex) {
-            log.warn("删除过期未绑定报工图片失败：{}", storedFileName, ex);
-            return false;
-        }
     }
 
     private void applyApprovedReport(WorkOrderReport report, LocalDateTime now) {

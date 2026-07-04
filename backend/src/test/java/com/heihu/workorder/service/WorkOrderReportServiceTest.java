@@ -24,7 +24,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,9 +59,9 @@ class WorkOrderReportServiceTest {
                 reportRepository,
                 imageRepository,
                 workOrderRepository,
-                userRepository
+                userRepository,
+                new LocalReportImageStorage(uploadDir.toString())
         );
-        ReflectionTestUtils.setField(service, "reportImageDir", uploadDir.toString());
     }
 
     @Test
