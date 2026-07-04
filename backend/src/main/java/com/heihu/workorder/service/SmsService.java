@@ -84,6 +84,13 @@ public class SmsService {
      * 检查手机号维度频率限制：60 秒内同一手机号最多发送 1 次。
      */
     private void checkPhoneRateLimit(String phone) {
+        if (smsCodeRepository != null) {
+            SmsCode lastCode = smsCodeRepository.findByPhone(phone).orElse(null);
+            if (lastCode != null && lastCode.getCreatedAt().plusSeconds(PHONE_RATE_LIMIT_SECONDS).isAfter(LocalDateTime.now())) {
+                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "发送过于频繁，请稍后再试");
+            }
+            return;
+        }
         LocalDateTime lastSend = phoneLastSendTime.get(phone);
         if (lastSend != null && lastSend.plusSeconds(PHONE_RATE_LIMIT_SECONDS).isAfter(LocalDateTime.now())) {
             throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "发送过于频繁，请稍后再试");
