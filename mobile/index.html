@@ -4,12 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>黑湖小工单</title>
-  </head>
-  <body>
-    <div id="app"></div>
     <script>
       var __UNI_FEATURE_UNI_CLOUD__ = false;
       var __UNI_FEATURE_WXS__ = false;
+      var __UNI_FEATURE_WX__ = false;
       var __UNI_FEATURE_RPX__ = false;
       var __UNI_FEATURE_NVUE__ = false;
       var __UNI_FEATURE_PROMISE__ = false;
@@ -17,23 +15,35 @@
       var __UNI_FEATURE_I18N_EN__ = false;
       var __UNI_FEATURE_I18N_ES__ = false;
       var __UNI_FEATURE_I18N_FR__ = false;
+      var __UNI_FEATURE_I18N_LOCALE__ = false;
       var __UNI_FEATURE_I18N_ZH_HANS__ = false;
       var __UNI_FEATURE_I18N_ZH_HANT__ = false;
+      var __UNI_FEATURE_TOPWINDOW__ = false;
+      var __UNI_FEATURE_LEFTWINDOW__ = false;
+      var __UNI_FEATURE_RIGHTWINDOW__ = false;
+      var __UNI_FEATURE_RESPONSIVE__ = false;
+      var __UNI_FEATURE_PULL_DOWN_REFRESH__ = false;
+      var __UNI_FEATURE_TABBAR__ = false;
+      var __UNI_FEATURE_PAGES__ = true;
+      var __UNI_FEATURE_NAVIGATIONBAR__ = true;
+      var __UNI_FEATURE_NAVIGATIONBAR_BUTTONS__ = false;
+      var __UNI_FEATURE_NAVIGATIONBAR_SEARCHINPUT__ = false;
+      var __UNI_FEATURE_NAVIGATIONBAR_TRANSPARENT__ = false;
+      var __UNI_FEATURE_TABBAR_MIDBUTTON__ = false;
+      var __UNI_FEATURE_ROUTER_MODE__ = 'hash';
+      var __uniRoutes = [];
       var __uniConfig = {
-        router: { mode: 'hash', base: '/' },
-        routes: [
-          { path: 'pages/bind/index', style: { navigationBarTitleText: '账号绑定' } },
-          { path: 'pages/home/index', style: { navigationBarTitleText: '黑湖小工单' } },
-          { path: 'pages/work-orders/index', style: { navigationBarTitleText: '工单' } },
-          { path: 'pages/work-order-detail/index', style: { navigationBarTitleText: '工单详情' } },
-          { path: 'pages/report-form/index', style: { navigationBarTitleText: '报工' } },
-          { path: 'pages/report-list/index', style: { navigationBarTitleText: '报工列表' } },
-          { path: 'pages/tasks/index', style: { navigationBarTitleText: '任务' } },
-          { path: 'pages/board/index', style: { navigationBarTitleText: '看板' } }
-        ],
-        locales: {}
+        router: { mode: 'hash', base: '/', routerBase: '/', strict: false },
+        routes: __uniRoutes,
+        locales: {},
+        globalStyle: { maxWidth: 640 },
+        nvue: { 'flex-direction': 'column' },
+        tabBar: { shown: false, height: '0px', list: [] }
       };
     </script>
+  </head>
+  <body>
+    <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

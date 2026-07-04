@@ -38,6 +38,16 @@
           <uni-icons type="right" size="16" color="#ccc"></uni-icons>
         </view>
 
+        <view class="menu-item" @tap="navigateTo('/pages/field-events/index')">
+          <view class="menu-left">
+            <view class="menu-icon bg-purple">
+              <uni-icons type="sound" size="20" color="#fff"></uni-icons>
+            </view>
+            <text class="menu-text">现场事件</text>
+          </view>
+          <uni-icons type="right" size="16" color="#ccc"></uni-icons>
+        </view>
+
         <view class="menu-item" @tap="navigateTo('/pages/board/index')">
           <view class="menu-left">
             <view class="menu-icon bg-orange">
@@ -238,6 +248,7 @@ const handleLogout = () => {
 .bg-green { background-color: #e6f7f3; color: #00b889; }
 .bg-blue { background-color: #eef3fe; color: #4080ff; }
 .bg-orange { background-color: #fff4e6; color: #ff9900; }
+.bg-purple { background-color: #f0edff; color: #7c3aed; }
 
 .menu-text {
   font-size: 30rpx;

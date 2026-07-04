@@ -54,6 +54,26 @@ export interface ListResponse<T> {
   total: number
 }
 
+export interface FieldEventRecord {
+  id: number
+  moduleName: 'FIELD_EVENT'
+  businessKey?: string
+  title: string
+  status: string
+  payloadJson?: string
+  createdByName?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface FieldEventPayload {
+  moduleName?: 'FIELD_EVENT'
+  businessKey?: string
+  title: string
+  status?: string
+  payloadJson?: string
+}
+
 export interface ReportImage {
   id: number
   originalFileName: string

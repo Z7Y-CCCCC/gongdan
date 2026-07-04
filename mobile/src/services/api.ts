@@ -1,4 +1,4 @@
-import type { ListResponse, MobileAuthResult, ReportImage, ReportStatus, WorkOrderInfo, WorkOrderReport } from '../types/api'
+import type { FieldEventPayload, FieldEventRecord, ListResponse, MobileAuthResult, ReportImage, ReportStatus, WorkOrderInfo, WorkOrderReport } from '../types/api'
 
 // H5 can use /api through a reverse proxy. Mini Program builds should set VITE_API_BASE_URL to HTTPS.
 const configuredApiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
@@ -182,4 +182,15 @@ export function fetchReports(status?: string, period = '') {
   if (period) params.set('period', period)
   params.set('size', '500')
   return request<ListResponse<WorkOrderReport>>(`/mobile/reports?${params.toString()}`)
+}
+
+export function fetchFieldEvents() {
+  return request<ListResponse<FieldEventRecord>>('/mobile/field-events?size=50')
+}
+
+export function createFieldEvent(payload: FieldEventPayload) {
+  return request<FieldEventRecord>('/mobile/field-events', {
+    method: 'POST',
+    data: payload
+  })
 }

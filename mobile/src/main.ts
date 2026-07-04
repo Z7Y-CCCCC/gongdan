@@ -1,7 +1,8 @@
 import { createSSRApp } from 'vue'
 import App from './App.vue'
 // #ifdef H5
-import { plugin, setupApp } from '@dcloudio/uni-h5'
+import './h5-routes'
+import { UniServiceJSBridge, getCurrentPages, plugin, setupApp, uni } from '@dcloudio/uni-h5'
 // #endif
 
 export function createApp() {
@@ -11,6 +12,11 @@ export function createApp() {
 
 // #ifdef H5
 if (typeof window !== 'undefined') {
+  Object.assign(window, {
+    UniServiceJSBridge,
+    getCurrentPages,
+    uni
+  })
   const app = createSSRApp(setupApp(App))
   app.use(plugin)
   app.mount('#app')

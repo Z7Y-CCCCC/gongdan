@@ -1470,6 +1470,77 @@ export async function rejectReport(token: string, id: number, remark = '') {
 }
 
 // ===== 手机端 API 共用类型 =====
+export type AdvancedRecordModule =
+  | 'SOP'
+  | 'EQUIPMENT'
+  | 'QUALITY'
+  | 'MESSAGE'
+  | 'PAYROLL_RULE'
+  | 'FIELD_EVENT'
+
+export interface AdvancedRecordInfo {
+  id: number
+  moduleName: AdvancedRecordModule
+  businessKey?: string
+  title: string
+  status: string
+  payloadJson?: string
+  createdById?: number
+  createdByName?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface AdvancedRecordPayload {
+  moduleName: AdvancedRecordModule
+  businessKey?: string
+  title: string
+  status?: string
+  payloadJson?: string
+}
+
+export interface AdvancedRecordListResponse {
+  items: AdvancedRecordInfo[]
+  total: number
+}
+
+export async function fetchAdvancedRecords(
+  token: string,
+  params: { moduleName: AdvancedRecordModule; status?: string; page?: number; size?: number }
+) {
+  const query = new URLSearchParams()
+  query.append('moduleName', params.moduleName)
+  if (params.status) query.append('status', params.status)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<AdvancedRecordListResponse>(`/advanced-records?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createAdvancedRecord(token: string, payload: AdvancedRecordPayload) {
+  return request<AdvancedRecordInfo>('/advanced-records', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateAdvancedRecord(token: string, id: number, payload: AdvancedRecordPayload) {
+  return request<AdvancedRecordInfo>(`/advanced-records/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteAdvancedRecord(token: string, id: number) {
+  return request<void>(`/advanced-records/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 export interface MobileAuthResult {
   bindRequired: boolean
   openidTicket?: string

@@ -84,6 +84,7 @@ const WarehousePage = defineAsyncComponent(() => import('./components/WarehouseP
 const SupplierPage = defineAsyncComponent(() => import('./components/SupplierPage.vue'))
 const CustomerPage = defineAsyncComponent(() => import('./components/CustomerPage.vue'))
 const ReportCenterPage = defineAsyncComponent(() => import('./components/ReportCenterPage.vue'))
+const AdvancedOperationsPage = defineAsyncComponent(() => import('./components/AdvancedOperationsPage.vue'))
 
 const sharedAuth = useAuth()
 
@@ -1286,6 +1287,7 @@ const expandedMenus = reactive<Record<string, boolean>>({
   basedata: false,
   custom: false,
   report: false,
+  advanced: false,
   sysconfig: false
 })
 
@@ -1496,6 +1498,15 @@ function handleSearch() {
     { label: '部门', mainMenu: 'sysconfig', subMenu: 'department', expandedMenu: 'sysconfig' },
     { label: '用户', mainMenu: 'sysconfig', subMenu: 'user', expandedMenu: 'sysconfig' },
     { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' },
+    { label: 'SOP', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '文档库', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '消息推送', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '企业微信', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '质检返工', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '设备工位', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '排产甘特', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '工资绩效', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '现场事件', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '主页', mainMenu: 'home', subMenu: '', expandedMenu: '' }
   ]
 
@@ -2437,6 +2448,18 @@ function handleNavigate(menu: { main: string; sub: string }) {
         </div>
 
         <div class="nav-group">
+          <a class="nav-item" :title="isSidebarCollapsed ? '高级运营' : ''" @click.stop="toggleMenu('advanced')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 19.5V4a2 2 0 0 1 2-2h8l6 6v11.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8M8 17h5"/></svg>
+            <span v-show="!isSidebarCollapsed">高级运营</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.advanced }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+          <div v-show="!isSidebarCollapsed && expandedMenus.advanced" class="sub-items-container">
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'">SOP / 推送 / 质检 / 设备</a>
+            <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'">排产 / 绩效 / 现场</a>
+        </div>
+
+        </div>
+        <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '报表' : ''" @click.stop="toggleMenu('report')">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
             <span v-show="!isSidebarCollapsed">报表</span>
@@ -2510,6 +2533,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </template>
           <template v-else-if="activeMainMenu === 'dashboard'">
             车间看板
+          </template>
+          <template v-else-if="activeMainMenu === 'advanced'">
+            高级运营
           </template>
           <template v-else-if="activeMainMenu === 'report'">
             报表 <span>></span> 生产报表
@@ -2592,6 +2618,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
       <SuperAdminAuthCodesPage
         v-if="activeMainMenu === 'super-admin'"
+      />
+
+      <AdvancedOperationsPage
+        v-if="activeMainMenu === 'advanced'"
+        :token="token"
+        @notice="showAction"
       />
 
       <ReportCenterPage
