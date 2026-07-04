@@ -16,7 +16,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/process-routes")
-@CrossOrigin(origins = "*")
 public class ProcessRouteController {
 
     private final ProcessRouteService routeService;

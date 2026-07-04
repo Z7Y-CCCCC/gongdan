@@ -16,7 +16,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/processes")
-@CrossOrigin(origins = "*")
 public class ProcessController {
 
     private final ProcessService processService;

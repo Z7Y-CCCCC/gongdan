@@ -16,7 +16,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/units")
-@CrossOrigin(origins = "*")
 public class UnitController {
 
     private final UnitService unitService;

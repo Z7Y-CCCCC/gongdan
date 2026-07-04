@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -28,6 +29,40 @@ import static org.mockito.Mockito.*;
 class TokenServiceAuthServicePropertyTest {
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+
+    @Example
+    @Label("Feature: authentication, token session expires after configured TTL")
+    void tokenSessionExpiresAfterConfiguredTtl() throws InterruptedException {
+        TokenService tokenService = new TokenService(Duration.ofMillis(1));
+        Factory factory = new Factory();
+        factory.setId(1L);
+        factory.setCode("HHGD");
+        factory.setName("Test Factory");
+
+        FactoryUser user = new FactoryUser();
+        user.setId(1L);
+        user.setFactory(factory);
+        user.setName("Test User");
+        user.setRole(Role.ADMIN);
+
+        String token = tokenService.issue(user);
+        Thread.sleep(10L);
+
+        ApiException exception = catchThrowableOfType(
+                () -> tokenService.requireUser("Bearer " + token),
+                ApiException.class
+        );
+
+        assertThat(exception).isNotNull();
+        assertThat(exception.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Example
+    @Label("Feature: authentication, token TTL must be positive")
+    void tokenTtlMustBePositive() {
+        assertThatThrownBy(() -> new TokenService(Duration.ZERO))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 
     // ─── Property 2 ──────────────────────────────────────────────────────────────
     // For any user login where the factory code is not "admin", the login response

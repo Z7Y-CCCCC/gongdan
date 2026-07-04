@@ -14,7 +14,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/custom-fields")
-@CrossOrigin(origins = "*")
 public class CustomFieldController {
 
     private final CustomFieldService customFieldService;

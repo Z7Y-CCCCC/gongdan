@@ -16,7 +16,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/work-orders")
-@CrossOrigin(origins = "*")
 public class WorkOrderController {
 
     private final WorkOrderService workOrderService;

@@ -37,6 +37,7 @@ import { bindAccount, saveSession, wechatLogin } from '../../services/api'
 
 const loading = ref(false)
 const redirectUrl = ref('')
+const wechatMockEnabled = import.meta.env.VITE_WECHAT_MOCK_ENABLED === 'true'
 const form = reactive({
   factoryCode: '',
   username: '',
@@ -90,10 +91,10 @@ async function tryWechatLogin() {
   loading.value = true
   try {
     const code = await getWxCode()
-    const res = await wechatLogin({
+    const res = await wechatLogin(wechatMockEnabled ? {
       code,
       mockOpenid: getMockOpenid()
-    })
+    } : { code })
     if (res.bindRequired) {
       form.openidTicket = res.openidTicket || ''
       return
@@ -101,7 +102,9 @@ async function tryWechatLogin() {
     saveSession(res)
     goAfterLogin()
   } catch (e) {
-    form.openidTicket = getMockOpenid().replace('MOCK_OPENID_', 'MOCK_TICKET_')
+    if (wechatMockEnabled) {
+      form.openidTicket = getMockOpenid().replace('MOCK_OPENID_', 'MOCK_TICKET_')
+    }
   } finally {
     loading.value = false
   }

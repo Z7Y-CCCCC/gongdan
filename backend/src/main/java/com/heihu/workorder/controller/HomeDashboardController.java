@@ -17,7 +17,6 @@ import java.time.format.DateTimeParseException;
 
 @RestController
 @RequestMapping("/api/home-dashboard")
-@CrossOrigin(origins = "*")
 public class HomeDashboardController {
 
     private final HomeDashboardService homeDashboardService;

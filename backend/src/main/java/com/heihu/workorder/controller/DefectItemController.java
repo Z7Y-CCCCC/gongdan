@@ -16,7 +16,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/defect-items")
-@CrossOrigin(origins = "*")
 public class DefectItemController {
 
     private final DefectItemService defectItemService;

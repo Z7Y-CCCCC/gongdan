@@ -15,7 +15,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/system-logs")
-@CrossOrigin(origins = "*")
 public class SystemLogController {
 
     private final SystemLogService systemLogService;
