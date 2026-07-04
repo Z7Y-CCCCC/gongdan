@@ -72,6 +72,7 @@ const InboundReceiptPage = defineAsyncComponent(() => import('./components/Inbou
 const OutboundReceiptPage = defineAsyncComponent(() => import('./components/OutboundReceiptPage.vue'))
 const InventoryBalancePage = defineAsyncComponent(() => import('./components/InventoryBalancePage.vue'))
 const InventoryDetailPage = defineAsyncComponent(() => import('./components/InventoryDetailPage.vue'))
+const InventorySummaryPage = defineAsyncComponent(() => import('./components/InventorySummaryPage.vue'))
 const CustomReceiptFieldsPage = defineAsyncComponent(() => import('./components/CustomReceiptFieldsPage.vue'))
 const SuperAdminAuthCodesPage = defineAsyncComponent(() => import('./components/SuperAdminAuthCodesPage.vue'))
 const BindFactoryPage = defineAsyncComponent(() => import('./components/BindFactoryPage.vue'))
@@ -2484,9 +2485,15 @@ function handleNavigate(menu: { main: string; sub: string }) {
         @notice="showAction"
       />
 
+      <InventorySummaryPage
+        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'summary'"
+        :token="token"
+        @notice="showAction"
+      />
+
       <section
         class="content placeholder-page"
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu !== 'inbound' && activeInventoryMenu !== 'balance' && activeInventoryMenu !== 'outbound' && activeInventoryMenu !== 'detail'"
+        v-if="activeMainMenu === 'inventory' && activeInventoryMenu !== 'inbound' && activeInventoryMenu !== 'balance' && activeInventoryMenu !== 'outbound' && activeInventoryMenu !== 'detail' && activeInventoryMenu !== 'summary'"
       >
         <div class="empty-state">进销存汇总模块待补全。</div>
       </section>
