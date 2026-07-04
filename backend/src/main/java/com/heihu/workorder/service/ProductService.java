@@ -9,6 +9,7 @@ import com.heihu.workorder.model.ProcessRoute;
 import com.heihu.workorder.model.Product;
 import com.heihu.workorder.model.ProductOperationLog;
 import com.heihu.workorder.model.Unit;
+import com.heihu.workorder.repository.BomRepository;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.InboundReceiptRepository;
 import com.heihu.workorder.repository.OutboundReceiptRepository;
@@ -42,6 +43,7 @@ public class ProductService {
     private final WorkOrderRepository workOrderRepository;
     private final InboundReceiptRepository inboundReceiptRepository;
     private final OutboundReceiptRepository outboundReceiptRepository;
+    private final BomRepository bomRepository;
 
     public ProductService(ProductRepository productRepository,
                           ProductOperationLogRepository productOperationLogRepository,
@@ -51,7 +53,8 @@ public class ProductService {
                           UserRepository userRepository,
                           WorkOrderRepository workOrderRepository,
                           InboundReceiptRepository inboundReceiptRepository,
-                          OutboundReceiptRepository outboundReceiptRepository) {
+                          OutboundReceiptRepository outboundReceiptRepository,
+                          BomRepository bomRepository) {
         this.productRepository = productRepository;
         this.productOperationLogRepository = productOperationLogRepository;
         this.factoryRepository = factoryRepository;
@@ -61,6 +64,7 @@ public class ProductService {
         this.workOrderRepository = workOrderRepository;
         this.inboundReceiptRepository = inboundReceiptRepository;
         this.outboundReceiptRepository = outboundReceiptRepository;
+        this.bomRepository = bomRepository;
     }
 
     private ProductResponse toResponse(Product product) {
@@ -262,6 +266,10 @@ public class ProductService {
         }
         if (outboundReceiptRepository.existsByFactoryIdAndProductId(factoryId, productId)) {
             throw new IllegalArgumentException("产品已被出库单引用，不能删除");
+        }
+        if (bomRepository.existsByFactoryIdAndProductId(factoryId, productId)
+                || bomRepository.existsItemByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被BOM引用，不能删除");
         }
     }
 

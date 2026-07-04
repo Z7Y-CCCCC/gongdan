@@ -61,6 +61,7 @@ import DeleteConfirmDialog from './components/DeleteConfirmDialog.vue'
 import { useAuth } from './composables/useAuth'
 
 const ProductDefinitionPage = defineAsyncComponent(() => import('./components/ProductDefinitionPage.vue'))
+const BomPage = defineAsyncComponent(() => import('./components/BomPage.vue'))
 const WorkOrderPage = defineAsyncComponent(() => import('./components/WorkOrderPage.vue'))
 const TaskPage = defineAsyncComponent(() => import('./components/TaskPage.vue'))
 const CustomWorkOrderFieldsPage = defineAsyncComponent(() => import('./components/CustomWorkOrderFieldsPage.vue'))
@@ -2421,6 +2422,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
         @notice="showAction"
       />
 
+      <BomPage
+        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'bom'"
+        :token="token"
+        @notice="showAction"
+      />
+
       <WarehousePage
         v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse'"
         :token="token"
@@ -2547,7 +2554,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
       <!-- 单位管理 -->
       <section
         class="content placeholder-page"
-        v-if="activeMainMenu === 'basedata' && !['product', 'warehouse', 'supplier', 'unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
+        v-if="activeMainMenu === 'basedata' && !['product', 'bom', 'warehouse', 'supplier', 'unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
       >
         <div class="empty-state">该模块待补全。</div>
       </section>

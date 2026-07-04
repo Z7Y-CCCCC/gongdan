@@ -800,6 +800,90 @@ export async function deleteProduct(token: string, id: number) {
   })
 }
 
+// ===== 物料清单 API =====
+export interface BomItemPayload {
+  productId: number
+  quantity: number
+  scrapRate?: number
+  remark?: string
+}
+
+export interface BomPayload {
+  code?: string
+  productId: number
+  outputQuantity?: number
+  remark?: string
+  enabled?: boolean
+  items: BomItemPayload[]
+}
+
+export interface BomItemInfo {
+  id: number
+  productId: number
+  productCode: string
+  productName: string
+  productSpec?: string
+  unitName?: string
+  quantity: number
+  scrapRate: number
+  remark?: string
+}
+
+export interface BomInfo {
+  id: number
+  code: string
+  productId: number
+  productCode: string
+  productName: string
+  productSpec?: string
+  unitName?: string
+  outputQuantity: number
+  remark?: string
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+  items: BomItemInfo[]
+}
+
+export interface BomListResponse {
+  items: BomInfo[]
+  total: number
+}
+
+export async function fetchBoms(token: string, params: { code?: string; productName?: string; page?: number; size?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.productName) query.append('productName', params.productName)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<BomListResponse>(`/boms?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createBom(token: string, payload: BomPayload) {
+  return request<BomInfo>('/boms', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateBom(token: string, id: number, payload: BomPayload) {
+  return request<BomInfo>(`/boms/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteBom(token: string, id: number) {
+  return request<void>(`/boms/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 // ===== 自定义字段 API =====
 export interface CustomFieldOption {
   label: string

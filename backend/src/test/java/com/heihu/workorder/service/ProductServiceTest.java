@@ -5,6 +5,7 @@ import com.heihu.workorder.model.Product;
 import com.heihu.workorder.model.ProductOperationLog;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.InboundReceiptRepository;
+import com.heihu.workorder.repository.BomRepository;
 import com.heihu.workorder.repository.OutboundReceiptRepository;
 import com.heihu.workorder.repository.ProcessRouteRepository;
 import com.heihu.workorder.repository.ProductOperationLogRepository;
@@ -57,6 +58,9 @@ class ProductServiceTest {
     @Mock
     private OutboundReceiptRepository outboundReceiptRepository;
 
+    @Mock
+    private BomRepository bomRepository;
+
     private ProductService service;
 
     @BeforeEach
@@ -70,7 +74,8 @@ class ProductServiceTest {
                 userRepository,
                 workOrderRepository,
                 inboundReceiptRepository,
-                outboundReceiptRepository
+                outboundReceiptRepository,
+                bomRepository
         );
     }
 
@@ -109,6 +114,19 @@ class ProductServiceTest {
         assertThatThrownBy(() -> service.delete(1L, "operator", 10L))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("产品已被出库单引用，不能删除");
+
+        verify(productRepository, never()).delete(product);
+    }
+
+    @Test
+    void deleteRejectsProductReferencedByBom() {
+        Product product = product();
+        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(bomRepository.existsByFactoryIdAndProductId(1L, 10L)).thenReturn(true);
+
+        assertThatThrownBy(() -> service.delete(1L, "operator", 10L))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("产品已被BOM引用，不能删除");
 
         verify(productRepository, never()).delete(product);
     }
