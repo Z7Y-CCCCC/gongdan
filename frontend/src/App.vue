@@ -1228,7 +1228,7 @@ const loginForm = reactive({
 const loginTab = ref<'phone' | 'factory'>('factory')
 const rememberMe = ref(false)
 
-// 挂载/初始化时读取 localStorage
+// Restore saved login identifiers only. Never persist the password in browser storage.
 try {
   const saved = localStorage.getItem('gongdan_remember_me')
   if (saved) {
@@ -1237,7 +1237,13 @@ try {
       rememberMe.value = true
       loginForm.factoryCode = parsed.factoryCode || ''
       loginForm.username = parsed.username || ''
-      loginForm.password = parsed.password || ''
+      if (parsed.password) {
+        localStorage.setItem('gongdan_remember_me', JSON.stringify({
+          remember: true,
+          factoryCode: loginForm.factoryCode,
+          username: loginForm.username
+        }))
+      }
     }
   }
 } catch (e) {
@@ -1407,8 +1413,7 @@ async function handleLogin() {
       localStorage.setItem('gongdan_remember_me', JSON.stringify({
         remember: true,
         factoryCode: loginForm.factoryCode,
-        username: loginForm.username,
-        password: loginForm.password
+        username: loginForm.username
       }))
     } else {
       localStorage.removeItem('gongdan_remember_me')
@@ -2207,7 +2212,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <div class="remember-me-row">
             <label class="remember-me-label">
               <input type="checkbox" v-model="rememberMe" />
-              <span>记住用户名密码</span>
+              <span>记住账号</span>
             </label>
           </div>
           <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
