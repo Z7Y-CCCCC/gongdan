@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -31,6 +32,7 @@ public class MobileAuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
+    private final AuthAttemptLimiter authAttemptLimiter;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, OpenidTicket> openidTickets = new ConcurrentHashMap<>();
 
@@ -46,16 +48,28 @@ public class MobileAuthService {
     @Value("${app.wechat.openid-ticket-ttl-minutes:10}")
     private long openidTicketTtlMinutes;
 
+    @Autowired
+    public MobileAuthService(
+            FactoryRepository factoryRepository,
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            TokenService tokenService,
+            AuthAttemptLimiter authAttemptLimiter
+    ) {
+        this.factoryRepository = factoryRepository;
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.tokenService = tokenService;
+        this.authAttemptLimiter = authAttemptLimiter;
+    }
+
     public MobileAuthService(
             FactoryRepository factoryRepository,
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             TokenService tokenService
     ) {
-        this.factoryRepository = factoryRepository;
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.tokenService = tokenService;
+        this(factoryRepository, userRepository, passwordEncoder, tokenService, new AuthAttemptLimiter());
     }
 
     @Transactional
@@ -81,7 +95,8 @@ public class MobileAuthService {
     @Transactional
     public MobileAuthResponse bind(MobileBindRequest request) {
         String ticket = normalize(request.getOpenidTicket());
-        String openid = consumeOpenidTicket(ticket, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        String openid = getOpenidTicket(ticket, now);
         
         // 开发者模拟模式：如果以 MOCK_TICKET_ 开头，且开启了 mock 模式，则自动生成一个模拟 openid
         if (!StringUtils.hasText(openid) && mockEnabled && ticket.startsWith("MOCK_TICKET_")) {
@@ -94,12 +109,14 @@ public class MobileAuthService {
 
         String factoryCode = normalize(request.getFactoryCode()).toUpperCase();
         String account = normalize(request.getUsername());
+        String limitKey = AuthAttemptLimiter.key("mobile-bind", factoryCode, account);
+        authAttemptLimiter.checkAllowed(limitKey);
         Factory factory = factoryRepository.findByCode(factoryCode)
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "工厂代码、账号或密码不正确"));
+                .orElseThrow(() -> invalidCredentials(limitKey));
         FactoryUser user = findUser(factory.getId(), account)
-                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "工厂代码、账号或密码不正确"));
+                .orElseThrow(() -> invalidCredentials(limitKey));
         if (!user.isEnabled() || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "工厂代码、账号或密码不正确");
+            throw invalidCredentials(limitKey);
         }
 
         userRepository.findByWechatOpenid(openid).ifPresent(bound -> {
@@ -108,12 +125,13 @@ public class MobileAuthService {
             }
         });
 
-        LocalDateTime now = LocalDateTime.now();
         user.setWechatOpenid(openid);
         user.setMobileBoundAt(now);
         user.setLastMobileLoginAt(now);
         user.setUpdatedAt(now);
         userRepository.save(user);
+        consumeOpenidTicket(ticket);
+        authAttemptLimiter.recordSuccess(limitKey);
         return MobileAuthResponse.loggedIn(tokenService.issue(user), UserResponse.from(user));
     }
 
@@ -156,12 +174,21 @@ public class MobileAuthService {
         return value == null ? "" : value.trim();
     }
 
-    private String consumeOpenidTicket(String ticket, LocalDateTime now) {
-        OpenidTicket value = openidTickets.remove(ticket);
+    private String getOpenidTicket(String ticket, LocalDateTime now) {
+        OpenidTicket value = openidTickets.get(ticket);
         if (value == null || value.isExpired(now)) {
             return "";
         }
         return value.openid;
+    }
+
+    private void consumeOpenidTicket(String ticket) {
+        openidTickets.remove(ticket);
+    }
+
+    private ApiException invalidCredentials(String limitKey) {
+        authAttemptLimiter.recordFailure(limitKey);
+        return new ApiException(HttpStatus.UNAUTHORIZED, "工厂代码、账号或密码不正确");
     }
 
     private void cleanupExpiredTickets(LocalDateTime now) {
