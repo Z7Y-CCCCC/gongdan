@@ -23,6 +23,7 @@ APP_SEED_ADMIN_PASSWORD=change-me
 APP_SEED_ADMIN_NAME=System Admin
 APP_WECHAT_APP_ID=wx...
 APP_WECHAT_SECRET=change-me
+APP_WECHAT_OPENID_TICKET_TTL_MINUTES=10
 APP_CORS_ALLOWED_ORIGIN_PATTERNS=https://workorder.example.com,https://admin.example.com
 APP_SESSION_TTL_MINUTES=720
 APP_UPLOAD_REPORT_IMAGE_DIR=/var/lib/heihu-workorder/report-images

@@ -32,7 +32,7 @@ public class MobileAuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final Map<String, String> openidTickets = new ConcurrentHashMap<>();
+    private final Map<String, OpenidTicket> openidTickets = new ConcurrentHashMap<>();
 
     @Value("${app.wechat.mock-enabled:true}")
     private boolean mockEnabled;
@@ -42,6 +42,9 @@ public class MobileAuthService {
 
     @Value("${app.wechat.secret:}")
     private String secret;
+
+    @Value("${app.wechat.openid-ticket-ttl-minutes:10}")
+    private long openidTicketTtlMinutes;
 
     public MobileAuthService(
             FactoryRepository factoryRepository,
@@ -57,6 +60,8 @@ public class MobileAuthService {
 
     @Transactional
     public MobileAuthResponse wechatLogin(MobileWechatLoginRequest request) {
+        LocalDateTime now = LocalDateTime.now();
+        cleanupExpiredTickets(now);
         String openid = resolveOpenid(request);
         Optional<FactoryUser> userOpt = userRepository.findByWechatOpenid(openid);
         if (userOpt.isPresent()) {
@@ -69,14 +74,14 @@ public class MobileAuthService {
             return MobileAuthResponse.loggedIn(tokenService.issue(user), UserResponse.from(user));
         }
         String ticket = UUID.randomUUID().toString().replace("-", "");
-        openidTickets.put(ticket, openid);
+        openidTickets.put(ticket, new OpenidTicket(openid, now.plusMinutes(openidTicketTtlMinutes)));
         return MobileAuthResponse.needBind(ticket);
     }
 
     @Transactional
     public MobileAuthResponse bind(MobileBindRequest request) {
         String ticket = normalize(request.getOpenidTicket());
-        String openid = openidTickets.remove(ticket);
+        String openid = consumeOpenidTicket(ticket, LocalDateTime.now());
         
         // 开发者模拟模式：如果以 MOCK_TICKET_ 开头，且开启了 mock 模式，则自动生成一个模拟 openid
         if (!StringUtils.hasText(openid) && mockEnabled && ticket.startsWith("MOCK_TICKET_")) {
@@ -149,5 +154,31 @@ public class MobileAuthService {
 
     private String normalize(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private String consumeOpenidTicket(String ticket, LocalDateTime now) {
+        OpenidTicket value = openidTickets.remove(ticket);
+        if (value == null || value.isExpired(now)) {
+            return "";
+        }
+        return value.openid;
+    }
+
+    private void cleanupExpiredTickets(LocalDateTime now) {
+        openidTickets.entrySet().removeIf(entry -> entry.getValue().isExpired(now));
+    }
+
+    private static class OpenidTicket {
+        private final String openid;
+        private final LocalDateTime expiresAt;
+
+        private OpenidTicket(String openid, LocalDateTime expiresAt) {
+            this.openid = openid;
+            this.expiresAt = expiresAt;
+        }
+
+        private boolean isExpired(LocalDateTime now) {
+            return expiresAt == null || !expiresAt.isAfter(now);
+        }
     }
 }
