@@ -31,6 +31,25 @@ APP_UPLOAD_REPORT_IMAGE_DIR=/var/lib/heihu-workorder/report-images
 Production defaults disable WeChat mock login and set `spring.jpa.hibernate.ddl-auto=validate`.
 Current token sessions are stored in backend memory, so deploy the backend as a single instance or add Redis/JWT session storage before horizontal scaling.
 
+### Database Initialization
+
+The current `backend/src/main/resources/db/migration` scripts are manual patch scripts, not an enabled Flyway/Liquibase migration chain.
+
+For a fresh commercial database:
+
+1. Create the MySQL database and application user.
+2. Run a controlled one-time initialization against an empty database with `SPRING_JPA_HIBERNATE_DDL_AUTO=update`.
+3. Verify the seed factory/admin can login.
+4. Switch back to the production default `SPRING_JPA_HIBERNATE_DDL_AUTO=validate` before opening traffic.
+
+For an existing database:
+
+1. Back up the database.
+2. Apply the `V*.sql` scripts in version order if the target schema does not already contain those columns.
+3. Start with the `prod` profile and keep `ddl-auto=validate`.
+
+A full Flyway baseline migration should be added before multi-customer SaaS deployment.
+
 ## Frontend
 
 ```bash
