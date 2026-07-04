@@ -537,18 +537,7 @@ onMounted(() => {
           批量操作
         </button>
 
-        <button class="toolbar-btn secondary-btn-green" type="button" @click="emit('notice', '编辑打印模板功能开发中...')">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-            <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-          </svg>
-          编辑打印模板
-        </button>
-
         <div style="margin-left: auto; display:flex; gap: 8px;">
-          <button class="primary-btn" type="button" @click="emit('notice', '移动端卡片设置开发中...')">
-            移动端卡片设置
-          </button>
           <button class="text-btn" type="button" style="color:#586360;" @click="showColumnConfig = true">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
               <line x1="4" y1="21" x2="4" y2="14"></line>
@@ -702,14 +691,6 @@ onMounted(() => {
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
           添加产品
-        </button>
-
-        <button class="toolbar-btn secondary-btn-green" type="button" @click="emit('notice', '按 BOM 添加功能开发中...')">
-          按BOM添加
-        </button>
-
-        <button class="toolbar-btn secondary-btn-green" type="button" @click="emit('notice', '导入数据功能开发中...')">
-          导入数据
         </button>
 
         <div style="margin-left: auto">

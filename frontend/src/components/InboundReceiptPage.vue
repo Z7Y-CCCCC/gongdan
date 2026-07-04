@@ -62,9 +62,6 @@ const addProductForm = reactive({
   quantity: 1
 })
 
-// Import modal
-const showImportModal = ref(false)
-
 // Column config
 interface ReceiptTableColumn {
   key: string
@@ -763,10 +760,6 @@ onMounted(() => {
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
               按BOM添加
             </button>
-            <button class="toolbar-btn" type="button" @click="showImportModal = true">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              导入数据
-            </button>
           </div>
           <div style="margin-left:auto; position: relative;">
             <button class="text-btn" type="button" style="color: #586360;" @click="showItemColumnConfig = !showItemColumnConfig">
@@ -912,35 +905,6 @@ onMounted(() => {
         <div class="modal-footer">
           <button class="ghost-btn" type="button" @click="showAddProduct = false">取 消</button>
           <button class="primary-btn" type="button" @click="confirmAddProduct">确 定</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Import Modal -->
-    <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
-      <div class="modal" style="width:560px">
-        <div class="modal-header">
-          <span>导入产品明细</span>
-          <button class="modal-close" @click="showImportModal = false">&times;</button>
-        </div>
-        <div class="modal-body" style="padding:24px">
-          <div style="margin-bottom:16px">
-            <p style="margin:0 0 8px;font-weight:500">操作步骤:</p>
-            <p style="margin:4px 0;font-size:13px">1.下载 <a href="#" style="color:var(--accent)" @click.prevent="emit('notice', '模板下载功能开发中...')">《导入产品明细模板》</a></p>
-            <p style="margin:4px 0;font-size:13px">2.打开下载表，将对应信息填入或粘贴进本表。为保证导入成功，请使用纯文本或数字。</p>
-            <p style="margin:4px 0;font-size:13px">3.信息输入完毕并保存后，点击下方&lt;上传文件&gt;按钮选择已保存的excel文档。</p>
-            <p style="margin:4px 0;font-size:13px">4.点击&lt;开始导入&gt;</p>
-          </div>
-          <div style="display:flex;align-items:center;gap:12px;margin-top:20px">
-            <button class="toolbar-btn" type="button" @click="emit('notice', '上传功能开发中...')">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              上传文件
-            </button>
-            <span style="font-size:12px;color:#999">附件支持类型: XLSX，最大不能超过10M</span>
-          </div>
-          <div style="margin-top:16px">
-            <button class="toolbar-btn" type="button" disabled>开始导入</button>
-          </div>
         </div>
       </div>
     </div>

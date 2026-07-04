@@ -547,9 +547,6 @@ onMounted(async () => {
         <input type="file" ref="fieldFileInput" style="display:none" accept=".csv" @change="handleImportFields" />
 
         <div style="margin-left: auto; display:flex; gap: 8px; align-items:center;">
-          <button class="toolbar-btn" type="button" @click="emit('notice', '表单提交校验规则功能开发中...')" style="color:#00b889">
-            表单提交校验规则
-          </button>
           <button class="toolbar-btn" type="button" @click="showImportLogs = true; refreshImportLogs()">导入日志</button>
           <button class="text-btn" type="button" style="color:#586360;" @click="showColumnConfig = true">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
@@ -685,29 +682,6 @@ onMounted(async () => {
               </div>
             </div>
           </template>
-
-          <!-- 隐藏条件 -->
-          <div class="cf-field-row">
-            <div class="cf-field-label-cell">隐藏条件</div>
-            <div class="cf-field-input-cell">
-              <button class="cf-add-btn" type="button" @click="emit('notice', '隐藏条件功能开发中...')">
-                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right:4px;">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="12" y1="8" x2="12" y2="16"></line>
-                  <line x1="8" y1="12" x2="16" y2="12"></line>
-                </svg>
-                添加
-              </button>
-              <div class="cf-hint-msg">
-                <svg viewBox="0 0 24 24" width="13" height="13" stroke="#bfc6c3" stroke-width="2" fill="none" class="cf-hint-icon">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="12" y1="16" x2="12" y2="12"></line>
-                  <line x1="12" y1="8" x2="12.01" y2="8"></line>
-                </svg>
-                <span>当满足此条件时字段隐藏</span>
-              </div>
-            </div>
-          </div>
 
           <!-- 字段属性 -->
           <div class="cf-field-row">
