@@ -543,8 +543,11 @@ async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
   try {
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('scope', 'workorder')
+    formData.append('fieldId', String(field.id))
+    formData.append('fieldType', field.fieldType)
     
-    const response = await fetch('/api/mobile/reports/images', {
+    const response = await fetch('/api/custom-field-attachments', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${props.token}`
@@ -590,7 +593,11 @@ function removeCustomFieldPath(field: CustomFieldInfo, index: number) {
 
 function customFieldPreview(path: string) {
   if (customFieldPreviewUrls.value[path]) return customFieldPreviewUrls.value[path]
-  return path.startsWith('/api/reports/images/') || path.startsWith('/api/mobile/reports/images/') ? '' : path
+  return path.startsWith('/api/reports/images/') ||
+    path.startsWith('/api/mobile/reports/images/') ||
+    path.startsWith('/api/custom-field-attachments/')
+    ? ''
+    : path
 }
 
 onBeforeUnmount(() => {
