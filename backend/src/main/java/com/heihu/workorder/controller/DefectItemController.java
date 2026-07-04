@@ -34,7 +34,7 @@ public class DefectItemController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pr = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<DefectItemResponse> result = defectItemService.list(currentUser.getFactoryId(), code, name, pr);
         Map<String, Object> resp = new HashMap<>();
@@ -48,7 +48,7 @@ public class DefectItemController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody DefectItemRequest req
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(defectItemService.create(currentUser.getFactoryId(), req));
     }
 
@@ -58,7 +58,7 @@ public class DefectItemController {
             @PathVariable Long id,
             @RequestBody DefectItemRequest req
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(defectItemService.update(currentUser.getFactoryId(), id, req));
     }
 
@@ -67,7 +67,7 @@ public class DefectItemController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         defectItemService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

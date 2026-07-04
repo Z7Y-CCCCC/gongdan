@@ -48,6 +48,15 @@ case "$(grep -E '^APP_CORS_ALLOWED_ORIGIN_PATTERNS=' "$ENV_FILE" | tail -n 1 | s
     ;;
 esac
 
+storage_type="$(grep -E '^APP_UPLOAD_STORAGE_TYPE=' "$ENV_FILE" | tail -n 1 | sed 's/^APP_UPLOAD_STORAGE_TYPE=//' || true)"
+if [ "$storage_type" = "s3" ]; then
+  for name in APP_UPLOAD_S3_BUCKET APP_UPLOAD_S3_ACCESS_KEY APP_UPLOAD_S3_SECRET_KEY
+  do
+    require_var "$name"
+    reject_placeholder "$name"
+  done
+fi
+
 docker compose --env-file "$ENV_FILE" config >/dev/null
 
 echo "Preflight passed for $ENV_FILE"

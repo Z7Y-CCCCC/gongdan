@@ -30,13 +30,22 @@ APP_WECHAT_SECRET=change-me
 APP_WECHAT_OPENID_TICKET_TTL_MINUTES=10
 APP_CORS_ALLOWED_ORIGIN_PATTERNS=https://workorder.example.com,https://admin.example.com
 APP_SESSION_TTL_MINUTES=720
+APP_UPLOAD_STORAGE_TYPE=local
 APP_UPLOAD_REPORT_IMAGE_DIR=/var/lib/heihu-workorder/report-images
+APP_UPLOAD_S3_ENDPOINT=
+APP_UPLOAD_S3_REGION=us-east-1
+APP_UPLOAD_S3_BUCKET=
+APP_UPLOAD_S3_ACCESS_KEY=
+APP_UPLOAD_S3_SECRET_KEY=
+APP_UPLOAD_S3_PATH_STYLE_ACCESS=true
+APP_UPLOAD_S3_KEY_PREFIX=report-images
 ```
 
 Production defaults disable WeChat mock login, enable Flyway migrations, and set `spring.jpa.hibernate.ddl-auto=validate`.
 Production startup requires explicit seed passwords for both the factory admin and the super admin, and rejects common sample values for database passwords, seed passwords, WeChat credentials, and SMS auth headers.
-Token sessions are stored in the database as token hashes when the backend runs through Spring, so multiple backend instances can share login state without storing reusable bearer tokens. Horizontal scaling still requires all instances to share the same database and uploaded file storage path or object storage.
-`APP_UPLOAD_REPORT_IMAGE_DIR` is currently the shared upload root for report images and custom-field attachments.
+Token sessions are stored in the database as token hashes when the backend runs through Spring, so multiple backend instances can share login state without storing reusable bearer tokens. Horizontal scaling requires all instances to share the same database and uploaded file storage.
+For a single backend instance, `APP_UPLOAD_STORAGE_TYPE=local` stores report images and custom-field attachments under `APP_UPLOAD_REPORT_IMAGE_DIR`.
+For multiple backend instances, set `APP_UPLOAD_STORAGE_TYPE=s3` and configure the S3-compatible settings. MinIO, AWS S3, and S3-compatible object storage can be used; `APP_UPLOAD_S3_KEY_PREFIX` defaults to `report-images`.
 
 Health checks:
 
@@ -123,6 +132,57 @@ ENV_FILE=/opt/gongdan/.env BACKUP_DIR=/data/gongdan-backups sh ops/backup-compos
 ```
 
 Store backup copies outside the Docker host as well. A local-only backup does not protect against disk loss.
+
+## Restore and Drill
+
+Restore is destructive and must be tested before a real incident. The restore script refuses to run unless `CONFIRM_RESTORE=yes` is set.
+
+```bash
+CONFIRM_RESTORE=yes \
+DB_BACKUP_PATH=backups/mysql_YYYYMMDD_HHMMSS.sql \
+UPLOAD_BACKUP_PATH=backups/report-images_YYYYMMDD_HHMMSS.tar.gz \
+sh ops/restore-compose.sh
+```
+
+Run a restore drill for every release train:
+
+1. Start a temporary Compose environment with a copy of production `.env` values adjusted for a non-production host.
+2. Restore the latest database and attachment backups.
+3. Run `sh ops/monitor-compose.sh`.
+4. Log in as an admin, open work orders, report approvals, and attachment previews.
+5. Record the backup timestamp, restore duration, operator, and result.
+
+If `APP_UPLOAD_STORAGE_TYPE=s3` is used, back up and restore the object storage bucket with the provider's snapshot, replication, or lifecycle tooling in addition to the MySQL dump.
+
+## Monitoring and Alerting
+
+The stack has Docker health checks and Spring Boot actuator probes. For host-level monitoring or cron checks:
+
+```bash
+sh ops/monitor-compose.sh
+```
+
+Optional environment variables:
+
+```bash
+FRONTEND_URL=https://workorder.example.com/
+BACKEND_HEALTH_URL=https://workorder.example.com/api/actuator/health/readiness
+ALERT_WEBHOOK_URL=https://alert-gateway.example.com/hooks/gongdan
+TIMEOUT_SECONDS=8
+```
+
+The script exits non-zero on frontend or backend readiness failure and posts a simple JSON payload to `ALERT_WEBHOOK_URL` when configured. In production, run it from cron or an external monitor at 1 minute to 5 minute intervals.
+
+## CI/CD
+
+GitHub Actions workflow `.github/workflows/ci.yml` runs on pushes to `main` and `codex/**` branches and on pull requests:
+
+- backend Maven tests
+- frontend `npm run build`
+- mobile H5 `npm run build`
+- Docker Compose config rendering
+
+Keep deployment as a separate promoted step after CI passes. Before each production release, run `sh ops/preflight-compose.sh`, `sh ops/backup-compose.sh`, deploy, then run `sh ops/monitor-compose.sh`.
 
 ## Reverse Proxy and Browser Security
 

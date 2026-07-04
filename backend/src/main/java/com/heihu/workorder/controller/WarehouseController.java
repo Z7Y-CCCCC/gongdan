@@ -43,7 +43,7 @@ public class WarehouseController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<WarehouseResponse> result = warehouseService.list(currentUser.getFactoryId(), code, name, pageRequest);
         Map<String, Object> response = new HashMap<>();
@@ -57,7 +57,7 @@ public class WarehouseController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody WarehouseRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return warehouseService.create(currentUser.getFactoryId(), request);
     }
 
@@ -67,7 +67,7 @@ public class WarehouseController {
             @PathVariable Long id,
             @RequestBody WarehouseRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return warehouseService.update(currentUser.getFactoryId(), id, request);
     }
 
@@ -76,7 +76,7 @@ public class WarehouseController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         warehouseService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

@@ -43,7 +43,7 @@ public class InventoryDetailController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         Long factoryId = currentUser.getFactoryId();
 
         LocalDateTime start = null;

@@ -43,7 +43,7 @@ public class BomController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<BomResponse> result = bomService.list(currentUser.getFactoryId(), code, productName, pageRequest);
         Map<String, Object> response = new HashMap<>();
@@ -57,7 +57,7 @@ public class BomController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody BomRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return bomService.create(currentUser.getFactoryId(), request);
     }
 
@@ -67,7 +67,7 @@ public class BomController {
             @PathVariable Long id,
             @RequestBody BomRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return bomService.update(currentUser.getFactoryId(), id, request);
     }
 
@@ -76,7 +76,7 @@ public class BomController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         bomService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

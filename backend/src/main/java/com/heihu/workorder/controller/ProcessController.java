@@ -34,7 +34,7 @@ public class ProcessController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser cu = tokenService.requireUser(authorization);
+        AuthenticatedUser cu = tokenService.requireAdmin(authorization);
         PageRequest pr = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<ProcessResponse> result = processService.list(cu.getFactoryId(), code, name, pr);
         Map<String, Object> resp = new HashMap<>();
@@ -48,7 +48,7 @@ public class ProcessController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody ProcessRequest req
     ) {
-        AuthenticatedUser cu = tokenService.requireUser(authorization);
+        AuthenticatedUser cu = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(processService.create(cu.getFactoryId(), cu.getUserId(), req));
     }
 
@@ -58,7 +58,7 @@ public class ProcessController {
             @PathVariable Long id,
             @RequestBody ProcessRequest req
     ) {
-        AuthenticatedUser cu = tokenService.requireUser(authorization);
+        AuthenticatedUser cu = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(processService.update(cu.getFactoryId(), cu.getUserId(), id, req));
     }
 
@@ -67,7 +67,7 @@ public class ProcessController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser cu = tokenService.requireUser(authorization);
+        AuthenticatedUser cu = tokenService.requireAdmin(authorization);
         processService.delete(cu.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

@@ -40,7 +40,7 @@ public class OutboundReceiptController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
 
         LocalDateTime start = null;
@@ -66,7 +66,7 @@ public class OutboundReceiptController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(outboundReceiptService.getById(currentUser.getFactoryId(), id));
     }
 
@@ -75,7 +75,7 @@ public class OutboundReceiptController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody OutboundReceiptRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(outboundReceiptService.create(
                 currentUser.getFactoryId(),
                 currentUser.getUserId(),
@@ -88,7 +88,7 @@ public class OutboundReceiptController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         outboundReceiptService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

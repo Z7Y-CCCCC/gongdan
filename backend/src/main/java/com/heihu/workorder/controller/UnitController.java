@@ -33,7 +33,7 @@ public class UnitController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pr = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<UnitResponse> result = unitService.list(currentUser.getFactoryId(), name, pr);
         Map<String, Object> resp = new HashMap<>();
@@ -47,7 +47,7 @@ public class UnitController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody UnitRequest req
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(unitService.create(currentUser.getFactoryId(), req));
     }
 
@@ -57,7 +57,7 @@ public class UnitController {
             @PathVariable Long id,
             @RequestBody UnitRequest req
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(unitService.update(currentUser.getFactoryId(), id, req));
     }
 
@@ -66,7 +66,7 @@ public class UnitController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         unitService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

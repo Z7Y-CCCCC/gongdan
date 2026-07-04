@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: maven
+      - name: Test backend
+        run: mvn -B test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Build frontend
+        run: npm run build
+
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: Build mobile H5
+        run: npm run build
+
+  compose-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render docker compose config
+        run: |
+          cat > .env.ci <<'EOF'
+          MYSQL_DATABASE=heihu_workorder
+          MYSQL_USER=heihu_app
+          MYSQL_PASSWORD=ci-db-password
+          MYSQL_ROOT_PASSWORD=ci-root-password
+          APP_SEED_FACTORY_CODE=HHGD
+          APP_SEED_FACTORY_NAME=CI_Factory
+          APP_SEED_ADMIN_USERNAME=admin
+          APP_SEED_ADMIN_PASSWORD=ci-admin-password
+          APP_SEED_ADMIN_NAME=CI_Admin
+          APP_SEED_SUPER_ADMIN_USERNAME=admin
+          APP_SEED_SUPER_ADMIN_PASSWORD=ci-super-admin-password
+          APP_WECHAT_APP_ID=wx-ci-app
+          APP_WECHAT_SECRET=ci-wechat-secret
+          APP_SMS_SENDER=http
+          APP_SMS_HTTP_URL=https://sms.example.invalid/send
+          APP_CORS_ALLOWED_ORIGIN_PATTERNS=https://workorder.example.invalid
+          APP_UPLOAD_STORAGE_TYPE=local
+          FRONTEND_PORT=8080
+          EOF
+          docker compose --env-file .env.ci config >/dev/null

@@ -37,7 +37,7 @@ public class ProductController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<ProductResponse> result = productService.list(currentUser.getFactoryId(), code, name, spec, pageRequest);
         Map<String, Object> response = new HashMap<>();
@@ -54,7 +54,7 @@ public class ProductController {
             @RequestParam(required = false) String spec,
             javax.servlet.http.HttpServletResponse response
     ) throws java.io.IOException {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         String csv = productService.exportProductsCsv(currentUser.getFactoryId(), code, name, spec);
         response.setContentType("text/csv; charset=UTF-8");
         response.setHeader("Content-Disposition", "attachment; filename=inventory_balance_export.csv");
@@ -69,7 +69,7 @@ public class ProductController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<ProductOperationLogResponse> result = productService.listOperationLogs(currentUser.getFactoryId(), pageRequest);
         Map<String, Object> response = new HashMap<>();
@@ -83,7 +83,7 @@ public class ProductController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody ProductRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(productService.create(
                 currentUser.getFactoryId(),
                 currentUser.getUserId(),
@@ -97,7 +97,7 @@ public class ProductController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody ProductOperationLogRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         productService.recordOperation(currentUser.getFactoryId(), currentUser.getName(), request);
         return ResponseEntity.ok().build();
     }
@@ -108,7 +108,7 @@ public class ProductController {
             @PathVariable Long id,
             @RequestBody ProductRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(productService.update(
                 currentUser.getFactoryId(),
                 currentUser.getUserId(),
@@ -123,7 +123,7 @@ public class ProductController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         productService.delete(currentUser.getFactoryId(), currentUser.getName(), id);
         return ResponseEntity.ok().build();
     }

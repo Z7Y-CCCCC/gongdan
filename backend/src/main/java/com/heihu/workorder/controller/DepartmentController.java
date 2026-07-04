@@ -46,7 +46,7 @@ public class DepartmentController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         // Page index starts from 0 in Spring Data
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<DepartmentResponse> departments = departmentService.listDepartments(currentUser.getFactoryId(), code, name, pageRequest);
@@ -62,7 +62,7 @@ public class DepartmentController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody CreateDepartmentRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         Long factoryId = currentUser.getFactoryId();
         String creatorName = currentUser.getName();
         DepartmentResponse response = departmentService.createDepartment(factoryId, creatorName, request);
@@ -75,7 +75,7 @@ public class DepartmentController {
             @PathVariable Long id,
             @Valid @RequestBody UpdateDepartmentRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         Long factoryId = currentUser.getFactoryId();
         DepartmentResponse response = departmentService.updateDepartment(factoryId, id, request);
         return ResponseEntity.ok(response);
@@ -86,7 +86,7 @@ public class DepartmentController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         Long factoryId = currentUser.getFactoryId();
         departmentService.deleteDepartment(factoryId, id);
         return ResponseEntity.ok().build();

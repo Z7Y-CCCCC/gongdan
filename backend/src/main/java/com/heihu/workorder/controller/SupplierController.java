@@ -43,7 +43,7 @@ public class SupplierController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<SupplierResponse> result = supplierService.list(currentUser.getFactoryId(), code, name, pageRequest);
         Map<String, Object> response = new HashMap<>();
@@ -57,7 +57,7 @@ public class SupplierController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody SupplierRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return supplierService.create(currentUser.getFactoryId(), request);
     }
 
@@ -67,7 +67,7 @@ public class SupplierController {
             @PathVariable Long id,
             @RequestBody SupplierRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return supplierService.update(currentUser.getFactoryId(), id, request);
     }
 
@@ -76,7 +76,7 @@ public class SupplierController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         supplierService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

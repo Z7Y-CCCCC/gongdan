@@ -40,7 +40,7 @@ public class CustomFieldAttachmentController {
             @RequestParam(required = false) Long fieldId,
             @RequestParam(required = false) String fieldType
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return attachmentService.upload(
                 currentUser.getFactoryId(),
                 currentUser.getUserId(),
@@ -56,7 +56,7 @@ public class CustomFieldAttachmentController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long attachmentId
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         AttachmentDownload download = attachmentService.getDownload(currentUser.getFactoryId(), attachmentId);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(download.getAttachment().getContentType()))

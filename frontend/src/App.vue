@@ -291,6 +291,10 @@ const loadDashboardData = async () => {
 }
 
 watch(activeMainMenu, (newVal) => {
+  if (!hasAdminAccess.value && newVal !== 'home') {
+    activeMainMenu.value = 'home'
+    return
+  }
   if (newVal === 'dashboard') {
     loadDashboardData()
   }
@@ -342,7 +346,7 @@ function normalizeDate(value?: string) {
 }
 
 async function loadNotifications() {
-  if (!token.value || currentUser.value?.role !== 'ADMIN') {
+  if (!token.value || (!isSuperAdmin.value && currentUser.value?.role !== 'ADMIN')) {
     notificationItems.value = []
     return
   }
@@ -1401,6 +1405,7 @@ const editForm = reactive<UpdateUserPayload>({
 })
 
 const isLoggedIn = computed(() => Boolean(token.value && currentUser.value))
+const hasAdminAccess = computed(() => Boolean(isSuperAdmin.value || currentUser.value?.role === 'ADMIN'))
 const filteredUsers = computed(() => {
   return users.value.filter((item) => {
     const matchName = !filterForm.name || item.name.includes(filterForm.name)
@@ -2346,7 +2351,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input v-model="searchQuery" @keydown.enter="handleSearch" type="text" placeholder="搜索(win+shift+f)" style="background: transparent; border: none; color: inherit; outline: none; width: 100%; font-size: 13px;" />
       </div>
-      <nav>
+      <nav v-if="hasAdminAccess">
         <a v-if="currentUser && currentUser.role === 'ADMIN'" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'home' }" :title="isSidebarCollapsed ? '主页' : ''" @click="activeMainMenu = 'home'">
           <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           <span v-show="!isSidebarCollapsed">主页</span>
@@ -2469,6 +2474,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </a>
         </div>
       </nav>
+      <nav v-else>
+        <a class="nav-item active-parent" :title="isSidebarCollapsed ? '移动端' : ''">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          <span v-show="!isSidebarCollapsed">移动端作业</span>
+        </a>
+      </nav>
     </aside>
 
     <section class="workspace">
@@ -2567,6 +2578,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </div>
         </div>
       </header>
+
+      <section v-if="!hasAdminAccess" class="content">
+        <div class="placeholder-page">
+          <div class="empty-state">当前账号为生产作业账号，请使用手机端接单、报工和查看任务。</div>
+        </div>
+      </section>
 
       <HomeDashboardPage
         v-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"

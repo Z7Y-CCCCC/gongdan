@@ -43,7 +43,7 @@ public class CustomerController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<CustomerResponse> result = customerService.list(currentUser.getFactoryId(), code, name, pageRequest);
         Map<String, Object> response = new HashMap<>();
@@ -57,7 +57,7 @@ public class CustomerController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody CustomerRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return customerService.create(currentUser.getFactoryId(), request);
     }
 
@@ -67,7 +67,7 @@ public class CustomerController {
             @PathVariable Long id,
             @RequestBody CustomerRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return customerService.update(currentUser.getFactoryId(), id, request);
     }
 
@@ -76,7 +76,7 @@ public class CustomerController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         customerService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

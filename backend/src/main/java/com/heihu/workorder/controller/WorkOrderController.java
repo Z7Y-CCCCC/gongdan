@@ -34,7 +34,7 @@ public class WorkOrderController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<WorkOrderResponse> result = workOrderService.list(currentUser.getFactoryId(), code, productName, pageRequest);
         Map<String, Object> response = new HashMap<>();
@@ -48,7 +48,7 @@ public class WorkOrderController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody WorkOrderRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(workOrderService.create(currentUser.getFactoryId(), currentUser.getUserId(), request));
     }
 
@@ -58,7 +58,7 @@ public class WorkOrderController {
             @PathVariable Long id,
             @RequestBody WorkOrderRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(workOrderService.update(currentUser.getFactoryId(), id, request));
     }
 
@@ -67,7 +67,7 @@ public class WorkOrderController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         workOrderService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

@@ -29,7 +29,7 @@ public class CustomFieldController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam(defaultValue = "workorder") String scope
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         List<CustomFieldResponse> items = customFieldService.list(currentUser.getFactoryId(), scope);
         Map<String, Object> response = new HashMap<>();
         response.put("items", items);
@@ -42,7 +42,7 @@ public class CustomFieldController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody CustomFieldRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(customFieldService.create(currentUser.getFactoryId(), currentUser.getUserId(), request));
     }
 
@@ -52,7 +52,7 @@ public class CustomFieldController {
             @PathVariable Long id,
             @RequestBody CustomFieldRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(customFieldService.update(currentUser.getFactoryId(), currentUser.getUserId(), id, request));
     }
 
@@ -61,7 +61,7 @@ public class CustomFieldController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         customFieldService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

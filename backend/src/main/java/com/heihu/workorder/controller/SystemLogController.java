@@ -32,7 +32,7 @@ public class SystemLogController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<SystemImportLogResponse> result = systemLogService.listImportLogs(currentUser.getFactoryId(), module, pageRequest);
         Map<String, Object> response = new HashMap<>();
@@ -46,7 +46,7 @@ public class SystemLogController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody SystemImportLogRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         systemLogService.recordImport(currentUser.getFactoryId(), currentUser.getName(), request);
         return ResponseEntity.ok().build();
     }
@@ -58,7 +58,7 @@ public class SystemLogController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<SystemOperationLogResponse> result = systemLogService.listOperationLogs(currentUser.getFactoryId(), module, pageRequest);
         Map<String, Object> response = new HashMap<>();
@@ -72,7 +72,7 @@ public class SystemLogController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody SystemOperationLogRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         systemLogService.recordOperation(currentUser.getFactoryId(), currentUser.getName(), request);
         return ResponseEntity.ok().build();
     }
