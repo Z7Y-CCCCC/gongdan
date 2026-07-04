@@ -16,6 +16,13 @@ public interface OutboundReceiptRepository extends JpaRepository<OutboundReceipt
 
     Optional<OutboundReceipt> findByFactoryIdAndCode(Long factoryId, String code);
 
+    @Query("SELECT CASE WHEN COUNT(r) > 0 THEN true ELSE false END FROM OutboundReceipt r JOIN r.items i " +
+            "WHERE r.factory.id = :factoryId AND i.product.id = :productId")
+    boolean existsByFactoryIdAndProductId(
+            @Param("factoryId") Long factoryId,
+            @Param("productId") Long productId
+    );
+
     @Query("SELECT r FROM OutboundReceipt r WHERE r.factory.id = :factoryId" +
             " AND (:code IS NULL OR r.code LIKE %:code%)" +
             " AND (:outboundType IS NULL OR r.outboundType = :outboundType)" +

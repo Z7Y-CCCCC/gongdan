@@ -10,11 +10,14 @@ import com.heihu.workorder.model.Product;
 import com.heihu.workorder.model.ProductOperationLog;
 import com.heihu.workorder.model.Unit;
 import com.heihu.workorder.repository.FactoryRepository;
+import com.heihu.workorder.repository.InboundReceiptRepository;
+import com.heihu.workorder.repository.OutboundReceiptRepository;
 import com.heihu.workorder.repository.ProcessRouteRepository;
 import com.heihu.workorder.repository.ProductOperationLogRepository;
 import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UnitRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.repository.WorkOrderRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -36,19 +39,28 @@ public class ProductService {
     private final UnitRepository unitRepository;
     private final ProcessRouteRepository routeRepository;
     private final UserRepository userRepository;
+    private final WorkOrderRepository workOrderRepository;
+    private final InboundReceiptRepository inboundReceiptRepository;
+    private final OutboundReceiptRepository outboundReceiptRepository;
 
     public ProductService(ProductRepository productRepository,
                           ProductOperationLogRepository productOperationLogRepository,
                           FactoryRepository factoryRepository,
                           UnitRepository unitRepository,
                           ProcessRouteRepository routeRepository,
-                          UserRepository userRepository) {
+                          UserRepository userRepository,
+                          WorkOrderRepository workOrderRepository,
+                          InboundReceiptRepository inboundReceiptRepository,
+                          OutboundReceiptRepository outboundReceiptRepository) {
         this.productRepository = productRepository;
         this.productOperationLogRepository = productOperationLogRepository;
         this.factoryRepository = factoryRepository;
         this.unitRepository = unitRepository;
         this.routeRepository = routeRepository;
         this.userRepository = userRepository;
+        this.workOrderRepository = workOrderRepository;
+        this.inboundReceiptRepository = inboundReceiptRepository;
+        this.outboundReceiptRepository = outboundReceiptRepository;
     }
 
     private ProductResponse toResponse(Product product) {
@@ -146,6 +158,7 @@ public class ProductService {
         String productCode = product.getCode();
         String productName = product.getName();
         Factory factory = product.getFactory();
+        ensureProductCanBeDeleted(factoryId, id);
         productRepository.delete(product);
         writeLog(factory, operatorName, "DELETE", productCode, productName, null);
     }
@@ -238,6 +251,18 @@ public class ProductService {
         log.setDetail(detail);
         log.setCreatedAt(LocalDateTime.now());
         productOperationLogRepository.save(log);
+    }
+
+    private void ensureProductCanBeDeleted(Long factoryId, Long productId) {
+        if (workOrderRepository.existsByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被工单引用，不能删除");
+        }
+        if (inboundReceiptRepository.existsByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被入库单引用，不能删除");
+        }
+        if (outboundReceiptRepository.existsByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被出库单引用，不能删除");
+        }
     }
 
     @Transactional(readOnly = true)
