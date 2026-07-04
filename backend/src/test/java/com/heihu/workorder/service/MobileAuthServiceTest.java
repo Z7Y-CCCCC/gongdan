@@ -65,4 +65,17 @@ class MobileAuthServiceTest {
 
         verifyNoInteractions(factoryRepository, passwordEncoder, tokenService);
     }
+
+    @Test
+    void wechatLoginIgnoresMockOpenidWhenMockDisabled() {
+        ReflectionTestUtils.setField(service, "mockEnabled", false);
+        MobileWechatLoginRequest loginRequest = new MobileWechatLoginRequest();
+        loginRequest.setMockOpenid("MOCK_OPENID_TEST");
+
+        assertThatThrownBy(() -> service.wechatLogin(loginRequest))
+                .isInstanceOf(ApiException.class)
+                .satisfies(error -> assertThat(((ApiException) error).getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
+
+        verifyNoInteractions(userRepository);
+    }
 }

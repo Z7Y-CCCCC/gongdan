@@ -34,7 +34,7 @@ public class MobileAuthService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<String, OpenidTicket> openidTickets = new ConcurrentHashMap<>();
 
-    @Value("${app.wechat.mock-enabled:true}")
+    @Value("${app.wechat.mock-enabled:false}")
     private boolean mockEnabled;
 
     @Value("${app.wechat.app-id:}")
