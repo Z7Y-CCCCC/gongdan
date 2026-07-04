@@ -421,6 +421,67 @@ export async function deleteWarehouse(token: string, id: number) {
   })
 }
 
+// ---- 供应商 ----
+export interface SupplierInfo {
+  id: number
+  code: string
+  name: string
+  contactName?: string
+  phone?: string
+  address?: string
+  remark?: string
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+export interface SupplierListResponse {
+  items: SupplierInfo[]
+  total: number
+}
+export interface SupplierPayload {
+  code?: string
+  name: string
+  contactName?: string
+  phone?: string
+  address?: string
+  remark?: string
+  enabled?: boolean
+}
+
+export async function fetchSuppliers(token: string, params: { code?: string; name?: string; page?: number; size?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.name) query.append('name', params.name)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<SupplierListResponse>(`/suppliers?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createSupplier(token: string, payload: SupplierPayload) {
+  return request<SupplierInfo>('/suppliers', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateSupplier(token: string, id: number, payload: SupplierPayload) {
+  return request<SupplierInfo>(`/suppliers/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteSupplier(token: string, id: number) {
+  return request<void>(`/suppliers/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 // ---- 不良品项 ----
 export interface DefectInfo {
   id: number
