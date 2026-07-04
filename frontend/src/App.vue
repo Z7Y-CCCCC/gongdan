@@ -77,6 +77,7 @@ const InventorySummaryPage = defineAsyncComponent(() => import('./components/Inv
 const CustomReceiptFieldsPage = defineAsyncComponent(() => import('./components/CustomReceiptFieldsPage.vue'))
 const SuperAdminAuthCodesPage = defineAsyncComponent(() => import('./components/SuperAdminAuthCodesPage.vue'))
 const BindFactoryPage = defineAsyncComponent(() => import('./components/BindFactoryPage.vue'))
+const WarehousePage = defineAsyncComponent(() => import('./components/WarehousePage.vue'))
 
 const sharedAuth = useAuth()
 
@@ -2419,6 +2420,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
         @notice="showAction"
       />
 
+      <WarehousePage
+        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse'"
+        :token="token"
+        @notice="showAction"
+      />
+
       <WorkOrderPage
         v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
         :token="token"
@@ -2521,7 +2528,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
       <!-- 基础数据（组件化） -->
       <BaseDataPage
-        v-if="activeMainMenu === 'basedata'"
+        v-if="activeMainMenu === 'basedata' && ['unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
         :token="token"
         :active-basedata-menu="activeBasedataMenu"
         :users="users"
@@ -2531,6 +2538,13 @@ function handleNavigate(menu: { main: string; sub: string }) {
       />
 
       <!-- 单位管理 -->
+      <section
+        class="content placeholder-page"
+        v-if="activeMainMenu === 'basedata' && !['product', 'warehouse', 'unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
+      >
+        <div class="empty-state">该模块待补全。</div>
+      </section>
+
       <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit'">
         <div class="filters">
           <label>

@@ -47,7 +47,7 @@ Health checks:
 ### Database Initialization
 
 The production profile runs Flyway from `backend/src/main/resources/db/migration`.
-`V1__baseline_schema.sql` creates the baseline business schema for an empty database. `V2__create_user_sessions.sql` and `V3__clear_plaintext_user_sessions.sql` move login sessions to hashed database-backed tokens. `V4__create_auth_attempts.sql` adds login lockout tracking, `V5__create_sms_codes.sql` and `V6__create_sms_ip_rate_limits.sql` add SMS login controls, and `V7__create_custom_field_attachments.sql` adds protected attachment metadata for custom fields.
+`V1__baseline_schema.sql` creates the baseline business schema for an empty database. `V2__create_user_sessions.sql` and `V3__clear_plaintext_user_sessions.sql` move login sessions to hashed database-backed tokens. `V4__create_auth_attempts.sql` adds login lockout tracking, `V5__create_sms_codes.sql` and `V6__create_sms_ip_rate_limits.sql` add SMS login controls, `V7__create_custom_field_attachments.sql` adds protected attachment metadata for custom fields, and `V8__create_warehouses.sql` adds warehouse master data.
 
 For a fresh commercial database:
 

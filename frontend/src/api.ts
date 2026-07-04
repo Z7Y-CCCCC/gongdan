@@ -364,6 +364,63 @@ export async function deleteUnit(token: string, id: number) {
   })
 }
 
+// ---- 仓库 ----
+export interface WarehouseInfo {
+  id: number
+  code: string
+  name: string
+  location?: string
+  remark?: string
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+export interface WarehouseListResponse {
+  items: WarehouseInfo[]
+  total: number
+}
+export interface WarehousePayload {
+  code?: string
+  name: string
+  location?: string
+  remark?: string
+  enabled?: boolean
+}
+
+export async function fetchWarehouses(token: string, params: { code?: string; name?: string; page?: number; size?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.name) query.append('name', params.name)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<WarehouseListResponse>(`/warehouses?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createWarehouse(token: string, payload: WarehousePayload) {
+  return request<WarehouseInfo>('/warehouses', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateWarehouse(token: string, id: number, payload: WarehousePayload) {
+  return request<WarehouseInfo>(`/warehouses/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteWarehouse(token: string, id: number) {
+  return request<void>(`/warehouses/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 // ---- 不良品项 ----
 export interface DefectInfo {
   id: number
