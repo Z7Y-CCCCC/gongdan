@@ -1,6 +1,7 @@
 package com.heihu.workorder.repository;
 
 import com.heihu.workorder.model.WorkOrderReportImage;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,4 +11,6 @@ public interface WorkOrderReportImageRepository extends JpaRepository<WorkOrderR
     List<WorkOrderReportImage> findByReportIdOrderByCreatedAtAsc(Long reportId);
 
     List<WorkOrderReportImage> findByFactoryIdAndIdIn(Long factoryId, Collection<Long> ids);
+
+    List<WorkOrderReportImage> findByReportIsNullAndCreatedAtBefore(LocalDateTime createdBefore);
 }

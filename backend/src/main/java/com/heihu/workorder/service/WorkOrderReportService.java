@@ -38,15 +38,19 @@ import org.springframework.core.io.UrlResource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 @Transactional
 public class WorkOrderReportService {
 
+    private static final Logger log = LoggerFactory.getLogger(WorkOrderReportService.class);
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final long MAX_IMAGE_SIZE = 10L * 1024L * 1024L;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -57,6 +61,9 @@ public class WorkOrderReportService {
 
     @Value("${app.upload.report-image-dir:uploads/report-images}")
     private String reportImageDir;
+
+    @Value("${app.upload.pending-image-ttl-hours:24}")
+    private int pendingImageTtlHours;
 
     public WorkOrderReportService(
             WorkOrderReportRepository reportRepository,
@@ -248,6 +255,25 @@ public class WorkOrderReportService {
         return toResponse(reportRepository.save(report));
     }
 
+    @Scheduled(cron = "${app.upload.pending-image-cleanup-cron:0 0 3 * * *}")
+    public int cleanupExpiredPendingImages() {
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(Math.max(1, pendingImageTtlHours));
+        List<WorkOrderReportImage> expired = imageRepository.findByReportIsNullAndCreatedAtBefore(cutoff);
+        if (expired.isEmpty()) {
+            return 0;
+        }
+
+        Path root = Paths.get(reportImageDir).toAbsolutePath().normalize();
+        List<WorkOrderReportImage> removable = expired.stream()
+                .filter(image -> deleteStoredImage(root, image.getStoredFileName()))
+                .collect(Collectors.toList());
+        if (!removable.isEmpty()) {
+            imageRepository.deleteAll(removable);
+        }
+        log.info("清理过期未绑定报工图片：expired={}, removed={}", expired.size(), removable.size());
+        return removable.size();
+    }
+
     private void attachImages(Long factoryId, Long userId, WorkOrderReport report, List<Long> imageIds) {
         if (imageIds == null || imageIds.isEmpty()) return;
         List<WorkOrderReportImage> images = imageRepository.findByFactoryIdAndIdIn(factoryId, imageIds);
@@ -264,6 +290,20 @@ public class WorkOrderReportService {
             image.setReport(report);
         }
         imageRepository.saveAll(images);
+    }
+
+    private boolean deleteStoredImage(Path root, String storedFileName) {
+        Path file = root.resolve(storedFileName).normalize();
+        if (!file.startsWith(root)) {
+            log.warn("跳过异常图片路径：{}", storedFileName);
+            return false;
+        }
+        try {
+            return Files.deleteIfExists(file) || !Files.exists(file);
+        } catch (IOException ex) {
+            log.warn("删除过期未绑定报工图片失败：{}", storedFileName, ex);
+            return false;
+        }
     }
 
     private void applyApprovedReport(WorkOrderReport report, LocalDateTime now) {

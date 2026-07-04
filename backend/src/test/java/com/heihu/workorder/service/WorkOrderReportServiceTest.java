@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -161,6 +162,30 @@ class WorkOrderReportServiceTest {
                 .isInstanceOf(ApiException.class)
                 .extracting("status")
                 .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void cleanupExpiredPendingImagesDeletesFileAndDatabaseRecord() throws Exception {
+        Files.write(uploadDir.resolve("pending.png"), pngBytes());
+        WorkOrderReportImage image = new WorkOrderReportImage();
+        image.setId(12L);
+        image.setFactory(factory(1L));
+        image.setUploader(user(2L, image.getFactory()));
+        image.setOriginalFileName("pending.png");
+        image.setStoredFileName("pending.png");
+        image.setAccessPath("/api/reports/images/12/file");
+        image.setFileSize(12L);
+        image.setContentType("image/png");
+        image.setCreatedAt(LocalDateTime.now().minusHours(25));
+
+        when(imageRepository.findByReportIsNullAndCreatedAtBefore(any(LocalDateTime.class)))
+                .thenReturn(Collections.singletonList(image));
+
+        int removed = service.cleanupExpiredPendingImages();
+
+        assertThat(removed).isEqualTo(1);
+        assertThat(Files.exists(uploadDir.resolve("pending.png"))).isFalse();
+        verify(imageRepository).deleteAll(Collections.singletonList(image));
     }
 
     private Factory factory(Long id) {
