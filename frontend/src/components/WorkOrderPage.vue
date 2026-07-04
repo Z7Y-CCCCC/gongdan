@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import QRCode from 'qrcode'
-import ExcelJS from 'exceljs'
-import { saveAs } from 'file-saver'
 import {
   createWorkOrder,
   deleteWorkOrder,
@@ -1656,6 +1654,10 @@ async function doExcelPrint(action: 'wps' | 'download') {
     return
   }
 
+  const [{ default: ExcelJS }, { saveAs }] = await Promise.all([
+    import('exceljs'),
+    import('file-saver')
+  ])
   const tplType = selectedExcelTpl.value
   const wb = new ExcelJS.Workbook()
   wb.creator = '小工单管理系统'

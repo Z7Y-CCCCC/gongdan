@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, defineAsyncComponent, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import QRCode from 'qrcode'
 import {
   createUser,
@@ -57,23 +57,24 @@ import {
   fetchWorkOrders,
   fetchReports
 } from './api'
-import ProductDefinitionPage from './components/ProductDefinitionPage.vue'
-import WorkOrderPage from './components/WorkOrderPage.vue'
-import CustomWorkOrderFieldsPage from './components/CustomWorkOrderFieldsPage.vue'
-import ReportApprovalPage from './components/ReportApprovalPage.vue'
-import BaseDataPage from './components/BaseDataPage.vue'
-import UserManagementPage from './components/UserManagementPage.vue'
-import DepartmentManagementPage from './components/DepartmentManagementPage.vue'
-import HomeDashboardPage from './views/HomeDashboardPage.vue'
-import InboundReceiptPage from './components/InboundReceiptPage.vue'
-import OutboundReceiptPage from './components/OutboundReceiptPage.vue'
-import InventoryBalancePage from './components/InventoryBalancePage.vue'
-import InventoryDetailPage from './components/InventoryDetailPage.vue'
-import CustomReceiptFieldsPage from './components/CustomReceiptFieldsPage.vue'
 import DeleteConfirmDialog from './components/DeleteConfirmDialog.vue'
-import SuperAdminAuthCodesPage from './components/SuperAdminAuthCodesPage.vue'
-import BindFactoryPage from './components/BindFactoryPage.vue'
 import { useAuth } from './composables/useAuth'
+
+const ProductDefinitionPage = defineAsyncComponent(() => import('./components/ProductDefinitionPage.vue'))
+const WorkOrderPage = defineAsyncComponent(() => import('./components/WorkOrderPage.vue'))
+const CustomWorkOrderFieldsPage = defineAsyncComponent(() => import('./components/CustomWorkOrderFieldsPage.vue'))
+const ReportApprovalPage = defineAsyncComponent(() => import('./components/ReportApprovalPage.vue'))
+const BaseDataPage = defineAsyncComponent(() => import('./components/BaseDataPage.vue'))
+const UserManagementPage = defineAsyncComponent(() => import('./components/UserManagementPage.vue'))
+const DepartmentManagementPage = defineAsyncComponent(() => import('./components/DepartmentManagementPage.vue'))
+const HomeDashboardPage = defineAsyncComponent(() => import('./views/HomeDashboardPage.vue'))
+const InboundReceiptPage = defineAsyncComponent(() => import('./components/InboundReceiptPage.vue'))
+const OutboundReceiptPage = defineAsyncComponent(() => import('./components/OutboundReceiptPage.vue'))
+const InventoryBalancePage = defineAsyncComponent(() => import('./components/InventoryBalancePage.vue'))
+const InventoryDetailPage = defineAsyncComponent(() => import('./components/InventoryDetailPage.vue'))
+const CustomReceiptFieldsPage = defineAsyncComponent(() => import('./components/CustomReceiptFieldsPage.vue'))
+const SuperAdminAuthCodesPage = defineAsyncComponent(() => import('./components/SuperAdminAuthCodesPage.vue'))
+const BindFactoryPage = defineAsyncComponent(() => import('./components/BindFactoryPage.vue'))
 
 const sharedAuth = useAuth()
 
