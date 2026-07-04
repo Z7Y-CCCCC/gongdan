@@ -89,12 +89,13 @@ public class PhoneAuthService {
      */
     @Transactional(readOnly = true)
     public PhoneLoginResponse loginBySmsCode(String phone, String code) {
-        if (!smsService.verifyCode(phone, code)) {
+        if (!smsService.verifyCode(phone, code, false)) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "验证码错误或已过期");
         }
 
         List<FactoryUser> users = userRepository.findAllByPhone(phone);
         if (users.isEmpty()) {
+            smsService.verifyCode(phone, code);
             // 验证码有效但手机号未注册，返回 bindingRequired 响应引导绑定
             PhoneLoginResponse response = new PhoneLoginResponse();
             response.setBindingRequired(true);
@@ -108,10 +109,12 @@ public class PhoneAuthService {
                 .collect(Collectors.toList());
 
         if (enabled.isEmpty()) {
+            smsService.verifyCode(phone, code);
             throw new ApiException(HttpStatus.FORBIDDEN, "账号已被禁用");
         }
 
         if (enabled.size() == 1) {
+            smsService.verifyCode(phone, code);
             FactoryUser user = enabled.get(0);
             String token = tokenService.issue(user);
             PhoneLoginResponse response = new PhoneLoginResponse();
@@ -145,8 +148,13 @@ public class PhoneAuthService {
             if (!passwordEncoder.matches(credential, user.getPasswordHash())) {
                 throw new ApiException(HttpStatus.UNAUTHORIZED, "手机号或密码不正确");
             }
+        } else if ("sms".equals(loginType)) {
+            if (!smsService.verifyCode(phone, credential)) {
+                throw new ApiException(HttpStatus.UNAUTHORIZED, "验证码错误或已过期");
+            }
+        } else {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "登录类型不正确");
         }
-        // "sms" 类型无需额外凭证校验（验证码已在首次登录时验证过）
 
         if (!user.isEnabled()) {
             throw new ApiException(HttpStatus.FORBIDDEN, "账号已被禁用");

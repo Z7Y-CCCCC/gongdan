@@ -120,6 +120,7 @@ class PhoneAuthServiceTest {
         String code = "123456";
         FactoryUser user = buildUser(1L, phone, "hashedPwd", true, 1L, "F001", "工厂A");
 
+        when(smsService.verifyCode(phone, code, false)).thenReturn(true);
         when(smsService.verifyCode(phone, code)).thenReturn(true);
         when(userRepository.findAllByPhone(phone)).thenReturn(Collections.singletonList(user));
         when(tokenService.issue(user)).thenReturn("sms-token-xyz");
@@ -130,6 +131,7 @@ class PhoneAuthServiceTest {
         assertEquals("sms-token-xyz", response.getToken());
         assertNotNull(response.getUser());
         assertEquals(1L, response.getUser().getId());
+        verify(smsService).verifyCode(phone, code, false);
         verify(smsService).verifyCode(phone, code);
         verify(tokenService).issue(user);
     }
@@ -140,7 +142,7 @@ class PhoneAuthServiceTest {
         String phone = "13800138000";
         String code = "000000";
 
-        when(smsService.verifyCode(phone, code)).thenReturn(false);
+        when(smsService.verifyCode(phone, code, false)).thenReturn(false);
 
         ApiException exception = assertThrows(ApiException.class, () ->
                 phoneAuthService.loginBySmsCode(phone, code));
@@ -155,6 +157,7 @@ class PhoneAuthServiceTest {
         String phone = "13800000000";
         String code = "123456";
 
+        when(smsService.verifyCode(phone, code, false)).thenReturn(true);
         when(smsService.verifyCode(phone, code)).thenReturn(true);
         when(userRepository.findAllByPhone(phone)).thenReturn(Collections.emptyList());
 
@@ -196,6 +199,28 @@ class PhoneAuthServiceTest {
         verify(tokenService, never()).issue(any());
     }
 
+    @Test
+    @DisplayName("测试验证码登录多工厂场景首次不消费验证码")
+    void loginBySmsCode_multipleFactories_shouldReturnFactoryListWithoutConsumingCode() {
+        String phone = "13800138000";
+        String code = "123456";
+        FactoryUser user1 = buildUser(1L, phone, "hashedPwd", true, 10L, "F001", "工厂A");
+        FactoryUser user2 = buildUser(2L, phone, "hashedPwd", true, 20L, "F002", "工厂B");
+
+        when(smsService.verifyCode(phone, code, false)).thenReturn(true);
+        when(userRepository.findAllByPhone(phone)).thenReturn(Arrays.asList(user1, user2));
+
+        PhoneLoginResponse response = phoneAuthService.loginBySmsCode(phone, code);
+
+        assertTrue(response.isSelectRequired());
+        assertNull(response.getToken());
+        assertNull(response.getUser());
+        assertEquals(2, response.getFactories().size());
+        verify(smsService).verifyCode(phone, code, false);
+        verify(smsService, never()).verifyCode(phone, code);
+        verify(tokenService, never()).issue(any());
+    }
+
     // ==================== 工厂选择测试 ====================
 
     @Test
@@ -217,6 +242,46 @@ class PhoneAuthServiceTest {
         assertNotNull(response.getUser());
         assertEquals(1L, response.getUser().getId());
         verify(tokenService).issue(user1);
+    }
+
+    @Test
+    @DisplayName("测试短信登录工厂选择必须校验验证码")
+    void selectFactory_smsLogin_shouldVerifyCodeBeforeIssuingToken() {
+        String phone = "13800138000";
+        String code = "123456";
+        Long factoryId = 10L;
+        FactoryUser user1 = buildUser(1L, phone, "hashedPwd", true, 10L, "F001", "工厂A");
+        FactoryUser user2 = buildUser(2L, phone, "hashedPwd", true, 20L, "F002", "工厂B");
+
+        when(userRepository.findAllByPhone(phone)).thenReturn(Arrays.asList(user1, user2));
+        when(smsService.verifyCode(phone, code)).thenReturn(true);
+        when(tokenService.issue(user1)).thenReturn("sms-factory-token");
+
+        PhoneLoginResponse response = phoneAuthService.selectFactory(phone, factoryId, "sms", code);
+
+        assertFalse(response.isSelectRequired());
+        assertEquals("sms-factory-token", response.getToken());
+        verify(smsService).verifyCode(phone, code);
+        verify(tokenService).issue(user1);
+    }
+
+    @Test
+    @DisplayName("测试短信登录工厂选择验证码错误时拒绝发 token")
+    void selectFactory_smsLoginWithInvalidCode_shouldReject() {
+        String phone = "13800138000";
+        String code = "000000";
+        Long factoryId = 10L;
+        FactoryUser user1 = buildUser(1L, phone, "hashedPwd", true, 10L, "F001", "工厂A");
+
+        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.singletonList(user1));
+        when(smsService.verifyCode(phone, code)).thenReturn(false);
+
+        ApiException exception = assertThrows(ApiException.class, () ->
+                phoneAuthService.selectFactory(phone, factoryId, "sms", code));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatus());
+        assertEquals("验证码错误或已过期", exception.getMessage());
+        verify(tokenService, never()).issue(any());
     }
 
     // ==================== Helper Methods ====================

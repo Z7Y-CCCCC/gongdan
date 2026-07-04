@@ -127,6 +127,14 @@ public class SmsService {
      * @return true 表示校验通过，false 表示校验失败
      */
     public boolean verifyCode(String phone, String code) {
+        return verifyCode(phone, code, true);
+    }
+
+    /**
+     * 校验验证码，可选择是否立即消费。
+     * 多工厂短信登录需要先预校验并展示工厂列表，最终选择工厂时再消费验证码。
+     */
+    public boolean verifyCode(String phone, String code, boolean consume) {
         SmsCodeEntry entry = codeStore.get(phone);
         if (entry == null) {
             return false;
@@ -140,7 +148,9 @@ public class SmsService {
         if (!entry.getCode().equals(code)) {
             return false;
         }
-        entry.setVerified(true);
+        if (consume) {
+            entry.setVerified(true);
+        }
         return true;
     }
 
