@@ -115,9 +115,7 @@ public class OutboundReceiptService {
                 if (itemReq.getQuantity() == null || itemReq.getQuantity() <= 0) {
                     throw new IllegalArgumentException("出库数量必须大于0");
                 }
-                Product product = productRepository.findById(itemReq.getProductId())
-                        .filter(p -> p.getFactory().getId().equals(factoryId))
-                        .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
+                Product product = productForInventoryUpdate(factoryId, itemReq.getProductId());
 
                 // Stock validation
                 int currentStock = product.getInventoryQty() != null ? product.getInventoryQty() : 0;
@@ -151,13 +149,18 @@ public class OutboundReceiptService {
 
         // Revert inventory
         for (OutboundReceiptItem item : receipt.getItems()) {
-            Product product = item.getProduct();
+            Product product = productForInventoryUpdate(factoryId, item.getProduct().getId());
             int currentStock = product.getInventoryQty() != null ? product.getInventoryQty() : 0;
             product.setInventoryQty(currentStock + item.getQuantity());
             productRepository.save(product);
         }
 
         outboundReceiptRepository.delete(receipt);
+    }
+
+    private Product productForInventoryUpdate(Long factoryId, Long productId) {
+        return productRepository.findByIdAndFactoryIdForUpdate(productId, factoryId)
+                .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
     }
 
     private OutboundReceiptResponse toResponse(OutboundReceipt receipt) {

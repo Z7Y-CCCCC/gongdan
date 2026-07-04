@@ -107,30 +107,31 @@ public class InboundReceiptService {
             userRepository.findById(userId).ifPresent(receipt::setCreator);
         }
 
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            throw new IllegalArgumentException("入库明细不能为空");
+        }
+
         // Process items
-        if (request.getItems() != null && !request.getItems().isEmpty()) {
-            for (InboundReceiptRequest.InboundReceiptItemRequest itemReq : request.getItems()) {
-                if (itemReq.getProductId() == null) {
-                    throw new IllegalArgumentException("产品不能为空");
-                }
-                if (itemReq.getQuantity() == null || itemReq.getQuantity() <= 0) {
-                    throw new IllegalArgumentException("入库数量必须大于0");
-                }
-                Product product = productRepository.findById(itemReq.getProductId())
-                        .filter(p -> p.getFactory().getId().equals(factoryId))
-                        .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
-
-                InboundReceiptItem item = new InboundReceiptItem();
-                item.setInboundReceipt(receipt);
-                item.setProduct(product);
-                item.setQuantity(itemReq.getQuantity());
-                item.setCustomDataJson(writeJson(itemReq.getCustomValues()));
-                receipt.getItems().add(item);
-
-                // Update product inventory
-                product.setInventoryQty(product.getInventoryQty() + itemReq.getQuantity());
-                productRepository.save(product);
+        for (InboundReceiptRequest.InboundReceiptItemRequest itemReq : request.getItems()) {
+            if (itemReq.getProductId() == null) {
+                throw new IllegalArgumentException("产品不能为空");
             }
+            if (itemReq.getQuantity() == null || itemReq.getQuantity() <= 0) {
+                throw new IllegalArgumentException("入库数量必须大于0");
+            }
+            Product product = productForInventoryUpdate(factoryId, itemReq.getProductId());
+
+            InboundReceiptItem item = new InboundReceiptItem();
+            item.setInboundReceipt(receipt);
+            item.setProduct(product);
+            item.setQuantity(itemReq.getQuantity());
+            item.setCustomDataJson(writeJson(itemReq.getCustomValues()));
+            receipt.getItems().add(item);
+
+            // Update product inventory
+            int currentStock = product.getInventoryQty() != null ? product.getInventoryQty() : 0;
+            product.setInventoryQty(currentStock + itemReq.getQuantity());
+            productRepository.save(product);
         }
 
         InboundReceipt saved = inboundReceiptRepository.save(receipt);
@@ -144,13 +145,21 @@ public class InboundReceiptService {
 
         // Revert inventory
         for (InboundReceiptItem item : receipt.getItems()) {
-            Product product = item.getProduct();
-            int newQty = product.getInventoryQty() - item.getQuantity();
-            product.setInventoryQty(Math.max(newQty, 0));
+            Product product = productForInventoryUpdate(factoryId, item.getProduct().getId());
+            int currentStock = product.getInventoryQty() != null ? product.getInventoryQty() : 0;
+            if (currentStock < item.getQuantity()) {
+                throw new IllegalArgumentException("产品 [" + product.getName() + "] 库存已被后续单据消耗，不能删除该入库单");
+            }
+            product.setInventoryQty(currentStock - item.getQuantity());
             productRepository.save(product);
         }
 
         inboundReceiptRepository.delete(receipt);
+    }
+
+    private Product productForInventoryUpdate(Long factoryId, Long productId) {
+        return productRepository.findByIdAndFactoryIdForUpdate(productId, factoryId)
+                .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
     }
 
     private InboundReceiptResponse toResponse(InboundReceipt receipt) {
