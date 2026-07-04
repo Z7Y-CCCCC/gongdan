@@ -6,12 +6,17 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.heihu.workorder.exception.ApiException;
+import com.heihu.workorder.model.SmsCode;
+import com.heihu.workorder.repository.SmsCodeRepository;
 
 /**
  * 短信验证码服务：负责验证码的生成、存储和校验。
@@ -32,6 +37,16 @@ public class SmsService {
     private final ConcurrentHashMap<String, SmsCodeEntry> codeStore = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, LocalDateTime> phoneLastSendTime = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, IpRateEntry> ipRateStore = new ConcurrentHashMap<>();
+    private final SmsCodeRepository smsCodeRepository;
+
+    public SmsService() {
+        this.smsCodeRepository = null;
+    }
+
+    @Autowired
+    public SmsService(SmsCodeRepository smsCodeRepository) {
+        this.smsCodeRepository = smsCodeRepository;
+    }
 
     /**
      * 生成并"发送"验证码（当前仅日志输出）。
@@ -40,22 +55,23 @@ public class SmsService {
      * @param phone    手机号
      * @param clientIp 客户端 IP
      */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void sendCode(String phone, String clientIp) {
         checkPhoneRateLimit(phone);
         checkIpRateLimit(clientIp);
 
         String code = generateCode();
-        SmsCodeEntry entry = new SmsCodeEntry(code, LocalDateTime.now(), false);
-        codeStore.put(phone, entry);
+        LocalDateTime now = LocalDateTime.now();
+        storeCode(phone, code, now);
 
         // 记录手机号发送时间
-        phoneLastSendTime.put(phone, LocalDateTime.now());
+        phoneLastSendTime.put(phone, now);
 
         // 记录 IP 发送次数
         ipRateStore.compute(clientIp, (key, existing) -> {
-            LocalDateTime now = LocalDateTime.now();
-            if (existing == null || existing.getWindowStart().plusMinutes(IP_RATE_LIMIT_WINDOW_MINUTES).isBefore(now)) {
-                return new IpRateEntry(1, now);
+            LocalDateTime windowNow = LocalDateTime.now();
+            if (existing == null || existing.getWindowStart().plusMinutes(IP_RATE_LIMIT_WINDOW_MINUTES).isBefore(windowNow)) {
+                return new IpRateEntry(1, windowNow);
             }
             existing.incrementCount();
             return existing;
@@ -98,6 +114,9 @@ public class SmsService {
      */
     public void cleanupExpiredEntries() {
         LocalDateTime now = LocalDateTime.now();
+        if (smsCodeRepository != null) {
+            smsCodeRepository.deleteByCreatedAtBefore(now.minusMinutes(CODE_EXPIRY_MINUTES));
+        }
 
         // 清理过期的手机号发送记录
         Iterator<Map.Entry<String, LocalDateTime>> phoneIterator = phoneLastSendTime.entrySet().iterator();
@@ -126,6 +145,7 @@ public class SmsService {
      * @param code  用户提交的验证码
      * @return true 表示校验通过，false 表示校验失败
      */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean verifyCode(String phone, String code) {
         return verifyCode(phone, code, true);
     }
@@ -134,7 +154,11 @@ public class SmsService {
      * 校验验证码，可选择是否立即消费。
      * 多工厂短信登录需要先预校验并展示工厂列表，最终选择工厂时再消费验证码。
      */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean verifyCode(String phone, String code, boolean consume) {
+        if (smsCodeRepository != null) {
+            return verifyCodeInDatabase(phone, code, consume);
+        }
         SmsCodeEntry entry = codeStore.get(phone);
         if (entry == null) {
             return false;
@@ -167,6 +191,40 @@ public class SmsService {
             sb.append(secureRandom.nextInt(10));
         }
         return sb.toString();
+    }
+
+    private void storeCode(String phone, String code, LocalDateTime now) {
+        if (smsCodeRepository == null) {
+            codeStore.put(phone, new SmsCodeEntry(code, now, false));
+            return;
+        }
+        SmsCode smsCode = smsCodeRepository.findByPhone(phone).orElseGet(SmsCode::new);
+        smsCode.setPhone(phone);
+        smsCode.setCode(code);
+        smsCode.setCreatedAt(now);
+        smsCode.setVerified(false);
+        smsCodeRepository.save(smsCode);
+    }
+
+    private boolean verifyCodeInDatabase(String phone, String code, boolean consume) {
+        SmsCode entry = smsCodeRepository.findByPhone(phone).orElse(null);
+        if (entry == null) {
+            return false;
+        }
+        if (entry.isVerified()) {
+            return false;
+        }
+        if (entry.getCreatedAt().plusMinutes(CODE_EXPIRY_MINUTES).isBefore(LocalDateTime.now())) {
+            return false;
+        }
+        if (!entry.getCode().equals(code)) {
+            return false;
+        }
+        if (consume) {
+            entry.setVerified(true);
+            smsCodeRepository.save(entry);
+        }
+        return true;
     }
 
     /**
