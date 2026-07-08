@@ -2,6 +2,10 @@
 
 Spring Boot + Vue 3 + MySQL 9.2 的小工单系统雏形。当前已实现电脑端账号管理、物料清单、自定义配置字段（包含高保真美术风格表单）、以及出入库单单头与明细的动态字段解析等高级特性。
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=zhujiayu999/gongdan&type=Date)](https://www.star-history.com/#zhujiayu999/gongdan&Date)
+
 ## 最新更新
 * **工单删除后选中状态自动清空**：优化了工单被单个删除后其 ID 仍残留在选中列表中的问题。在单个删除成功后，自动过滤 `selectedIds` 响应式状态，避免删除数据后上方操作栏仍显示“已选 1 条”的残留视觉 Bug。
 * **日志与记录服务端分页性能优化**：针对全系统主要模块的“导入日志”与“操作记录”进行重构。提取封装了通用的服务端分页日志组件 `SystemLogsDialog.vue`（采用毛玻璃遮罩），由原本全量拉取 200 条渲染改为了每页 15 条的服务端懒加载分页，长周期使用下的 DOM 渲染与网络通信开销显著降低达 90% 以上。
