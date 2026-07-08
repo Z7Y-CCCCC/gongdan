@@ -2704,7 +2704,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         class="content placeholder-page"
         v-if="activeMainMenu === 'production' && activeProductionMenu !== 'sales' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench' && activeProductionMenu !== 'reporting' && activeProductionMenu !== 'task'"
       >
-        <div class="empty-state">该模块待补全。</div>
+        <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
 
       <CustomReceiptFieldsPage
@@ -2727,7 +2727,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         class="content placeholder-page"
         v-if="activeMainMenu === 'custom' && activeCustomMenu !== 'workorder' && activeCustomMenu !== 'receipt' && activeCustomMenu !== 'receipt_detail' && !genericCustomFieldScopes[activeCustomMenu]"
       >
-        <div class="empty-state">该模块待补全。</div>
+        <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
 
       <InboundReceiptPage
@@ -2765,7 +2765,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         class="content placeholder-page"
         v-if="activeMainMenu === 'inventory' && activeInventoryMenu !== 'inbound' && activeInventoryMenu !== 'balance' && activeInventoryMenu !== 'outbound' && activeInventoryMenu !== 'detail' && activeInventoryMenu !== 'summary'"
       >
-        <div class="empty-state">该模块待补全。</div>
+        <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
 
       <!-- 基础数据（组件化） -->
@@ -2784,7 +2784,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         class="content placeholder-page"
         v-if="activeMainMenu === 'basedata' && !['product', 'bom', 'warehouse', 'supplier', 'customer', 'unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
       >
-        <div class="empty-state">该模块待补全。</div>
+        <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
 
       <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit'">

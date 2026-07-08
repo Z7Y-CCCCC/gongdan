@@ -333,12 +333,12 @@ onMounted(loadData)
             <table class="data-table">
               <thead>
                 <tr>
-                  <th style="width:44%">子件</th>
-                  <th style="width:15%">用量</th>
-                  <th style="width:10%">单位</th>
-                  <th style="width:15%">损耗率%</th>
-                  <th>备注</th>
-                  <th style="width:80px">操作</th>
+                  <th style="width:40%">子件</th>
+                  <th style="width:13%">用量</th>
+                  <th style="width:9%">单位</th>
+                  <th style="width:14%">损耗率%</th>
+                  <th style="width:14%">备注</th>
+                  <th style="width:96px">操作</th>
                 </tr>
               </thead>
               <tbody>

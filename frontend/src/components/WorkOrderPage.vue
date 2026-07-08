@@ -28,7 +28,10 @@ import {
   fetchSystemOperationLogs,
   createSystemOperationLog,
   fetchCustomFieldAttachmentBlob,
-  fetchReportImageBlob
+  fetchReportImageBlob,
+  fetchBoms,
+  type BomInfo,
+  type WorkOrderMaterialPayload
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
@@ -42,6 +45,7 @@ const { visible: deleteVisible, title: deleteTitle, message: deleteMessage, load
 const workOrders = ref<WorkOrderInfo[]>([])
 const categories = ref<WorkOrderCategoryInfo[]>([])
 const products = ref<ProductInfo[]>([])
+const boms = ref<BomInfo[]>([])
 const selectedProduct = computed(() => {
   if (!form.productId) return null
   return products.value.find(p => p.id === form.productId) || null
@@ -204,8 +208,13 @@ const form = reactive({
   categoryId: '' as number | '',
   customValues: [] as WorkOrderCustomValue[],
   tasks: [] as WorkOrderTaskPayload[],
-  materials: [] as any[],
+  materials: [] as WorkOrderMaterialPayload[],
   version: 0
+})
+
+const selectedProductBom = computed(() => {
+  if (!form.productId) return null
+  return boms.value.find(item => item.productId === Number(form.productId) && item.enabled) || null
 })
 
 function isToday(item: WorkOrderInfo) {
@@ -357,18 +366,20 @@ function resetForm() {
     defectRate: '',
     customValues: [],
     tasks: [],
+    materials: [],
     version: 0
   })
 }
 
 async function loadData() {
-  const [orderRes, productRes, processRes, routeRes, fieldRes, categoryRes] = await Promise.all([
+  const [orderRes, productRes, processRes, routeRes, fieldRes, categoryRes, bomRes] = await Promise.all([
     fetchWorkOrders(props.token, { size: 500 }),
     fetchProducts(props.token, { size: 500 }),
     fetchProcesses(props.token, { size: 500 }),
     fetchProcessRoutes(props.token, { size: 500 }),
     fetchCustomFields(props.token, 'workorder'),
-    fetchWorkOrderCategories(props.token)
+    fetchWorkOrderCategories(props.token),
+    fetchBoms(props.token, { size: 500 })
   ])
   workOrders.value = orderRes.items
   products.value = productRes.items
@@ -376,6 +387,7 @@ async function loadData() {
   routes.value = routeRes.items
   customFields.value = fieldRes.items
   categories.value = categoryRes
+  boms.value = bomRes.items
   
   try {
     const pref = await fetchUserPreference(props.token, 'WORK_ORDER_COLUMNS')
@@ -475,6 +487,7 @@ function openEdit(item: WorkOrderInfo) {
     categoryId: item.categoryId || '',
     customValues: JSON.parse(JSON.stringify(item.customValues || [])),
     tasks: JSON.parse(JSON.stringify(item.tasks || [])),
+    materials: JSON.parse(JSON.stringify(item.materials || [])),
     version: item.version
   })
   syncCustomValues()
@@ -918,6 +931,47 @@ function onTaskDragEnd() {
   taskDraggingIdx.value = -1
 }
 
+function addMaterial() {
+  form.materials.push({
+    materialCode: '',
+    materialName: '',
+    materialSpec: '',
+    quantity: Math.max(1, Number(form.plannedQuantity || 1))
+  })
+}
+
+function removeMaterial(index: number) {
+  form.materials.splice(index, 1)
+}
+
+function applyBomMaterials() {
+  const bom = selectedProductBom.value
+  if (!bom) {
+    emit('notice', '当前产品没有启用的物料清单')
+    return
+  }
+  const plannedQty = Math.max(1, Number(form.plannedQuantity || 1))
+  const outputQty = Math.max(1, Number(bom.outputQuantity || 1))
+  form.materials = bom.items.map(item => ({
+    materialCode: item.productCode || '',
+    materialName: item.productName || '',
+    materialSpec: item.productSpec || '',
+    quantity: Math.max(1, Math.ceil(Number(item.quantity || 0) * plannedQty / outputQty))
+  }))
+  emit('notice', `已按 BOM「${bom.code}」带入 ${form.materials.length} 条用料`)
+}
+
+function normalizedMaterials() {
+  return form.materials
+    .map(item => ({
+      materialCode: (item.materialCode || '').trim(),
+      materialName: (item.materialName || '').trim(),
+      materialSpec: (item.materialSpec || '').trim(),
+      quantity: Math.max(0, Math.floor(Number(item.quantity || 0)))
+    }))
+    .filter(item => item.materialName && item.quantity > 0)
+}
+
 async function saveOrder() {
   if (!form.productId) {
     emit('notice', '请选择产品')
@@ -945,7 +999,7 @@ async function saveOrder() {
     categoryId: form.categoryId ? Number(form.categoryId) : undefined,
     customValues: form.customValues,
     tasks: form.tasks,
-    materials: [],
+    materials: normalizedMaterials(),
     version: editing.value ? form.version : undefined
   }
   try {
@@ -2608,7 +2662,53 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div v-else style="padding:28px;color:#8a9693">用料清单先保留入口，后续按物料清单继续补。</div>
+        <div v-else-if="activeTab === 'material'" style="padding:18px; display:flex; flex-direction:column; min-height: 300px;">
+          <div class="toolbar" style="margin-bottom: 12px; padding: 0; border: none; background: transparent;">
+            <div class="toolbar-left">
+              <button class="primary-btn" type="button" @click="addMaterial">添加物料</button>
+              <button class="ghost-btn" type="button" :disabled="!selectedProductBom" @click="applyBomMaterials">按BOM带入</button>
+              <span v-if="selectedProductBom" class="muted">已匹配 BOM：{{ selectedProductBom.code }}</span>
+              <span v-else class="muted">当前产品暂无启用 BOM，可手工添加</span>
+            </div>
+          </div>
+
+          <div class="table-container" style="flex:1; border: 1px solid #dce3e0; border-radius: 4px; overflow: hidden; background: #fff;">
+            <table class="data-table" style="border: none;">
+              <thead>
+                <tr>
+                  <th style="width: 22%">物料编号</th>
+                  <th style="width: 28%">物料名称</th>
+                  <th style="width: 24%">物料规格</th>
+                  <th style="width: 16%">需求数量</th>
+                  <th style="width: 96px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(material, index) in form.materials" :key="index">
+                  <td><input v-model.trim="material.materialCode" class="table-input-sm" placeholder="请输入编号" /></td>
+                  <td><input v-model.trim="material.materialName" class="table-input-sm" placeholder="请输入名称" /></td>
+                  <td><input v-model.trim="material.materialSpec" class="table-input-sm" placeholder="请输入规格" /></td>
+                  <td>
+                    <input
+                      v-model.number="material.quantity"
+                      class="table-input-sm"
+                      type="number"
+                      min="1"
+                      step="1"
+                      style="width: 96px; text-align: center;"
+                    />
+                  </td>
+                  <td class="action-cell">
+                    <button class="action-link danger" type="button" @click="removeMaterial(index)">删除</button>
+                  </td>
+                </tr>
+                <tr v-if="form.materials.length === 0">
+                  <td colspan="5" style="text-align: center; padding: 40px; color: #8a9693;">暂无用料，请添加物料或按 BOM 带入</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
@@ -3161,6 +3261,25 @@ onUnmounted(() => {
 
 .scroll-thin::-webkit-scrollbar-thumb:hover {
   background-color: #0066cc !important;
+}
+
+.table-input-sm {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #d5dedb;
+  border-radius: 4px;
+  padding: 0 8px;
+  color: #1e2724;
+  background: #fff;
+  font-size: 13px;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.table-input-sm:focus {
+  border-color: #00b889;
+  box-shadow: 0 0 0 2px rgba(0, 184, 137, 0.12);
 }
 
 .row-height-compact th, .row-height-compact td {

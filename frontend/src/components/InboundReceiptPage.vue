@@ -105,6 +105,22 @@ const detailColumns = [
 const itemColumns = ref<ReceiptTableColumn[]>(detailColumns.map(c => ({ ...c })))
 const showItemColumnConfig = ref(false)
 
+const showPrintTemplateModal = ref(false)
+const inboundPrintFields = [
+  { key: 'code', label: '入库单号' },
+  { key: 'inboundType', label: '入库类型' },
+  { key: 'inboundTime', label: '入库时间' },
+  { key: 'remark', label: '备注' },
+  { key: 'creator', label: '创建人' },
+  { key: 'items', label: '入库明细' }
+]
+const inboundPrintTemplate = reactive({
+  name: '默认入库单模板',
+  title: '入库单',
+  showFields: ['code', 'inboundType', 'inboundTime', 'items'] as string[],
+  footerText: '请核对入库产品、数量与库存单位'
+})
+
 // ===== Computed =====
 const visibleColumns = computed(() => columns.value.filter(c => c.visible))
 const visibleItemColumns = computed(() => itemColumns.value.filter(c => c.visible))
@@ -391,6 +407,45 @@ function goPage(p: number) {
   loadReceipts()
 }
 
+function loadInboundPrintTemplate() {
+  try {
+    const raw = localStorage.getItem('inbound_print_template')
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    inboundPrintTemplate.name = saved.name || inboundPrintTemplate.name
+    inboundPrintTemplate.title = saved.title || inboundPrintTemplate.title
+    inboundPrintTemplate.showFields = Array.isArray(saved.showFields) && saved.showFields.length > 0
+      ? saved.showFields
+      : inboundPrintTemplate.showFields
+    inboundPrintTemplate.footerText = saved.footerText || inboundPrintTemplate.footerText
+  } catch (e) {
+    console.error('读取入库打印模板失败:', e)
+  }
+}
+
+function openPrintTemplateModal() {
+  loadInboundPrintTemplate()
+  showPrintTemplateModal.value = true
+}
+
+function saveInboundPrintTemplate() {
+  if (!inboundPrintTemplate.name.trim()) {
+    emit('notice', '请输入模板名称')
+    return
+  }
+  if (!inboundPrintTemplate.title.trim()) {
+    emit('notice', '请输入打印标题')
+    return
+  }
+  if (inboundPrintTemplate.showFields.length === 0) {
+    emit('notice', '请至少选择一个打印字段')
+    return
+  }
+  localStorage.setItem('inbound_print_template', JSON.stringify(inboundPrintTemplate))
+  showPrintTemplateModal.value = false
+  emit('notice', '入库打印模板已保存')
+}
+
 function handleTimeRangeChange() {
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -518,6 +573,7 @@ async function loadProtectedCustomFieldPreview(path: string) {
 }
 
 onMounted(() => {
+  loadInboundPrintTemplate()
   loadCustomFieldConfigs()
   loadReceipts()
 })
@@ -599,7 +655,7 @@ onBeforeUnmount(() => {
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
             批量操作
           </button>
-          <button class="link-btn" type="button">
+          <button class="link-btn" type="button" @click="openPrintTemplateModal">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             编辑打印模板
           </button>
@@ -665,6 +721,44 @@ onBeforeUnmount(() => {
           <button :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">&gt;</button>
         </div>
         <span class="page-size-label">{{ pageSize }} 条/页</span>
+      </div>
+
+      <div v-if="showPrintTemplateModal" class="modal-backdrop">
+        <div class="modal workorder-modal inbound-print-template-modal">
+          <div class="modal-header">
+            <h2>编辑打印模板</h2>
+            <button class="close-btn" type="button" @click="showPrintTemplateModal = false">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-grid one-col">
+              <label>
+                <span>模板名称</span>
+                <input v-model.trim="inboundPrintTemplate.name" placeholder="请输入模板名称" />
+              </label>
+              <label>
+                <span>打印标题</span>
+                <input v-model.trim="inboundPrintTemplate.title" placeholder="请输入打印标题" />
+              </label>
+              <label>
+                <span>页脚说明</span>
+                <textarea v-model.trim="inboundPrintTemplate.footerText" rows="2" placeholder="请输入页脚说明"></textarea>
+              </label>
+            </div>
+            <div class="print-field-panel">
+              <div class="print-field-title">打印字段</div>
+              <div class="print-field-grid">
+                <label v-for="field in inboundPrintFields" :key="field.key" class="print-field-option">
+                  <input v-model="inboundPrintTemplate.showFields" type="checkbox" :value="field.key" />
+                  <span>{{ field.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="ghost-btn wide" type="button" @click="showPrintTemplateModal = false">取消</button>
+            <button class="primary-btn wide" type="button" @click="saveInboundPrintTemplate">保存</button>
+          </div>
+        </div>
       </div>
     </template>
 
@@ -936,11 +1030,11 @@ onBeforeUnmount(() => {
     </template>
 
     <!-- Add Product Modal -->
-    <div v-if="showAddProduct" class="modal-overlay" @click.self="showAddProduct = false">
-      <div class="modal" style="width:520px">
+    <div v-if="showAddProduct" class="modal-backdrop" @click.self="showAddProduct = false">
+      <div class="modal workorder-modal inbound-add-product-modal">
         <div class="modal-header">
-          <span>添加产品</span>
-          <button class="modal-close" @click="showAddProduct = false">&times;</button>
+          <h2>添加产品</h2>
+          <button class="close-btn" type="button" @click="showAddProduct = false">×</button>
         </div>
         <div class="modal-body" style="padding:24px">
           <div class="form-row">
@@ -986,6 +1080,57 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.inbound-add-product-modal {
+  width: min(520px, calc(100vw - 40px));
+  overflow: visible;
+}
+
+.inbound-print-template-modal {
+  width: min(620px, calc(100vw - 40px));
+  overflow: hidden;
+}
+
+.inbound-print-template-modal .modal-footer {
+  padding: 0 24px 24px;
+}
+
+.print-field-panel {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid #e1e9e6;
+  border-radius: 6px;
+  background: #f8fbfa;
+}
+
+.print-field-title {
+  margin-bottom: 12px;
+  color: #26332f;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.print-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.print-field-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #485652;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.print-field-option input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
 .form-section {
   max-width: 480px;
 }
