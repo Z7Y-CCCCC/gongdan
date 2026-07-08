@@ -396,22 +396,41 @@ onMounted(loadData)
 }
 
 .sales-order-modal {
-  width: min(940px, calc(100vw - 48px));
+  width: min(980px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .two-col {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .full-row {
   grid-column: 1 / -1;
 }
 
+.sales-order-modal .modal-body {
+  padding: 24px;
+}
+
+.sales-order-modal .form-grid label {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+
+.sales-order-modal .form-grid textarea {
+  min-height: 72px;
+}
+
+.sales-order-modal .modal-footer {
+  padding: 12px 24px 24px;
+}
+
 .order-detail-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: 18px 0 10px;
+  margin: 20px 0 10px;
 }
 
 .order-detail-header h3 {
@@ -423,11 +442,52 @@ onMounted(loadData)
 .compact-table {
   max-height: 360px;
   overflow: auto;
+  border-radius: 0;
 }
 
 .compact-table select,
 .compact-table input {
   width: 100%;
+  height: 34px;
+  min-width: 0;
+  border: 1px solid #d5dedb;
+  border-radius: 4px;
+  padding: 0 10px;
+  color: #1e2724;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.compact-table .data-table {
+  min-width: 780px;
+  table-layout: fixed;
+}
+
+.compact-table .data-table th,
+.compact-table .data-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.compact-table .data-table th:nth-child(1),
+.compact-table .data-table td:nth-child(1) {
+  width: 44%;
+}
+
+.compact-table .data-table th:nth-child(2),
+.compact-table .data-table td:nth-child(2) {
+  width: 120px;
+}
+
+.compact-table .data-table th:nth-child(3),
+.compact-table .data-table td:nth-child(3) {
+  width: 88px;
+}
+
+.compact-table .data-table th:nth-child(5),
+.compact-table .data-table td:nth-child(5) {
+  width: 82px;
+  text-align: center;
 }
 
 textarea {
@@ -438,6 +498,16 @@ textarea {
 @media (max-width: 760px) {
   .two-col {
     grid-template-columns: 1fr;
+  }
+
+  .sales-order-modal .form-grid label {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .sales-order-modal .form-grid label > span {
+    padding-right: 0;
+    text-align: left;
   }
 
   .sales-order-modal {
