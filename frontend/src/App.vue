@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import QRCode from 'qrcode'
 import {
   createUser,
@@ -149,6 +149,29 @@ const activeBasedataMenu = ref('unit') // default to unit
 const activeProductionMenu = ref('workorder')
 const activeCustomMenu = ref('workorder')
 const activeInventoryMenu = ref('inbound') // 'inbound' | 'outbound' | 'detail' | 'balance' | 'summary'
+const activePageCacheKey = computed(() => {
+  if (activeMainMenu.value === 'production') return `production-${activeProductionMenu.value}`
+  if (activeMainMenu.value === 'inventory') return `inventory-${activeInventoryMenu.value}`
+  if (activeMainMenu.value === 'basedata') return `basedata-${activeBasedataMenu.value}`
+  if (activeMainMenu.value === 'custom') return `custom-${activeCustomMenu.value}`
+  if (activeMainMenu.value === 'sysconfig') return `sysconfig-${activeConfigMenu.value}`
+  return activeMainMenu.value
+})
+const pageMotionStage = ref<HTMLElement | null>(null)
+
+watch(activePageCacheKey, async () => {
+  await nextTick()
+  const stage = pageMotionStage.value
+  if (!stage || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  stage.getAnimations().forEach(animation => animation.cancel())
+  stage.animate(
+    [
+      { opacity: 0.45, transform: 'translateY(7px)' },
+      { opacity: 1, transform: 'translateY(0)' }
+    ],
+    { duration: 220, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
+  )
+})
 
 // ======== 车间看板数据 ========
 const isDashboardFullscreen = ref(false)
@@ -2216,10 +2239,16 @@ function handleNavigate(menu: { main: string; sub: string }) {
   <main v-if="!isLoggedIn" class="login-page">
     <section class="login-hero">
       <div class="brand">
-        <img class="logo-mark" src="/logo.jpg" alt="Logo" />
+        <span class="brand-mark"><img class="logo-mark" src="/logo.jpg" alt="数字工单通" /></span>
+        <span class="brand-name">
+          <strong>数字工单通</strong>
+          <small>生产现场协同平台</small>
+        </span>
       </div>
       <div class="hero-copy">
-        <h1>随时随地，管理车间现场</h1>
+        <p class="hero-kicker">轻量化生产执行与现场协同</p>
+        <h1>让每一张工单<br />都清楚、及时、可追溯</h1>
+        <p class="hero-description">从计划下达到移动报工，把人员、设备、物料和质量信息沉淀在同一条生产链路中。</p>
         <div class="feature-grid">
           <div class="feature-item">
             <span class="feature-icon">01</span>
@@ -2243,12 +2272,16 @@ function handleNavigate(menu: { main: string; sub: string }) {
             </div>
           </div>
         </div>
+        <div class="hero-assurance"><span></span> 本地部署可用 · 数据留在企业内部</div>
       </div>
     </section>
     <section class="login-panel">
       <div class="login-box">
-        <h2>欢迎登录</h2>
-        <p class="login-sub">小工单管理系统</p>
+        <div class="login-heading">
+          <span>账号登录</span>
+          <h2>进入生产工作台</h2>
+          <p class="login-sub">使用工厂账号或已绑定的手机号登录</p>
+        </div>
 
         <!-- Tab switcher -->
         <div v-if="!showBindFactory && !showFactorySelect" class="login-tabs">
@@ -2331,6 +2364,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             {{ loading ? '登录中...' : '登录' }}
           </button>
         </form>
+        <p v-if="!showFactorySelect && !showBindFactory" class="login-help">账号由工厂管理员统一创建与维护</p>
       </div>
     </section>
   </main>
@@ -2358,13 +2392,15 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span v-show="!isSidebarCollapsed">生产管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.production }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.production" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'">销售订单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'">工单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'">任务</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'">报工</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'">报工工作台</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.production" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'">销售订单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'">工单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'">任务</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'">报工</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'">报工工作台</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
@@ -2373,10 +2409,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span v-show="!isSidebarCollapsed">上下游管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.upstream }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.upstream" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true">客户</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true">供应商</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.upstream" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true">客户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true">供应商</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
@@ -2385,13 +2423,15 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span v-show="!isSidebarCollapsed">库存管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.inventory }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.inventory" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'">入库单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'">出库单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'">库存收发明细</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'">库存余额</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'">进销存汇总</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.inventory" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'">入库单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'">出库单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'">库存收发明细</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'">库存余额</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'">进销存汇总</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
@@ -2400,17 +2440,19 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span v-show="!isSidebarCollapsed">基础数据</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.basedata }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.basedata" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'">产品定义</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'">物料清单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'">单位</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'">不良品项</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'">工序</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'">工艺路线</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'">仓库</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'">供应商</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'">客户</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.basedata" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'">产品定义</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'">物料清单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'">单位</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'">不良品项</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'">工序</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'">工艺路线</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'">仓库</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'">供应商</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'">客户</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
@@ -2419,16 +2461,18 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span v-show="!isSidebarCollapsed">自定义配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.custom }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.custom" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'">产品</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'">物料清单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'">工序</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'">工单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'">报工</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'">客户</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'">出入库单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'">出入库明细</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.custom" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'">产品</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'">物料清单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'">工序</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'">工单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'">报工</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'">客户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'">出入库单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'">出入库明细</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
@@ -2437,21 +2481,25 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span v-show="!isSidebarCollapsed">高级运营</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.advanced }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.advanced" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'">SOP / 推送 / 质检 / 设备</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'">排产 / 绩效 / 现场</a>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.advanced" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'">SOP / 推送 / 质检 / 设备</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'">排产 / 绩效 / 现场</a>
+            </div>
+          </Transition>
         </div>
 
-        </div>
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '报表' : ''" @click.stop="toggleMenu('report')">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
             <span v-show="!isSidebarCollapsed">报表</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.report }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'">生产报表</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'">生产报表</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
@@ -2460,11 +2508,13 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span v-show="!isSidebarCollapsed">系统配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.sysconfig }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
-            <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
-            <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
-            <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'">工厂</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'">工厂</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
@@ -2543,48 +2593,52 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
               <span v-if="notificationCount" class="notification-badge">{{ notificationCount > 99 ? '99+' : notificationCount }}</span>
             </button>
-            <div v-if="showNotificationDropdown" class="notification-dropdown">
-              <div class="notification-head">
-                <div>
-                  <strong>通知中心</strong>
-                  <span>工单与报工待办</span>
+            <Transition name="dropdown-motion">
+              <div v-if="showNotificationDropdown" class="notification-dropdown">
+                <div class="notification-head">
+                  <div>
+                    <strong>通知中心</strong>
+                    <span>工单与报工待办</span>
+                  </div>
+                  <button type="button" class="notification-refresh" title="刷新" @click.stop="loadNotifications">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                  </button>
                 </div>
-                <button type="button" class="notification-refresh" title="刷新" @click.stop="loadNotifications">
-                  <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-                </button>
+                <div v-if="notificationsLoading" class="notification-state">加载中...</div>
+                <div v-else-if="notificationError" class="notification-state error">{{ notificationError }}</div>
+                <div v-else-if="notificationPreview.length === 0" class="notification-state">暂无待办</div>
+                <template v-else>
+                  <button
+                    v-for="item in notificationPreview"
+                    :key="item.id"
+                    type="button"
+                    class="notification-item"
+                    @click.stop="openNotification(item)"
+                  >
+                    <span class="notification-dot" :class="item.type"></span>
+                    <span class="notification-content">
+                      <strong>{{ item.title }}</strong>
+                      <span>{{ item.detail }}</span>
+                    </span>
+                    <time>{{ item.time || '-' }}</time>
+                  </button>
+                </template>
               </div>
-              <div v-if="notificationsLoading" class="notification-state">加载中...</div>
-              <div v-else-if="notificationError" class="notification-state error">{{ notificationError }}</div>
-              <div v-else-if="notificationPreview.length === 0" class="notification-state">暂无待办</div>
-              <template v-else>
-                <button
-                  v-for="item in notificationPreview"
-                  :key="item.id"
-                  type="button"
-                  class="notification-item"
-                  @click.stop="openNotification(item)"
-                >
-                  <span class="notification-dot" :class="item.type"></span>
-                  <span class="notification-content">
-                    <strong>{{ item.title }}</strong>
-                    <span>{{ item.detail }}</span>
-                  </span>
-                  <time>{{ item.time || '-' }}</time>
-                </button>
-              </template>
-            </div>
+            </Transition>
           </div>
           <div class="topbar-divider"></div>
           <div class="user-profile" @click="showUserDropdown = !showUserDropdown">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
             <span class="username">{{ currentUser?.name }}</span>
             <svg class="dropdown-arrow" :class="{ 'open': showUserDropdown }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M6 9l6 6 6-6"/></svg>
-            <div v-if="showUserDropdown" class="user-dropdown">
-              <button type="button" @click.stop="logout">
-                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                退出登录
-              </button>
-            </div>
+            <Transition name="dropdown-motion">
+              <div v-if="showUserDropdown" class="user-dropdown">
+                <button type="button" @click.stop="logout">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                  退出登录
+                </button>
+              </div>
+            </Transition>
           </div>
         </div>
       </header>
@@ -2595,94 +2649,184 @@ function handleNavigate(menu: { main: string; sub: string }) {
         </div>
       </section>
 
-      <HomeDashboardPage
-        v-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
-        :token="token"
-      />
-
-      <SuperAdminAuthCodesPage
-        v-if="activeMainMenu === 'super-admin'"
-      />
-
-      <AdvancedOperationsPage
-        v-if="activeMainMenu === 'advanced'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <ReportCenterPage
-        v-if="activeMainMenu === 'report'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <ProductDefinitionPage
-        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'product'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <BomPage
-        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'bom'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <WarehousePage
-        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <SupplierPage
-        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <CustomerPage
-        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'customer'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <WorkOrderPage
-        v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <SalesOrderPage
-        v-if="activeMainMenu === 'production' && activeProductionMenu === 'sales'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <ReportApprovalPage
-        v-if="activeMainMenu === 'production' && (activeProductionMenu === 'workbench' || activeProductionMenu === 'reporting')"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <TaskPage
-        v-if="activeMainMenu === 'production' && activeProductionMenu === 'task'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <CustomWorkOrderFieldsPage
-        v-if="activeMainMenu === 'custom' && activeCustomMenu === 'workorder'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <CustomReceiptFieldsPage
-        v-if="activeMainMenu === 'custom' && genericCustomFieldScopes[activeCustomMenu]"
-        :token="token"
-        :scope="activeCustomMenu"
-        :scope-label="genericCustomFieldScopes[activeCustomMenu]"
-        @notice="showAction"
-      />
+      <div ref="pageMotionStage" class="page-motion-stage">
+        <KeepAlive :max="32">
+          <HomeDashboardPage
+            v-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
+            key="home"
+            :token="token"
+          />
+          <SuperAdminAuthCodesPage v-else-if="activeMainMenu === 'super-admin'" key="super-admin" />
+          <AdvancedOperationsPage
+            v-else-if="activeMainMenu === 'advanced'"
+            key="advanced"
+            :token="token"
+            @notice="showAction"
+          />
+          <ReportCenterPage
+            v-else-if="activeMainMenu === 'report'"
+            key="report"
+            :token="token"
+            @notice="showAction"
+          />
+          <ProductDefinitionPage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'product'"
+            key="basedata-product"
+            :token="token"
+            @notice="showAction"
+          />
+          <BomPage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'bom'"
+            key="basedata-bom"
+            :token="token"
+            @notice="showAction"
+          />
+          <WarehousePage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse'"
+            key="basedata-warehouse"
+            :token="token"
+            @notice="showAction"
+          />
+          <SupplierPage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier'"
+            key="basedata-supplier"
+            :token="token"
+            @notice="showAction"
+          />
+          <CustomerPage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'customer'"
+            key="basedata-customer"
+            :token="token"
+            @notice="showAction"
+          />
+          <WorkOrderPage
+            v-else-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
+            key="production-workorder"
+            :token="token"
+            @notice="showAction"
+          />
+          <SalesOrderPage
+            v-else-if="activeMainMenu === 'production' && activeProductionMenu === 'sales'"
+            key="production-sales"
+            :token="token"
+            @notice="showAction"
+          />
+          <ReportApprovalPage
+            v-else-if="activeMainMenu === 'production' && (activeProductionMenu === 'workbench' || activeProductionMenu === 'reporting')"
+            key="production-reporting"
+            :token="token"
+            @notice="showAction"
+          />
+          <TaskPage
+            v-else-if="activeMainMenu === 'production' && activeProductionMenu === 'task'"
+            key="production-task"
+            :token="token"
+            @notice="showAction"
+          />
+          <CustomWorkOrderFieldsPage
+            v-else-if="activeMainMenu === 'custom' && activeCustomMenu === 'workorder'"
+            key="custom-workorder"
+            :token="token"
+            @notice="showAction"
+          />
+          <CustomReceiptFieldsPage
+            v-else-if="activeMainMenu === 'custom' && genericCustomFieldScopes[activeCustomMenu]"
+            :key="`custom-${activeCustomMenu}`"
+            :token="token"
+            :scope="activeCustomMenu"
+            :scope-label="genericCustomFieldScopes[activeCustomMenu]"
+            @notice="showAction"
+          />
+          <CustomReceiptFieldsPage
+            v-else-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt'"
+            key="custom-receipt"
+            :token="token"
+            scope="receipt"
+            scope-label="出入库单"
+            @notice="showAction"
+          />
+          <CustomReceiptFieldsPage
+            v-else-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail'"
+            key="custom-receipt-detail"
+            :token="token"
+            scope="receipt_detail"
+            scope-label="出入库明细"
+            @notice="showAction"
+          />
+          <InboundReceiptPage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound'"
+            key="inventory-inbound"
+            :token="token"
+            @notice="showAction"
+          />
+          <InventoryBalancePage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'balance'"
+            key="inventory-balance"
+            :token="token"
+            @notice="showAction"
+            @navigate="handleNavigate"
+          />
+          <OutboundReceiptPage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound'"
+            key="inventory-outbound"
+            :token="token"
+            @notice="showAction"
+          />
+          <InventoryDetailPage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'detail'"
+            key="inventory-detail"
+            :token="token"
+            @notice="showAction"
+          />
+          <InventorySummaryPage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'summary'"
+            key="inventory-summary"
+            :token="token"
+            @notice="showAction"
+          />
+          <BaseDataPage
+            v-else-if="activeMainMenu === 'basedata' && ['unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
+            :key="`basedata-${activeBasedataMenu}`"
+            :token="token"
+            :active-basedata-menu="activeBasedataMenu"
+            :users="users"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+            @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
+          />
+          <UserManagementPage
+            v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'"
+            key="sysconfig-user"
+            :token="token"
+            :users="users"
+            :departments="departments"
+            :current-user="currentUser"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+            @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
+            @reload-users="loadUsers"
+            @update-current-user="syncCurrentUser"
+          />
+          <FactorySettingsPage
+            v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory'"
+            key="sysconfig-factory"
+            :token="token"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+          />
+          <DepartmentManagementPage
+            v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'"
+            key="sysconfig-department"
+            :token="token"
+            :departments="departments"
+            :department-total="departmentTotal"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+            @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
+            @reload-departments="loadDepartments"
+          />
+        </KeepAlive>
+      </div>
 
       <section
         class="content placeholder-page"
@@ -2691,22 +2835,6 @@ function handleNavigate(menu: { main: string; sub: string }) {
         <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
 
-      <CustomReceiptFieldsPage
-        v-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt'"
-        :token="token"
-        scope="receipt"
-        scope-label="出入库单"
-        @notice="showAction"
-      />
-
-      <CustomReceiptFieldsPage
-        v-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail'"
-        :token="token"
-        scope="receipt_detail"
-        scope-label="出入库明细"
-        @notice="showAction"
-      />
-
       <section
         class="content placeholder-page"
         v-if="activeMainMenu === 'custom' && activeCustomMenu !== 'workorder' && activeCustomMenu !== 'receipt' && activeCustomMenu !== 'receipt_detail' && !genericCustomFieldScopes[activeCustomMenu]"
@@ -2714,54 +2842,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
         <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
 
-      <InboundReceiptPage
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <InventoryBalancePage
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'balance'"
-        :token="token"
-        @notice="showAction"
-        @navigate="handleNavigate"
-      />
-
-      <OutboundReceiptPage
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <InventoryDetailPage
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'detail'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <InventorySummaryPage
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'summary'"
-        :token="token"
-        @notice="showAction"
-      />
-
       <section
         class="content placeholder-page"
         v-if="activeMainMenu === 'inventory' && activeInventoryMenu !== 'inbound' && activeInventoryMenu !== 'balance' && activeInventoryMenu !== 'outbound' && activeInventoryMenu !== 'detail' && activeInventoryMenu !== 'summary'"
       >
         <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
-
-      <!-- 基础数据（组件化） -->
-      <BaseDataPage
-        v-if="activeMainMenu === 'basedata' && ['unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
-        :token="token"
-        :active-basedata-menu="activeBasedataMenu"
-        :users="users"
-        @error="msg => errorMessage = msg"
-        @notice="msg => actionMessage = msg"
-        @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
-      />
 
       <!-- 单位管理 -->
       <section
@@ -3417,27 +3503,6 @@ function handleNavigate(menu: { main: string; sub: string }) {
         </div>
       </section>
 
-      <!-- 用户管理（组件化） -->
-      <UserManagementPage
-        v-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'"
-        :token="token"
-        :users="users"
-        :departments="departments"
-        :current-user="currentUser"
-        @error="msg => errorMessage = msg"
-        @notice="msg => actionMessage = msg"
-        @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
-        @reload-users="loadUsers"
-        @update-current-user="syncCurrentUser"
-      />
-
-      <FactorySettingsPage
-        v-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory'"
-        :token="token"
-        @error="msg => errorMessage = msg"
-        @notice="msg => actionMessage = msg"
-      />
-
       <!-- 用户管理 -->
       <section class="content" v-if="false" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'">
         <div class="filters">
@@ -3569,18 +3634,6 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </select>
         </div>
       </section>
-
-      <!-- 部门管理（组件化） -->
-      <DepartmentManagementPage
-        v-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'"
-        :token="token"
-        :departments="departments"
-        :department-total="departmentTotal"
-        @error="msg => errorMessage = msg"
-        @notice="msg => actionMessage = msg"
-        @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
-        @reload-departments="loadDepartments"
-      />
 
       <!-- 部门管理 -->
       <section class="content" v-if="false" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'">

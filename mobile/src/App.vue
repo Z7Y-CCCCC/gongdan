@@ -10,6 +10,12 @@ onLaunch(() => {
 </script>
 
 <style>
+:root {
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
+  --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
 html,
 body,
 #app {
@@ -49,6 +55,9 @@ button {
 button {
   border: 0;
   padding: 0;
+  transition: transform var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) ease,
+    background-color var(--motion-base) ease, color var(--motion-base) ease,
+    border-color var(--motion-base) ease, box-shadow var(--motion-base) ease;
 }
 
 button::after {
@@ -84,5 +93,85 @@ button::after {
 
 .muted {
   color: #8a9693;
+}
+
+.page,
+.container {
+  animation: mobile-page-in var(--motion-base) var(--motion-ease) both;
+}
+
+.card,
+.summary-card,
+.form-card,
+.event-card,
+.order-card,
+.task-card,
+.report-card {
+  transition: transform var(--motion-fast) var(--motion-ease), box-shadow var(--motion-base) ease,
+    border-color var(--motion-base) ease, background-color var(--motion-base) ease;
+}
+
+.btn,
+.btn-submit,
+.submit-btn,
+.tab-item,
+.type-pill,
+.form-item,
+.picker-item,
+.scan-fab,
+.icon-button,
+.search-icon {
+  transition: transform var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) ease,
+    background-color var(--motion-base) ease, color var(--motion-base) ease,
+    border-color var(--motion-base) ease, box-shadow var(--motion-base) ease;
+}
+
+button:active,
+.btn:active,
+.btn-submit:active,
+.submit-btn:active,
+.tab-item:active,
+.type-pill:active,
+.form-item:active,
+.picker-item:active,
+.scan-fab:active,
+.icon-button:active,
+.search-icon:active {
+  transform: scale(0.98);
+}
+
+.picker-mask,
+.uni-mask {
+  animation: mobile-mask-in var(--motion-base) ease both;
+}
+
+.picker-content,
+.uni-popup__wrapper {
+  animation: mobile-sheet-in var(--motion-base) var(--motion-ease) both;
+}
+
+@keyframes mobile-page-in {
+  from { opacity: 0; transform: translateY(10rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes mobile-mask-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes mobile-sheet-in {
+  from { opacity: 0; transform: translateY(24rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }
 </style>

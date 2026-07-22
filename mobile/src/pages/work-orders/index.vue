@@ -94,12 +94,23 @@ import { onShow } from '@dcloudio/uni-app'
 import { fetchWorkOrders, ensureLogin } from '../../services/api'
 import type { WorkOrderInfo } from '../../types/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
+import { usePageDraft } from '../../composables/usePageDraft'
 
 const orders = ref<WorkOrderInfo[]>([])
 const loading = ref(false)
 const currentTab = ref('all')
 const keyword = ref('')
 const showSearch = ref(false)
+
+usePageDraft({
+  key: 'gongdan:draft:work-order-filter',
+  source: () => ({ currentTab: currentTab.value, keyword: keyword.value, showSearch: showSearch.value }),
+  restore: (draft) => {
+    currentTab.value = draft.currentTab || 'all'
+    keyword.value = draft.keyword || ''
+    showSearch.value = Boolean(draft.showSearch || draft.keyword)
+  }
+})
 
 const statusTabs = computed(() => {
   const all = orders.value

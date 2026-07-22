@@ -58,9 +58,29 @@ function open(path: string) {
   gap: 4rpx;
   color: #8a9693;
   font-size: 20rpx;
+  position: relative;
 }
 
 .tab-item.active {
   color: #00a982;
+}
+
+.tab-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 36rpx;
+  height: 4rpx;
+  border-radius: 2rpx;
+  background: #00a982;
+  opacity: 0;
+  transform: translateX(-50%) scaleX(0.4);
+  transition: opacity 180ms ease, transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.tab-item.active::before {
+  opacity: 1;
+  transform: translateX(-50%) scaleX(1);
 }
 </style>

@@ -153,6 +153,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { createReport, uploadReportImage, fetchWorkOrderReporters } from '../../services/api'
 import type { ReportImage } from '../../types/api'
+import { usePageDraft } from '../../composables/usePageDraft'
 
 // URL 参数
 let paramOrderId = ''
@@ -297,6 +298,26 @@ onMounted(async () => {
   }
 })
 
+const { clearDraft: clearReportDraft } = usePageDraft({
+  key: () => `gongdan:draft:report:${paramOrderId || form.workOrderId}:${paramProcessNo || form.processSequenceNo}`,
+  source: () => ({
+    form: { ...form },
+    durationHours: durationHours.value,
+    durationMinutes: durationMinutes.value,
+    selectedReporterId: selectedReporterId.value,
+    selectedReporterName: selectedReporterName.value,
+    uploadedImages: uploadedImages.value
+  }),
+  restore: (draft) => {
+    if (draft.form) Object.assign(form, draft.form)
+    durationHours.value = draft.durationHours ?? '0'
+    durationMinutes.value = draft.durationMinutes ?? '0'
+    selectedReporterId.value = Number(draft.selectedReporterId || 0)
+    selectedReporterName.value = draft.selectedReporterName || ''
+    uploadedImages.value = Array.isArray(draft.uploadedImages) ? draft.uploadedImages : []
+  }
+})
+
 const selectReporter = (user: any) => {
   selectedReporterId.value = user.id
   selectedReporterName.value = user.name
@@ -422,6 +443,7 @@ const handleSubmit = async (isContinue: boolean) => {
     })
     uni.hideLoading()
     uni.showToast({ title: '提交成功', icon: 'success' })
+    clearReportDraft()
     if (!isContinue) {
       setTimeout(() => goAfterSubmit(), 1500)
     } else {
@@ -430,6 +452,7 @@ const handleSubmit = async (isContinue: boolean) => {
       form.goodQuantity = ''
       form.defectQuantity = ''
       form.defectItemName = ''
+      form.materialName = ''
       form.remark = ''
       uploadedImages.value = []
       durationHours.value = '0'

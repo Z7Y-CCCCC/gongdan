@@ -208,10 +208,16 @@ async function handleSelectFactory(factoryId: number) {
   <main class="login-page">
     <section class="login-hero">
       <div class="brand">
-        <img class="logo-mark" src="/logo.jpg" alt="Logo" />
+        <span class="brand-mark"><img class="logo-mark" src="/logo.jpg" alt="数字工单通" /></span>
+        <span class="brand-name">
+          <strong>数字工单通</strong>
+          <small>生产现场协同平台</small>
+        </span>
       </div>
       <div class="hero-copy">
-        <h1>随时随地，管理车间现场</h1>
+        <p class="hero-kicker">轻量化生产执行与现场协同</p>
+        <h1>让每一张工单<br />都清楚、及时、可追溯</h1>
+        <p class="hero-description">从计划下达到移动报工，把人员、设备、物料和质量信息沉淀在同一条生产链路中。</p>
         <div class="feature-grid">
           <div class="feature-item">
             <span class="feature-icon">01</span>
@@ -235,12 +241,16 @@ async function handleSelectFactory(factoryId: number) {
             </div>
           </div>
         </div>
+        <div class="hero-assurance"><span></span> 本地部署可用 · 数据留在企业内部</div>
       </div>
     </section>
     <section class="login-panel">
       <div class="login-box">
-        <h2>欢迎登录</h2>
-        <p class="login-sub">小工单管理系统</p>
+        <div class="login-heading">
+          <span>账号登录</span>
+          <h2>进入生产工作台</h2>
+          <p class="login-sub">使用工厂账号或已绑定的手机号登录</p>
+        </div>
 
         <!-- Tab switcher -->
         <div class="login-tabs">
@@ -323,6 +333,7 @@ async function handleSelectFactory(factoryId: number) {
             {{ loading ? '登录中...' : '登录' }}
           </button>
         </form>
+        <p v-if="!showFactorySelect && !showBindFactory" class="login-help">账号由工厂管理员统一创建与维护</p>
       </div>
     </section>
   </main>

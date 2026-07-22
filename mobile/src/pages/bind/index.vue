@@ -39,6 +39,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { bindAccount, saveSession, wechatLogin } from '../../services/api'
+import { usePageDraft } from '../../composables/usePageDraft'
 
 const loading = ref(false)
 const redirectUrl = ref('')
@@ -52,6 +53,15 @@ const form = reactive({
   username: '',
   password: '',
   openidTicket: ''
+})
+
+const { clearDraft: clearAccountDraft } = usePageDraft({
+  key: 'gongdan:draft:login-account',
+  source: () => ({ factoryCode: form.factoryCode, username: form.username }),
+  restore: (draft) => {
+    form.factoryCode = draft.factoryCode || ''
+    form.username = draft.username || ''
+  }
 })
 
 onMounted(() => {
@@ -154,6 +164,7 @@ const handleBind = async () => {
     })
     
     saveSession(res)
+    clearAccountDraft()
     uni.showToast({ title: '登录成功', icon: 'success' })
     
     setTimeout(() => {

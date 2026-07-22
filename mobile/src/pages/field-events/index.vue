@@ -65,6 +65,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { createFieldEvent, ensureLogin, fetchFieldEvents } from '../../services/api'
 import type { FieldEventRecord } from '../../types/api'
+import { usePageDraft } from '../../composables/usePageDraft'
 
 const eventTypes = ['异常', '停机', '质量', '物料', '换线']
 const events = ref<FieldEventRecord[]>([])
@@ -76,6 +77,12 @@ const form = reactive({
   workOrderCode: '',
   station: '',
   description: ''
+})
+
+const { clearDraft: clearEventDraft } = usePageDraft({
+  key: 'gongdan:draft:field-event',
+  source: () => ({ ...form }),
+  restore: (draft) => Object.assign(form, draft)
 })
 
 onMounted(() => {
@@ -113,6 +120,7 @@ async function submitEvent() {
       })
     })
     uni.showToast({ title: '已上报', icon: 'success' })
+    clearEventDraft()
     form.title = ''
     form.workOrderCode = ''
     form.station = ''
