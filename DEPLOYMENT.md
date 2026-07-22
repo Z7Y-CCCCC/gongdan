@@ -145,6 +145,18 @@ ENV_FILE=/opt/gongdan/.env BACKUP_DIR=/data/gongdan-backups sh ops/backup-compos
 
 Store backup copies outside the Docker host as well. A local-only backup does not protect against disk loss.
 
+The Compose backup now writes SHA-256 sidecars, a manifest, uploaded-file archives, and runtime-log archives. Set `BACKUP_RETENTION_DAYS` (default 30) to prune only matching expired backup files. Schedule it with cron or a host scheduler; the backup script uses atomic temporary files so a failed run is not mistaken for a completed dump.
+
+For the native Windows Server package, configure `BACKUP_DIR`, `BACKUP_RETENTION_DAYS`, `BACKUP_SECONDARY_DIR`, and `MYSQL_SERVICE_NAME` in `config\gongdan.env`, then run as Administrator:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\www\gongdan\scripts\install-maintenance-tasks.ps1
+```
+
+This installs daily database backup and log cleanup tasks together with startup recovery. Run `backup-database.ps1` manually once and confirm that the SQL, `.sha256`, and `manifest_*.json` files exist before relying on the schedule.
+
+Run `test-restore.ps1` after the first backup and before every production release. It verifies the SHA-256 file, imports the dump into a temporary database, checks critical tables, and drops only that temporary database when the drill succeeds or fails.
+
 ## Restore and Drill
 
 Restore is destructive and must be tested before a real incident. The restore script refuses to run unless `CONFIRM_RESTORE=yes` is set.
@@ -184,6 +196,10 @@ TIMEOUT_SECONDS=8
 ```
 
 The script exits non-zero on frontend or backend readiness failure and posts a simple JSON payload to `ALERT_WEBHOOK_URL` when configured. In production, run it from cron or an external monitor at 1 minute to 5 minute intervals.
+
+Backend runtime logs roll by size and date. API writes, failures, and slow requests include an `X-Request-ID`, status, duration, and client address without recording authorization headers, request bodies, passwords, or query strings. Database import/operation logs are retained for `APP_SYSTEM_LOG_RETENTION_DAYS` (default 365) and cleaned by the scheduled backend job configured with `APP_SYSTEM_LOG_CLEANUP_CRON`.
+
+On Windows, `start-stack.ps1` waits for the configured MySQL service, starts the backend, optionally starts nginx, and records the result in `runtime\last-startup.json`. MySQL InnoDB crash recovery handles normal abrupt power loss; the startup task does not overwrite a healthy database with an old backup.
 
 ## CI/CD
 

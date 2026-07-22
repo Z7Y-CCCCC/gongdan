@@ -62,10 +62,19 @@ services:
       APP_UPLOAD_S3_KEY_PREFIX: ${APP_UPLOAD_S3_KEY_PREFIX:-report-images}
       APP_UPLOAD_PENDING_IMAGE_TTL_HOURS: ${APP_UPLOAD_PENDING_IMAGE_TTL_HOURS:-24}
       APP_UPLOAD_PENDING_IMAGE_CLEANUP_CRON: ${APP_UPLOAD_PENDING_IMAGE_CLEANUP_CRON:-0 0 3 * * *}
+      APP_SYSTEM_LOG_RETENTION_DAYS: ${APP_SYSTEM_LOG_RETENTION_DAYS:-365}
+      APP_SYSTEM_LOG_CLEANUP_CRON: ${APP_SYSTEM_LOG_CLEANUP_CRON:-0 30 3 * * *}
+      APP_SLOW_REQUEST_THRESHOLD_MS: ${APP_SLOW_REQUEST_THRESHOLD_MS:-1000}
+      APP_LOG_FILE: ${APP_LOG_FILE:-/var/log/heihu-workorder/backend.log}
+      APP_LOG_MAX_FILE_SIZE: ${APP_LOG_MAX_FILE_SIZE:-20MB}
+      APP_LOG_MAX_HISTORY: ${APP_LOG_MAX_HISTORY:-30}
+      APP_LOG_TOTAL_SIZE_CAP: ${APP_LOG_TOTAL_SIZE_CAP:-500MB}
+      APP_LOG_CLEAN_HISTORY_ON_START: ${APP_LOG_CLEAN_HISTORY_ON_START:-true}
       SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-10MB}
       SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:-90MB}
     volumes:
       - report-images:/var/lib/heihu-workorder/report-images
+      - app-logs:/var/log/heihu-workorder
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
       interval: 10s
@@ -87,3 +96,4 @@ services:
 volumes:
   db-data:
   report-images:
+  app-logs:

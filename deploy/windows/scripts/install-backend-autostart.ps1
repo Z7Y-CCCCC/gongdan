@@ -1,14 +1,14 @@
 param(
     [string]$ReleaseRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
-    [string]$TaskName = "Gongdan Internal Demo Backend"
+    [string]$TaskName = "Gongdan Startup Recovery"
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$startScript = Join-Path $ReleaseRoot "scripts\start-backend.ps1"
+$startScript = Join-Path $ReleaseRoot "scripts\start-stack.ps1"
 if (-not (Test-Path -LiteralPath $startScript)) {
-    throw "Start script not found: $startScript"
+    throw "Stack start script not found: $startScript"
 }
 
 $argument = "-NoProfile -ExecutionPolicy Bypass -File `"$startScript`""
@@ -18,5 +18,6 @@ $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccou
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
-Write-Host "Registered backend autostart task: $TaskName" -ForegroundColor Green
-Write-Host "Set JAVA_EXE to an absolute path in config\gongdan.env when Java is not in the machine PATH." -ForegroundColor Yellow
+Write-Host "Registered stack recovery task: $TaskName" -ForegroundColor Green
+Write-Host "The task waits for MySQL, starts the backend, checks the nginx health endpoint, and retries after a power loss." -ForegroundColor Cyan
+Write-Host "Set JAVA_EXE and MYSQL_SERVICE_NAME in config\gongdan.env when the defaults do not match the server." -ForegroundColor Yellow

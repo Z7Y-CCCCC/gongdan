@@ -93,7 +93,10 @@ $scriptsDir = Join-Path $releasePath "scripts"
 
 Copy-Contents (Join-Path $frontendDir "dist") $wwwDir
 Copy-Contents (Join-Path $mobileDir "dist\build\h5") $mobileOutputDir
-New-Item -ItemType Directory -Path $serverDir, $configDir, $nginxDir, $scriptsDir, (Join-Path $releasePath "data\uploads"), (Join-Path $releasePath "logs"), (Join-Path $releasePath "tools") -Force | Out-Null
+New-Item -ItemType Directory -Path $serverDir, $configDir, $nginxDir, $scriptsDir, `
+    (Join-Path $releasePath "data\uploads"), (Join-Path $releasePath "data\backups"), `
+    (Join-Path $releasePath "logs"), (Join-Path $releasePath "runtime"), `
+    (Join-Path $releasePath "tools") -Force | Out-Null
 Copy-Item -LiteralPath $jar.FullName -Destination (Join-Path $serverDir "app.jar") -Force
 Copy-Item -LiteralPath (Join-Path $projectPath "deploy\windows\gongdan.env.example") -Destination (Join-Path $configDir "gongdan.env") -Force
 Copy-Item -LiteralPath (Join-Path $projectPath "deploy\windows\gongdan.env.example") -Destination (Join-Path $configDir "gongdan.env.example") -Force

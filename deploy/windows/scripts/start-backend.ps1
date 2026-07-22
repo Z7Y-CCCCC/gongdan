@@ -60,15 +60,18 @@ if (Test-Path -LiteralPath $pidFile) {
 
 $configuredJava = [Environment]::GetEnvironmentVariable("JAVA_EXE", "Process")
 $javaExe = if ($configuredJava) { $configuredJava } else { (Get-Command java -ErrorAction Stop).Source }
-$stdoutLog = Join-Path $logDir "backend.out.log"
-$stderrLog = Join-Path $logDir "backend.err.log"
+$logStamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$stdoutLog = Join-Path $logDir "backend_$logStamp.out.log"
+$stderrLog = Join-Path $logDir "backend_$logStamp.err.log"
+$profile = [Environment]::GetEnvironmentVariable("SPRING_PROFILES_ACTIVE", "Process")
+if (-not $profile) { $profile = "demo" }
 $arguments = @(
     "-Xms256m",
     "-Xmx768m",
     "-XX:+UseG1GC",
     "-jar",
     "`"$jarPath`"",
-    "--spring.profiles.active=demo"
+    "--spring.profiles.active=$profile"
 )
 
 $process = Start-Process -FilePath $javaExe -ArgumentList $arguments -WorkingDirectory $serverDir `

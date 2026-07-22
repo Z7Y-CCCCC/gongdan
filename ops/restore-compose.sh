@@ -5,6 +5,7 @@ ENV_FILE="${ENV_FILE:-.env}"
 DB_BACKUP_PATH="${DB_BACKUP_PATH:-}"
 UPLOAD_BACKUP_PATH="${UPLOAD_BACKUP_PATH:-}"
 CONFIRM_RESTORE="${CONFIRM_RESTORE:-no}"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Missing env file: $ENV_FILE" >&2
@@ -29,6 +30,33 @@ fi
 
 UPLOAD_STORAGE_TYPE="$(grep -E '^APP_UPLOAD_STORAGE_TYPE=' "$ENV_FILE" | tail -n 1 | sed 's/^APP_UPLOAD_STORAGE_TYPE=//' || true)"
 
+verify_checksum() {
+  file="$1"
+  sidecar="${file}.sha256"
+  if [ ! -f "$sidecar" ]; then
+    echo "Warning: checksum file not found: $sidecar" >&2
+    return
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$(dirname "$file")" && sha256sum -c "$(basename "$sidecar")")
+  elif command -v shasum >/dev/null 2>&1; then
+    expected="$(awk '{print $1}' "$sidecar")"
+    actual="$(shasum -a 256 "$file" | awk '{print $1}')"
+    [ "$expected" = "$actual" ] || {
+      echo "Checksum mismatch: $file" >&2
+      exit 1
+    }
+  else
+    echo "No SHA-256 utility found; cannot verify $file" >&2
+    exit 1
+  fi
+}
+
+verify_checksum "$DB_BACKUP_PATH"
+if [ -n "$UPLOAD_BACKUP_PATH" ]; then
+  verify_checksum "$UPLOAD_BACKUP_PATH"
+fi
+
 echo "Stopping application services before restore"
 docker compose --env-file "$ENV_FILE" stop frontend backend
 
@@ -52,6 +80,17 @@ fi
 echo "Starting application services"
 docker compose --env-file "$ENV_FILE" up -d backend frontend
 
-echo "Restore complete. Check health before opening traffic:"
-echo "  docker compose --env-file $ENV_FILE ps"
-echo "  sh ops/monitor-compose.sh"
+echo "Waiting for restored services to become healthy"
+attempt=1
+while [ "$attempt" -le 30 ]; do
+  if ENV_FILE="$ENV_FILE" sh "$SCRIPT_DIR/monitor-compose.sh"; then
+    echo "Restore complete and health checks passed."
+    exit 0
+  fi
+  sleep 2
+  attempt=$((attempt + 1))
+done
+
+echo "Restore completed but health checks did not pass within 60 seconds." >&2
+docker compose --env-file "$ENV_FILE" ps >&2
+exit 1
