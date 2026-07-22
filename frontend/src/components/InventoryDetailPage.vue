@@ -81,6 +81,10 @@ function formatDateTime(date: Date): string {
   return `${y}-${m}-${d} ${h}:${min}:${s}`
 }
 
+function formatDisplayDateTime(value?: string): string {
+  return value ? value.replace('T', ' ').slice(0, 19) : '-'
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -384,7 +388,7 @@ onMounted(() => {
             <td v-if="columns[10].visible">
               <span class="badge" :class="getSourceBadgeClass(item.sourceType)">{{ getSourceLabel(item.sourceType) }}</span>
             </td>
-            <td v-if="columns[11].visible">{{ item.operationTime }}</td>
+            <td v-if="columns[11].visible">{{ formatDisplayDateTime(item.operationTime) }}</td>
             <td v-if="columns[12].visible" style="max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" :title="item.remark">
               {{ item.remark || '-' }}
             </td>

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { fetchWorkOrders, fetchReports } from '../api'
+import { fetchWorkOrders, fetchReports, fetchSalesOrders } from '../api'
 import { useAuth } from '../composables/useAuth'
+import { buildWorkshopDashboard } from '../utils/workshopDashboard'
 
 const { token } = useAuth()
 
@@ -36,12 +37,16 @@ const exitDashboard = () => {
 }
 
 const dashboardKpi = reactive({
+  inProcessOrderCount: 0,
   planCount: 0,
+  inProcessTaskPlanCount: 0,
+  inProcessTaskCount: 0,
   delayedOrders: 0,
   delayedTasks: 0,
   todayDone: 0,
   todayTasks: 0,
   todayOutput: 0,
+  todayDefect: 0,
   defectRate: 0
 })
 
@@ -53,6 +58,17 @@ const perfMax = computed(() => Math.max(1, ...perfData.value.map(p => p.value)))
 const defectTrend = ref<Array<{ day: number; count: number; rate: number }>>([])
 
 const pieData = ref<Array<{ name: string; color: string; count: number; pct: string }>>([])
+const pieBackground = computed(() => {
+  const total = pieData.value.reduce((sum, item) => sum + item.count, 0)
+  if (total <= 0) return '#16314b'
+  let cursor = 0
+  const segments = pieData.value.map(item => {
+    const start = cursor
+    cursor += item.count / total * 100
+    return `${item.color} ${start}% ${cursor}%`
+  })
+  return `conic-gradient(${segments.join(', ')})`
+})
 
 const scrollMessages = ref<Array<{ time: string; text: string }>>([])
 
@@ -65,7 +81,7 @@ const displayReports = computed(() => {
   return []
 })
 
-const tableData = ref<Array<{ code: string; product: string; qty: number; customer: string; urgent: boolean; progress: number }>>([])
+const tableData = ref<Array<{ code: string; product: string; qty: number; customer: string; urgent: boolean; progress: number; steps: { name: string; progress: number }[] }>>([])
 
 const taskProgressData = ref<Array<{ process: string; taskCount: number; planned: number; good: number; defect: number; remaining: number }>>([])
 
@@ -96,7 +112,13 @@ const loadDashboardData = async () => {
       qty: wo.plannedQuantity || 0,
       customer: wo.categoryName || '-',
       urgent: wo.priority === 'URGENT',
-      progress: workOrderProgress(wo)
+      progress: workOrderProgress(wo),
+      steps: (wo.tasks || []).filter(task => task.enabled !== false).map(task => ({
+        name: task.processName || '未命名工序',
+        progress: task.plannedQuantity > 0
+          ? Math.min(100, Math.round(((task.completedQuantity || 0) + (task.defectQuantity || 0)) / task.plannedQuantity * 100))
+          : 0
+      }))
     }))
 
     // 简单的统计聚合
@@ -108,7 +130,10 @@ const loadDashboardData = async () => {
     ).length
 
     // 2. 获取报工记录，聚合任务执行进度
-    const reportRes = await fetchReports(t, { page: 1, size: 200 })
+    const [reportRes, salesOrderRes] = await Promise.all([
+      fetchReports(t, { page: 1, size: 200 }),
+      fetchSalesOrders(t, { page: 1, size: 500 })
+    ])
     const reports = reportRes.items || []
     dashboardReports.value = reports.map(r => ({
       ...r,
@@ -180,6 +205,12 @@ const loadDashboardData = async () => {
     taskProgressData.value = Object.values(processMap)
     dashboardKpi.delayedTasks = taskProgressData.value.filter(item => item.remaining > 0).length
 
+    const customerNamesByOrderCode = new Map((salesOrderRes.items || []).map(order => [order.code, order.customerName]))
+    const workshopDashboard = buildWorkshopDashboard(realWorkOrders, reports, new Date(), customerNamesByOrderCode)
+    tableData.value = workshopDashboard.tableData
+    taskProgressData.value = workshopDashboard.taskProgressData
+    Object.assign(dashboardKpi, workshopDashboard.metrics)
+
   } catch (e) {
     console.error('Failed to load dashboard data:', e)
   }
@@ -212,8 +243,8 @@ defineExpose({ loadDashboardData })
         <div class="db-chart-area">
           <div class="db-sub-title">工单产出趋势图({{ currentMonth }})</div>
           <div class="db-legend">
-            <span class="db-legend-item"><i class="dot cyan"></i>完成工单</span>
-            <span class="db-legend-item"><i class="dot blue"></i>工单产出</span>
+            <span class="db-legend-item"><i class="dot cyan"></i>报工次数</span>
+            <span class="db-legend-item"><i class="dot blue"></i>良品产出</span>
           </div>
           <div class="db-bar-chart" style="position: relative;">
             <!-- SVG 折线 -->
@@ -258,7 +289,7 @@ defineExpose({ loadDashboardData })
         <div class="db-kpi-grid-v4">
           <div class="db-kpi-box-v4">
             <div class="db-kpi-box-v4-title">在制工单数</div>
-            <div class="db-kpi-box-v4-value cyan">7</div>
+          <div class="db-kpi-box-v4-value cyan">{{ dashboardKpi.inProcessOrderCount }}</div>
           </div>
           <div class="db-kpi-box-v4">
             <div class="db-kpi-box-v4-title">在制工单计划数</div>
@@ -266,11 +297,11 @@ defineExpose({ loadDashboardData })
           </div>
           <div class="db-kpi-box-v4">
             <div class="db-kpi-box-v4-title">在制任务计划数</div>
-            <div class="db-kpi-box-v4-value cyan">24878</div>
+            <div class="db-kpi-box-v4-value cyan">{{ dashboardKpi.inProcessTaskPlanCount }}</div>
           </div>
           <div class="db-kpi-box-v4">
             <div class="db-kpi-box-v4-title">在制任务数</div>
-            <div class="db-kpi-box-v4-value cyan">37</div>
+            <div class="db-kpi-box-v4-value cyan">{{ dashboardKpi.inProcessTaskCount }}</div>
           </div>
         </div>
 
@@ -308,7 +339,7 @@ defineExpose({ loadDashboardData })
             </div>
             <div class="db-side-item">
               <span class="db-side-label">今日不良品数</span>
-              <span class="db-side-value red">0</span>
+            <span class="db-side-value red">{{ dashboardKpi.todayDefect }}</span>
             </div>
           </div>
         </div>
@@ -377,9 +408,10 @@ defineExpose({ loadDashboardData })
         <div class="db-sub-title" style="margin-top:16px">不良品项分布图</div>
         <div class="db-pie-container">
           <div class="db-pie">
-            <div class="db-pie-ring"></div>
+            <div class="db-pie-ring" :style="{ background: pieBackground }"></div>
           </div>
           <div class="db-pie-legend">
+            <div v-if="pieData.length === 0" class="db-pie-empty">暂无不良数据</div>
             <div v-for="(item, idx) in pieData" :key="idx" class="db-pie-legend-item">
               <i class="db-pie-dot" :style="{ background: item.color }"></i>
               <span>{{ item.name }}</span>
@@ -414,10 +446,11 @@ defineExpose({ loadDashboardData })
               <td style="width: 10%;"><span :class="['db-tag', row.urgent ? 'urgent' : 'normal']">{{ row.urgent ? '加急订单' : '-' }}</span></td>
               <td style="width: 35%;">
                 <div class="db-stepper">
-                  <div class="db-step" v-for="step in ['下料','冲压','压铸','折弯','冲压','电解','包装']" :key="step">
-                    <div class="db-step-circle">0%</div>
-                    <div class="db-step-name">{{ step }}</div>
-                  </div>
+              <div class="db-step" v-for="(step, stepIndex) in row.steps" :key="`${row.code}-${stepIndex}`">
+                <div class="db-step-circle">{{ step.progress }}%</div>
+                <div class="db-step-name">{{ step.name }}</div>
+              </div>
+              <span v-if="row.steps.length === 0" style="color:#7893a6;">未配置工序</span>
                 </div>
               </td>
             </tr>
@@ -429,7 +462,7 @@ defineExpose({ loadDashboardData })
       <div class="db-card db-card-table" style="overflow-y: hidden; display: flex; flex-direction: column; padding: 0 12px 12px 12px; background: transparent; border: none; box-shadow: none;">
         <div class="db-table-header" style="flex-shrink: 0;">
           <span>任务执行进度</span>
-          <span class="db-table-tag">今天</span>
+          <span class="db-table-tag">当前</span>
         </div>
         <table class="db-table-v2">
           <thead>
@@ -450,6 +483,9 @@ defineExpose({ loadDashboardData })
               <td class="td-green" style="width: 16%;">{{ row.good }}</td>
               <td class="td-red" style="width: 16%;">{{ row.defect }}</td>
               <td style="width: 16%;">{{ row.remaining }}</td>
+            </tr>
+            <tr v-if="taskProgressData.length === 0">
+              <td colspan="6" style="text-align:center;color:#7893a6;padding:18px 0;">暂无在制任务</td>
             </tr>
           </tbody>
         </table>

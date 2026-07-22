@@ -6,7 +6,7 @@ const navigationBar = (titleText: string) => ({
   backgroundColor: '#f6f7f7'
 })
 
-const page = (route: string, titleText: string, component: () => Promise<unknown>, isEntry = false) => {
+const page = (route: string, titleText: string, component: () => Promise<unknown>, isEntry = false, isTabBar = false) => {
   const routeConfig: Record<string, unknown> = {
     path: `/${route}`,
     component,
@@ -14,7 +14,7 @@ const page = (route: string, titleText: string, component: () => Promise<unknown
     route,
     isEntry,
     isQuit: isEntry,
-    isTabBar: false,
+    isTabBar,
     navigationBar: navigationBar(titleText),
     maxWidth: 640
   }
@@ -27,14 +27,14 @@ const page = (route: string, titleText: string, component: () => Promise<unknown
 
 const routes = [
   page('pages/bind/index', '账号绑定', () => import('./pages/bind/index.vue'), true),
-  page('pages/home/index', '黑湖小工单', () => import('./pages/home/index.vue')),
-  page('pages/work-orders/index', '工单', () => import('./pages/work-orders/index.vue')),
+  page('pages/home/index', '黑湖小工单', () => import('./pages/home/index.vue'), false, true),
+  page('pages/work-orders/index', '工单', () => import('./pages/work-orders/index.vue'), false, true),
   page('pages/work-order-detail/index', '工单详情', () => import('./pages/work-order-detail/index.vue')),
   page('pages/report-form/index', '报工', () => import('./pages/report-form/index.vue')),
-  page('pages/report-list/index', '报工列表', () => import('./pages/report-list/index.vue')),
+  page('pages/report-list/index', '报工列表', () => import('./pages/report-list/index.vue'), false, true),
   page('pages/field-events/index', '现场事件', () => import('./pages/field-events/index.vue')),
-  page('pages/tasks/index', '任务', () => import('./pages/tasks/index.vue')),
-  page('pages/board/index', '看板', () => import('./pages/board/index.vue'))
+  page('pages/tasks/index', '任务', () => import('./pages/tasks/index.vue'), false, true),
+  page('pages/board/index', '看板', () => import('./pages/board/index.vue'), false, true)
 ]
 
 const globalConfig = {
@@ -50,9 +50,19 @@ const globalConfig = {
   },
   nvue: { 'flex-direction': 'column' },
   tabBar: {
-    shown: false,
-    height: '0px',
-    list: []
+    shown: true,
+    color: '#8a9693',
+    selectedColor: '#00a982',
+    backgroundColor: '#ffffff',
+    borderStyle: 'white',
+    height: '50px',
+    list: [
+      { pagePath: 'pages/work-orders/index', text: '工单', iconPath: '/static/tabbar/order.png', selectedIconPath: '/static/tabbar/order.png' },
+      { pagePath: 'pages/tasks/index', text: '任务', iconPath: '/static/tabbar/task.png', selectedIconPath: '/static/tabbar/task.png' },
+      { pagePath: 'pages/home/index', text: '报工', iconPath: '/static/tabbar/plus.png', selectedIconPath: '/static/tabbar/plus.png' },
+      { pagePath: 'pages/report-list/index', text: '记录', iconPath: '/static/tabbar/report.png', selectedIconPath: '/static/tabbar/report.png' },
+      { pagePath: 'pages/board/index', text: '看板', iconPath: '/static/tabbar/board.png', selectedIconPath: '/static/tabbar/board.png' }
+    ]
   }
 }
 

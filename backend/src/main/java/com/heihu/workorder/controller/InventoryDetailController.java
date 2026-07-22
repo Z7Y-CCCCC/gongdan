@@ -4,11 +4,11 @@ import com.heihu.workorder.dto.InventoryDetailResponse;
 import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.InventoryDetailService;
 import com.heihu.workorder.service.TokenService;
+import com.heihu.workorder.util.DateTimeParser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,8 +16,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/inventory-details")
 public class InventoryDetailController {
-
-    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final InventoryDetailService inventoryDetailService;
     private final TokenService tokenService;
@@ -49,10 +47,10 @@ public class InventoryDetailController {
         LocalDateTime start = null;
         LocalDateTime end = null;
         if (startTime != null && !startTime.trim().isEmpty()) {
-            start = LocalDateTime.parse(startTime.trim(), FMT);
+            start = DateTimeParser.parse(startTime);
         }
         if (endTime != null && !endTime.trim().isEmpty()) {
-            end = LocalDateTime.parse(endTime.trim(), FMT);
+            end = DateTimeParser.parse(endTime);
         }
 
         long total = inventoryDetailService.count(factoryId, receiptCode, receiptType,

@@ -217,6 +217,8 @@ textarea {
   padding: 0 20rpx;
   font-size: 28rpx;
   color: #1f2d2a;
+  border: 1rpx solid #dfe5e3;
+  box-sizing: border-box;
 }
 
 input {
@@ -235,6 +237,12 @@ textarea {
   border-radius: 14rpx;
   font-size: 30rpx;
   margin-top: 10rpx;
+  width: 100%;
+  height: 82rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
 }
 
 .submit-btn::after {

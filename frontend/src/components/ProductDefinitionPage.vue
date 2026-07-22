@@ -141,6 +141,10 @@ async function removeCategory(cat: string, event: Event) {
   }
 }
 
+function isPersistedCategory(cat: string) {
+  return categories.value.some(category => category.name === cat)
+}
+
 const tabItems = computed(() => [
   { key: 'all', label: '全部', count: productsInActiveType.value.length },
   { key: 'self', label: '自制', count: productsInActiveType.value.filter(p => p.attribute === '自制').length },
@@ -631,7 +635,7 @@ onMounted(loadData)
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
             </svg>
             <span class="cat-label">{{ cat === 'all' ? '全部' : cat }}</span>
-            <span v-if="cat !== 'all'" class="cat-delete" title="删除此分类" @click="removeCategory(cat, $event)">×</span>
+            <span v-if="isPersistedCategory(cat)" class="cat-delete" title="删除此分类" @click="removeCategory(cat, $event)">×</span>
           </button>
           <button class="add-cat-btn" type="button" @click="openAddCategory" title="新增分类">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>

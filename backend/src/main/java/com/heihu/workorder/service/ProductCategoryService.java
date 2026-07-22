@@ -28,6 +28,7 @@ public class ProductCategoryService {
     @Autowired
     private UserRepository userRepository;
 
+    @Transactional(readOnly = true)
     public List<ProductCategoryResponse> getCategories(Long factoryId) {
         return categoryRepository.findByFactoryIdOrderByCreatedAtDesc(factoryId).stream()
                 .map(c -> {

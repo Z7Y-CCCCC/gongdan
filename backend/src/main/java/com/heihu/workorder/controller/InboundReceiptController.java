@@ -5,6 +5,7 @@ import com.heihu.workorder.dto.InboundReceiptResponse;
 import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.InboundReceiptService;
 import com.heihu.workorder.service.TokenService;
+import com.heihu.workorder.util.DateTimeParser;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -12,15 +13,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/inbound-receipts")
 public class InboundReceiptController {
-
-    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final InboundReceiptService inboundReceiptService;
     private final TokenService tokenService;
@@ -46,10 +44,10 @@ public class InboundReceiptController {
         LocalDateTime start = null;
         LocalDateTime end = null;
         if (startTime != null && !startTime.trim().isEmpty()) {
-            start = LocalDateTime.parse(startTime.trim(), FMT);
+            start = DateTimeParser.parse(startTime);
         }
         if (endTime != null && !endTime.trim().isEmpty()) {
-            end = LocalDateTime.parse(endTime.trim(), FMT);
+            end = DateTimeParser.parse(endTime);
         }
 
         Page<InboundReceiptResponse> result = inboundReceiptService.list(

@@ -1,5 +1,6 @@
 import { createSSRApp } from 'vue'
 import App from './App.vue'
+import UniIcons from '@dcloudio/uni-ui/lib/uni-icons/uni-icons.vue'
 // #ifdef H5
 import './h5-routes'
 import { UniServiceJSBridge, getApp, getCurrentPages, plugin, setupApp, uni } from '@dcloudio/uni-h5'
@@ -7,6 +8,7 @@ import { UniServiceJSBridge, getApp, getCurrentPages, plugin, setupApp, uni } fr
 
 export function createApp() {
   const app = createSSRApp(App)
+  app.component('uni-icons', UniIcons)
   return { app }
 }
 
@@ -20,6 +22,7 @@ if (typeof window !== 'undefined') {
   })
   const app = createSSRApp(setupApp(App))
   app.use(plugin)
+  app.component('uni-icons', UniIcons)
   app.mount('#app')
 }
 // #endif

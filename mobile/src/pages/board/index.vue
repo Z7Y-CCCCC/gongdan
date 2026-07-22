@@ -70,6 +70,9 @@
     </view>
 
     <view v-if="loading" class="loading-hint">加载中...</view>
+    <!-- #ifdef H5 -->
+    <MobileTabBar current="board" />
+    <!-- #endif -->
   </view>
 </template>
 
@@ -78,6 +81,7 @@ import { computed, onMounted, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { ensureLogin, fetchReports, fetchWorkOrders } from '../../services/api'
 import type { WorkOrderInfo, WorkOrderReport } from '../../types/api'
+import MobileTabBar from '../../components/MobileTabBar.vue'
 
 const loading = ref(false)
 const workOrders = ref<WorkOrderInfo[]>([])
@@ -90,12 +94,13 @@ const todayKey = computed(() => {
 })
 
 const totalPlanned = computed(() => workOrders.value.reduce((sum, item) => sum + (item.plannedQuantity || 0), 0))
+const approvedReports = computed(() => reports.value.filter(item => item.status === 'APPROVED'))
 const totalGood = computed(() => {
   const orderGood = workOrders.value.reduce((sum, item) => sum + (item.goodQuantity || 0), 0)
-  const reportGood = reports.value.reduce((sum, item) => sum + (item.goodQuantity || 0), 0)
+  const reportGood = approvedReports.value.reduce((sum, item) => sum + (item.goodQuantity || 0), 0)
   return Math.max(orderGood, reportGood)
 })
-const totalDefect = computed(() => reports.value.reduce((sum, item) => sum + (item.defectQuantity || 0), 0))
+const totalDefect = computed(() => approvedReports.value.reduce((sum, item) => sum + (item.defectQuantity || 0), 0))
 const achievementRate = computed(() => {
   if (!totalPlanned.value) return 0
   return Math.min(100, Math.round((totalGood.value / totalPlanned.value) * 100))
@@ -106,7 +111,9 @@ const todayReportCount = computed(() => reports.value.filter(item => (item.creat
 
 const orderRows = computed(() => {
   return workOrders.value.slice(0, 5).map(item => {
-    const progress = item.progressPercent || (item.plannedQuantity ? Math.round(((item.goodQuantity || 0) / item.plannedQuantity) * 100) : 0)
+    const progress = item.plannedQuantity
+      ? Math.round(((item.goodQuantity || 0) / item.plannedQuantity) * 100)
+      : 0
     return {
       ...item,
       progress: Math.max(0, Math.min(100, progress))
@@ -116,7 +123,7 @@ const orderRows = computed(() => {
 
 const rankings = computed(() => {
   const grouped = new Map<string, number>()
-  for (const report of reports.value) {
+  for (const report of approvedReports.value) {
     const name = report.reporterName || '未命名人员'
     grouped.set(name, (grouped.get(name) || 0) + (report.goodQuantity || 0))
   }
@@ -175,7 +182,7 @@ onShow(() => {
 .container {
   background: #f6f7f7;
   min-height: 100vh;
-  padding: 24rpx;
+  padding: 24rpx 24rpx 140rpx;
   box-sizing: border-box;
 }
 

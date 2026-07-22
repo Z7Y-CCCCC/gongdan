@@ -8,9 +8,9 @@
       <view class="nav-right">
         <view class="search-box" v-if="showSearch">
           <input class="search-input" v-model="keyword" placeholder="搜索工单编号/产品名" @confirm="doSearch" />
-          <view @click="showSearch = false; keyword = ''; doSearch()">✕</view>
+          <view class="icon-button" @click="showSearch = false; keyword = ''; doSearch()"><uni-icons type="closeempty" size="20" color="#586360" /></view>
         </view>
-        <view v-else class="search-icon" @click="showSearch = true">🔍</view>
+        <view v-else class="search-icon" @click="showSearch = true"><uni-icons type="search" size="22" color="#586360" /></view>
       </view>
     </view>
 
@@ -40,17 +40,17 @@
             </view>
             <text class="order-code">{{ item.code }}</text>
             <view class="info-field">
-              <text class="field-icon">📋</text>
+              <uni-icons class="field-icon" type="compose" size="14" color="#8a9693" />
               <text class="label">工单编号：</text>
               <text class="val">{{ item.code }}</text>
             </view>
             <view class="info-field">
-              <text class="field-icon">📦</text>
+              <uni-icons class="field-icon" type="shop" size="14" color="#8a9693" />
               <text class="label">产品信息：</text>
               <text class="val">{{ item.productCode }} | {{ item.productName }}</text>
             </view>
             <view class="info-field">
-              <text class="field-icon">📊</text>
+              <uni-icons class="field-icon" type="bars" size="14" color="#8a9693" />
               <text class="label">工单进度：</text>
               <text class="val">{{ item.goodQuantity || 0 }}/{{ item.plannedQuantity || 0 }}个</text>
             </view>
@@ -75,13 +75,16 @@
 
     <!-- 悬浮扫码按钮 -->
     <view class="scan-fab" @click="handleScan">
-      <text class="scan-icon">📷</text>
+      <uni-icons type="camera-filled" size="24" color="#fff" />
     </view>
 
     <!-- 加载中 -->
     <view v-if="loading" class="loading-hint">
       <text>加载中...</text>
     </view>
+    <!-- #ifdef H5 -->
+    <MobileTabBar current="orders" />
+    <!-- #endif -->
   </view>
 </template>
 
@@ -90,6 +93,7 @@ import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { fetchWorkOrders, ensureLogin } from '../../services/api'
 import type { WorkOrderInfo } from '../../types/api'
+import MobileTabBar from '../../components/MobileTabBar.vue'
 
 const orders = ref<WorkOrderInfo[]>([])
 const loading = ref(false)
@@ -167,7 +171,7 @@ function statusLabel(status: string) {
 function calculateStepPercent(order: WorkOrderInfo, step: any) {
   const planned = step.plannedQuantity || order.plannedQuantity || 0
   if (!planned) return 0
-  return Math.min(100, Math.round(((step.completedQuantity || 0) / planned) * 100))
+  return Math.min(100, Math.round((((step.completedQuantity || 0) + (step.defectQuantity || 0)) / planned) * 100))
 }
 
 const goToDetail = (item: WorkOrderInfo) => {
@@ -226,7 +230,8 @@ const handleScan = () => {
 }
 .nav-left { font-size: 32rpx; font-weight: bold; display: flex; align-items: center; }
 .nav-right { display: flex; align-items: center; }
-.search-icon { font-size: 36rpx; }
+.search-icon,
+.icon-button { width: 56rpx; height: 56rpx; display: flex; align-items: center; justify-content: center; }
 
 .search-box {
   display: flex;
@@ -257,7 +262,7 @@ const handleScan = () => {
 
 .total-count { padding: 20rpx 30rpx; font-size: 24rpx; color: #999; }
 
-.order-list { flex: 1; padding: 0 20rpx; box-sizing: border-box; }
+.order-list { flex: 1; padding: 0 20rpx 130rpx; box-sizing: border-box; }
 .order-card {
   background: white;
   border-radius: 16rpx;
@@ -281,7 +286,7 @@ const handleScan = () => {
 
 .order-code { font-size: 30rpx; font-weight: bold; display: block; margin-bottom: 15rpx; }
 .info-field { display: flex; align-items: center; margin-bottom: 6rpx; }
-.field-icon { font-size: 22rpx; margin-right: 8rpx; }
+.field-icon { margin-right: 8rpx; flex-shrink: 0; }
 .info-field .label { font-size: 22rpx; color: #999; }
 .info-field .val { font-size: 22rpx; color: #666; }
 
@@ -345,5 +350,4 @@ const handleScan = () => {
   align-items: center;
   box-shadow: 0 8rpx 20rpx rgba(0,184,137,0.3);
 }
-.scan-icon { font-size: 40rpx; }
 </style>

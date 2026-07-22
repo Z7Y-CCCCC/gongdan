@@ -5,7 +5,7 @@
       <view class="step-header">
         <view class="step-num">{{ processNo }}</view>
         <text class="step-name">{{ processName }}</text>
-        <view class="close-icon" @click="handleClose">✕</view>
+        <view class="close-icon" @click="handleClose"><uni-icons type="closeempty" size="20" color="#8a9693" /></view>
       </view>
       <view class="data-grid">
         <view class="data-item">
@@ -38,7 +38,7 @@
       <view class="form-item">
         <view class="label"><text class="required">*</text>报工数</view>
         <view class="value-row">
-          <input type="number" v-model="form.reportQuantity" placeholder="0" class="num-input" />
+          <input type="number" v-model="form.reportQuantity" placeholder="0" class="num-input" @input="syncGoodQuantity" />
           <text class="unit">{{ productUnit }} ›</text>
         </view>
       </view>
@@ -55,7 +55,7 @@
       <view class="form-item">
         <view class="label">不良数</view>
         <view class="value-row">
-          <input type="number" v-model="form.defectQuantity" placeholder="请输入" class="num-input red-text" />
+          <input type="number" v-model="form.defectQuantity" placeholder="请输入" class="num-input red-text" @input="syncGoodQuantity" />
         </view>
       </view>
 
@@ -63,8 +63,7 @@
       <view class="form-item" v-if="Number(form.defectQuantity) > 0">
         <view class="label">不良品项</view>
         <view class="value-row">
-          <text class="placeholder">{{ form.defectItemName || '请选择' }}</text>
-          <text class="arrow">›</text>
+          <input v-model="form.defectItemName" class="text-input" placeholder="请输入不良原因" />
         </view>
       </view>
 
@@ -96,8 +95,7 @@
       <view class="form-item">
         <view class="label">领料产品</view>
         <view class="value-row">
-          <text class="placeholder">{{ form.materialName || '请选择' }}</text>
-          <text class="arrow">›</text>
+          <input v-model="form.materialName" class="text-input" placeholder="可选，填写领料产品" />
         </view>
       </view>
 
@@ -113,10 +111,10 @@
         <view class="image-grid">
           <view v-for="(img, idx) in uploadedImages" :key="idx" class="img-box">
             <image :src="img.previewPath || img.accessPath" mode="aspectFill" class="uploaded-img" />
-            <view class="img-delete" @click="removeImage(idx)">✕</view>
+            <view class="img-delete" @click="removeImage(idx)"><uni-icons type="closeempty" size="12" color="#fff" /></view>
           </view>
           <view class="add-box" @click="chooseImage" v-if="uploadedImages.length < 9">
-            <text class="add-icon">📷</text>
+            <uni-icons type="camera-filled" size="24" color="#8a9693" />
           </view>
         </view>
       </view>
@@ -133,7 +131,7 @@
       <view class="picker-content" @click.stop>
         <view class="picker-header">
           <text class="picker-title">选择生产人员</text>
-          <view class="picker-close" @click="showReporterPicker = false">✕</view>
+          <view class="picker-close" @click="showReporterPicker = false"><uni-icons type="closeempty" size="20" color="#8a9693" /></view>
         </view>
         <scroll-view scroll-y class="picker-list">
           <view v-for="user in reporterList" :key="user.id"
@@ -281,9 +279,10 @@ onMounted(async () => {
       // 根据工序的报工权限过滤人员列表
       if (paramReportPermission && paramReportPermission !== '所有人' && paramReportPermission !== 'ALL') {
         const allowedList = paramReportPermission.split(',').map((s: string) => s.trim())
-        reporterList.value = users.filter(u => 
-          allowedList.includes(u.name) || 
-          allowedList.includes(u.username) || 
+        const currentUserAllowedByDepartment = Boolean(user?.departmentName && allowedList.includes(user.departmentName))
+        reporterList.value = currentUserAllowedByDepartment ? users : users.filter(u =>
+          allowedList.includes(u.name) ||
+          allowedList.includes(u.username) ||
           allowedList.includes(String(u.id))
         )
       } else {
@@ -357,12 +356,26 @@ const removeImage = (idx: number) => {
   uploadedImages.value.splice(idx, 1)
 }
 
+function syncGoodQuantity() {
+  const reportQuantity = Math.max(0, Number(form.reportQuantity) || 0)
+  const defectQuantity = Math.max(0, Number(form.defectQuantity) || 0)
+  form.goodQuantity = String(Math.max(0, reportQuantity - defectQuantity))
+}
+
 function goBack() {
-  if (typeof window !== 'undefined' && window.history.length > 1) {
-    window.history.back()
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = `#/pages/work-order-detail/index?id=${form.workOrderId}`
     return
   }
   uni.navigateBack()
+}
+
+function goAfterSubmit() {
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = '#/pages/report-list/index'
+    return
+  }
+  uni.switchTab({ url: '/pages/report-list/index' })
 }
 
 const handleSubmit = async (isContinue: boolean) => {
@@ -380,6 +393,10 @@ const handleSubmit = async (isContinue: boolean) => {
   }
   if (!form.startTime || !form.endTime) {
     uni.showToast({ title: '请选择开始和结束时间', icon: 'none' })
+    return
+  }
+  if ((Number(form.goodQuantity) || 0) + (Number(form.defectQuantity) || 0) !== Number(form.reportQuantity)) {
+    uni.showToast({ title: '良品数与不良数之和必须等于报工数', icon: 'none' })
     return
   }
 
@@ -406,7 +423,7 @@ const handleSubmit = async (isContinue: boolean) => {
     uni.hideLoading()
     uni.showToast({ title: '提交成功', icon: 'success' })
     if (!isContinue) {
-      setTimeout(() => goBack(), 1500)
+      setTimeout(() => goAfterSubmit(), 1500)
     } else {
       // 继续报工：清空表单
       form.reportQuantity = ''
@@ -507,12 +524,23 @@ const handleClose = () => {
 
 .value-row { display: flex; align-items: center; }
 .placeholder { color: #ccc; font-size: 28rpx; }
-.num-input { text-align: right; width: 200rpx; font-size: 28rpx; }
+.num-input {
+  text-align: right;
+  width: 180rpx;
+  height: 58rpx;
+  padding: 0 16rpx;
+  font-size: 28rpx;
+  background: #f7f9f8;
+  border: 1rpx solid #dfe5e3;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
 .red-text { color: #ff4d4f; }
+.text-input { width: 260rpx; height: 58rpx; text-align: right; font-size: 26rpx; color: #202926; }
 .unit { font-size: 26rpx; color: #666; margin-left: 10rpx; }
 .arrow { font-size: 32rpx; color: #ccc; margin-left: 10rpx; }
 
-.mini-input { width: 80rpx; text-align: center; font-size: 28rpx; border-bottom: 1px solid #eee; }
+.mini-input { width: 72rpx; height: 56rpx; text-align: center; font-size: 28rpx; background: #f7f9f8; border: 1rpx solid #dfe5e3; border-radius: 8rpx; }
 .unit-s { font-size: 24rpx; color: #999; margin: 0 10rpx; }
 
 .textarea-input {
@@ -588,7 +616,6 @@ const handleClose = () => {
   align-items: center;
 }
 
-.add-icon { font-size: 40rpx; }
 
 .footer {
   position: fixed;
@@ -607,7 +634,7 @@ const handleClose = () => {
 .btn {
   flex: 1;
   height: 90rpx;
-  border-radius: 45rpx;
+  border-radius: 12rpx;
   display: flex;
   justify-content: center;
   align-items: center;

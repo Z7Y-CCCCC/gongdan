@@ -118,9 +118,9 @@
             <td>{{ payloadOf(record).reworkOwner || '-' }}</td>
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)">编辑</button>
-              <button class="toolbar-btn" type="button" @click="changeStatus(record, 'REWORKING')">转返工</button>
-              <button class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')">关闭</button>
+              <button class="toolbar-btn" type="button" @click="openEdit(record)">{{ record.status === 'CLOSED' ? '查看/编辑' : '编辑' }}</button>
+              <button v-if="record.status === 'OPEN'" class="toolbar-btn" type="button" @click="changeStatus(record, 'REWORKING')">转返工</button>
+              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')">关闭</button>
               <button class="toolbar-btn danger" type="button" @click="removeRecord(record)">删除</button>
             </td>
           </tr>
@@ -152,8 +152,8 @@
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td class="row-actions">
               <button class="toolbar-btn" type="button" @click="openEdit(record)">编辑</button>
-              <button class="toolbar-btn" type="button" @click="changeStatus(record, 'MAINTENANCE')">保养</button>
-              <button class="toolbar-btn" type="button" @click="changeStatus(record, 'ACTIVE')">启用</button>
+              <button v-if="record.status !== 'MAINTENANCE'" class="toolbar-btn" type="button" @click="changeStatus(record, 'MAINTENANCE')">保养</button>
+              <button v-if="record.status !== 'ACTIVE'" class="toolbar-btn" type="button" @click="changeStatus(record, 'ACTIVE')">启用</button>
               <button class="toolbar-btn danger" type="button" @click="removeRecord(record)">删除</button>
             </td>
           </tr>
@@ -269,8 +269,8 @@
             <td>{{ record.createdByName || '-' }}</td>
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)">处理</button>
-              <button class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')">关闭</button>
+              <button class="toolbar-btn" type="button" @click="openEdit(record)">{{ record.status === 'CLOSED' ? '查看/编辑' : '处理' }}</button>
+              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')">关闭</button>
               <button class="toolbar-btn danger" type="button" @click="removeRecord(record)">删除</button>
             </td>
           </tr>
@@ -466,7 +466,7 @@ const payrollRows = computed(() => {
     .filter(record => record.status === 'ACTIVE')
     .map(record => payloadOf(record))
   const rows = new Map<string, { name: string; goodQuantity: number; defectQuantity: number; processSet: Set<string>; amount: number }>()
-  reports.value.forEach(report => {
+  reports.value.filter(report => report.status === 'APPROVED').forEach(report => {
     const name = report.reporterName || '未指定'
     const row = rows.get(name) || { name, goodQuantity: 0, defectQuantity: 0, processSet: new Set<string>(), amount: 0 }
     const good = Number(report.goodQuantity || 0)
@@ -506,7 +506,9 @@ const ganttItems = computed(() => {
       productName: order.productName,
       planStart: order.planStart,
       planEnd: order.planEnd,
-      progress: Math.round(order.progressPercent || 0),
+      progress: order.plannedQuantity
+        ? Math.min(100, Math.round(((order.goodQuantity || 0) / order.plannedQuantity) * 100))
+        : 0,
       left: Number(left.toFixed(2)),
       width: Number(width.toFixed(2))
     }
@@ -690,8 +692,7 @@ function payloadOf(record: AdvancedRecordInfo): Record<string, any> {
 }
 
 function statusText(status: string) {
-  const all = Object.values(statusMap).flat()
-  return all.find(item => item.value === status)?.label || status
+  return currentStatuses.value.find(item => item.value === status)?.label || status
 }
 
 function channelText(channel?: string) {

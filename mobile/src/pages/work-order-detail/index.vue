@@ -11,17 +11,17 @@
       <text class="order-code">{{ order.code || '' }}</text>
       <view class="info-list">
         <view class="info-item">
-          <text class="info-icon">📅</text>
+          <uni-icons class="info-icon" type="calendar" size="14" color="#8a9693" />
           <text class="info-label">计划时间：</text>
           <text class="info-val">{{ formatDate(order.planStart) }} ~ {{ formatDate(order.planEnd) }}</text>
         </view>
         <view class="info-item">
-          <text class="info-icon">📦</text>
+          <uni-icons class="info-icon" type="shop" size="14" color="#8a9693" />
           <text class="info-label">产品信息：</text>
           <text class="info-val green-link">{{ order.productCode }} | {{ order.productName }}</text>
         </view>
         <view class="info-item">
-          <text class="info-icon">📊</text>
+          <uni-icons class="info-icon" type="bars" size="14" color="#8a9693" />
           <text class="info-label">工单进度：</text>
           <text class="info-val">{{ order.goodQuantity || 0 }}/{{ order.plannedQuantity || 0 }}{{ productUnit }}</text>
         </view>
@@ -53,10 +53,6 @@
 
     <!-- 工序列表 (生产进度 tab) -->
     <scroll-view v-if="activeTab === 'progress'" scroll-y class="process-list">
-      <view class="filter-bar">
-        <text class="filter-text">筛选</text>
-      </view>
-
       <view v-if="!order.tasks || order.tasks.length === 0" class="empty-hint">
         <text>暂无工序数据</text>
       </view>
@@ -95,7 +91,7 @@
 
         <view class="card-extra">
           <view class="extra-row">
-            <text class="extra-icon">📋</text>
+            <uni-icons class="extra-icon" type="compose" size="14" color="#8a9693" />
             <text class="extra-label">工单编号：</text>
             <text class="extra-val">{{ order.code }}</text>
           </view>
@@ -114,7 +110,18 @@
 
     <!-- 用料明细 tab -->
     <scroll-view v-if="activeTab === 'material'" scroll-y class="process-list">
-      <view class="empty-hint"><text>暂无用料明细</text></view>
+      <view v-if="materialReports.length === 0" class="empty-hint"><text>暂无已审批用料记录</text></view>
+      <view v-for="item in materialReports" :key="item.id" class="history-card">
+        <view class="history-head">
+          <text class="history-title">{{ item.materialName }}</text>
+          <text class="history-status report-status-approved">已领料</text>
+        </view>
+        <view class="history-meta">
+          <text>{{ item.processName || '-' }}</text>
+          <text>{{ item.reporterName || '-' }}</text>
+        </view>
+        <view class="material-time">{{ formatDate(item.createdAt) }}</view>
+      </view>
     </scroll-view>
 
     <!-- 生产履历 tab -->
@@ -144,10 +151,6 @@
     <view class="footer">
       <view class="f-btn" @click="showMore">更多</view>
       <view class="f-btn" @click="showPriority">优先级</view>
-      <view class="f-btn finish" @click="handleFinish">
-        <text class="finish-icon">⊘</text>
-        结束
-      </view>
     </view>
 
     <!-- 加载中 -->
@@ -182,6 +185,7 @@ const loading = ref(true)
 const activeTab = ref('progress')
 const productUnit = ref('个')
 const reports = ref<WorkOrderReport[]>([])
+const materialReports = computed(() => reports.value.filter(item => item.status === 'APPROVED' && item.materialName))
 
 // 从 URL 参数中获取 id 或 code
 let orderId = ''
@@ -299,7 +303,7 @@ function statusClass(status: string) {
 
 function stepStatusText(step: any) {
   const planned = step.plannedQuantity || order.value.plannedQuantity || 0
-  const completed = step.completedQuantity || 0
+  const completed = (step.completedQuantity || 0) + (step.defectQuantity || 0)
   if (completed === 0) return '未开始'
   if (completed >= planned) return '已完成'
   return '执行中'
@@ -315,7 +319,7 @@ function stepStatusClass(step: any) {
 const calculatePercent = (step: any) => {
   const planned = step.plannedQuantity || order.value.plannedQuantity || 0
   if (!planned) return 0
-  return Math.min(100, Math.round(((step.completedQuantity || 0) / planned) * 100))
+  return Math.min(100, Math.round((((step.completedQuantity || 0) + (step.defectQuantity || 0)) / planned) * 100))
 }
 
 function circleBorderStyle(step: any) {
@@ -366,7 +370,10 @@ const hasReportPermission = (step: any) => {
          allowedList.includes(user.username) ||
          allowedList.includes(String(user.id)) ||
          allowedList.includes(user.role) ||
-         allowedList.includes(user.roleLabel)
+         allowedList.includes(user.roleLabel) ||
+         allowedList.includes(user.departmentName) ||
+         step.assignee === user.name ||
+         step.assignee === user.username
 }
 
 const handleNoPermission = () => {
@@ -405,14 +412,6 @@ const showPriority = () => {
   uni.showModal({
     title: '优先级',
     content: priorityLabel(order.value.priority),
-    showCancel: false
-  })
-}
-
-const handleFinish = () => {
-  uni.showModal({
-    title: '结束工单',
-    content: '移动端暂不支持结束工单，请在管理后台处理。',
     showCancel: false
   })
 }
@@ -488,7 +487,7 @@ function priorityLabel(priority?: string) {
   margin-bottom: 10rpx;
 }
 
-.info-icon { font-size: 24rpx; margin-right: 6rpx; }
+.info-icon { margin-right: 6rpx; flex-shrink: 0; }
 .info-label { font-size: 24rpx; color: #999; }
 .info-val { font-size: 24rpx; color: #666; }
 .green-link { color: #00b889; }
@@ -558,17 +557,6 @@ function priorityLabel(priority?: string) {
   padding: 20rpx;
   box-sizing: border-box;
 }
-
-.filter-bar {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  font-size: 24rpx;
-  color: #999;
-  margin-bottom: 10rpx;
-}
-
-.filter-text { margin-left: 8rpx; }
 
 .empty-hint {
   text-align: center;
@@ -657,7 +645,7 @@ function priorityLabel(priority?: string) {
   margin-bottom: 8rpx;
 }
 
-.extra-icon { font-size: 22rpx; margin-right: 8rpx; }
+.extra-icon { margin-right: 8rpx; flex-shrink: 0; }
 .extra-label { font-size: 22rpx; color: #999; }
 .extra-val { font-size: 22rpx; color: #666; }
 
@@ -738,6 +726,13 @@ function priorityLabel(priority?: string) {
   color: #777;
 }
 
+.material-time {
+  padding-top: 16rpx;
+  border-top: 1px solid #f2f2f2;
+  font-size: 24rpx;
+  color: #8a9693;
+}
+
 .footer {
   height: 110rpx;
   background: white;
@@ -757,15 +752,6 @@ function priorityLabel(priority?: string) {
   background: #f8f9f9;
   margin: 10rpx;
   border-radius: 10rpx;
-}
-
-.f-btn.finish {
-  background: #ff4d4f;
-  color: white;
-}
-
-.finish-icon {
-  margin-right: 6rpx;
 }
 
 .loading-mask {

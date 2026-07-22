@@ -202,6 +202,27 @@ class WorkOrderReportServiceTest {
     }
 
     @Test
+    void createReportRejectsQuantityBreakdownMismatch() {
+        Factory factory = factory(1L);
+        FactoryUser currentUser = user(2L, factory);
+        WorkOrderReportRequest request = new WorkOrderReportRequest();
+        request.setWorkOrderId(5L);
+        request.setProcessSequenceNo(1);
+        request.setReportQuantity(5);
+        request.setGoodQuantity(4);
+        request.setDefectQuantity(0);
+
+        when(userRepository.findByIdAndFactoryId(currentUser.getId(), factory.getId())).thenReturn(Optional.of(currentUser));
+
+        assertThatThrownBy(() -> service.createReport(factory.getId(), currentUser.getId(), request))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("良品数与不良数之和必须等于报工数")
+                .extracting("status")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        verifyNoInteractions(workOrderRepository, reportRepository);
+    }
+
+    @Test
     void cleanupExpiredPendingImagesDeletesFileAndDatabaseRecord() throws Exception {
         Files.write(uploadDir.resolve("pending.png"), pngBytes());
         WorkOrderReportImage image = new WorkOrderReportImage();

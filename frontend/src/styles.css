@@ -2881,6 +2881,7 @@ tr.drag-over {
   -webkit-mask: radial-gradient(circle at center, transparent 32px, black 33px);
 }
 .db-pie-legend { flex: 1; }
+.db-pie-empty { color: #5a8aaa; font-size: 11px; }
 .db-pie-legend-item {
   display: flex;
   align-items: center;

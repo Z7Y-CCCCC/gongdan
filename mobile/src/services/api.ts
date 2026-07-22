@@ -5,7 +5,7 @@ import type { FieldEventPayload, FieldEventRecord, ListResponse, MobileAuthResul
 const configuredApiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 function defaultApiBase() {
   if (typeof window !== 'undefined' && window.location && ['127.0.0.1', 'localhost'].includes(window.location.hostname)) {
-    return 'http://127.0.0.1:18080/api'
+    return 'http://127.0.0.1:8080/api'
   }
   return '/api'
 }

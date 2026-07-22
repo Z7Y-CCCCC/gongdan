@@ -6,6 +6,7 @@ export interface UserInfo {
   name: string
   role: 'ADMIN' | 'PRODUCTION'
   roleLabel: string
+  departmentName?: string
 }
 
 export interface MobileAuthResult {
@@ -25,6 +26,7 @@ export interface WorkOrderTask {
   approvedQuantity?: number
   lastReportTime?: string
   reportPermission?: string
+  assignee?: string
   enabled?: boolean
 }
 

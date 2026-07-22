@@ -1,9 +1,14 @@
 <template>
   <view class="container">
     <view class="header">
-      <view class="logo-icon">🏭</view>
-      <text class="title">黑湖小工单 - 移动报工</text>
-      <text class="subtitle">绑定您的工厂账号以开始工作</text>
+      <view class="brand-row">
+        <view class="logo-box"><uni-icons type="compose" size="24" color="#00a982" /></view>
+        <view class="brand-copy">
+          <text class="title">黑湖小工单</text>
+          <text class="subtitle">生产现场移动工作台</text>
+        </view>
+      </view>
+      <text class="login-title">登录工厂账号</text>
     </view>
 
     <view class="form">
@@ -22,7 +27,7 @@
         <input class="input" v-model="form.password" password placeholder="请输入登录密码" placeholder-style="color:#ccc" />
       </view>
 
-      <button class="btn-submit" :loading="loading" @click="handleBind">立即登录</button>
+      <button class="btn-submit" :loading="loading" @click="handleBind">登录</button>
     </view>
 
     <view class="footer">
@@ -168,62 +173,86 @@ const handleBind = async () => {
 
 <style scoped>
 .container {
-  padding: 60rpx 40rpx;
+  padding: 48rpx 36rpx 32rpx;
   background-color: #f6f7f7;
   min-height: 100vh;
+  box-sizing: border-box;
 }
 
 .header {
-  margin-bottom: 80rpx;
+  margin-bottom: 28rpx;
   display: flex;
   flex-direction: column;
-  align-items: center;
 }
 
-.logo-icon {
-  font-size: 120rpx;
-  margin-bottom: 30rpx;
+.brand-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 70rpx;
+}
+
+.logo-box {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 14rpx;
+  background: #e5f7f2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 20rpx;
+}
+
+.brand-copy {
+  display: flex;
+  flex-direction: column;
 }
 
 .title {
-  font-size: 40rpx;
-  font-weight: bold;
-  color: #333;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #202926;
 }
 
 .subtitle {
-  font-size: 26rpx;
-  color: #999;
-  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #8a9693;
+  margin-top: 4rpx;
+}
+
+.login-title {
+  font-size: 40rpx;
+  font-weight: 700;
+  color: #202926;
 }
 
 .form {
   background: white;
-  padding: 40rpx;
-  border-radius: 20rpx;
-  box-shadow: 0 4rpx 20rpx rgba(0,0,0,0.05);
+  padding: 34rpx;
+  border-radius: 16rpx;
+  border: 1rpx solid #e8eceb;
 }
 
 .input-group {
-  margin-bottom: 40rpx;
+  margin-bottom: 30rpx;
 }
 
 .label {
   font-size: 28rpx;
-  color: #666;
-  margin-bottom: 15rpx;
+  color: #586360;
+  margin-bottom: 12rpx;
   display: block;
 }
 
 .input {
   width: 100%;
   display: block;
-  height: 90rpx;
-  background: #f9f9f9;
+  height: 82rpx;
+  background: #f7f9f8;
   border-radius: 10rpx;
-  padding: 0 30rpx;
-  font-size: 30rpx;
-  border: 1px solid #eee;
+  padding: 0 24rpx;
+  font-size: 28rpx;
+  border: 1rpx solid #dfe5e3;
+  box-sizing: border-box;
 }
 
 .btn-submit {
@@ -233,12 +262,12 @@ const handleBind = async () => {
   justify-content: center;
   background-color: #00b889;
   color: white;
-  border-radius: 45rpx;
-  height: 90rpx;
-  line-height: 90rpx;
-  font-size: 32rpx;
-  font-weight: bold;
-  margin-top: 20rpx;
+  border-radius: 12rpx;
+  height: 84rpx;
+  line-height: 84rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-top: 10rpx;
   border: none;
 }
 
@@ -247,12 +276,12 @@ const handleBind = async () => {
 }
 
 .footer {
-  margin-top: 100rpx;
+  margin-top: 48rpx;
   text-align: center;
 }
 
 .footer-text {
   font-size: 24rpx;
-  color: #ccc;
+  color: #9aa4a1;
 }
 </style>

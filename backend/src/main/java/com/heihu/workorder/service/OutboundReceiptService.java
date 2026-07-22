@@ -11,6 +11,7 @@ import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.OutboundReceiptRepository;
 import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.util.DateTimeParser;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -97,7 +98,7 @@ public class OutboundReceiptService {
         receipt.setFactory(factory);
         receipt.setCode(code);
         receipt.setOutboundType(request.getOutboundType().trim());
-        receipt.setOutboundTime(LocalDateTime.parse(request.getOutboundTime().trim(), FMT));
+        receipt.setOutboundTime(DateTimeParser.parse(request.getOutboundTime()));
         receipt.setRemark(normalize(request.getRemark()));
         receipt.setCustomDataJson(writeJson(request.getCustomValues()));
         receipt.setCreatedAt(LocalDateTime.now());

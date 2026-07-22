@@ -133,6 +133,9 @@ public class WorkOrderReportService {
         if (reportQty <= 0 && goodQty <= 0 && defectQty <= 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "请填写报工数量");
         }
+        if (reportQty != goodQty + defectQty) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "良品数与不良数之和必须等于报工数");
+        }
         if (request.getImageIds() != null && request.getImageIds().size() > 9) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "单次报工最多上传9张图片");
         }

@@ -26,7 +26,7 @@
             <view class="progress-bar">
               <view class="progress-fill" :style="{ width: task.progress + '%' }"></view>
             </view>
-            <text class="progress-text">{{ task.completedQuantity }}/{{ task.plannedQuantity }}</text>
+            <text class="progress-text">{{ task.completedQuantity + task.defectQuantity }}/{{ task.plannedQuantity }}</text>
           </view>
         </view>
         <uni-icons type="right" size="16" color="#ccc"></uni-icons>
@@ -36,14 +36,18 @@
         <text class="empty-text">当前暂无指派给您的任务</text>
       </view>
     </scroll-view>
+    <!-- #ifdef H5 -->
+    <MobileTabBar current="tasks" />
+    <!-- #endif -->
   </view>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { ensureLogin, fetchWorkOrders } from '../../services/api'
 import type { WorkOrderInfo, WorkOrderTask } from '../../types/api'
+import MobileTabBar from '../../components/MobileTabBar.vue'
 
 interface TaskCard {
   id: string
@@ -64,6 +68,11 @@ const loading = ref(false)
 const errorMessage = ref('')
 
 onShow(() => {
+  if (!ensureLogin()) return
+  loadTasks()
+})
+
+onMounted(() => {
   if (!ensureLogin()) return
   loadTasks()
 })
@@ -93,12 +102,14 @@ function buildTaskCards(order: WorkOrderInfo): TaskCard[] {
     .filter(task => hasReportPermission(task))
     .filter(task => {
       const planned = task.plannedQuantity || order.plannedQuantity || 0
-      const completed = task.completedQuantity || 0
+      const completed = (task.completedQuantity || 0) + (task.defectQuantity || 0)
       return planned <= 0 || completed < planned
     })
     .map((task, index) => {
       const planned = task.plannedQuantity || order.plannedQuantity || 0
-      const completed = task.completedQuantity || 0
+      const goodQuantity = task.completedQuantity || 0
+      const defectQuantity = task.defectQuantity || 0
+      const completed = goodQuantity + defectQuantity
       const sequenceNo = task.sequenceNo || index + 1
       return {
         id: `${order.id}-${sequenceNo}`,
@@ -108,8 +119,8 @@ function buildTaskCards(order: WorkOrderInfo): TaskCard[] {
         processName: task.processName || `工序${sequenceNo}`,
         sequenceNo,
         plannedQuantity: planned,
-        completedQuantity: completed,
-        defectQuantity: task.defectQuantity || 0,
+        completedQuantity: goodQuantity,
+        defectQuantity,
         reportPermission: task.reportPermission,
         progress: planned > 0 ? Math.min(100, Math.round((completed / planned) * 100)) : 0
       }
@@ -131,12 +142,21 @@ function hasReportPermission(task: WorkOrderTask) {
   return allowed.includes(user.name) ||
     allowed.includes(user.username) ||
     allowed.includes(String(user.id)) ||
-    allowed.includes(user.roleLabel)
+    allowed.includes(user.role) ||
+    allowed.includes(user.roleLabel) ||
+    allowed.includes(user.departmentName) ||
+    task.assignee === user.name ||
+    task.assignee === user.username
 }
 
 function handleTask(task: TaskCard) {
+  const url = `/pages/report-form/index?orderId=${task.workOrderId}&processNo=${task.sequenceNo}&processName=${encodeURIComponent(task.processName)}&plannedQty=${task.plannedQuantity}&completedQty=${task.completedQuantity}&defectQty=${task.defectQuantity}&reportPermission=${encodeURIComponent(task.reportPermission || '')}`
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = `#${url}`
+    return
+  }
   uni.navigateTo({
-    url: `/pages/report-form/index?orderId=${task.workOrderId}&processNo=${task.sequenceNo}&processName=${encodeURIComponent(task.processName)}&plannedQty=${task.plannedQuantity}&completedQty=${task.completedQuantity}&defectQty=${task.defectQuantity}&reportPermission=${encodeURIComponent(task.reportPermission || '')}`
+    url
   })
 }
 </script>
@@ -146,6 +166,7 @@ function handleTask(task: TaskCard) {
   padding: 40rpx;
   background: #f6f7f7;
   min-height: 100vh;
+  padding-bottom: 130rpx;
   box-sizing: border-box;
 }
 
@@ -169,6 +190,8 @@ function handleTask(task: TaskCard) {
 .task-list {
   height: calc(100vh - 160rpx);
 }
+
+.task-list::-webkit-scrollbar { display: none; }
 
 .task-card {
   background: white;
