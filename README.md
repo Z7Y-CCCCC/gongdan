@@ -4,7 +4,7 @@ Spring Boot + Vue 3 + MySQL 9.2 的小工单系统雏形。当前已实现电脑
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=zhujiayu999/gongdan&type=Date)](https://www.star-history.com/#zhujiayu999/gongdan&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=Z7Y-CCCCC/gongdan&type=Date)](https://www.star-history.com/#Z7Y-CCCCC/gongdan&Date)
 
 ## 最新更新
 * **工单删除后选中状态自动清空**：优化了工单被单个删除后其 ID 仍残留在选中列表中的问题。在单个删除成功后，自动过滤 `selectedIds` 响应式状态，避免删除数据后上方操作栏仍显示“已选 1 条”的残留视觉 Bug。
