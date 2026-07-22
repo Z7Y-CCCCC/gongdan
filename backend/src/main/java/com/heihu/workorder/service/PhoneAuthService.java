@@ -51,7 +51,7 @@ public class PhoneAuthService {
      * 手机号 + 密码登录。
      * 若手机号关联多个工厂且有多个启用用户密码匹配，返回工厂列表供选择。
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public PhoneLoginResponse loginByPassword(String phone, String password) {
         String limitKey = AuthAttemptLimiter.key("phone-password", phone);
         authAttemptLimiter.checkAllowed(limitKey);
@@ -106,7 +106,7 @@ public class PhoneAuthService {
      * 若手机号关联多个工厂且有多个启用用户，返回工厂列表供选择。
      * 若手机号无关联用户且验证码有效，返回 bindingRequired=true 引导绑定流程。
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public PhoneLoginResponse loginBySmsCode(String phone, String code) {
         String limitKey = AuthAttemptLimiter.key("phone-sms", phone);
         authAttemptLimiter.checkAllowed(limitKey);
@@ -158,7 +158,7 @@ public class PhoneAuthService {
      * 多工厂选择后完成登录。
      * 根据 loginType 决定是否需要再次验证凭证。
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public PhoneLoginResponse selectFactory(String phone, Long factoryId, String loginType, String credential) {
         String limitKey = AuthAttemptLimiter.key("phone-select", loginType, phone);
         authAttemptLimiter.checkAllowed(limitKey);

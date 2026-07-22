@@ -26,6 +26,7 @@ output/
 # Local backups
 *.bak
 backups/
+release-windows/
 
 # Uploads
 backend/uploads/

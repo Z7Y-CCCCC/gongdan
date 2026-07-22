@@ -50,7 +50,7 @@ public class AuthService {
         this(factoryRepository, userRepository, passwordEncoder, tokenService, new AuthAttemptLimiter());
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         String factoryCode = normalize(request.getFactoryCode()).toUpperCase();
         String account = normalize(request.getUsername());

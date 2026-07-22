@@ -1694,6 +1694,14 @@ function getMultiFieldValues(order: any, fields: any): string[] {
 
 const qrDataUrls = ref<Record<number, string>>({})
 
+function getMobileBaseUrl() {
+  const configuredBase = (import.meta.env.VITE_MOBILE_BASE_URL || '').trim()
+  if (configuredBase) {
+    return new URL(configuredBase.replace(/\/?$/, '/'), window.location.origin).toString().replace(/\/$/, '')
+  }
+  return `${window.location.protocol}//${window.location.hostname}:5174`
+}
+
 async function generateAllQrs() {
   loadCustomTemplates()
   const newUrls: Record<number, string> = {}
@@ -1704,9 +1712,7 @@ async function generateAllQrs() {
     const source = currentTpl.qrSource
     let qrText = ''
     if (source === '工单外链') {
-      // 使用与当前页面相同的 hostname（局域网 IP），但端口改为移动端 H5 的 5174
-      const hostname = window.location.hostname
-      const mobileBase = `http://${hostname}:5174`
+      const mobileBase = getMobileBaseUrl()
       qrText = `${mobileBase}/#/pages/work-order-detail/index?id=${order.id}&code=${encodeURIComponent(order.code || '')}`
     } else {
       qrText = getFieldValue(order, source) || order.code || String(id)

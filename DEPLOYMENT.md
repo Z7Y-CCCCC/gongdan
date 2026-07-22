@@ -104,6 +104,18 @@ docker compose up --build -d
 The stack starts MySQL, the Spring Boot backend with the `prod` profile, and an nginx-served admin frontend that proxies `/api` to the backend.
 Uploaded report images are stored in the `report-images` Docker volume.
 
+## Windows Internal Demo Without Docker
+
+For a low-resource Windows Server that already runs MySQL 9.2, Java, and nginx, build the native release package:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ops\build-windows-release.ps1
+```
+
+The package is written to `release-windows` and is designed for `C:\www\gongdan`. It runs the backend on `127.0.0.1:18080` and adds a separate nginx server on port `8088`, so an existing website on ports 80/443 is not replaced. The same site serves the admin UI at `/`, mobile H5 at `/mobile/`, and the API at `/api/`.
+
+The `demo` Spring profile enables mock WeChat identity, log-only SMS, and Hibernate schema updates for internal workflow testing on MySQL 9.2. The Java 8 compatible Flyway line used by this Spring Boot version does not recognize MySQL 9.2, so use MySQL 8.4 LTS or upgrade the Spring Boot/Java/Flyway stack before a migration-managed production rollout. The demo profile must not be used as a public production profile. See `deploy/windows/README.md` for server installation and temporary HTTPS tunnel instructions.
+
 Run the non-destructive preflight before starting or updating the stack:
 
 ```bash
