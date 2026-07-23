@@ -173,7 +173,7 @@ public class WorkOrderService {
         workOrder.setRelatedOrderCode(normalize(request.getRelatedOrderCode()));
         workOrder.setRemark(normalize(request.getRemark()));
         workOrder.setCustomDataJson(writeJson(request.getCustomValues()));
-        workOrder.setTaskDataJson(writeJson(request.getTasks()));
+        workOrder.setTaskDataJson(writeJson(normalizeTasks(request.getTasks())));
         workOrder.setMaterialDataJson(writeJson(request.getMaterials()));
     }
 
@@ -202,13 +202,14 @@ public class WorkOrderService {
                         ? item.getProduct().getProcessRoute().getName()
                         : null
         );
-        response.setProgressPercent(calculateProgress(readTasks(item.getTaskDataJson())));
+        List<WorkOrderRequest.TaskItem> tasks = normalizeTasks(readTasks(item.getTaskDataJson()));
+        response.setProgressPercent(calculateProgress(tasks));
         response.setPlanStart(item.getPlanStart() != null ? item.getPlanStart().format(FMT) : null);
         response.setPlanEnd(item.getPlanEnd() != null ? item.getPlanEnd().format(FMT) : null);
         response.setRelatedOrderCode(item.getRelatedOrderCode());
         response.setRemark(item.getRemark());
         response.setCustomValues(readCustomValues(item.getCustomDataJson()));
-        response.setTasks(readTasks(item.getTaskDataJson()));
+        response.setTasks(tasks);
         response.setMaterials(readMaterials(item.getMaterialDataJson()));
         response.setCreator(item.getCreator() != null ? item.getCreator().getName() : null);
         response.setCreatedAt(item.getCreatedAt() != null ? item.getCreatedAt().format(FMT) : null);
@@ -271,6 +272,18 @@ public class WorkOrderService {
         } catch (JsonProcessingException e) {
             return Collections.emptyList();
         }
+    }
+
+    private List<WorkOrderRequest.TaskItem> normalizeTasks(List<WorkOrderRequest.TaskItem> tasks) {
+        if (tasks == null) return Collections.emptyList();
+        for (WorkOrderRequest.TaskItem task : tasks) {
+            if (task == null) continue;
+            String permission = normalize(task.getReportPermission());
+            if (permission != null && "all".equalsIgnoreCase(permission)) {
+                task.setReportPermission("所有人");
+            }
+        }
+        return tasks;
     }
 
     private List<WorkOrderRequest.MaterialItem> readMaterials(String json) {

@@ -355,8 +355,8 @@ function reportStatusClass(status: string) {
 }
 
 const hasReportPermission = (step: any) => {
-  const perm = step.reportPermission
-  if (!perm || perm === '所有人' || perm === 'ALL') {
+  const perm = String(step.reportPermission || '').trim()
+  if (!perm || perm === '所有人' || perm.toUpperCase() === 'ALL') {
     return true
   }
   const user = uni.getStorageSync('user')

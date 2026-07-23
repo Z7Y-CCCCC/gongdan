@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import QRCode from 'qrcode'
 import {
   createWorkOrder,
@@ -2042,9 +2042,20 @@ function closeDropdowns(e: Event) {
   }
 }
 
+let hasLoadedOnce = false
+
 onMounted(() => {
-  loadData()
+  loadData().finally(() => {
+    hasLoadedOnce = true
+  })
   window.addEventListener('click', closeDropdowns)
+})
+
+// 工单页被 KeepAlive 暂存后重新进入时，刷新产品、工序和工艺路线，避免基础数据停留在旧快照。
+onActivated(() => {
+  if (hasLoadedOnce) {
+    void loadData()
+  }
 })
 
 onUnmounted(() => {

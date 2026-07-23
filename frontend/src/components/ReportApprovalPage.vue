@@ -13,7 +13,8 @@ const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
 
 const status = ref<ReportStatus>('PENDING')
-const reports = ref<WorkOrderReportInfo[]>([])
+const allReports = ref<WorkOrderReportInfo[]>([])
+const reports = computed(() => allReports.value.filter(item => item.status === status.value))
 const loading = ref(false)
 const detail = ref<WorkOrderReportInfo | null>(null)
 const imageObjectUrls = ref<Record<number, string>>({})
@@ -26,22 +27,21 @@ const filters = reactive({
 })
 
 const tabs = computed(() => [
-  { key: 'PENDING' as ReportStatus, label: '未审批', count: reports.value.filter(item => item.status === 'PENDING').length },
-  { key: 'APPROVED' as ReportStatus, label: '已审批', count: reports.value.filter(item => item.status === 'APPROVED').length },
-  { key: 'REJECTED' as ReportStatus, label: '已驳回', count: reports.value.filter(item => item.status === 'REJECTED').length }
+  { key: 'PENDING' as ReportStatus, label: '未审批', count: allReports.value.filter(item => item.status === 'PENDING').length },
+  { key: 'APPROVED' as ReportStatus, label: '已审批', count: allReports.value.filter(item => item.status === 'APPROVED').length },
+  { key: 'REJECTED' as ReportStatus, label: '已驳回', count: allReports.value.filter(item => item.status === 'REJECTED').length }
 ])
 
 async function loadReports() {
   loading.value = true
   try {
     const res = await fetchReports(props.token, {
-      status: status.value,
       workOrderCode: filters.workOrderCode,
       reporterName: filters.reporterName,
       period: filters.period,
       size: 500
     })
-    reports.value = res.items
+    allReports.value = res.items
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '报工列表加载失败')
   } finally {
@@ -131,7 +131,7 @@ onBeforeUnmount(revokeImageObjectUrls)
         class="tab-pill"
         :class="{ active: status === tab.key }"
         type="button"
-        @click="status = tab.key; loadReports()"
+        @click="status = tab.key"
       >
         {{ tab.label }} {{ tab.count }}
       </button>

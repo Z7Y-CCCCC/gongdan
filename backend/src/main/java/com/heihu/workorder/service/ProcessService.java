@@ -60,7 +60,13 @@ public class ProcessService {
 
         // reportPermission: 逗号分隔 → List
         if (p.getReportPermission() != null && !p.getReportPermission().isEmpty()) {
-            r.setReportPermission(Arrays.asList(p.getReportPermission().split(",")));
+            List<String> permissions = Arrays.stream(p.getReportPermission().split(","))
+                    .map(this::canonicalPermission)
+                    .filter(value -> !value.isEmpty())
+                    .collect(Collectors.toList());
+            r.setReportPermission(permissions.isEmpty() || permissions.contains("所有人")
+                    ? Collections.singletonList("所有人")
+                    : permissions);
         } else {
             r.setReportPermission(Collections.singletonList("所有人"));
         }
@@ -136,11 +142,7 @@ public class ProcessService {
         p.setCreatedAt(LocalDateTime.now());
 
         // reportPermission
-        if (req.getReportPermission() != null && !req.getReportPermission().isEmpty()) {
-            p.setReportPermission(String.join(",", req.getReportPermission()));
-        } else {
-            p.setReportPermission("所有人");
-        }
+        p.setReportPermission(normalizePermissions(req.getReportPermission()));
 
         // defectItemIds
         if (req.getDefectItemIds() != null && !req.getDefectItemIds().isEmpty()) {
@@ -187,7 +189,7 @@ public class ProcessService {
         if (req.getRequirements() != null) p.setRequirements(req.getRequirements());
 
         if (req.getReportPermission() != null) {
-            p.setReportPermission(String.join(",", req.getReportPermission()));
+            p.setReportPermission(normalizePermissions(req.getReportPermission()));
         }
         if (req.getDefectItemIds() != null) {
             p.setDefectItemIds(req.getDefectItemIds().stream()
@@ -208,5 +210,21 @@ public class ProcessService {
                 .filter(x -> x.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("工序不存在"));
         processRepository.delete(p);
+    }
+
+    private String normalizePermissions(List<String> permissions) {
+        if (permissions == null || permissions.isEmpty()) return "所有人";
+        List<String> normalized = permissions.stream()
+                .map(this::canonicalPermission)
+                .filter(value -> !value.isEmpty())
+                .collect(Collectors.toList());
+        if (normalized.isEmpty() || normalized.contains("所有人")) return "所有人";
+        return String.join(",", normalized);
+    }
+
+    private String canonicalPermission(String value) {
+        if (value == null) return "";
+        String normalized = value.trim();
+        return "all".equalsIgnoreCase(normalized) ? "所有人" : normalized;
     }
 }

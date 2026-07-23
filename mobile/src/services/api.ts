@@ -75,7 +75,8 @@ export function request<T>(path: string, options: { method?: 'GET' | 'POST' | 'P
       url: `${API_BASE}${path}`,
       method: options.method || 'GET',
       data: options.data,
-      timeout: 10000,
+      // 免费内网穿透的首次 TLS/隧道握手可能超过 10 秒，给移动端留出完整登录时间。
+      timeout: 30000,
       header: {
         'Content-Type': 'application/json',
         ...(token() ? { Authorization: `Bearer ${token()}` } : {}),

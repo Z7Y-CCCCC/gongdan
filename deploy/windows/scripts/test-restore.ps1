@@ -14,7 +14,7 @@ if (-not $EnvFile) { $EnvFile = Join-Path $ReleaseRoot "config\gongdan.env" }
 function Read-DotEnv([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { throw "Missing config file: $Path" }
     $values = @{}
-    foreach ($line in Get-Content -LiteralPath $Path) {
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
         $separator = $trimmed.IndexOf("=")

@@ -9,7 +9,7 @@ $envFile = Join-Path $ReleaseRoot "config\gongdan.env"
 $port = "18080"
 $config = @{}
 if (Test-Path -LiteralPath $envFile) {
-    foreach ($line in Get-Content -LiteralPath $envFile) {
+    foreach ($line in Get-Content -LiteralPath $envFile -Encoding UTF8) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
         $separator = $trimmed.IndexOf("=")

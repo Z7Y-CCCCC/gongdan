@@ -27,7 +27,7 @@
         <input class="input" v-model="form.password" password placeholder="请输入登录密码" placeholder-style="color:#ccc" />
       </view>
 
-      <button class="btn-submit" :loading="loading" @click="handleBind">登录</button>
+      <button class="btn-submit" :loading="loading" :disabled="loading" @click="handleBind">登录</button>
     </view>
 
     <view class="footer">
@@ -284,6 +284,10 @@ const handleBind = async () => {
 
 .btn-submit::after {
   border: none;
+}
+
+.btn-submit[disabled] {
+  opacity: 0.72;
 }
 
 .footer {

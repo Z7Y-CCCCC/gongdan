@@ -17,7 +17,7 @@ if (-not (Test-Path -LiteralPath $EnvFile)) { throw "Missing config file: $EnvFi
 
 function Read-DotEnv([string]$Path) {
     $values = @{}
-    foreach ($line in Get-Content -LiteralPath $Path) {
+    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
         $trimmed = $line.Trim()
         if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
         $separator = $trimmed.IndexOf("=")
