@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { fetchSystemImportLogs, fetchSystemOperationLogs } from '../api'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{
   visible: boolean
@@ -149,8 +150,8 @@ watch(currentPage, () => {
         <div v-if="totalItems > pageSize" class="pagination-bar" style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; padding-top:16px; border-top:1px solid #f0f4f3; z-index:10; position:relative;">
           <span style="font-size:13px; color:#5c6764">共 {{ totalItems }} 条，当前第 {{ currentPage }} 页</span>
           <div style="display:flex; gap:8px">
-            <button class="ghost-btn" style="padding:6px 12px; font-size:12.5px; height:32px; cursor:pointer;" :disabled="currentPage <= 1 || loading" @click="currentPage--">上一页</button>
-            <button class="ghost-btn" style="padding:6px 12px; font-size:12.5px; height:32px; cursor:pointer;" :disabled="currentPage * pageSize >= totalItems || loading" @click="currentPage++">下一页</button>
+            <button class="ghost-btn" style="padding:6px 12px; font-size:12.5px; height:32px; cursor:pointer;" :disabled="currentPage <= 1 || loading" @click="currentPage--"><UiIcon name="arrowLeft" />上一页</button>
+            <button class="ghost-btn" style="padding:6px 12px; font-size:12.5px; height:32px; cursor:pointer;" :disabled="currentPage * pageSize >= totalItems || loading" @click="currentPage++">下一页<UiIcon name="arrowRight" /></button>
           </div>
         </div>
       </div>

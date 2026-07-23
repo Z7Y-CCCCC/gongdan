@@ -36,6 +36,7 @@ import {
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import SystemLogsDialog from './SystemLogsDialog.vue'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -2285,8 +2286,8 @@ onUnmounted(() => {
         <input type="datetime-local" v-model="filterParams.planEndMax" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s;" />
       </label>
       <div class="filter-actions">
-        <button class="ghost-btn query-btn" type="button" @click="resetFilters" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;">重置</button>
-        <button class="primary-btn query-btn" type="button" @click="showFilterPanel = false" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;">收起</button>
+        <button class="ghost-btn query-btn" type="button" @click="resetFilters" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;"><UiIcon name="reset" />重置</button>
+        <button class="primary-btn query-btn" type="button" @click="showFilterPanel = false" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;"><UiIcon name="chevronUp" />收起</button>
       </div>
     </div>
 
@@ -2510,6 +2511,7 @@ onUnmounted(() => {
                     @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                     style="height:34px; margin:0; white-space:nowrap;"
                   >
+                    <UiIcon name="upload" />
                     {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
                   </button>
                   <input 
@@ -2563,6 +2565,7 @@ onUnmounted(() => {
                     @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                     style="height:34px; margin:0; white-space:nowrap;"
                   >
+                    <UiIcon name="upload" />
                     {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
                   </button>
                   <input 
@@ -2615,7 +2618,7 @@ onUnmounted(() => {
           <div class="toolbar" style="margin-bottom: 12px; padding: 0; border: none; background: transparent;">
             <template v-if="selectedTaskIndexes.length === 0">
               <div style="position: relative;" class="add-task-wrap">
-                <button class="primary-btn" type="button" @click.stop="showTaskSelector = !showTaskSelector">添加生产任务</button>
+                <button class="primary-btn" type="button" @click.stop="showTaskSelector = !showTaskSelector"><UiIcon name="plus" />添加生产任务</button>
               </div>
             </template>
             <template v-else>
@@ -2682,8 +2685,8 @@ onUnmounted(() => {
         <div v-else-if="activeTab === 'material'" style="padding:18px; display:flex; flex-direction:column; min-height: 300px;">
           <div class="toolbar" style="margin-bottom: 12px; padding: 0; border: none; background: transparent;">
             <div class="toolbar-left">
-              <button class="primary-btn" type="button" @click="addMaterial">添加物料</button>
-              <button class="ghost-btn" type="button" :disabled="!selectedProductBom" @click="applyBomMaterials">按BOM带入</button>
+              <button class="primary-btn" type="button" @click="addMaterial"><UiIcon name="plus" />添加物料</button>
+              <button class="ghost-btn" type="button" :disabled="!selectedProductBom" @click="applyBomMaterials"><UiIcon name="layers" />按BOM带入</button>
               <span v-if="selectedProductBom" class="muted">已匹配 BOM：{{ selectedProductBom.code }}</span>
               <span v-else class="muted">当前产品暂无启用 BOM，可手工添加</span>
             </div>
@@ -2846,7 +2849,7 @@ onUnmounted(() => {
               </label>
             </div>
             <div style="text-align: center; margin-top: 32px;">
-              <button class="primary-btn" type="button" @click="doPrint" style="padding: 0 32px;">直接打印</button>
+              <button class="primary-btn" type="button" @click="doPrint" style="padding: 0 32px;"><UiIcon name="print" />直接打印</button>
             </div>
           </div>
           <!-- Excel 模板打印 -->
@@ -2883,8 +2886,8 @@ onUnmounted(() => {
               </label>
             </div>
             <div style="text-align: center; margin-top: 32px; display: flex; justify-content: center; gap: 16px;">
-              <button class="primary-btn" type="button" @click="doExcelPrint('wps')" style="padding: 0 24px; background: #00b889;">WPS打印</button>
-              <button class="ghost-btn" type="button" @click="doExcelPrint('download')" style="padding: 0 24px; color: #00b889; border-color: #00b889;">下载打印</button>
+              <button class="primary-btn" type="button" @click="doExcelPrint('wps')" style="padding: 0 24px; background: #00b889;"><UiIcon name="print" />WPS打印</button>
+              <button class="ghost-btn" type="button" @click="doExcelPrint('download')" style="padding: 0 24px; color: #00b889; border-color: #00b889;"><UiIcon name="download" />下载打印</button>
             </div>
           </div>
         </div>
@@ -3212,7 +3215,7 @@ onUnmounted(() => {
           </span>
         </div>
         <div style="display: flex; gap: 12px;">
-          <button class="ghost-btn" type="button" @click="showTaskSelector = false" style="padding: 8px 20px; font-size: 13px;">取消</button>
+          <button class="ghost-btn" type="button" @click="showTaskSelector = false" style="padding: 8px 20px; font-size: 13px;"><UiIcon name="close" />取消</button>
           <button 
             class="primary-btn" 
             type="button" 
@@ -3225,6 +3228,7 @@ onUnmounted(() => {
               cursor: (taskSelectorActiveTab === 'process' ? taskSelectorSelectedProcesses.length === 0 : taskSelectorSelectedRoutes.length === 0) ? 'not-allowed' : 'pointer'
             }"
           >
+            <UiIcon name="plus" />
             确认添加
             <span v-if="taskSelectorActiveTab === 'process' && taskSelectorSelectedProcesses.length > 0">({{ taskSelectorSelectedProcesses.length }})</span>
             <span v-else-if="taskSelectorActiveTab === 'route' && taskSelectorSelectedRoutes.length > 0">({{ taskSelectorSelectedRoutes.length }})</span>

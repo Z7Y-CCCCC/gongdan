@@ -17,9 +17,10 @@
     <div class="toolbar advanced-toolbar">
       <div class="toolbar-left">
         <button v-if="currentModule" class="primary-btn create-btn" type="button" @click="openCreate">
+          <UiIcon name="plus" />
           新建{{ currentTabLabel }}
         </button>
-        <button class="ghost-btn" type="button" @click="loadActive">刷新</button>
+        <button class="ghost-btn" type="button" @click="loadActive"><UiIcon name="refresh" />刷新</button>
       </div>
       <div class="filters inline-filters">
         <label v-if="currentModule">
@@ -54,11 +55,12 @@
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td>{{ record.updatedAt || '-' }}</td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)">编辑</button>
+              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon name="edit" />编辑</button>
               <button class="toolbar-btn" type="button" @click="changeStatus(record, record.status === 'ACTIVE' ? 'ARCHIVED' : 'ACTIVE')">
+                <UiIcon :name="record.status === 'ACTIVE' ? 'archive' : 'check'" />
                 {{ record.status === 'ACTIVE' ? '归档' : '启用' }}
               </button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)">删除</button>
+              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="7" class="empty-cell">暂无 SOP 文档</td></tr>
@@ -86,9 +88,9 @@
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td>{{ record.updatedAt || '-' }}</td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)">编辑</button>
-              <button class="toolbar-btn" type="button" @click="sendTest(record)">发送测试</button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)">删除</button>
+              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon name="edit" />编辑</button>
+              <button class="toolbar-btn" type="button" @click="sendTest(record)"><UiIcon name="send" />发送测试</button>
+              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="6" class="empty-cell">暂无推送配置</td></tr>
@@ -118,10 +120,10 @@
             <td>{{ payloadOf(record).reworkOwner || '-' }}</td>
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)">{{ record.status === 'CLOSED' ? '查看/编辑' : '编辑' }}</button>
-              <button v-if="record.status === 'OPEN'" class="toolbar-btn" type="button" @click="changeStatus(record, 'REWORKING')">转返工</button>
-              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')">关闭</button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)">删除</button>
+              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon :name="record.status === 'CLOSED' ? 'eye' : 'edit'" />{{ record.status === 'CLOSED' ? '查看/编辑' : '编辑' }}</button>
+              <button v-if="record.status === 'OPEN'" class="toolbar-btn" type="button" @click="changeStatus(record, 'REWORKING')"><UiIcon name="rework" />转返工</button>
+              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')"><UiIcon name="close" />关闭</button>
+              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="7" class="empty-cell">暂无质检返工记录</td></tr>
@@ -151,10 +153,10 @@
             <td>{{ payloadOf(record).nextMaintenance || '-' }}</td>
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)">编辑</button>
-              <button v-if="record.status !== 'MAINTENANCE'" class="toolbar-btn" type="button" @click="changeStatus(record, 'MAINTENANCE')">保养</button>
-              <button v-if="record.status !== 'ACTIVE'" class="toolbar-btn" type="button" @click="changeStatus(record, 'ACTIVE')">启用</button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)">删除</button>
+              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon name="edit" />编辑</button>
+              <button v-if="record.status !== 'MAINTENANCE'" class="toolbar-btn" type="button" @click="changeStatus(record, 'MAINTENANCE')"><UiIcon name="wrench" />保养</button>
+              <button v-if="record.status !== 'ACTIVE'" class="toolbar-btn" type="button" @click="changeStatus(record, 'ACTIVE')"><UiIcon name="check" />启用</button>
+              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="7" class="empty-cell">暂无设备/工位</td></tr>
@@ -210,8 +212,8 @@
               <td>{{ money(payloadOf(record).defectPenalty) }}</td>
               <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
               <td class="row-actions">
-                <button class="toolbar-btn" type="button" @click="openEdit(record)">编辑</button>
-                <button class="toolbar-btn danger" type="button" @click="removeRecord(record)">删除</button>
+                <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon name="edit" />编辑</button>
+                <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
               </td>
             </tr>
             <tr v-if="!loading && records.length === 0"><td colspan="6" class="empty-cell">暂无工资规则</td></tr>
@@ -269,9 +271,9 @@
             <td>{{ record.createdByName || '-' }}</td>
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)">{{ record.status === 'CLOSED' ? '查看/编辑' : '处理' }}</button>
-              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')">关闭</button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)">删除</button>
+              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon :name="record.status === 'CLOSED' ? 'eye' : 'edit'" />{{ record.status === 'CLOSED' ? '查看/编辑' : '处理' }}</button>
+              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')"><UiIcon name="close" />关闭</button>
+              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="7" class="empty-cell">暂无现场事件</td></tr>
@@ -285,7 +287,7 @@
       <section class="modal advanced-modal">
         <header class="modal-header">
           <h2>{{ editingRecord ? '编辑' : '新建' }}{{ currentTabLabel }}</h2>
-          <button class="close-btn" type="button" @click="showModal = false">x</button>
+          <button class="close-btn" type="button" @click="showModal = false">×</button>
         </header>
         <form class="create-form two-column" @submit.prevent="saveRecord">
           <label class="full-row">
@@ -364,8 +366,8 @@
             </select>
           </label>
           <footer class="modal-footer full-row">
-            <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
-            <button class="primary-btn wide" :disabled="saving" type="submit">{{ saving ? '保存中...' : '保存' }}</button>
+            <button class="ghost-btn wide" type="button" @click="showModal = false"><UiIcon name="close" />取消</button>
+            <button class="primary-btn wide" :disabled="saving" type="submit"><UiIcon name="save" />{{ saving ? '保存中...' : '保存' }}</button>
           </footer>
         </form>
       </section>
@@ -387,6 +389,7 @@ import {
   type WorkOrderInfo,
   type WorkOrderReportInfo
 } from '../api'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ (e: 'notice', message: string): void }>()

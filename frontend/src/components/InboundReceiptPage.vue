@@ -14,6 +14,7 @@ import {
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
+import UiIcon from '@/components/UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -830,6 +831,7 @@ onBeforeUnmount(() => {
                 @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                 style="height:34px; margin:0;"
               >
+                <UiIcon name="upload" />
                 {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
               </button>
               <input type="file" accept="image/*" style="display:none;" @change="handleCustomFieldUpload(field, $event, createForm.customValues[fIdx])" />
@@ -868,6 +870,7 @@ onBeforeUnmount(() => {
                 @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                 style="height:34px; margin:0;"
               >
+                <UiIcon name="upload" />
                 {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
               </button>
               <input type="file" style="display:none;" @change="handleCustomFieldUpload(field, $event, createForm.customValues[fIdx])" />

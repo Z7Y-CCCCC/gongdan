@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { fetchReports, fetchWorkOrders, type WorkOrderInfo, type WorkOrderReportInfo } from '../api'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -88,7 +89,7 @@ onMounted(loadData)
         <h2>生产报表</h2>
         <p>汇总当前工厂的工单产出、报工审批和人员产出。</p>
       </div>
-      <button class="ghost-btn" type="button" :disabled="loading" @click="loadData">刷新</button>
+      <button class="ghost-btn" type="button" :disabled="loading" @click="loadData"><UiIcon name="refresh" />刷新</button>
     </div>
 
     <div class="metric-grid">

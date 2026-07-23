@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { fetchCurrentFactory, updateCurrentFactory, type CurrentFactoryInfo } from '../api'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{
   token: string
@@ -58,7 +59,7 @@ onMounted(loadFactory)
         <h2>工厂设置</h2>
         <p>维护当前租户的基础信息。工厂代码用于登录和租户隔离，暂不支持在前台修改。</p>
       </div>
-      <button class="ghost-btn" type="button" :disabled="loading" @click="loadFactory">刷新</button>
+      <button class="ghost-btn" type="button" :disabled="loading" @click="loadFactory"><UiIcon name="refresh" />刷新</button>
     </div>
 
     <div v-if="loading && !factory" class="factory-empty">加载中...</div>
@@ -86,6 +87,7 @@ onMounted(loadFactory)
         </label>
         <div class="form-actions">
           <button class="primary-btn" type="submit" :disabled="saving">
+            <UiIcon name="save" />
             {{ saving ? '保存中...' : '保存' }}
           </button>
         </div>

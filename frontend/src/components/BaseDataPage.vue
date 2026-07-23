@@ -17,6 +17,7 @@ import {
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
+import UiIcon from '@/components/UiIcon.vue'
 
 const { visible: deleteVisible, title: deleteTitle, message: deleteMessage, loading: deleteLoading, confirm: deleteConfirm, handleConfirm: deleteHandleConfirm, handleCancel: deleteHandleCancel } = useDeleteConfirm()
 
@@ -2424,8 +2425,8 @@ onMounted(() => {
                   更新时间：{{ defaultSOPForm.updatedAt }}
                 </div>
                 <div style="display: flex; gap: 8px; justify-content: flex-end;">
-                  <button class="toolbar-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="downloadDefaultSopTemplate">下载</button>
-                  <button class="primary-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="applyDefaultSopTemplate">应用配置</button>
+                  <button class="toolbar-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="downloadDefaultSopTemplate"><UiIcon name="download" />下载</button>
+                  <button class="primary-btn" type="button" style="padding: 4px 8px; font-size: 11px;" @click="applyDefaultSopTemplate"><UiIcon name="check" />应用配置</button>
                 </div>
               </div>
             </div>
@@ -2862,7 +2863,7 @@ onMounted(() => {
             </div>
           </div>
 
-          <button class="toolbar-btn" style="margin-left:auto" type="button" @click="showRouteImportLogs = true">导入日志</button>
+          <button class="toolbar-btn" style="margin-left:auto" type="button" @click="showRouteImportLogs = true"><UiIcon name="file" />导入日志</button>
         </div>
         <div class="table-container">
           <table class="data-table">

@@ -1457,7 +1457,9 @@ th {
 }
 
 .action-link {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 0 5px;
   color: #0c9d82;
   font-size: 14px;

@@ -13,6 +13,7 @@ import {
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
+import UiIcon from './UiIcon.vue'
 
 type BomFormItem = {
   productId: number | ''
@@ -233,13 +234,13 @@ onMounted(loadData)
         <input v-model="filter.productName" placeholder="请输入成品名称" @keydown.enter="loadData" />
       </label>
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="loadData">查询</button>
-        <button class="ghost-btn" type="button" @click="filter.code = ''; filter.productName = ''; loadData()">重置</button>
+        <button class="primary-btn query-btn" type="button" @click="loadData"><UiIcon name="search" />查询</button>
+        <button class="ghost-btn" type="button" @click="filter.code = ''; filter.productName = ''; loadData()"><UiIcon name="reset" />重置</button>
       </div>
     </div>
 
     <div class="toolbar">
-      <button class="primary-btn" type="button" @click="openCreate">新建物料清单</button>
+      <button class="primary-btn" type="button" @click="openCreate"><UiIcon name="plus" />新建物料清单</button>
       <span class="muted">共 {{ total }} 个BOM</span>
     </div>
 
@@ -327,7 +328,7 @@ onMounted(loadData)
 
           <div class="bom-detail-header">
             <h3>子件明细</h3>
-            <button class="ghost-btn" type="button" @click="addItem">添加子件</button>
+            <button class="ghost-btn" type="button" @click="addItem"><UiIcon name="plus" />添加子件</button>
           </div>
           <div class="table-container compact-table">
             <table class="data-table">

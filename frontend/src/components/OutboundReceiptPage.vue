@@ -12,6 +12,7 @@ import {
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
+import UiIcon from '@/components/UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -534,6 +535,7 @@ onMounted(() => {
         </button>
 
         <button class="toolbar-btn" type="button" disabled style="color:#c9cfcd; cursor:not-allowed">
+          <UiIcon name="layers" />
           批量操作
         </button>
 
@@ -695,6 +697,7 @@ onMounted(() => {
 
         <div style="margin-left: auto">
           <button class="text-btn" type="button" style="color:#586360;" @click="showItemColumnConfig = true">
+            <UiIcon name="columns" />
             列配置
           </button>
         </div>

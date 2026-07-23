@@ -14,6 +14,7 @@ import {
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
+import UiIcon from './UiIcon.vue'
 
 type SalesOrderFormItem = {
   productId: number | ''
@@ -237,13 +238,13 @@ onMounted(loadData)
         </select>
       </label>
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="loadData">查询</button>
-        <button class="ghost-btn" type="button" @click="filter.code = ''; filter.customerName = ''; filter.status = ''; loadData()">重置</button>
+        <button class="primary-btn query-btn" type="button" @click="loadData"><UiIcon name="search" />查询</button>
+        <button class="ghost-btn" type="button" @click="filter.code = ''; filter.customerName = ''; filter.status = ''; loadData()"><UiIcon name="reset" />重置</button>
       </div>
     </div>
 
     <div class="toolbar">
-      <button class="primary-btn" type="button" @click="openCreate">新建销售订单</button>
+      <button class="primary-btn" type="button" @click="openCreate"><UiIcon name="plus" />新建销售订单</button>
       <span class="muted">共 {{ total }} 个销售订单</span>
     </div>
 
@@ -332,7 +333,7 @@ onMounted(loadData)
 
           <div class="order-detail-header">
             <h3>订单明细</h3>
-            <button class="ghost-btn" type="button" @click="addItem">添加产品</button>
+            <button class="ghost-btn" type="button" @click="addItem"><UiIcon name="plus" />添加产品</button>
           </div>
           <div class="table-container compact-table">
             <table class="data-table">

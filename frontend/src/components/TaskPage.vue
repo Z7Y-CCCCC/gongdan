@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { fetchWorkOrders, type WorkOrderInfo, type WorkOrderTaskPayload } from '../api'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -181,7 +182,7 @@ onMounted(loadData)
         </svg>
         <input v-model="keyword" placeholder="搜索工单、产品、工序、负责人" />
       </div>
-      <button class="toolbar-btn" type="button" :disabled="loading" @click="loadData">刷新</button>
+      <button class="toolbar-btn" type="button" :disabled="loading" @click="loadData"><UiIcon name="refresh" />刷新</button>
     </div>
 
     <div class="table-container">

@@ -9,6 +9,7 @@ import {
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -136,13 +137,13 @@ onMounted(loadData)
         <input v-model="filter.name" placeholder="请输入供应商名称" @keydown.enter="loadData" />
       </label>
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="loadData">查询</button>
-        <button class="ghost-btn" type="button" @click="filter.code = ''; filter.name = ''; loadData()">重置</button>
+        <button class="primary-btn query-btn" type="button" @click="loadData"><UiIcon name="search" />查询</button>
+        <button class="ghost-btn" type="button" @click="filter.code = ''; filter.name = ''; loadData()"><UiIcon name="reset" />重置</button>
       </div>
     </div>
 
     <div class="toolbar">
-      <button class="primary-btn" type="button" @click="openCreate">新建供应商</button>
+      <button class="primary-btn" type="button" @click="openCreate"><UiIcon name="plus" />新建供应商</button>
       <span class="muted">共 {{ total }} 个供应商</span>
     </div>
 

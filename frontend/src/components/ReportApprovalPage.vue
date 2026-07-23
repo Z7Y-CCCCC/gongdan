@@ -8,6 +8,7 @@ import {
   type ReportStatus,
   type WorkOrderReportInfo
 } from '../api'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -163,7 +164,10 @@ onBeforeUnmount(revokeImageObjectUrls)
     </div>
 
     <div class="toolbar">
-      <button class="toolbar-btn" type="button" @click="loadReports">刷新</button>
+      <button class="toolbar-btn" type="button" @click="loadReports">
+        <UiIcon name="refresh" />
+        刷新
+      </button>
       <span class="muted">审批通过后才会同步更新工单工序进度</span>
     </div>
 
@@ -199,9 +203,9 @@ onBeforeUnmount(revokeImageObjectUrls)
               <span class="status-badge" :class="{ disabled: item.status === 'REJECTED' }">{{ statusLabel(item.status) }}</span>
             </td>
             <td class="action-cell">
-              <button class="action-link" type="button" @click="openDetail(item)">详情</button>
-              <button v-if="item.status === 'PENDING'" class="action-link" type="button" @click="handleApprove(item)">通过</button>
-              <button v-if="item.status === 'PENDING'" class="action-link danger" type="button" @click="openReject(item)">驳回</button>
+              <button class="action-link" type="button" @click="openDetail(item)"><UiIcon name="eye" />详情</button>
+              <button v-if="item.status === 'PENDING'" class="action-link" type="button" @click="handleApprove(item)"><UiIcon name="check" />通过</button>
+              <button v-if="item.status === 'PENDING'" class="action-link danger" type="button" @click="openReject(item)"><UiIcon name="close" />驳回</button>
             </td>
           </tr>
           <tr v-if="!loading && reports.length === 0">
@@ -246,8 +250,8 @@ onBeforeUnmount(revokeImageObjectUrls)
           </div>
         </div>
         <div v-if="detail.status === 'PENDING'" class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="openReject(detail)">驳回</button>
-          <button class="primary-btn wide" type="button" @click="handleApprove(detail)">审批通过</button>
+          <button class="ghost-btn wide" type="button" @click="openReject(detail)"><UiIcon name="close" />驳回</button>
+          <button class="primary-btn wide" type="button" @click="handleApprove(detail)"><UiIcon name="check" />审批通过</button>
         </div>
       </div>
     </div>
@@ -263,8 +267,8 @@ onBeforeUnmount(revokeImageObjectUrls)
           <textarea v-model="rejectRemark" class="reject-textarea" placeholder="请输入驳回原因"></textarea>
         </div>
         <div class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="rejectTarget = null">取消</button>
-          <button class="primary-btn wide" type="button" @click="submitReject">确定驳回</button>
+          <button class="ghost-btn wide" type="button" @click="rejectTarget = null"><UiIcon name="close" />取消</button>
+          <button class="primary-btn wide" type="button" @click="submitReject"><UiIcon name="check" />确定驳回</button>
         </div>
       </div>
     </div>

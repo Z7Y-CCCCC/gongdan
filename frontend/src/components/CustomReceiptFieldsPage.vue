@@ -13,6 +13,7 @@ import {
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
+import UiIcon from '@/components/UiIcon.vue'
 
 const props = defineProps<{ token: string; scope: string; scopeLabel: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -547,7 +548,7 @@ onMounted(async () => {
         <input type="file" ref="fieldFileInput" style="display:none" accept=".csv" @change="handleImportFields" />
 
         <div style="margin-left: auto; display:flex; gap: 8px; align-items:center;">
-          <button class="toolbar-btn" type="button" @click="showImportLogs = true; refreshImportLogs()">导入日志</button>
+          <button class="toolbar-btn" type="button" @click="showImportLogs = true; refreshImportLogs()"><UiIcon name="file" />导入日志</button>
           <button class="text-btn" type="button" style="color:#586360;" @click="showColumnConfig = true">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
               <line x1="4" y1="21" x2="4" y2="14"></line>
@@ -728,8 +729,8 @@ onMounted(async () => {
         <div v-if="isSelectType" class="cf-options-section">
           <div class="toolbar" style="margin-bottom:16px">
             <span style="font-weight:600; font-size:14px">设置可选项</span>
-            <button class="toolbar-btn" type="button" @click="addOption" style="margin-left:16px">新增可选项</button>
-            <button class="toolbar-btn" type="button" @click="openBatch">批量编辑</button>
+            <button class="toolbar-btn" type="button" @click="addOption" style="margin-left:16px"><UiIcon name="plus" />新增可选项</button>
+            <button class="toolbar-btn" type="button" @click="openBatch"><UiIcon name="edit" />批量编辑</button>
           </div>
           <table class="data-table">
             <thead>

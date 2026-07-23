@@ -13,6 +13,7 @@ import {
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
+import UiIcon from '@/components/UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -505,7 +506,7 @@ onMounted(async () => {
         <input type="file" ref="fieldFileInput" style="display:none" accept=".csv" @change="handleImportFields" />
 
         <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
-          <button class="toolbar-btn" type="button" @click="showImportLogs = true; refreshImportLogs()">导入日志</button>
+          <button class="toolbar-btn" type="button" @click="showImportLogs = true; refreshImportLogs()"><UiIcon name="file" />导入日志</button>
           <button class="text-btn" type="button" style="color:#586360;" @click="showColumnConfig = true">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
               <line x1="4" y1="21" x2="4" y2="14"></line>
@@ -569,8 +570,8 @@ onMounted(async () => {
         <div v-if="form.fieldType === 'single_select' || form.fieldType === 'multiple_select'" class="option-box">
           <div class="toolbar">
             <span class="toolbar-title">设置可选项</span>
-            <button class="toolbar-btn" type="button" @click="addOption">新增可选项</button>
-            <button class="toolbar-btn" type="button" @click="openBatch">批量编辑</button>
+            <button class="toolbar-btn" type="button" @click="addOption"><UiIcon name="plus" />新增可选项</button>
+            <button class="toolbar-btn" type="button" @click="openBatch"><UiIcon name="edit" />批量编辑</button>
           </div>
           <table class="data-table">
             <thead><tr><th>可选项</th><th>可选项值</th><th>设为默认值</th><th>颜色</th><th>操作</th></tr></thead>
