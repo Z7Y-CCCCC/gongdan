@@ -37,6 +37,15 @@ public class ProductionConfigGuard {
     @Value("${spring.datasource.password:}")
     private String datasourcePassword;
 
+    @Value("${spring.datasource.username:}")
+    private String datasourceUsername;
+
+    @Value("${spring.flyway.enabled:false}")
+    private boolean flywayEnabled;
+
+    @Value("${spring.jpa.hibernate.ddl-auto:}")
+    private String hibernateDdlAuto;
+
     @Value("${app.seed.factory-name:}")
     private String seedFactoryName;
 
@@ -55,8 +64,23 @@ public class ProductionConfigGuard {
     @Value("${app.sms.http.auth-header-value:}")
     private String smsAuthHeaderValue;
 
+    @Value("${app.sms.http.url:}")
+    private String smsHttpUrl;
+
     @Value("${app.cors.allowed-origin-patterns:}")
     private String corsAllowedOriginPatterns;
+
+    @Value("${app.upload.storage-type:local}")
+    private String uploadStorageType;
+
+    @Value("${app.upload.s3.bucket:}")
+    private String uploadS3Bucket;
+
+    @Value("${app.upload.s3.access-key:}")
+    private String uploadS3AccessKey;
+
+    @Value("${app.upload.s3.secret-key:}")
+    private String uploadS3SecretKey;
 
     public ProductionConfigGuard(Environment environment) {
         this.environment = environment;
@@ -67,14 +91,24 @@ public class ProductionConfigGuard {
         if (!isProd()) {
             return;
         }
+        requireNonRootDatabaseUser();
         requireRealValue(datasourcePassword, "spring.datasource.password");
         requireRealValue(seedFactoryName, "app.seed.factory-name");
-        requireRealValue(seedAdminPassword, "app.seed.admin-password");
-        requireRealValue(seedSuperAdminPassword, "app.seed.super-admin-password");
+        requireStrongSecret(seedAdminPassword, "app.seed.admin-password");
+        requireStrongSecret(seedSuperAdminPassword, "app.seed.super-admin-password");
+        if (seedAdminPassword.trim().equals(seedSuperAdminPassword.trim())) {
+            throw new IllegalStateException("factory admin and super admin passwords must be different in prod");
+        }
         requireRealValue(wechatAppId, "app.wechat.app-id");
+        if (!wechatAppId.trim().matches("wx[0-9A-Za-z]{16}")) {
+            throw new IllegalStateException("app.wechat.app-id must be a valid WeChat AppID in prod");
+        }
         requireRealValue(wechatSecret, "app.wechat.secret");
         rejectPlaceholderIfPresent(smsAuthHeaderValue, "app.sms.http.auth-header-value");
+        requireHttpsUrl(smsHttpUrl, "app.sms.http.url");
         requireRestrictedCorsOrigins();
+        requireMigrationSafety();
+        requireSupportedUploadStorage();
     }
 
     private boolean isProd() {
@@ -86,6 +120,13 @@ public class ProductionConfigGuard {
             throw new IllegalStateException(propertyName + " must be configured for prod");
         }
         rejectPlaceholderIfPresent(value, propertyName);
+    }
+
+    private void requireStrongSecret(String value, String propertyName) {
+        requireRealValue(value, propertyName);
+        if (value.trim().length() < 12) {
+            throw new IllegalStateException(propertyName + " must be at least 12 characters in prod");
+        }
     }
 
     private void rejectPlaceholderIfPresent(String value, String propertyName) {
@@ -115,6 +156,44 @@ public class ProductionConfigGuard {
                     if (normalized.contains("*")) {
                         throw new IllegalStateException("app.cors.allowed-origin-patterns must not allow wildcard origins in prod");
                     }
+                    if (!normalized.startsWith("https://")) {
+                        throw new IllegalStateException("app.cors.allowed-origin-patterns must use HTTPS origins in prod");
+                    }
                 });
+    }
+
+    private void requireNonRootDatabaseUser() {
+        requireRealValue(datasourceUsername, "spring.datasource.username");
+        if ("root".equalsIgnoreCase(datasourceUsername.trim())) {
+            throw new IllegalStateException("spring.datasource.username must not use the root account in prod");
+        }
+    }
+
+    private void requireHttpsUrl(String value, String propertyName) {
+        requireRealValue(value, propertyName);
+        if (!value.trim().toLowerCase(Locale.ROOT).startsWith("https://")) {
+            throw new IllegalStateException(propertyName + " must use HTTPS in prod");
+        }
+    }
+
+    private void requireMigrationSafety() {
+        if (!flywayEnabled) {
+            throw new IllegalStateException("spring.flyway.enabled must be true in prod");
+        }
+        if (!"validate".equalsIgnoreCase(hibernateDdlAuto == null ? "" : hibernateDdlAuto.trim())) {
+            throw new IllegalStateException("spring.jpa.hibernate.ddl-auto must be validate in prod");
+        }
+    }
+
+    private void requireSupportedUploadStorage() {
+        String storageType = uploadStorageType == null ? "" : uploadStorageType.trim().toLowerCase(Locale.ROOT);
+        if (!"local".equals(storageType) && !"s3".equals(storageType)) {
+            throw new IllegalStateException("app.upload.storage-type must be local or s3 in prod");
+        }
+        if ("s3".equals(storageType)) {
+            requireRealValue(uploadS3Bucket, "app.upload.s3.bucket");
+            requireRealValue(uploadS3AccessKey, "app.upload.s3.access-key");
+            requireStrongSecret(uploadS3SecretKey, "app.upload.s3.secret-key");
+        }
     }
 }

@@ -1,6 +1,6 @@
 {
   "name": "heihu-workorder-mobile",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev:mp-weixin": "uni -p mp-weixin",

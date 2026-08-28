@@ -59,6 +59,8 @@ import {
   fetchSalesOrders
 } from './api'
 import DeleteConfirmDialog from './components/DeleteConfirmDialog.vue'
+import WorkspaceTabs, { type WorkspaceTabItem } from './components/WorkspaceTabs.vue'
+import UiIcon from './components/UiIcon.vue'
 import { useAuth } from './composables/useAuth'
 import { buildWorkshopDashboard } from './utils/workshopDashboard'
 
@@ -87,6 +89,9 @@ const SupplierPage = defineAsyncComponent(() => import('./components/SupplierPag
 const CustomerPage = defineAsyncComponent(() => import('./components/CustomerPage.vue'))
 const ReportCenterPage = defineAsyncComponent(() => import('./components/ReportCenterPage.vue'))
 const AdvancedOperationsPage = defineAsyncComponent(() => import('./components/AdvancedOperationsPage.vue'))
+const OnlineUsersPage = defineAsyncComponent(() => import('./components/OnlineUsersPage.vue'))
+const CacheMonitorPage = defineAsyncComponent(() => import('./components/CacheMonitorPage.vue'))
+const CacheListPage = defineAsyncComponent(() => import('./components/CacheListPage.vue'))
 
 const sharedAuth = useAuth()
 
@@ -149,17 +154,277 @@ const activeBasedataMenu = ref('unit') // default to unit
 const activeProductionMenu = ref('workorder')
 const activeCustomMenu = ref('workorder')
 const activeInventoryMenu = ref('inbound') // 'inbound' | 'outbound' | 'detail' | 'balance' | 'summary'
+const activeMonitorMenu = ref<'online' | 'cache' | 'cacheList'>('online')
 const activePageCacheKey = computed(() => {
   if (activeMainMenu.value === 'production') return `production-${activeProductionMenu.value}`
   if (activeMainMenu.value === 'inventory') return `inventory-${activeInventoryMenu.value}`
   if (activeMainMenu.value === 'basedata') return `basedata-${activeBasedataMenu.value}`
   if (activeMainMenu.value === 'custom') return `custom-${activeCustomMenu.value}`
   if (activeMainMenu.value === 'sysconfig') return `sysconfig-${activeConfigMenu.value}`
+  if (activeMainMenu.value === 'monitor') return `monitor-${activeMonitorMenu.value}`
   return activeMainMenu.value
 })
 const pageMotionStage = ref<HTMLElement | null>(null)
 
+type WorkspaceTab = WorkspaceTabItem & {
+  main: string
+  config?: string
+  basedata?: string
+  production?: string
+  inventory?: string
+  custom?: string
+  monitor?: string
+}
+
+const workspaceTabs = ref<WorkspaceTab[]>([
+  { id: 'home', label: '分析页', main: 'home', closable: false, pinned: true }
+])
+const activeWorkspaceTabId = ref('home')
+const tabContextMenu = reactive({ show: false, x: 0, y: 0, tabId: '' })
+const showChromeQuickMenu = ref(false)
+const showQuickApps = ref(false)
+const showLanguageMenu = ref(false)
+const showMessageMenu = ref(false)
+const showSourceInfo = ref(false)
+const showWorkspaceSearch = ref(false)
+const workspaceSearchInput = ref<HTMLInputElement | null>(null)
+const isWorkspaceMaximized = ref(false)
+const isAppFullscreen = ref(false)
+const chromeContrast = ref(true)
+
+const workspaceLabels: Record<string, string> = {
+  home: '分析页',
+  dashboard: '车间看板',
+  advanced: '高级运营',
+  report: '生产报表',
+  'production-sales': '销售订单',
+  'production-workorder': '工单',
+  'production-task': '任务',
+  'production-reporting': '报工工作台',
+  'inventory-inbound': '入库单',
+  'inventory-outbound': '出库单',
+  'inventory-detail': '库存收发明细',
+  'inventory-balance': '库存余额',
+  'inventory-summary': '进销存汇总',
+  'basedata-product': '产品定义',
+  'basedata-bom': '物料清单',
+  'basedata-unit': '单位',
+  'basedata-defect': '不良品项',
+  'basedata-process': '工序',
+  'basedata-route': '工艺路线',
+  'basedata-warehouse': '仓库',
+  'basedata-supplier': '供应商',
+  'basedata-customer': '客户',
+  'custom-workorder': '工单字段',
+  'custom-reporting': '报工字段',
+  'custom-receipt': '出入库单字段',
+  'custom-receipt_detail': '出入库明细字段',
+  'sysconfig-department': '部门',
+  'sysconfig-user': '用户',
+  'sysconfig-factory': '工厂',
+  'super-admin': '授权码管理',
+  'monitor-online': '在线用户',
+  'monitor-cache': '缓存监控',
+  'monitor-cacheList': '缓存列表'
+}
+
+function captureWorkspaceTab(): WorkspaceTab {
+  const id = activePageCacheKey.value
+  return {
+    id,
+    label: workspaceLabels[id] || '工作台',
+    main: activeMainMenu.value,
+    config: activeConfigMenu.value,
+    basedata: activeBasedataMenu.value,
+    production: activeProductionMenu.value,
+    inventory: activeInventoryMenu.value,
+    custom: activeCustomMenu.value,
+    monitor: activeMonitorMenu.value,
+    closable: id !== 'home',
+    pinned: id === 'home'
+  }
+}
+
+function syncWorkspaceTab() {
+  const next = captureWorkspaceTab()
+  const existing = workspaceTabs.value.find(tab => tab.id === next.id)
+  if (existing) Object.assign(existing, next)
+  else workspaceTabs.value.push(next)
+  activeWorkspaceTabId.value = next.id
+  tabContextMenu.show = false
+}
+
+function activateWorkspaceTab(tab: WorkspaceTab) {
+  activeMainMenu.value = tab.main
+  if (tab.config) activeConfigMenu.value = tab.config
+  if (tab.basedata) activeBasedataMenu.value = tab.basedata
+  if (tab.production) activeProductionMenu.value = tab.production
+  if (tab.inventory) activeInventoryMenu.value = tab.inventory
+  if (tab.custom) activeCustomMenu.value = tab.custom
+  if (tab.monitor) activeMonitorMenu.value = tab.monitor as 'online' | 'cache' | 'cacheList'
+  activeWorkspaceTabId.value = tab.id
+  tabContextMenu.show = false
+}
+
+function activateWorkspaceTabFromEvent(tab: WorkspaceTabItem) {
+  activateWorkspaceTab(tab as WorkspaceTab)
+}
+
+function openTabContextMenu(event: MouseEvent, tab: WorkspaceTabItem) {
+  const menuWidth = 220
+  const menuHeight = 324
+  tabContextMenu.x = Math.min(event.clientX, window.innerWidth - menuWidth - 12)
+  tabContextMenu.y = Math.min(event.clientY, window.innerHeight - menuHeight - 12)
+  tabContextMenu.tabId = tab.id
+  tabContextMenu.show = true
+  showChromeQuickMenu.value = false
+}
+
+function closeTabContextMenu() {
+  tabContextMenu.show = false
+}
+
+function closeWorkspaceTab(id: string) {
+  const index = workspaceTabs.value.findIndex(tab => tab.id === id)
+  const tab = workspaceTabs.value[index]
+  if (!tab || !tab.closable || tab.pinned) return
+  workspaceTabs.value.splice(index, 1)
+  if (activeWorkspaceTabId.value === id) {
+    activateWorkspaceTab(workspaceTabs.value[Math.max(0, index - 1)] || workspaceTabs.value[0])
+  }
+  closeTabContextMenu()
+}
+
+function toggleTabPinned() {
+  const tab = workspaceTabs.value.find(item => item.id === tabContextMenu.tabId)
+  if (!tab || tab.id === 'home') return
+  tab.pinned = !tab.pinned
+  closeTabContextMenu()
+}
+
+function closeTabsWhere(predicate: (tab: WorkspaceTab, index: number) => boolean) {
+  const currentId = activeWorkspaceTabId.value
+  workspaceTabs.value = workspaceTabs.value.filter((tab, index) => tab.pinned || !tab.closable || !predicate(tab, index))
+  if (!workspaceTabs.value.some(tab => tab.id === currentId)) activateWorkspaceTab(workspaceTabs.value[0])
+  closeTabContextMenu()
+}
+
+function closeTabsLeft() {
+  const index = workspaceTabs.value.findIndex(tab => tab.id === tabContextMenu.tabId)
+  closeTabsWhere((_tab, tabIndex) => tabIndex < index)
+}
+
+function closeTabsRight() {
+  const index = workspaceTabs.value.findIndex(tab => tab.id === tabContextMenu.tabId)
+  closeTabsWhere((_tab, tabIndex) => tabIndex > index)
+}
+
+function closeOtherTabs() {
+  const keepId = tabContextMenu.tabId
+  closeTabsWhere(tab => tab.id !== keepId)
+}
+
+function closeAllTabs() {
+  workspaceTabs.value = workspaceTabs.value.filter(tab => tab.pinned || !tab.closable)
+  activateWorkspaceTab(workspaceTabs.value[0])
+  showChromeQuickMenu.value = false
+  closeTabContextMenu()
+}
+
+function openCurrentWorkspaceTab() {
+  syncWorkspaceTab()
+}
+
+function refreshWorkspace() {
+  window.location.reload()
+}
+
+function openCurrentTabInNewWindow() {
+  window.open(window.location.href, '_blank', 'noopener,noreferrer')
+  closeTabContextMenu()
+}
+
+function jumpFromQuickApp(main: string, sub = '') {
+  activeMainMenu.value = main
+  if (main === 'production' && sub) activeProductionMenu.value = sub
+  if (main === 'inventory' && sub) activeInventoryMenu.value = sub
+  if (main === 'basedata' && sub) activeBasedataMenu.value = sub
+  if (main === 'sysconfig' && sub) activeConfigMenu.value = sub
+  if (main === 'monitor' && sub) activeMonitorMenu.value = sub as 'online' | 'cache' | 'cacheList'
+  showQuickApps.value = false
+}
+
+function selectLanguage(language: string) {
+  showLanguageMenu.value = false
+  if (language === 'zh-CN') showAction('当前界面已是简体中文')
+  else showAction('英文界面将在多语言资源配置后启用')
+}
+
+function toggleChromeQuickMenu() {
+  showChromeQuickMenu.value = !showChromeQuickMenu.value
+  showQuickApps.value = false
+  showLanguageMenu.value = false
+  showMessageMenu.value = false
+  showSourceInfo.value = false
+  showWorkspaceSearch.value = false
+  tabContextMenu.show = false
+}
+
+function toggleQuickApps() {
+  showQuickApps.value = !showQuickApps.value
+  showChromeQuickMenu.value = false
+  showLanguageMenu.value = false
+  showMessageMenu.value = false
+  showSourceInfo.value = false
+}
+
+function toggleLanguageMenu() {
+  showLanguageMenu.value = !showLanguageMenu.value
+  showQuickApps.value = false
+  showChromeQuickMenu.value = false
+  showMessageMenu.value = false
+  showSourceInfo.value = false
+}
+
+function toggleMessageMenu() {
+  showMessageMenu.value = !showMessageMenu.value
+  showQuickApps.value = false
+  showChromeQuickMenu.value = false
+  showLanguageMenu.value = false
+  showSourceInfo.value = false
+}
+
+function toggleSourceInfo() {
+  showSourceInfo.value = !showSourceInfo.value
+  showQuickApps.value = false
+  showChromeQuickMenu.value = false
+  showLanguageMenu.value = false
+  showMessageMenu.value = false
+}
+
+function toggleAppFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen?.()
+    isAppFullscreen.value = false
+  } else {
+    document.documentElement.requestFullscreen?.()
+    isAppFullscreen.value = true
+  }
+}
+
+function focusWorkspaceSearch() {
+  showWorkspaceSearch.value = true
+  showChromeQuickMenu.value = false
+  nextTick(() => workspaceSearchInput.value?.focus())
+}
+
+function submitWorkspaceSearch() {
+  handleSearch()
+  showWorkspaceSearch.value = false
+}
+
 watch(activePageCacheKey, async () => {
+  syncWorkspaceTab()
   await nextTick()
   const stage = pageMotionStage.value
   if (!stage || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
@@ -1295,7 +1560,8 @@ const expandedMenus = reactive<Record<string, boolean>>({
   custom: false,
   report: false,
   advanced: false,
-  sysconfig: false
+  sysconfig: false,
+  monitor: false
 })
 
 function toggleMenu(key: string) {
@@ -1504,6 +1770,9 @@ function handleSearch() {
     { label: '客户', mainMenu: 'custom', subMenu: 'customer', expandedMenu: 'custom' },
     { label: '部门', mainMenu: 'sysconfig', subMenu: 'department', expandedMenu: 'sysconfig' },
     { label: '用户', mainMenu: 'sysconfig', subMenu: 'user', expandedMenu: 'sysconfig' },
+    { label: '在线用户', mainMenu: 'monitor', subMenu: 'online', expandedMenu: 'monitor' },
+    { label: '缓存监控', mainMenu: 'monitor', subMenu: 'cache', expandedMenu: 'monitor' },
+    { label: '缓存列表', mainMenu: 'monitor', subMenu: 'cacheList', expandedMenu: 'monitor' },
     { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' },
     { label: 'SOP', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '文档库', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
@@ -1527,6 +1796,7 @@ function handleSearch() {
     else if (match.mainMenu === 'basedata') activeBasedataMenu.value = match.subMenu
     else if (match.mainMenu === 'custom') activeCustomMenu.value = match.subMenu
     else if (match.mainMenu === 'sysconfig') activeConfigMenu.value = match.subMenu
+    else if (match.mainMenu === 'monitor') activeMonitorMenu.value = match.subMenu as 'online' | 'cache' | 'cacheList'
     searchQuery.value = ''
   }
 }
@@ -2212,6 +2482,28 @@ onMounted(() => {
     if (!target.closest('.route-step-select') && !target.closest('.route-step-dropdown')) {
       closeAllRouteStepDropdowns()
     }
+    if (!target.closest('.chrome-quick-wrap')) {
+      showChromeQuickMenu.value = false
+    }
+    if (!target.closest('.chrome-dropdown-wrap')) {
+      showQuickApps.value = false
+      showLanguageMenu.value = false
+      showMessageMenu.value = false
+      showSourceInfo.value = false
+    }
+    if (!target.closest('.tab-context-menu') && !target.closest('.workspace-tabs')) {
+      closeTabContextMenu()
+    }
+  })
+
+  window.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault()
+      focusWorkspaceSearch()
+    }
+  })
+  document.addEventListener('fullscreenchange', () => {
+    isAppFullscreen.value = Boolean(document.fullscreenElement)
   })
 })
 
@@ -2369,7 +2661,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     </section>
   </main>
 
-  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed }">
+  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'chrome-light': !chromeContrast }">
     <aside class="sidebar">
       <button class="collapse-toggle" type="button" @click="isSidebarCollapsed = !isSidebarCollapsed">
         <svg v-if="!isSidebarCollapsed" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
@@ -2518,6 +2810,21 @@ function handleNavigate(menu: { main: string; sub: string }) {
         </div>
 
         <div class="nav-group">
+          <a class="nav-item expanded" :title="isSidebarCollapsed ? '系统监控' : ''" @click.stop="toggleMenu('monitor')">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 15h2l2-5 3 8 2-4h1"/></svg>
+            <span v-show="!isSidebarCollapsed">系统监控</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.monitor }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.monitor" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'online' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'online'">在线用户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cache'">缓存监控</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cacheList'">缓存列表</a>
+            </div>
+          </Transition>
+        </div>
+
+        <div class="nav-group">
           <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'dashboard' }" :title="isSidebarCollapsed ? '车间看板' : ''" @click.stop="activeMainMenu = 'dashboard'">
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
             <span v-show="!isSidebarCollapsed">车间看板</span>
@@ -2559,6 +2866,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <template v-else-if="activeMainMenu === 'production'">
             生产管理 <span>></span> {{ activeProductionMenu === 'sales' ? '销售订单' : activeProductionMenu === 'workorder' ? '工单' : activeProductionMenu === 'task' ? '任务' : activeProductionMenu === 'reporting' ? '报工' : '报工工作台' }}
           </template>
+          <template v-else-if="activeMainMenu === 'monitor'">
+            系统监控 <span>></span> {{ activeMonitorMenu === 'online' ? '在线用户' : activeMonitorMenu === 'cache' ? '缓存监控' : '缓存列表' }}
+          </template>
           <template v-else-if="activeMainMenu === 'custom'">
             自定义配置 <span>></span> {{ activeCustomMenu === 'product' ? '产品' : activeCustomMenu === 'bom' ? '物料清单' : activeCustomMenu === 'process' ? '工序' : activeCustomMenu === 'workorder' ? '工单' : activeCustomMenu === 'reporting' ? '报工' : activeCustomMenu === 'customer' ? '客户' : activeCustomMenu === 'receipt' ? '出入库单' : activeCustomMenu === 'receipt_detail' ? '出入库明细' : '客户' }}
           </template>
@@ -2580,6 +2890,108 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : activeConfigMenu === 'factory' ? '工厂' : '用户' }}</template>
         </div>
         <div class="top-actions">
+          <div class="chrome-actions" aria-label="工作台工具">
+            <div class="chrome-dropdown-wrap">
+              <button class="topbar-icon-btn" type="button" title="应用中心" @click.stop="toggleQuickApps">
+                <UiIcon name="grid" :size="17" />
+              </button>
+              <Transition name="dropdown-motion">
+                <div v-if="showQuickApps" class="chrome-quick-menu chrome-app-menu" @click.stop>
+                  <div class="chrome-menu-title">应用中心</div>
+                  <button type="button" @click="jumpFromQuickApp('home')"><UiIcon name="grid" :size="15" /> 分析页</button>
+                  <button type="button" @click="jumpFromQuickApp('production', 'workorder')"><UiIcon name="file" :size="15" /> 工单</button>
+                  <button type="button" @click="jumpFromQuickApp('production', 'workbench')"><UiIcon name="check" :size="15" /> 报工工作台</button>
+                  <button type="button" @click="jumpFromQuickApp('inventory', 'balance')"><UiIcon name="layers" :size="15" /> 库存余额</button>
+                </div>
+              </Transition>
+            </div>
+            <button class="topbar-icon-btn" type="button" title="展开或收起侧栏" @click="isSidebarCollapsed = !isSidebarCollapsed">
+              <UiIcon name="menu" :size="18" />
+            </button>
+            <button class="topbar-icon-btn" type="button" title="刷新当前页面" @click="refreshWorkspace">
+              <UiIcon name="refresh" :size="17" />
+            </button>
+            <div class="workspace-search-wrap">
+              <button v-if="!showWorkspaceSearch" class="header-search-trigger" type="button" title="搜索（Ctrl K）" @click="focusWorkspaceSearch">
+                <UiIcon name="search" :size="15" />
+                <span>搜索</span>
+                <kbd>Ctrl K</kbd>
+              </button>
+              <input
+                v-else
+                ref="workspaceSearchInput"
+                v-model="searchQuery"
+                class="header-search-input"
+                type="search"
+                placeholder="搜索菜单"
+                @keydown.enter="submitWorkspaceSearch"
+                @keydown.esc="showWorkspaceSearch = false"
+              />
+            </div>
+            <div class="chrome-quick-wrap">
+              <button class="topbar-icon-btn" type="button" title="工作台设置" @click.stop="toggleChromeQuickMenu">
+                <UiIcon name="settings" :size="17" />
+              </button>
+              <Transition name="dropdown-motion">
+                <div v-if="showChromeQuickMenu" class="chrome-quick-menu" @click.stop>
+                  <button type="button" @click="isSidebarCollapsed = !isSidebarCollapsed; showChromeQuickMenu = false">
+                    <UiIcon name="menu" :size="15" /> {{ isSidebarCollapsed ? '展开侧栏' : '收起侧栏' }}
+                  </button>
+                  <button type="button" @click="refreshWorkspace">
+                    <UiIcon name="refresh" :size="15" /> 刷新当前页
+                  </button>
+                  <button type="button" @click="toggleAppFullscreen; showChromeQuickMenu = false">
+                    <UiIcon name="fullscreen" :size="15" /> {{ isAppFullscreen ? '退出全屏' : '全屏工作区' }}
+                  </button>
+                  <button type="button" @click="closeAllTabs">
+                    <UiIcon name="close" :size="15" /> 清理工作区标签
+                  </button>
+                </div>
+              </Transition>
+            </div>
+            <button class="topbar-icon-btn" type="button" :title="chromeContrast ? '切换浅色顶栏' : '切换深色顶栏'" @click="chromeContrast = !chromeContrast">
+              <UiIcon name="sun" :size="17" />
+            </button>
+            <button class="topbar-icon-btn" type="button" :title="isAppFullscreen ? '退出全屏' : '全屏工作区'" @click="toggleAppFullscreen">
+              <UiIcon name="fullscreen" :size="17" />
+            </button>
+            <div class="chrome-dropdown-wrap">
+              <button class="topbar-icon-btn" type="button" title="语言" @click.stop="toggleLanguageMenu">
+                <UiIcon name="language" :size="17" />
+              </button>
+              <Transition name="dropdown-motion">
+                <div v-if="showLanguageMenu" class="chrome-quick-menu chrome-language-menu" @click.stop>
+                  <div class="chrome-menu-title">界面语言</div>
+                  <button type="button" @click="selectLanguage('zh-CN')">简体中文</button>
+                  <button type="button" @click="selectLanguage('en-US')">English</button>
+                </div>
+              </Transition>
+            </div>
+            <div class="chrome-dropdown-wrap">
+              <button class="topbar-icon-btn" type="button" title="消息" @click.stop="toggleMessageMenu">
+                <UiIcon name="message" :size="17" />
+              </button>
+              <Transition name="dropdown-motion">
+                <div v-if="showMessageMenu" class="chrome-quick-menu chrome-message-menu" @click.stop>
+                  <div class="chrome-menu-title">消息</div>
+                  <div class="chrome-menu-empty">暂无未读消息</div>
+                  <button type="button" @click="showMessageMenu = false; toggleNotifications()">打开通知中心</button>
+                </div>
+              </Transition>
+            </div>
+            <div class="chrome-dropdown-wrap chrome-source-wrap">
+              <button class="chrome-source-button" type="button" title="源码与版本信息" @click.stop="toggleSourceInfo">
+                <span class="chrome-source-label">源码</span>
+                <span class="chrome-source-dot"></span>
+              </button>
+              <Transition name="dropdown-motion">
+                <div v-if="showSourceInfo" class="chrome-quick-menu chrome-source-menu" @click.stop>
+                  <div class="chrome-menu-title">数字工单通</div>
+                  <div class="chrome-menu-empty">本地开发版 · 前后端已连接</div>
+                </div>
+              </Transition>
+            </div>
+          </div>
           <template v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'">
             <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="openEditPrintTemplate">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
@@ -2642,6 +3054,52 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </div>
         </div>
       </header>
+
+      <WorkspaceTabs
+        :tabs="workspaceTabs"
+        :active-id="activeWorkspaceTabId"
+        @select="activateWorkspaceTabFromEvent"
+        @close="closeWorkspaceTab($event.id)"
+        @contextmenu="openTabContextMenu"
+        @add="openCurrentWorkspaceTab"
+      />
+
+      <div
+        v-if="tabContextMenu.show"
+        class="tab-context-menu"
+        :style="{ left: `${tabContextMenu.x}px`, top: `${tabContextMenu.y}px` }"
+        role="menu"
+        @click.stop
+      >
+        <button type="button" role="menuitem" @click="closeWorkspaceTab(tabContextMenu.tabId)">
+          <UiIcon name="close" :size="15" /> 关闭
+        </button>
+        <button type="button" role="menuitem" @click="toggleTabPinned">
+          <UiIcon name="pin" :size="15" /> {{ workspaceTabs.find(tab => tab.id === tabContextMenu.tabId)?.pinned ? '取消固定' : '固定' }}
+        </button>
+        <button type="button" role="menuitem" @click="isWorkspaceMaximized = !isWorkspaceMaximized; closeTabContextMenu()">
+          <UiIcon name="maximize" :size="15" /> {{ isWorkspaceMaximized ? '恢复窗口' : '最大化' }}
+        </button>
+        <button type="button" role="menuitem" @click="refreshWorkspace">
+          <UiIcon name="refresh" :size="15" /> 重新加载
+        </button>
+        <button type="button" role="menuitem" @click="openCurrentTabInNewWindow">
+          <UiIcon name="fullscreen" :size="15" /> 在新窗口打开
+        </button>
+        <div class="tab-menu-divider"></div>
+        <button type="button" role="menuitem" :disabled="workspaceTabs.findIndex(tab => tab.id === tabContextMenu.tabId) <= 1" @click="closeTabsLeft">
+          <UiIcon name="arrowLeft" :size="15" /> 关闭左侧标签页
+        </button>
+        <button type="button" role="menuitem" :disabled="workspaceTabs.findIndex(tab => tab.id === tabContextMenu.tabId) >= workspaceTabs.length - 1" @click="closeTabsRight">
+          <UiIcon name="arrowRight" :size="15" /> 关闭右侧标签页
+        </button>
+        <button type="button" role="menuitem" @click="closeOtherTabs">
+          <UiIcon name="layers" :size="15" /> 关闭其它标签页
+        </button>
+        <button type="button" role="menuitem" @click="closeAllTabs">
+          <UiIcon name="close" :size="15" /> 关闭全部标签页
+        </button>
+      </div>
 
       <section v-if="!hasAdminAccess" class="content">
         <div class="placeholder-page">
@@ -2714,6 +3172,24 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <ReportApprovalPage
             v-else-if="activeMainMenu === 'production' && (activeProductionMenu === 'workbench' || activeProductionMenu === 'reporting')"
             key="production-reporting"
+            :token="token"
+            @notice="showAction"
+          />
+          <OnlineUsersPage
+            v-else-if="activeMainMenu === 'monitor' && activeMonitorMenu === 'online'"
+            key="monitor-online"
+            :token="token"
+            @notice="showAction"
+          />
+          <CacheMonitorPage
+            v-else-if="activeMainMenu === 'monitor' && activeMonitorMenu === 'cache'"
+            key="monitor-cache"
+            :token="token"
+            @notice="showAction"
+          />
+          <CacheListPage
+            v-else-if="activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList'"
+            key="monitor-cacheList"
             :token="token"
             @notice="showAction"
           />

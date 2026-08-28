@@ -1,6 +1,6 @@
 services:
   db:
-    image: mysql:9.2
+    image: mysql:8.4
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-heihu_workorder}
@@ -20,12 +20,26 @@ services:
       timeout: 5s
       retries: 12
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
   backend:
     build:
       context: ./backend
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: prod
@@ -50,6 +64,10 @@ services:
       APP_SMS_HTTP_READ_TIMEOUT_MS: ${APP_SMS_HTTP_READ_TIMEOUT_MS:-5000}
       APP_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:8080,http://127.0.0.1:8080}
       APP_SESSION_TTL_MINUTES: ${APP_SESSION_TTL_MINUTES:-720}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: ${SPRING_REDIS_PASSWORD:-}
+      SPRING_CACHE_REDIS_TTL: ${SPRING_CACHE_REDIS_TTL:-10m}
       APP_BINDING_DEFAULT_PASSWORD_LENGTH: ${APP_BINDING_DEFAULT_PASSWORD_LENGTH:-12}
       APP_UPLOAD_STORAGE_TYPE: ${APP_UPLOAD_STORAGE_TYPE:-local}
       APP_UPLOAD_REPORT_IMAGE_DIR: ${APP_UPLOAD_REPORT_IMAGE_DIR:-/var/lib/heihu-workorder/report-images}
@@ -95,5 +113,6 @@ services:
 
 volumes:
   db-data:
+  redis-data:
   report-images:
   app-logs:

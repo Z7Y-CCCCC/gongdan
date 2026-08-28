@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import javax.servlet.http.HttpServletRequest;
 
 @Service
 public class TokenService {
@@ -52,6 +53,10 @@ public class TokenService {
     }
 
     public String issue(FactoryUser user) {
+        return issue(user, null, null, null, null);
+    }
+
+    public String issue(FactoryUser user, String ipAddress, String loginLocation, String operatingSystem, String browser) {
         cleanupExpiredSessions();
         String token = UUID.randomUUID().toString().replace("-", "");
         if (sessionRepository != null) {
@@ -71,6 +76,10 @@ public class TokenService {
             session.setKicked(false);
             session.setExpiresAt(Instant.now().plus(ttl));
             session.setCreatedAt(LocalDateTime.now());
+            session.setIpAddress(ipAddress == null ? "-" : ipAddress);
+            session.setLoginLocation(loginLocation == null ? "内网IP" : loginLocation);
+            session.setOperatingSystem(operatingSystem == null ? "未知系统" : operatingSystem);
+            session.setBrowser(browser == null ? "未知浏览器" : browser);
             sessionRepository.save(session);
             return token;
         }
@@ -106,6 +115,27 @@ public class TokenService {
             throw new ApiException(HttpStatus.FORBIDDEN, "\u5f53\u524d\u8d26\u53f7\u65e0\u7ba1\u7406\u5458\u6743\u9650");
         }
         return currentUser;
+    }
+
+    /**
+     * Refresh metadata for the current persistent session. This also repairs sessions
+     * created before browser metadata collection was added.
+     */
+    public void refreshSessionMetadata(String authorization, HttpServletRequest request) {
+        if (sessionRepository == null || request == null) return;
+        String token = extractToken(authorization);
+        sessionRepository.findByTokenHash(hashToken(token)).ifPresent(session -> {
+            String forwardedAddress = request.getHeader("X-Forwarded-For");
+            String remoteAddress = StringUtils.hasText(forwardedAddress)
+                    ? forwardedAddress.split(",")[0].trim()
+                    : request.getRemoteAddr();
+            String userAgent = request.getHeader("User-Agent");
+            session.setIpAddress(StringUtils.hasText(remoteAddress) ? remoteAddress : "-");
+            session.setLoginLocation("\u5185\u7f51IP");
+            session.setOperatingSystem(detectOperatingSystem(userAgent));
+            session.setBrowser(detectBrowser(userAgent));
+            sessionRepository.save(session);
+        });
     }
 
     public AuthenticatedUser requireUser(String authorization) {
@@ -180,6 +210,27 @@ public class TokenService {
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 digest is not available", ex);
         }
+    }
+
+    private String detectOperatingSystem(String userAgent) {
+        if (!StringUtils.hasText(userAgent)) return "\u672a\u77e5\u7cfb\u7edf";
+        String value = userAgent.toLowerCase();
+        if (value.contains("windows")) return "Windows";
+        if (value.contains("android")) return "Android";
+        if (value.contains("iphone") || value.contains("ipad")) return "iOS";
+        if (value.contains("mac os")) return "macOS";
+        if (value.contains("linux")) return "Linux";
+        return "\u5176\u4ed6\u7cfb\u7edf";
+    }
+
+    private String detectBrowser(String userAgent) {
+        if (!StringUtils.hasText(userAgent)) return "\u672a\u77e5\u6d4f\u89c8\u5668";
+        String value = userAgent.toLowerCase();
+        if (value.contains("edg/")) return "Edge";
+        if (value.contains("chrome/") && !value.contains("edg/")) return "Chrome";
+        if (value.contains("firefox/")) return "Firefox";
+        if (value.contains("safari/") && !value.contains("chrome/")) return "Safari";
+        return "\u5176\u4ed6\u6d4f\u89c8\u5668";
     }
 
     private static final class Session {

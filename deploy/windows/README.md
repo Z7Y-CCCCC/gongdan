@@ -24,6 +24,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\www\gongdan\scripts\start
 
 The demo profile uses mock WeChat identity, log-only SMS, and Hibernate schema updates because the Java 8 compatible Flyway line does not support MySQL 9.2. It is for workflow verification, not public production. Uploaded images are stored under `C:\www\gongdan\data\uploads`.
 
+For a commercial deployment, copy `config\gongdan.prod.env.example` to `config\gongdan.env`, use MySQL 8.4 LTS with this Java 8/Spring Boot/Flyway stack, configure a real HTTPS origin, WeChat credentials, SMS gateway, a non-root database account, and a second backup location. Run the preflight before starting:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\www\gongdan\scripts\verify-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\www\gongdan\scripts\preflight.ps1 -Mode Commercial
+```
+
 ## Reliability Setup
 
 Before installing the maintenance tasks, set these values in `config\gongdan.env`:
@@ -47,6 +54,7 @@ This installs three SYSTEM tasks:
 - startup recovery: waits for MySQL, starts the backend, starts nginx when configured, and requires the `/health` endpoint to pass;
 - database backup: runs every day at 02:00 and writes SQL, SHA-256, attachment archive, and manifest files;
 - log cleanup: runs every day at 04:00 and deletes only matching expired log/backup files.
+- health monitor: runs every five minutes and checks web, mobile, backend, MySQL, backup freshness/checksum, disk space, and the optional alert webhook.
 
 MySQL InnoDB performs crash recovery when the MySQL service starts after a power loss. The startup task then restores the application service chain. It does not silently import an old backup over a healthy database.
 
@@ -76,6 +84,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\www\gongdan\scripts\backu
 
 # Non-destructive restore drill against a temporary database
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\www\gongdan\scripts\test-restore.ps1
+
+# Commercial smoke test; add -Login during a maintenance window
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\www\gongdan\scripts\smoke-test.ps1 -Login
+
+# Destructive restore; the database name must match the configured JDBC database
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\www\gongdan\scripts\restore-backup.ps1 -ConfirmDatabase heihu_workorder
 
 # Preview expired log and backup cleanup
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\www\gongdan\scripts\cleanup-logs.ps1 -WhatIf

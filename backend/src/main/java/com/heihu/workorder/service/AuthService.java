@@ -16,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import javax.servlet.http.HttpServletRequest;
 
 @Service
 public class AuthService {
@@ -52,6 +53,11 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
+        return login(request, null);
+    }
+
+    @Transactional
+    public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest) {
         String factoryCode = normalize(request.getFactoryCode()).toUpperCase();
         String account = normalize(request.getUsername());
         String limitKey = AuthAttemptLimiter.key("web", factoryCode, account);
@@ -80,7 +86,14 @@ public class AuthService {
         }
 
         authAttemptLimiter.recordSuccess(limitKey);
-        String token = tokenService.issue(user);
+        String userAgent = httpRequest == null ? null : httpRequest.getHeader("User-Agent");
+        String token = tokenService.issue(
+                user,
+                httpRequest == null ? null : httpRequest.getRemoteAddr(),
+                "内网IP",
+                detectOperatingSystem(userAgent),
+                detectBrowser(userAgent)
+        );
         boolean isSuperAdmin = "ADMIN".equals(factory.getCode());
         return new AuthResponse(token, UserResponse.from(user), isSuperAdmin);
     }
@@ -103,5 +116,26 @@ public class AuthService {
     private ApiException invalidCredentials(String limitKey) {
         authAttemptLimiter.recordFailure(limitKey);
         return new ApiException(HttpStatus.UNAUTHORIZED, "工厂代码、用户名或密码不正确");
+    }
+
+    private String detectOperatingSystem(String userAgent) {
+        if (!StringUtils.hasText(userAgent)) return null;
+        String value = userAgent.toLowerCase();
+        if (value.contains("windows")) return "Windows";
+        if (value.contains("android")) return "Android";
+        if (value.contains("iphone") || value.contains("ipad")) return "iOS";
+        if (value.contains("mac os")) return "macOS";
+        if (value.contains("linux")) return "Linux";
+        return "其他系统";
+    }
+
+    private String detectBrowser(String userAgent) {
+        if (!StringUtils.hasText(userAgent)) return null;
+        String value = userAgent.toLowerCase();
+        if (value.contains("edg/")) return "Edge";
+        if (value.contains("chrome/") && !value.contains("edg/")) return "Chrome";
+        if (value.contains("firefox/")) return "Firefox";
+        if (value.contains("safari/") && !value.contains("chrome/")) return "Safari";
+        return "其他浏览器";
     }
 }

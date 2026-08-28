@@ -1469,6 +1469,147 @@ export async function rejectReport(token: string, id: number, remark = '') {
   })
 }
 
+// ===== 系统监控 API =====
+export interface MonitorOnlineUserInfo {
+  id: number
+  sessionId: string
+  loginName: string
+  departmentName: string
+  ipAddress: string
+  loginLocation: string
+  operatingSystem: string
+  browser: string
+  loginTime: string
+}
+
+export interface MonitorOnlineListResponse {
+  items: MonitorOnlineUserInfo[]
+  total: number
+}
+
+export interface MonitorCacheNameInfo {
+  cacheName: string
+  remark: string
+  keyCount: number
+}
+
+export interface MonitorCacheEntryInfo {
+  cacheName: string
+  cacheKey: string
+  cacheValue: string
+}
+
+export interface MonitorCommandStatInfo {
+  name: string
+  count: number
+}
+
+export interface MonitorCacheMetricsInfo {
+  basicInfo: Record<string, string>
+  commandStats: MonitorCommandStatInfo[]
+  memoryInfo: {
+    usedBytes: number
+    maxBytes: number
+    usedPercent: number
+    usedHuman: string
+    maxHuman: string
+    heap?: { used: number; committed: number; max: number }
+  }
+}
+
+export interface MonitorCacheRecoveryInfo {
+  id: number
+  scope: string
+  cacheName: string
+  cacheKey?: string
+  entryCount: number
+  deletedAt: string
+  expiresAt: string
+}
+
+export async function fetchOnlineUsers(
+  token: string,
+  params: { ipAddress?: string; loginName?: string; page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.ipAddress) query.append('ipAddress', params.ipAddress)
+  if (params.loginName) query.append('loginName', params.loginName)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<MonitorOnlineListResponse>(`/monitor/online?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function forceLogoutOnlineUser(token: string, id: number) {
+  return request<void>(`/monitor/online/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheMetrics(token: string) {
+  return request<MonitorCacheMetricsInfo>('/monitor/cache', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheNames(token: string) {
+  return request<MonitorCacheNameInfo[]>('/monitor/cache/names', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheKeys(token: string, cacheName: string) {
+  const query = new URLSearchParams({ cacheName })
+  return request<string[]>(`/monitor/cache/keys?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheValue(token: string, cacheName: string, cacheKey: string) {
+  const query = new URLSearchParams({ cacheName, cacheKey })
+  return request<MonitorCacheEntryInfo>(`/monitor/cache/value?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function clearCacheName(token: string, cacheName: string) {
+  const query = new URLSearchParams({ cacheName })
+  return request<{ affected: number; recoveryWindowMinutes: number }>(`/monitor/cache/name?${query.toString()}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function clearCacheKey(token: string, cacheName: string, cacheKey: string) {
+  const query = new URLSearchParams({ cacheName, cacheKey })
+  return request<{ affected: number; recoveryWindowMinutes: number }>(`/monitor/cache/key?${query.toString()}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function clearAllCache(token: string) {
+  return request<{ affected: number; recoveryWindowMinutes: number }>('/monitor/cache/all', {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheRecoveries(token: string) {
+  return request<MonitorCacheRecoveryInfo[]>('/monitor/cache/recovery', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function restoreCacheRecovery(token: string, id: number) {
+  return request<{ affected: number; recoveryWindowMinutes: number }>(`/monitor/cache/recovery/${id}/restore`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 // ===== 手机端 API 共用类型 =====
 export type AdvancedRecordModule =
   | 'SOP'

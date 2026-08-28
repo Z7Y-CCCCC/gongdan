@@ -9,6 +9,8 @@ import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.ProductCategoryRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +31,7 @@ public class ProductCategoryService {
     private UserRepository userRepository;
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "product.categories", key = "#factoryId")
     public List<ProductCategoryResponse> getCategories(Long factoryId) {
         return categoryRepository.findByFactoryIdOrderByCreatedAtDesc(factoryId).stream()
                 .map(c -> {
@@ -45,6 +48,7 @@ public class ProductCategoryService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "product.categories", key = "#factoryId")
     public ProductCategoryResponse createCategory(Long factoryId, Long creatorId, ProductCategoryRequest request) {
         if (categoryRepository.findByFactoryIdAndName(factoryId, request.getName()).isPresent()) {
             throw new IllegalArgumentException("分类名称已存在");
@@ -73,6 +77,7 @@ public class ProductCategoryService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "product.categories", key = "#factoryId")
     public void deleteCategory(Long factoryId, Long id) {
         ProductCategory category = categoryRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("分类不存在"));

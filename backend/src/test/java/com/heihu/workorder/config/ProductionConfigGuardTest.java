@@ -66,6 +66,54 @@ class ProductionConfigGuardTest {
     }
 
     @Test
+    void rejectsRootDatabaseUserInProd() {
+        ProductionConfigGuard guard = prodGuard();
+        setValidValues(guard);
+        ReflectionTestUtils.setField(guard, "datasourceUsername", "root");
+
+        IllegalStateException exception = assertThrows(IllegalStateException.class, guard::validate);
+
+        assertThat(exception.getMessage()).contains("root account");
+    }
+
+    @Test
+    void rejectsShortOrSharedAdminPasswordsInProd() {
+        ProductionConfigGuard shortPasswordGuard = prodGuard();
+        setValidValues(shortPasswordGuard);
+        ReflectionTestUtils.setField(shortPasswordGuard, "seedAdminPassword", "short-pass");
+        assertThat(assertThrows(IllegalStateException.class, shortPasswordGuard::validate).getMessage())
+                .contains("at least 12 characters");
+
+        ProductionConfigGuard sharedPasswordGuard = prodGuard();
+        setValidValues(sharedPasswordGuard);
+        ReflectionTestUtils.setField(sharedPasswordGuard, "seedAdminPassword", "AdminPw_9x8y7z");
+        ReflectionTestUtils.setField(sharedPasswordGuard, "seedSuperAdminPassword", "AdminPw_9x8y7z");
+        assertThat(assertThrows(IllegalStateException.class, sharedPasswordGuard::validate).getMessage())
+                .contains("must be different");
+    }
+
+    @Test
+    void rejectsUnsafeMigrationOverridesInProd() {
+        ProductionConfigGuard guard = prodGuard();
+        setValidValues(guard);
+        ReflectionTestUtils.setField(guard, "flywayEnabled", false);
+
+        assertThat(assertThrows(IllegalStateException.class, guard::validate).getMessage())
+                .contains("spring.flyway.enabled");
+    }
+
+    @Test
+    void requiresS3CredentialsWhenS3StorageIsSelected() {
+        ProductionConfigGuard guard = prodGuard();
+        setValidValues(guard);
+        ReflectionTestUtils.setField(guard, "uploadStorageType", "s3");
+        ReflectionTestUtils.setField(guard, "uploadS3Bucket", "");
+
+        assertThat(assertThrows(IllegalStateException.class, guard::validate).getMessage())
+                .contains("app.upload.s3.bucket");
+    }
+
+    @Test
     void allowsRealValuesInProd() {
         ProductionConfigGuard guard = prodGuard();
         setValidValues(guard);
@@ -91,13 +139,21 @@ class ProductionConfigGuardTest {
     }
 
     private void setValidValues(ProductionConfigGuard guard) {
+        ReflectionTestUtils.setField(guard, "datasourceUsername", "heihu_app");
         ReflectionTestUtils.setField(guard, "datasourcePassword", "DbPw_9x8y7z");
+        ReflectionTestUtils.setField(guard, "flywayEnabled", true);
+        ReflectionTestUtils.setField(guard, "hibernateDdlAuto", "validate");
         ReflectionTestUtils.setField(guard, "seedFactoryName", "Real Factory");
         ReflectionTestUtils.setField(guard, "seedAdminPassword", "AdminPw_9x8y7z");
         ReflectionTestUtils.setField(guard, "seedSuperAdminPassword", "SuperPw_9x8y7z");
         ReflectionTestUtils.setField(guard, "wechatAppId", "wx1234567890abcdef");
         ReflectionTestUtils.setField(guard, "wechatSecret", "WechatSecret_9x8y7z");
         ReflectionTestUtils.setField(guard, "smsAuthHeaderValue", "Bearer real-token-9x8y7z");
+        ReflectionTestUtils.setField(guard, "smsHttpUrl", "https://sms.example.net/send");
         ReflectionTestUtils.setField(guard, "corsAllowedOriginPatterns", "https://workorder.example.com,https://admin.example.com");
+        ReflectionTestUtils.setField(guard, "uploadStorageType", "local");
+        ReflectionTestUtils.setField(guard, "uploadS3Bucket", "");
+        ReflectionTestUtils.setField(guard, "uploadS3AccessKey", "");
+        ReflectionTestUtils.setField(guard, "uploadS3SecretKey", "");
     }
 }

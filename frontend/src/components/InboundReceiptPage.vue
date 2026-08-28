@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, type CSSProperties } from 'vue'
 import {
   createInboundReceipt,
   deleteInboundReceipt,
@@ -15,6 +15,7 @@ import {
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
+import ColumnSettingsPanel, { type ColumnSetting } from '@/components/ColumnSettingsPanel.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -66,42 +67,40 @@ const addProductForm = reactive({
 })
 
 // Column config
-interface ReceiptTableColumn {
-  key: string
-  label: string
-  visible: boolean
+interface ReceiptTableColumn extends ColumnSetting {
   isCustom?: boolean
   fieldId?: number
   field?: any
 }
 
 const allColumns = [
-  { key: 'index', label: '序号', visible: true },
-  { key: 'code', label: '入库单号', visible: true },
-  { key: 'inboundType', label: '入库类型', visible: true },
-  { key: 'inboundTime', label: '入库时间', visible: true },
-  { key: 'remark', label: '备注', visible: true },
-  { key: 'createdAt', label: '创建时间', visible: true },
-  { key: 'creator', label: '创建人', visible: true },
-  { key: 'actions', label: '操作', visible: true }
+  { key: 'index', label: '序号', visible: true, width: 70, fixed: 'left' as const },
+  { key: 'code', label: '入库单号', visible: true, width: 180, fixed: 'none' as const },
+  { key: 'inboundType', label: '入库类型', visible: true, width: 140, fixed: 'none' as const },
+  { key: 'inboundTime', label: '入库时间', visible: true, width: 160, fixed: 'none' as const },
+  { key: 'remark', label: '备注', visible: true, width: 180, fixed: 'none' as const },
+  { key: 'createdAt', label: '创建时间', visible: true, width: 160, fixed: 'none' as const },
+  { key: 'creator', label: '创建人', visible: true, width: 120, fixed: 'none' as const },
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' as const, locked: true }
 ]
 const columns = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
+const defaultColumnSettings = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
 const showColumnConfig = ref(false)
 
 // Detail columns
 const detailColumns = [
-  { key: 'index', label: '序号', visible: true },
-  { key: 'productCode', label: '产品编号', visible: true },
-  { key: 'productName', label: '产品名称', visible: true },
-  { key: 'productSpec', label: '产品规格', visible: true },
-  { key: 'productAttribute', label: '产品属性', visible: true },
-  { key: 'unitName', label: '库存单位', visible: true },
-  { key: 'minStock', label: '最小库存', visible: true },
-  { key: 'maxStock', label: '最大库存', visible: true },
-  { key: 'safetyStock', label: '安全库存', visible: true },
-  { key: 'inventoryQty', label: '当前库存数量', visible: true },
-  { key: 'quantity', label: '入库数量', visible: true },
-  { key: 'actions', label: '操作', visible: true }
+  { key: 'index', label: '序号', visible: true, width: 70, fixed: 'left' as const },
+  { key: 'productCode', label: '产品编号', visible: true, width: 140, fixed: 'none' as const },
+  { key: 'productName', label: '产品名称', visible: true, width: 150, fixed: 'none' as const },
+  { key: 'productSpec', label: '产品规格', visible: true, width: 150, fixed: 'none' as const },
+  { key: 'productAttribute', label: '产品属性', visible: true, width: 140, fixed: 'none' as const },
+  { key: 'unitName', label: '库存单位', visible: true, width: 100, fixed: 'none' as const },
+  { key: 'minStock', label: '最小库存', visible: true, width: 110, fixed: 'none' as const },
+  { key: 'maxStock', label: '最大库存', visible: true, width: 110, fixed: 'none' as const },
+  { key: 'safetyStock', label: '安全库存', visible: true, width: 110, fixed: 'none' as const },
+  { key: 'inventoryQty', label: '当前库存数量', visible: true, width: 140, fixed: 'none' as const },
+  { key: 'quantity', label: '入库数量', visible: true, width: 120, fixed: 'none' as const },
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' as const, locked: true }
 ]
 const itemColumns = ref<ReceiptTableColumn[]>(detailColumns.map(c => ({ ...c })))
 const showItemColumnConfig = ref(false)
@@ -126,6 +125,58 @@ const inboundPrintTemplate = reactive({
 const visibleColumns = computed(() => columns.value.filter(c => c.visible))
 const visibleItemColumns = computed(() => itemColumns.value.filter(c => c.visible))
 const totalPages = computed(() => Math.ceil(totalReceipts.value / pageSize.value))
+
+function inboundColumnStyle(column: ReceiptTableColumn): CSSProperties {
+  const currentIndex = visibleColumns.value.findIndex(item => item.key === column.key)
+  const left = visibleColumns.value
+    .slice(0, currentIndex)
+    .filter(item => item.fixed === 'left')
+    .reduce((sum, item) => sum + item.width, 0)
+  const right = visibleColumns.value
+    .slice(currentIndex + 1)
+    .filter(item => item.fixed === 'right')
+    .reduce((sum, item) => sum + item.width, 120)
+  const style: CSSProperties = {
+    width: `${column.width}px`,
+    minWidth: `${column.width}px`,
+  }
+  if (column.fixed !== 'none') {
+    style.position = 'sticky'
+    style.zIndex = 3
+    style.background = '#fff'
+    if (column.fixed === 'left') style.left = `${left}px`
+    else style.right = `${right}px`
+  }
+  return style
+}
+
+function restoreInboundColumnSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('inbound_receipt_columns') || 'null')
+    if (!Array.isArray(saved) || saved.length === 0) return
+    const savedByKey = new Map(saved.map((column: any) => [column.key, column]))
+    const orderedKeys = [
+      ...saved.map((column: any) => column.key),
+      ...defaultColumnSettings.value.map(column => column.key).filter(key => !savedByKey.has(key))
+    ]
+    columns.value = orderedKeys
+      .map(key => {
+        const base = defaultColumnSettings.value.find(column => column.key === key)
+        const stored = savedByKey.get(key)
+        return base ? { ...base, ...(stored || {}) } : null
+      })
+      .filter((column): column is ReceiptTableColumn => Boolean(column))
+  } catch {
+    // Ignore an invalid local column preference and keep defaults.
+  }
+}
+
+function saveInboundColumnSettings(settings: ReceiptTableColumn[]) {
+  columns.value = settings.map(column => ({ ...column }))
+  localStorage.setItem('inbound_receipt_columns', JSON.stringify(columns.value))
+  showColumnConfig.value = false
+  emit('notice', '列配置已保存')
+}
 
 const selectedProduct = computed(() => {
   if (!addProductForm.productId) return null
@@ -158,6 +209,8 @@ async function loadCustomFieldConfigs() {
       fieldId: f.id,
       label: f.name,
       visible: true,
+      width: 140,
+      fixed: 'none' as const,
       isCustom: true,
       field: f
     }))
@@ -168,6 +221,8 @@ async function loadCustomFieldConfigs() {
       baseCols.push(...customCols)
     }
     columns.value = baseCols
+    defaultColumnSettings.value = baseCols.map(c => ({ ...c }))
+    restoreInboundColumnSettings()
 
     // 合并明细自定义字段到 itemColumns
     const baseItemCols = detailColumns.map(c => ({ ...c }))
@@ -176,6 +231,8 @@ async function loadCustomFieldConfigs() {
       fieldId: f.id,
       label: f.name,
       visible: true,
+      width: 140,
+      fixed: 'none' as const,
       isCustom: true,
       field: f
     }))
@@ -662,26 +719,26 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
-          <button class="text-btn" type="button" style="color: #586360;" @click="showColumnConfig = !showColumnConfig">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-            列配置
+          <button class="table-config-trigger" type="button" title="列设置" @click="showColumnConfig = true">
+            <UiIcon name="columns" :size="16" />
           </button>
         </div>
       </div>
 
-      <!-- Column config dropdown -->
-      <div v-if="showColumnConfig" class="column-config-dropdown" style="position:absolute;right:20px;top:180px;background:#fff;border:1px solid #e4e9e7;border-radius:6px;padding:12px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
-        <label v-for="col in columns" :key="col.key" style="display:flex;align-items:center;gap:6px;padding:4px 0;cursor:pointer">
-          <input type="checkbox" v-model="col.visible" :disabled="col.key === 'actions'" />
-          <span style="font-size:13px">{{ col.label }}</span>
-        </label>
-      </div>
+      <ColumnSettingsPanel
+        v-if="showColumnConfig"
+        v-model="columns"
+        :defaults="defaultColumnSettings"
+        title="列设置"
+        @confirm="saveInboundColumnSettings"
+        @cancel="showColumnConfig = false"
+      />
 
       <div class="table-container">
         <table class="data-table">
           <thead>
             <tr>
-              <th v-for="col in visibleColumns" :key="col.key">{{ col.label }}</th>
+              <th v-for="col in visibleColumns" :key="col.key" :style="inboundColumnStyle(col)">{{ col.label }}</th>
             </tr>
           </thead>
           <tbody>
@@ -695,17 +752,17 @@ onBeforeUnmount(() => {
             </tr>
             <tr v-for="(receipt, idx) in receipts" :key="receipt.id">
               <template v-for="col in visibleColumns" :key="col.key">
-                <td v-if="col.key === 'index'">{{ (currentPage - 1) * pageSize + idx + 1 }}</td>
-                <td v-else-if="col.key === 'code'">{{ receipt.code }}</td>
-                <td v-else-if="col.key === 'inboundType'">{{ receipt.inboundType }}</td>
-                <td v-else-if="col.key === 'inboundTime'">{{ receipt.inboundTime }}</td>
-                <td v-else-if="col.key === 'remark'">{{ receipt.remark || '-' }}</td>
-                <td v-else-if="col.key === 'createdAt'">{{ receipt.createdAt }}</td>
-                <td v-else-if="col.key === 'creator'">{{ receipt.creator || '-' }}</td>
-                <td v-else-if="col.key === 'actions'">
+                <td v-if="col.key === 'index'" :style="inboundColumnStyle(col)">{{ (currentPage - 1) * pageSize + idx + 1 }}</td>
+                <td v-else-if="col.key === 'code'" :style="inboundColumnStyle(col)">{{ receipt.code }}</td>
+                <td v-else-if="col.key === 'inboundType'" :style="inboundColumnStyle(col)">{{ receipt.inboundType }}</td>
+                <td v-else-if="col.key === 'inboundTime'" :style="inboundColumnStyle(col)">{{ receipt.inboundTime }}</td>
+                <td v-else-if="col.key === 'remark'" :style="inboundColumnStyle(col)">{{ receipt.remark || '-' }}</td>
+                <td v-else-if="col.key === 'createdAt'" :style="inboundColumnStyle(col)">{{ receipt.createdAt }}</td>
+                <td v-else-if="col.key === 'creator'" :style="inboundColumnStyle(col)">{{ receipt.creator || '-' }}</td>
+                <td v-else-if="col.key === 'actions'" :style="inboundColumnStyle(col)">
                   <a class="link-btn" style="font-size:12px;cursor:pointer" @click="handleDelete(receipt)">删除</a>
                 </td>
-                <td v-else-if="col.isCustom">
+                <td v-else-if="col.isCustom" :style="inboundColumnStyle(col)">
                   {{ getReceiptCustomValue(receipt, col.fieldId) }}
                 </td>
               </template>

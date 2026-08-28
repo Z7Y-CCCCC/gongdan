@@ -8,6 +8,8 @@ import com.heihu.workorder.repository.FactoryRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 
 @Service
 public class FactoryService {
@@ -19,11 +21,13 @@ public class FactoryService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "factory.current", key = "#factoryId")
     public CurrentFactoryResponse getCurrent(Long factoryId) {
         return toResponse(loadFactory(factoryId));
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "factory.current", key = "#factoryId")
     public CurrentFactoryResponse updateCurrent(Long factoryId, UpdateFactoryRequest request) {
         Factory factory = loadFactory(factoryId);
         factory.setName(request.getName().trim());
