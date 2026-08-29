@@ -2219,7 +2219,7 @@ onUnmounted(() => {
         导入
       </button>
       <button class="table-config-trigger" type="button" style="margin-left: 8px;" title="字段配置" @click="showColumnModal = true">
-        <UiIcon name="columns" :size="16" />
+        <UiIcon name="table-columns" :size="16" />
       </button>
       <button class="text-btn" type="button" style="color: #586360; margin-left: 8px;" @click="toggleSort">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="13" y2="6"></line><line x1="4" y1="12" x2="11" y2="12"></line><line x1="4" y1="18" x2="11" y2="18"></line><polyline points="15 16 18 19 21 16"></polyline><line x1="18" y1="5" x2="18" y2="19"></line></svg>

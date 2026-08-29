@@ -2046,7 +2046,7 @@ onMounted(() => {
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
             <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showUnitColumnConfig = !showUnitColumnConfig; showUnitRowHeightConfig = false; showUnitSortConfig = false" :class="{ 'active-btn': showUnitColumnConfig }">
-              <UiIcon name="columns" :size="16" />
+              <UiIcon name="table-columns" :size="16" />
             </button>
             <div v-if="showUnitColumnConfig" class="dropdown-bubble column-config-bubble">
               <div class="dropdown-header">显示列配置</div>
@@ -2224,7 +2224,7 @@ onMounted(() => {
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
             <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showDefectColumnConfig = !showDefectColumnConfig; showDefectRowHeightConfig = false; showDefectSortConfig = false" :class="{ 'active-btn': showDefectColumnConfig }">
-              <UiIcon name="columns" :size="16" />
+              <UiIcon name="table-columns" :size="16" />
             </button>
             <div v-if="showDefectColumnConfig" class="dropdown-bubble column-config-bubble">
               <div class="dropdown-header">显示列配置</div>
@@ -2434,7 +2434,7 @@ onMounted(() => {
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
             <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showProcessColumnConfig = !showProcessColumnConfig; showDefaultSOPConfig = false; showProcessRowHeightConfig = false; showProcessSortConfig = false" :class="{ 'active-btn': showProcessColumnConfig }">
-              <UiIcon name="columns" :size="16" />
+              <UiIcon name="table-columns" :size="16" />
             </button>
             <div v-if="showProcessColumnConfig" class="dropdown-bubble column-config-bubble">
               <div class="dropdown-header">显示列配置</div>
@@ -2847,7 +2847,7 @@ onMounted(() => {
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
             <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showRouteColumnConfig = !showRouteColumnConfig" :class="{ 'active-btn': showRouteColumnConfig }">
-              <UiIcon name="columns" :size="16" />
+              <UiIcon name="table-columns" :size="16" />
             </button>
             <div v-if="showRouteColumnConfig" class="dropdown-bubble column-config-bubble">
               <div class="dropdown-header">显示列配置</div>

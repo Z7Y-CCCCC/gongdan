@@ -4547,12 +4547,13 @@ button:active:not(:disabled),
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #59635f;
+  color: #009d83;
   background: #fff;
-  border: 1px solid #d8e0dd;
+  border: 1px solid #91d8ca;
   border-radius: 50%;
   cursor: pointer;
-  transition: color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  box-shadow: 0 1px 5px rgba(0, 157, 131, .12);
+  transition: color .18s ease, border-color .18s ease, background-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 
 .table-config-control {
@@ -4586,15 +4587,16 @@ button:active:not(:disabled),
 }
 
 .table-config-trigger[aria-expanded='true'] {
-  color: var(--accent-dark);
-  border-color: #83cbbb;
-  background: #f0faf7;
+  color: #007d69;
+  border-color: #45bba6;
+  background: #eafaf6;
   box-shadow: 0 4px 12px rgba(0, 136, 112, .16);
 }
 
 .table-config-trigger:hover {
-  color: var(--accent-dark);
-  border-color: #83cbbb;
+  color: #007d69;
+  border-color: #45bba6;
+  background: #f3fcfa;
   box-shadow: 0 4px 12px rgba(0, 136, 112, .16);
   transform: translateY(-1px);
 }
@@ -5260,18 +5262,18 @@ button:active:not(:disabled),
 .admin-shell.dark-theme .ghost-btn,
 .admin-shell.dark-theme .secondary-btn,
 .admin-shell.dark-theme .table-config-trigger {
-  color: #c3ced5;
+  color: #72ddc4;
   background: #1b2229;
-  border-color: #3b4650;
+  border-color: #397e70;
 }
 
 .admin-shell.dark-theme .toolbar-btn:hover,
 .admin-shell.dark-theme .ghost-btn:hover,
 .admin-shell.dark-theme .secondary-btn:hover,
 .admin-shell.dark-theme .table-config-trigger:hover {
-  color: #e9f0f3;
-  background: #27313a;
-  border-color: #4c5a66;
+  color: #9af2dc;
+  background: #20332f;
+  border-color: #57b8a3;
 }
 
 .admin-shell.dark-theme .table-wrap,

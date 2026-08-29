@@ -347,7 +347,7 @@ onMounted(() => {
       </button>
 
       <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true">
-        <UiIcon name="columns" :size="16" />
+        <UiIcon name="table-columns" :size="16" />
       </button>
     </div>
 

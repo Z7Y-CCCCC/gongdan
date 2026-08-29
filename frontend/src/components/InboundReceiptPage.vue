@@ -720,7 +720,7 @@ onBeforeUnmount(() => {
         </div>
         <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
           <button class="table-config-trigger" type="button" title="列设置" @click="showColumnConfig = true">
-            <UiIcon name="columns" :size="16" />
+            <UiIcon name="table-columns" :size="16" />
           </button>
         </div>
       </div>
@@ -981,7 +981,7 @@ onBeforeUnmount(() => {
           </div>
           <div style="margin-left:auto; position: relative;">
             <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showItemColumnConfig = !showItemColumnConfig">
-              <UiIcon name="columns" :size="16" />
+              <UiIcon name="table-columns" :size="16" />
             </button>
             <div v-if="showItemColumnConfig" class="column-config-dropdown" style="position:absolute;right:0;top:32px;background:#fff;border:1px solid #e4e9e7;border-radius:6px;padding:12px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1); width: 150px;">
               <label v-for="col in itemColumns" :key="col.key" style="display:flex;align-items:center;gap:6px;padding:4px 0;cursor:pointer">

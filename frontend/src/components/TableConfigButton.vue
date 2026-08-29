@@ -120,7 +120,7 @@ onBeforeUnmount(() => {
       :aria-expanded="open"
       @click="openPanel"
     >
-      <UiIcon name="columns" :size="16" />
+      <UiIcon name="table-columns" :size="16" />
     </button>
 
     <ColumnSettingsPanel

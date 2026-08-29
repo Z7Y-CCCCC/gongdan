@@ -3801,7 +3801,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             默认SOP模板
           </button>
           <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <UiIcon name="table-columns" :size="14" />
             字段配置
           </button>
           <button class="toolbar-btn" type="button">
@@ -4113,7 +4113,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             导入
           </button>
           <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            <UiIcon name="table-columns" :size="13" />
             字段配置
           </button>
           <button class="toolbar-btn" style="margin-left:auto" type="button">导入日志</button>
@@ -4188,7 +4188,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
                   添加一行
                 </button>
                 <button type="button" class="toolbar-btn" style="height:32px;font-size:13px">
-                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+                  <UiIcon name="table-columns" :size="13" />
                   字段配置
                 </button>
               </div>
