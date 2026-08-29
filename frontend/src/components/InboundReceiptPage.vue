@@ -126,7 +126,7 @@ const visibleColumns = computed(() => columns.value.filter(c => c.visible))
 const visibleItemColumns = computed(() => itemColumns.value.filter(c => c.visible))
 const totalPages = computed(() => Math.ceil(totalReceipts.value / pageSize.value))
 
-function inboundColumnStyle(column: ReceiptTableColumn): CSSProperties {
+function inboundColumnStyle(column: ReceiptTableColumn, header = false): CSSProperties {
   const currentIndex = visibleColumns.value.findIndex(item => item.key === column.key)
   const left = visibleColumns.value
     .slice(0, currentIndex)
@@ -135,7 +135,7 @@ function inboundColumnStyle(column: ReceiptTableColumn): CSSProperties {
   const right = visibleColumns.value
     .slice(currentIndex + 1)
     .filter(item => item.fixed === 'right')
-    .reduce((sum, item) => sum + item.width, 120)
+    .reduce((sum, item) => sum + item.width, 0)
   const style: CSSProperties = {
     width: `${column.width}px`,
     minWidth: `${column.width}px`,
@@ -143,7 +143,7 @@ function inboundColumnStyle(column: ReceiptTableColumn): CSSProperties {
   if (column.fixed !== 'none') {
     style.position = 'sticky'
     style.zIndex = 3
-    style.background = '#fff'
+    style.background = header ? 'var(--table-head-bg)' : 'var(--table-row-bg)'
     if (column.fixed === 'left') style.left = `${left}px`
     else style.right = `${right}px`
   }
@@ -163,7 +163,9 @@ function restoreInboundColumnSettings() {
       .map(key => {
         const base = defaultColumnSettings.value.find(column => column.key === key)
         const stored = savedByKey.get(key)
-        return base ? { ...base, ...(stored || {}) } : null
+        if (!base) return null
+        if (base.locked) return { ...base, ...(stored || {}), visible: true, fixed: 'right', locked: true }
+        return { ...base, ...(stored || {}) }
       })
       .filter((column): column is ReceiptTableColumn => Boolean(column))
   } catch {
@@ -735,10 +737,10 @@ onBeforeUnmount(() => {
       />
 
       <div class="table-container">
-        <table class="data-table">
+        <table class="data-table inbound-receipt-data-table">
           <thead>
             <tr>
-              <th v-for="col in visibleColumns" :key="col.key" :style="inboundColumnStyle(col)">{{ col.label }}</th>
+              <th v-for="col in visibleColumns" :key="col.key" :style="inboundColumnStyle(col, true)">{{ col.label }}</th>
             </tr>
           </thead>
           <tbody>

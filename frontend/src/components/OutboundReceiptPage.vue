@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, type CSSProperties } from 'vue'
 import {
   createOutboundReceipt,
   deleteOutboundReceipt,
@@ -14,6 +14,7 @@ import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
+import ColumnSettingsPanel, { type ColumnSetting } from './ColumnSettingsPanel.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -68,44 +69,43 @@ const productSearchQuery = ref('')
 const productDropdownOpen = ref(false)
 
 // Column config
-interface ReceiptTableColumn {
-  key: string
-  label: string
-  visible: boolean
+interface ReceiptTableColumn extends ColumnSetting {
   isCustom?: boolean
   fieldId?: number
   field?: any
 }
 
-const allColumns = [
-  { key: 'index', label: '序号', visible: true },
-  { key: 'code', label: '出库单号', visible: true },
-  { key: 'outboundType', label: '出库类型', visible: true },
-  { key: 'outboundTime', label: '出库时间', visible: true },
-  { key: 'remark', label: '备注', visible: true },
-  { key: 'createdAt', label: '创建时间', visible: true },
-  { key: 'creator', label: '创建人', visible: true },
-  { key: 'actions', label: '操作', visible: true }
+const allColumns: ReceiptTableColumn[] = [
+  { key: 'index', label: '序号', visible: true, width: 70, fixed: 'left' },
+  { key: 'code', label: '出库单号', visible: true, width: 180, fixed: 'none' },
+  { key: 'outboundType', label: '出库类型', visible: true, width: 140, fixed: 'none' },
+  { key: 'outboundTime', label: '出库时间', visible: true, width: 160, fixed: 'none' },
+  { key: 'remark', label: '备注', visible: true, width: 180, fixed: 'none' },
+  { key: 'createdAt', label: '创建时间', visible: true, width: 160, fixed: 'none' },
+  { key: 'creator', label: '创建人', visible: true, width: 120, fixed: 'none' },
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right', locked: true }
 ]
 const columns = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
+const defaultColumnSettings = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
 const showColumnConfig = ref(false)
 
 // Detail columns
-const detailColumns = [
-  { key: 'index', label: '序号', visible: true },
-  { key: 'productCode', label: '产品编号', visible: true },
-  { key: 'productName', label: '产品名称', visible: true },
-  { key: 'productSpec', label: '产品规格', visible: true },
-  { key: 'productAttribute', label: '产品属性', visible: true },
-  { key: 'unitName', label: '库存单位', visible: true },
-  { key: 'minStock', label: '最小库存', visible: true },
-  { key: 'maxStock', label: '最大库存', visible: true },
-  { key: 'safetyStock', label: '安全库存', visible: true },
-  { key: 'inventoryQty', label: '当前库存数量', visible: true },
-  { key: 'quantity', label: '出库数量', visible: true },
-  { key: 'actions', label: '操作', visible: true }
+const detailColumns: ReceiptTableColumn[] = [
+  { key: 'index', label: '序号', visible: true, width: 70, fixed: 'left' },
+  { key: 'productCode', label: '产品编号', visible: true, width: 140, fixed: 'none' },
+  { key: 'productName', label: '产品名称', visible: true, width: 150, fixed: 'none' },
+  { key: 'productSpec', label: '产品规格', visible: true, width: 150, fixed: 'none' },
+  { key: 'productAttribute', label: '产品属性', visible: true, width: 140, fixed: 'none' },
+  { key: 'unitName', label: '库存单位', visible: true, width: 100, fixed: 'none' },
+  { key: 'minStock', label: '最小库存', visible: true, width: 110, fixed: 'none' },
+  { key: 'maxStock', label: '最大库存', visible: true, width: 110, fixed: 'none' },
+  { key: 'safetyStock', label: '安全库存', visible: true, width: 110, fixed: 'none' },
+  { key: 'inventoryQty', label: '当前库存数量', visible: true, width: 140, fixed: 'none' },
+  { key: 'quantity', label: '出库数量', visible: true, width: 120, fixed: 'none' },
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right', locked: true }
 ]
 const itemColumns = ref<ReceiptTableColumn[]>(detailColumns.map(c => ({ ...c })))
+const defaultItemColumnSettings = ref<ReceiptTableColumn[]>(detailColumns.map(c => ({ ...c })))
 const showItemColumnConfig = ref(false)
 
 // Detail receipt modal
@@ -116,6 +116,30 @@ const activeReceipt = ref<OutboundReceiptInfo | null>(null)
 const visibleColumns = computed(() => columns.value.filter(c => c.visible))
 const visibleItemColumns = computed(() => itemColumns.value.filter(c => c.visible))
 const totalPages = computed(() => Math.ceil(totalReceipts.value / pageSize.value) || 1)
+
+function outboundColumnStyle(column: ReceiptTableColumn, visible: ReceiptTableColumn[], header = false): CSSProperties {
+  const currentIndex = visible.findIndex(item => item.key === column.key)
+  const left = visible
+    .slice(0, currentIndex)
+    .filter(item => item.fixed === 'left')
+    .reduce((sum, item) => sum + item.width, 0)
+  const right = visible
+    .slice(currentIndex + 1)
+    .filter(item => item.fixed === 'right')
+    .reduce((sum, item) => sum + item.width, 0)
+  const style: CSSProperties = {
+    width: `${column.width}px`,
+    minWidth: `${column.width}px`
+  }
+  if (column.fixed !== 'none') {
+    style.position = 'sticky'
+    style.zIndex = header ? 12 : 3
+    style.background = header ? 'var(--table-head-bg)' : 'var(--table-row-bg)'
+    if (column.fixed === 'left') style.left = `${left}px`
+    if (column.fixed === 'right') style.right = `${right}px`
+  }
+  return style
+}
 
 const selectedProduct = computed(() => {
   if (!addProductForm.productId) return null
@@ -154,11 +178,13 @@ async function loadCustomFieldConfigs() {
     
     // 合并单头自定义字段到 columns
     const baseCols = allColumns.map(c => ({ ...c }))
-    const customCols = customFields.value.map(f => ({
+    const customCols: ReceiptTableColumn[] = customFields.value.map(f => ({
       key: `custom_${f.id}`,
       fieldId: f.id,
       label: f.name,
       visible: true,
+      width: 140,
+      fixed: 'none',
       isCustom: true,
       field: f
     }))
@@ -169,14 +195,17 @@ async function loadCustomFieldConfigs() {
       baseCols.push(...customCols)
     }
     columns.value = baseCols
+    defaultColumnSettings.value = baseCols.map(c => ({ ...c }))
 
     // 合并明细自定义字段到 itemColumns
     const baseItemCols = detailColumns.map(c => ({ ...c }))
-    const customItemCols = itemCustomFields.value.map(f => ({
+    const customItemCols: ReceiptTableColumn[] = itemCustomFields.value.map(f => ({
       key: `custom_${f.id}`,
       fieldId: f.id,
       label: f.name,
       visible: true,
+      width: 140,
+      fixed: 'none',
       isCustom: true,
       field: f
     }))
@@ -187,6 +216,7 @@ async function loadCustomFieldConfigs() {
       baseItemCols.push(...customItemCols)
     }
     itemColumns.value = baseItemCols
+    defaultItemColumnSettings.value = baseItemCols.map(c => ({ ...c }))
 
     // 初始化 createForm.customValues
     createForm.customValues = customFields.value.map(f => ({
@@ -288,6 +318,18 @@ function handleReset() {
   filterForm.endTime = ''
   currentPage.value = 1
   loadReceipts()
+}
+
+function saveColumnSettings(settings: ReceiptTableColumn[]) {
+  columns.value = settings.map(column => ({ ...column }))
+  showColumnConfig.value = false
+  emit('notice', '列配置已保存')
+}
+
+function saveItemColumnSettings(settings: ReceiptTableColumn[]) {
+  itemColumns.value = settings.map(column => ({ ...column }))
+  showItemColumnConfig.value = false
+  emit('notice', '列配置已保存')
 }
 
 function goPage(p: number) {
@@ -549,31 +591,31 @@ onMounted(() => {
 
       <!-- Data Table -->
       <div class="table-container">
-        <table class="data-table">
+        <table class="data-table outbound-receipt-data-table">
           <thead>
             <tr>
-              <th v-for="col in visibleColumns" :key="col.key">{{ col.label }}</th>
+              <th v-for="col in visibleColumns" :key="col.key" :style="outboundColumnStyle(col, visibleColumns, true)">{{ col.label }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(item, idx) in receipts" :key="item.id">
               <template v-for="col in visibleColumns" :key="col.key">
-                <td v-if="col.key === 'index'">{{ (currentPage - 1) * pageSize + idx + 1 }}</td>
-                <td v-else-if="col.key === 'code'">{{ item.code }}</td>
-                <td v-else-if="col.key === 'outboundType'">
+                <td v-if="col.key === 'index'" :style="outboundColumnStyle(col, visibleColumns)">{{ (currentPage - 1) * pageSize + idx + 1 }}</td>
+                <td v-else-if="col.key === 'code'" :style="outboundColumnStyle(col, visibleColumns)">{{ item.code }}</td>
+                <td v-else-if="col.key === 'outboundType'" :style="outboundColumnStyle(col, visibleColumns)">
                   <span class="badge outbound-badge">{{ item.outboundType }}</span>
                 </td>
-                <td v-else-if="col.key === 'outboundTime'">{{ item.outboundTime }}</td>
-                <td v-else-if="col.key === 'remark'" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" :title="item.remark">
+                <td v-else-if="col.key === 'outboundTime'" :style="outboundColumnStyle(col, visibleColumns)">{{ item.outboundTime }}</td>
+                <td v-else-if="col.key === 'remark'" :style="outboundColumnStyle(col, visibleColumns)" :title="item.remark">
                   {{ item.remark || '-' }}
                 </td>
-                <td v-else-if="col.key === 'createdAt'">{{ item.createdAt }}</td>
-                <td v-else-if="col.key === 'creator'">{{ item.creator || '-' }}</td>
-                <td v-else-if="col.key === 'actions'" class="action-cell">
+                <td v-else-if="col.key === 'createdAt'" :style="outboundColumnStyle(col, visibleColumns)">{{ item.createdAt }}</td>
+                <td v-else-if="col.key === 'creator'" :style="outboundColumnStyle(col, visibleColumns)">{{ item.creator || '-' }}</td>
+                <td v-else-if="col.key === 'actions'" class="action-cell" :style="outboundColumnStyle(col, visibleColumns)">
                   <a class="link-btn" style="font-size:12px;cursor:pointer;margin-right:12px" @click="showReceiptDetail(item)">详情</a>
                   <a class="link-btn" style="font-size:12px;cursor:pointer;color:#ff5a5a" @click="handleDelete(item)">删除</a>
                 </td>
-                <td v-else-if="col.isCustom">
+                <td v-else-if="col.isCustom" :style="outboundColumnStyle(col, visibleColumns)">
                   {{ getReceiptCustomValue(item, col.fieldId) }}
                 </td>
               </template>
@@ -693,26 +735,26 @@ onMounted(() => {
       </div>
 
       <div class="table-container">
-        <table class="data-table">
+        <table class="data-table outbound-receipt-data-table">
           <thead>
             <tr>
-              <th v-for="col in visibleItemColumns" :key="col.key">{{ col.label }}</th>
+              <th v-for="col in visibleItemColumns" :key="col.key" :style="outboundColumnStyle(col, visibleItemColumns, true)">{{ col.label }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(item, idx) in formItems" :key="item.productId">
               <template v-for="col in visibleItemColumns" :key="col.key">
-                <td v-if="col.key === 'index'">{{ idx + 1 }}</td>
-                <td v-else-if="col.key === 'productCode'">{{ item.productCode }}</td>
-                <td v-else-if="col.key === 'productName'">{{ item.productName }}</td>
-                <td v-else-if="col.key === 'productSpec'">{{ item.productSpec || '-' }}</td>
-                <td v-else-if="col.key === 'productAttribute'">{{ item.productAttribute || '-' }}</td>
-                <td v-else-if="col.key === 'unitName'">{{ item.unitName || '-' }}</td>
-                <td v-else-if="col.key === 'minStock'">{{ item.minStock }}</td>
-                <td v-else-if="col.key === 'maxStock'">{{ item.maxStock }}</td>
-                <td v-else-if="col.key === 'safetyStock'">{{ item.safetyStock }}</td>
-                <td v-else-if="col.key === 'inventoryQty'" style="font-weight:bold;color:#586360">{{ item.inventoryQty }}</td>
-                <td v-else-if="col.key === 'quantity'">
+                <td v-if="col.key === 'index'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ idx + 1 }}</td>
+                <td v-else-if="col.key === 'productCode'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ item.productCode }}</td>
+                <td v-else-if="col.key === 'productName'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ item.productName }}</td>
+                <td v-else-if="col.key === 'productSpec'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ item.productSpec || '-' }}</td>
+                <td v-else-if="col.key === 'productAttribute'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ item.productAttribute || '-' }}</td>
+                <td v-else-if="col.key === 'unitName'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ item.unitName || '-' }}</td>
+                <td v-else-if="col.key === 'minStock'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ item.minStock }}</td>
+                <td v-else-if="col.key === 'maxStock'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ item.maxStock }}</td>
+                <td v-else-if="col.key === 'safetyStock'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ item.safetyStock }}</td>
+                <td v-else-if="col.key === 'inventoryQty'" :style="outboundColumnStyle(col, visibleItemColumns)">{{ item.inventoryQty }}</td>
+                <td v-else-if="col.key === 'quantity'" :style="outboundColumnStyle(col, visibleItemColumns)">
                   <input
                     type="number"
                     v-model.number="item.quantity"
@@ -723,10 +765,10 @@ onMounted(() => {
                   />
                   <span v-if="item.quantity > (item.inventoryQty || 0)" class="inline-err">不足</span>
                 </td>
-                <td v-else-if="col.key === 'actions'" class="action-cell">
+                <td v-else-if="col.key === 'actions'" class="action-cell" :style="outboundColumnStyle(col, visibleItemColumns)">
                   <a class="link-btn" style="font-size:12px;cursor:pointer;color:#ff5a5a" @click="removeFormItem(idx)">删除</a>
                 </td>
-                <td v-else-if="col.isCustom">
+                <td v-else-if="col.isCustom" :style="outboundColumnStyle(col, visibleItemColumns)">
                   <template v-if="getItemCustomValueObj(item, col.fieldId)">
                     <select 
                       v-if="col.field.fieldType === 'single_select'" 
@@ -856,45 +898,23 @@ onMounted(() => {
     </div>
 
     <!-- Column Config Modals -->
-    <div v-if="showColumnConfig" class="modal-backdrop">
-      <div class="modal workorder-modal" style="width: 480px;">
-        <div class="modal-header">
-          <h2>出库单字段显示配置</h2>
-          <button class="close-btn" type="button" @click="showColumnConfig = false">×</button>
-        </div>
-        <div style="padding: 24px;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <label v-for="col in columns" :key="col.key" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" v-model="col.visible" style="accent-color: #00b889; width: 16px; height: 16px;" :disabled="col.key === 'code' || col.key === 'actions'" />
-              <span style="font-size: 14px; color: #1e2724;">{{ col.label }}</span>
-            </label>
-          </div>
-          <div style="text-align: right; margin-top: 24px;">
-            <button class="primary-btn" @click="showColumnConfig = false">确定</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ColumnSettingsPanel
+      v-if="showColumnConfig"
+      v-model="columns"
+      :defaults="defaultColumnSettings"
+      title="列设置"
+      @confirm="saveColumnSettings"
+      @cancel="showColumnConfig = false"
+    />
 
-    <div v-if="showItemColumnConfig" class="modal-backdrop">
-      <div class="modal workorder-modal" style="width: 480px;">
-        <div class="modal-header">
-          <h2>明细字段显示配置</h2>
-          <button class="close-btn" type="button" @click="showItemColumnConfig = false">×</button>
-        </div>
-        <div style="padding: 24px;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <label v-for="col in itemColumns" :key="col.key" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" v-model="col.visible" style="accent-color: #00b889; width: 16px; height: 16px;" :disabled="col.key === 'productCode' || col.key === 'quantity'" />
-              <span style="font-size: 14px; color: #1e2724;">{{ col.label }}</span>
-            </label>
-          </div>
-          <div style="text-align: right; margin-top: 24px;">
-            <button class="primary-btn" @click="showItemColumnConfig = false">确定</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ColumnSettingsPanel
+      v-if="showItemColumnConfig"
+      v-model="itemColumns"
+      :defaults="defaultItemColumnSettings"
+      title="列设置"
+      @confirm="saveItemColumnSettings"
+      @cancel="showItemColumnConfig = false"
+    />
 
     <!-- Add Product Modal -->
     <div v-if="showAddProduct" class="modal-backdrop">

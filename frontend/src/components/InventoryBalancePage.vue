@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchProducts, fetchUserPreference, setUserPreference, type ProductInfo } from '../api'
 import UiIcon from './UiIcon.vue'
+import ColumnSettingsPanel, { type ColumnSetting } from './ColumnSettingsPanel.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{
@@ -28,23 +29,18 @@ const filterForm = reactive({
 })
 
 // Column configurations
-const visibleColumns = ref<string[]>([
-  'inventoryQty',
-  'unitName',
-  'name',
-  'code',
-  'spec',
-  'routeName'
-])
-
-const columnDefinitions = [
-  { key: 'inventoryQty', label: '库存数量' },
-  { key: 'unitName', label: '单位' },
-  { key: 'name', label: '产品名称' },
-  { key: 'code', label: '产品编号' },
-  { key: 'spec', label: '产品规格' },
-  { key: 'routeName', label: '工艺路线' }
+const allColumns: ColumnSetting[] = [
+  { key: 'inventoryQty', label: '库存数量', visible: true, width: 110, fixed: 'none' },
+  { key: 'unitName', label: '单位', visible: true, width: 90, fixed: 'none' },
+  { key: 'name', label: '产品名称', visible: true, width: 160, fixed: 'none' },
+  { key: 'code', label: '产品编号', visible: true, width: 150, fixed: 'none' },
+  { key: 'spec', label: '产品规格', visible: true, width: 150, fixed: 'none' },
+  { key: 'routeName', label: '工艺路线', visible: true, width: 150, fixed: 'none' },
+  { key: 'actions', label: '操作', visible: true, width: 160, fixed: 'right', locked: true }
 ]
+const columns = ref<ColumnSetting[]>(allColumns.map(column => ({ ...column })))
+const defaultColumnSettings = allColumns.map(column => ({ ...column }))
+const visibleColumns = computed(() => columns.value.filter(column => column.visible))
 
 // Modal visibility state
 const showDetailModal = ref(false)
@@ -112,16 +108,31 @@ async function loadPreferences() {
   try {
     const pref = await fetchUserPreference(props.token, 'INVENTORY_BALANCE_COLUMNS')
     if (pref && pref.value) {
-      visibleColumns.value = JSON.parse(pref.value)
+      const saved = JSON.parse(pref.value)
+      if (Array.isArray(saved) && saved.every(item => typeof item === 'string')) {
+        const visibleKeys = new Set(saved)
+        columns.value = allColumns.map(column => ({
+          ...column,
+          visible: column.locked ? true : visibleKeys.has(column.key)
+        }))
+      } else if (Array.isArray(saved)) {
+        const savedByKey = new Map(saved.map((column: ColumnSetting) => [column.key, column]))
+        columns.value = allColumns.map(column => {
+          const stored = savedByKey.get(column.key)
+          if (column.locked) return { ...column, ...(stored || {}), visible: true, fixed: 'right', locked: true }
+          return { ...column, ...(stored || {}) }
+        })
+      }
     }
   } catch (e) {
     // Ignore
   }
 }
 
-async function handleSaveColumns() {
+async function handleSaveColumns(settings: ColumnSetting[]) {
   try {
-    await setUserPreference(props.token, 'INVENTORY_BALANCE_COLUMNS', JSON.stringify(visibleColumns.value))
+    columns.value = settings.map(column => ({ ...column }))
+    await setUserPreference(props.token, 'INVENTORY_BALANCE_COLUMNS', JSON.stringify(columns.value))
     showColumnModal.value = false
     emit('notice', '列配置已保存')
   } catch (e) {
@@ -140,6 +151,30 @@ function handleReset() {
   filterForm.spec = ''
   currentPage.value = 1
   loadData()
+}
+
+function balanceColumnStyle(column: ColumnSetting, header = false) {
+  const currentIndex = visibleColumns.value.findIndex(item => item.key === column.key)
+  const left = 48 + visibleColumns.value
+    .slice(0, currentIndex)
+    .filter(item => item.fixed === 'left')
+    .reduce((sum, item) => sum + item.width, 0)
+  const right = visibleColumns.value
+    .slice(currentIndex + 1)
+    .filter(item => item.fixed === 'right')
+    .reduce((sum, item) => sum + item.width, 0)
+  const style: Record<string, string | number> = {
+    width: `${column.width}px`,
+    minWidth: `${column.width}px`
+  }
+  if (column.fixed !== 'none') {
+    style.position = 'sticky'
+    style.zIndex = header ? 12 : 3
+    style.background = header ? 'var(--table-head-bg)' : 'var(--table-row-bg)'
+    if (column.fixed === 'left') style.left = `${left}px`
+    if (column.fixed === 'right') style.right = `${right}px`
+  }
+  return style
 }
 
 function toggleAll(checked: boolean) {
@@ -262,37 +297,22 @@ onMounted(() => {
 
     <!-- Data Table -->
     <div class="table-container">
-      <table class="data-table">
+      <table class="data-table inventory-balance-data-table">
         <thead>
           <tr>
             <th style="width:48px">
               <input type="checkbox" :checked="allSelected" @change="toggleAll(($event.target as HTMLInputElement).checked)" />
             </th>
-            <th v-if="visibleColumns.includes('inventoryQty')" class="sortable" @click="toggleSort('inventoryQty')">
-              库存数量
-              <span class="sort-icon" :class="sortKey === 'inventoryQty' ? sortOrder : ''"></span>
+            <th
+              v-for="column in visibleColumns"
+              :key="column.key"
+              :class="{ sortable: column.key !== 'actions' }"
+              :style="balanceColumnStyle(column, true)"
+              @click="column.key !== 'actions' && toggleSort(column.key)"
+            >
+              {{ column.label }}
+              <span v-if="column.key !== 'actions'" class="sort-icon" :class="sortKey === column.key ? sortOrder : ''"></span>
             </th>
-            <th v-if="visibleColumns.includes('unitName')" class="sortable" @click="toggleSort('unitName')">
-              单位
-              <span class="sort-icon" :class="sortKey === 'unitName' ? sortOrder : ''"></span>
-            </th>
-            <th v-if="visibleColumns.includes('name')" class="sortable" @click="toggleSort('name')">
-              产品名称
-              <span class="sort-icon" :class="sortKey === 'name' ? sortOrder : ''"></span>
-            </th>
-            <th v-if="visibleColumns.includes('code')" class="sortable" @click="toggleSort('code')">
-              产品编号
-              <span class="sort-icon" :class="sortKey === 'code' ? sortOrder : ''"></span>
-            </th>
-            <th v-if="visibleColumns.includes('spec')" class="sortable" @click="toggleSort('spec')">
-              产品规格
-              <span class="sort-icon" :class="sortKey === 'spec' ? sortOrder : ''"></span>
-            </th>
-            <th v-if="visibleColumns.includes('routeName')" class="sortable" @click="toggleSort('routeName')">
-              工艺路线
-              <span class="sort-icon" :class="sortKey === 'routeName' ? sortOrder : ''"></span>
-            </th>
-            <th style="width:140px">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -300,19 +320,21 @@ onMounted(() => {
             <td>
               <input type="checkbox" :checked="selectedIds.includes(item.id)" @change="toggleOne(item.id, ($event.target as HTMLInputElement).checked)" />
             </td>
-            <td v-if="visibleColumns.includes('inventoryQty')">{{ item.inventoryQty }}</td>
-            <td v-if="visibleColumns.includes('unitName')">{{ item.unitName || '-' }}</td>
-            <td v-if="visibleColumns.includes('name')">{{ item.name }}</td>
-            <td v-if="visibleColumns.includes('code')">{{ item.code }}</td>
-            <td v-if="visibleColumns.includes('spec')">{{ item.spec || '-' }}</td>
-            <td v-if="visibleColumns.includes('routeName')">{{ item.routeName || '-' }}</td>
-            <td class="action-cell">
-              <button class="action-link" type="button" @click="openDetail(item)">详情</button>
-              <button class="action-link" type="button" @click="navigateToDetail(item)">收发明细</button>
-            </td>
+            <template v-for="column in visibleColumns" :key="column.key">
+              <td v-if="column.key === 'inventoryQty'" :style="balanceColumnStyle(column)">{{ item.inventoryQty }}</td>
+              <td v-else-if="column.key === 'unitName'" :style="balanceColumnStyle(column)">{{ item.unitName || '-' }}</td>
+              <td v-else-if="column.key === 'name'" :style="balanceColumnStyle(column)">{{ item.name }}</td>
+              <td v-else-if="column.key === 'code'" :style="balanceColumnStyle(column)">{{ item.code }}</td>
+              <td v-else-if="column.key === 'spec'" :style="balanceColumnStyle(column)">{{ item.spec || '-' }}</td>
+              <td v-else-if="column.key === 'routeName'" :style="balanceColumnStyle(column)">{{ item.routeName || '-' }}</td>
+              <td v-else-if="column.key === 'actions'" class="action-cell" :style="balanceColumnStyle(column)">
+                <button class="action-link" type="button" @click="openDetail(item)">详情</button>
+                <button class="action-link" type="button" @click="navigateToDetail(item)">收发明细</button>
+              </td>
+            </template>
           </tr>
           <tr v-if="sortedProducts.length === 0">
-            <td :colspan="visibleColumns.length + 2" style="text-align: center; color: #8a9693; padding: 32px 0;">
+            <td :colspan="visibleColumns.length + 1" style="text-align: center; color: #8a9693; padding: 32px 0;">
               暂无匹配的库存余额数据
             </td>
           </tr>
@@ -320,15 +342,10 @@ onMounted(() => {
         <tfoot>
           <tr style="background: #fdfdfd; font-weight: bold;">
             <td></td>
-            <td v-if="visibleColumns.includes('inventoryQty')" style="color: #00b889; text-align: left;">
-              当前页合计: {{ currentPageTotalQty }}
-            </td>
-            <td v-if="visibleColumns.includes('unitName')">-</td>
-            <td v-if="visibleColumns.includes('name')">-</td>
-            <td v-if="visibleColumns.includes('code')">-</td>
-            <td v-if="visibleColumns.includes('spec')">-</td>
-            <td v-if="visibleColumns.includes('routeName')">-</td>
-            <td></td>
+            <template v-for="column in visibleColumns" :key="column.key">
+              <td v-if="column.key === 'inventoryQty'" :style="balanceColumnStyle(column, true)">当前页合计: {{ currentPageTotalQty }}</td>
+              <td v-else :style="balanceColumnStyle(column, true)">-</td>
+            </template>
           </tr>
         </tfoot>
       </table>
@@ -385,27 +402,14 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Column Config Modal -->
-    <div v-if="showColumnModal" class="modal-backdrop">
-      <div class="modal workorder-modal" style="width: 480px;">
-        <div class="modal-header">
-          <h2>字段配置</h2>
-          <button class="close-btn" type="button" @click="showColumnModal = false">×</button>
-        </div>
-        <div style="padding: 24px; max-height: 480px; overflow-y: auto;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <label v-for="col in columnDefinitions" :key="col.key" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" :value="col.key" v-model="visibleColumns" style="accent-color: #00b889; width: 16px; height: 16px;" />
-              <span style="font-size: 14px; color: #1e2724;">{{ col.label }}</span>
-            </label>
-          </div>
-          <div style="text-align: right; margin-top: 24px;">
-            <button class="ghost-btn" style="margin-right: 12px;" @click="showColumnModal = false">取消</button>
-            <button class="primary-btn" @click="handleSaveColumns">保存配置</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ColumnSettingsPanel
+      v-if="showColumnModal"
+      v-model="columns"
+      :defaults="defaultColumnSettings"
+      title="列设置"
+      @confirm="handleSaveColumns"
+      @cancel="showColumnModal = false"
+    />
   </section>
 </template>
 

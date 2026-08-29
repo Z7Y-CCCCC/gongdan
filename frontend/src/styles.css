@@ -4970,6 +4970,21 @@ button:active:not(:disabled),
   top: 0 !important;
 }
 
+/* Receipt tables use the same sticky header track as their fixed body cells.
+   The global header polish rule uses !important, so these page-level tables
+   need an explicit override as well. */
+.inbound-receipt-data-table th,
+.inventory-balance-data-table th,
+.outbound-receipt-data-table th,
+.inventory-detail-data-table th {
+  position: sticky !important;
+  top: 0 !important;
+}
+
+.inbound-receipt-data-table th:last-child {
+  right: 0 !important;
+}
+
 .work-order-data-table th,
 .work-order-data-table td {
   white-space: nowrap;
