@@ -55,11 +55,10 @@ describe('DeleteConfirmDialog', () => {
         props: { visible: true, message: '确认删除此项？' },
         attachTo: document.body
       })
-      const buttons = document.body.querySelectorAll('button')
-      expect(buttons.length).toBe(2)
-
       const cancelBtn = document.body.querySelector('.btn--ghost')
       const confirmBtn = document.body.querySelector('.btn--danger')
+      const closeBtn = document.body.querySelector('.close-btn')
+      expect(closeBtn).not.toBeNull()
       expect(cancelBtn?.textContent?.trim()).toBe('取消')
       expect(confirmBtn?.textContent?.trim()).toContain('确定')
     })
