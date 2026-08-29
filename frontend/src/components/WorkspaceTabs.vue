@@ -18,7 +18,6 @@ const emit = defineEmits<{
   close: [tab: WorkspaceTabItem]
   pin: [tab: WorkspaceTabItem]
   contextmenu: [event: MouseEvent, tab: WorkspaceTabItem]
-  add: []
 }>()
 </script>
 
@@ -60,8 +59,5 @@ const emit = defineEmits<{
         <UiIcon name="close" :size="13" />
       </button>
     </div>
-    <button class="workspace-tab-add" type="button" title="打开当前页面标签" @click="emit('add')">
-      <UiIcon name="plus" :size="15" />
-    </button>
   </nav>
 </template>

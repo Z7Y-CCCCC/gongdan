@@ -404,10 +404,6 @@ function closeAllTabs() {
   closeTabContextMenu()
 }
 
-function openCurrentWorkspaceTab() {
-  syncWorkspaceTab()
-}
-
 function refreshWorkspace() {
   window.location.reload()
 }
@@ -3423,7 +3419,6 @@ function handleNavigate(menu: { main: string; sub: string }) {
         @close="closeWorkspaceTab($event.id)"
         @pin="toggleWorkspaceTabPinned"
         @contextmenu="openTabContextMenu"
-        @add="openCurrentWorkspaceTab"
       />
 
       <div

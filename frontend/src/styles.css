@@ -4456,8 +4456,7 @@ button:active:not(:disabled),
   opacity: 1;
 }
 
-.workspace-tab-close,
-.workspace-tab-add {
+.workspace-tab-close {
   width: 24px;
   height: 24px;
   display: inline-flex;
@@ -4471,15 +4470,9 @@ button:active:not(:disabled),
   cursor: pointer;
 }
 
-.workspace-tab-close:hover,
-.workspace-tab-add:hover {
+.workspace-tab-close:hover {
   color: #fff;
   background: #39434f;
-}
-
-.workspace-tab-add {
-  align-self: center;
-  margin: 0 2px 4px;
 }
 
 .tab-context-menu {
