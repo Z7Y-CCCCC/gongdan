@@ -176,6 +176,22 @@ export interface InternalChatContactInfo {
   lastMessage?: string
   lastMessageAt?: string
   unreadCount: number
+  online?: boolean
+  onlineDeviceCount?: number
+  onlineDevices?: InternalChatDeviceInfo[]
+  lastSeenAt?: string
+  lastLoginAt?: string
+}
+
+export interface InternalChatDeviceInfo {
+  sessionId: number
+  deviceLabel: string
+  operatingSystem: string
+  browser: string
+  ipAddress: string
+  loginLocation: string
+  loginAt?: string
+  lastActiveAt?: string
 }
 
 export interface InternalChatMessageInfo {

@@ -1,13 +1,17 @@
 package com.heihu.workorder.service;
 
 import com.heihu.workorder.dto.InternalChatContactResponse;
+import com.heihu.workorder.dto.InternalChatDeviceResponse;
 import com.heihu.workorder.dto.InternalChatMessageResponse;
 import com.heihu.workorder.dto.SendInternalChatMessageRequest;
 import com.heihu.workorder.exception.ApiException;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.InternalMessage;
+import com.heihu.workorder.model.UserSession;
 import com.heihu.workorder.repository.InternalMessageRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.repository.UserSessionRepository;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -26,10 +30,16 @@ public class InternalChatService {
 
     private final UserRepository userRepository;
     private final InternalMessageRepository messageRepository;
+    private final UserSessionRepository sessionRepository;
 
-    public InternalChatService(UserRepository userRepository, InternalMessageRepository messageRepository) {
+    public InternalChatService(
+            UserRepository userRepository,
+            InternalMessageRepository messageRepository,
+            UserSessionRepository sessionRepository
+    ) {
         this.userRepository = userRepository;
         this.messageRepository = messageRepository;
+        this.sessionRepository = sessionRepository;
     }
 
     @Transactional(readOnly = true)
@@ -51,13 +61,34 @@ public class InternalChatService {
             }
         }
         List<InternalChatContactResponse> result = new ArrayList<>();
+        Instant now = Instant.now();
+        LocalDateTime nowLocal = LocalDateTime.now();
         for (FactoryUser user : users) {
             InternalMessage latest = latestByPeer.get(user.getId());
+            List<UserSession> sessions = sessionRepository.findByUserIdOrderByCreatedAtDesc(user.getId());
+            List<InternalChatDeviceResponse> onlineDevices = sessions.stream()
+                    .filter(session -> isOnline(session, now, nowLocal))
+                    .map(InternalChatDeviceResponse::new)
+                    .collect(Collectors.toList());
+            LocalDateTime lastSeenAt = sessions.stream()
+                    .map(session -> session.getLastActiveAt() == null ? session.getCreatedAt() : session.getLastActiveAt())
+                    .filter(value -> value != null)
+                    .max(LocalDateTime::compareTo)
+                    .orElse(null);
+            LocalDateTime lastLoginAt = sessions.stream()
+                    .map(UserSession::getCreatedAt)
+                    .filter(value -> value != null)
+                    .max(LocalDateTime::compareTo)
+                    .orElse(null);
             result.add(new InternalChatContactResponse(
                     user,
                     latest == null ? null : latest.getContent(),
                     latest == null ? null : latest.getCreatedAt(),
-                    unreadByPeer.getOrDefault(user.getId(), 0)
+                    unreadByPeer.getOrDefault(user.getId(), 0),
+                    !onlineDevices.isEmpty(),
+                    onlineDevices,
+                    lastSeenAt,
+                    lastLoginAt
             ));
         }
         result.sort(Comparator
@@ -65,6 +96,14 @@ public class InternalChatService {
                         Comparator.nullsLast(Comparator.reverseOrder()))
                 .thenComparing(InternalChatContactResponse::getName));
         return result;
+    }
+
+    private boolean isOnline(UserSession session, Instant now, LocalDateTime nowLocal) {
+        if (session.isKicked() || session.getExpiresAt() == null || !session.getExpiresAt().isAfter(now)) {
+            return false;
+        }
+        LocalDateTime lastActiveAt = session.getLastActiveAt() == null ? session.getCreatedAt() : session.getLastActiveAt();
+        return lastActiveAt != null && !lastActiveAt.isBefore(nowLocal.minusSeconds(90));
     }
 
     @Transactional(readOnly = true)

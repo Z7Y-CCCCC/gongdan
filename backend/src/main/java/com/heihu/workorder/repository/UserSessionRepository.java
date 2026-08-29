@@ -12,6 +12,8 @@ public interface UserSessionRepository extends JpaRepository<UserSession, Long> 
 
     List<UserSession> findByUserIdAndKickedFalse(Long userId);
 
+    List<UserSession> findByUserIdOrderByCreatedAtDesc(Long userId);
+
     List<UserSession> findByFactoryIdAndKickedFalseAndExpiresAtAfterOrderByCreatedAtDesc(Long factoryId, Instant now);
 
     void deleteByExpiresAtBefore(Instant now);

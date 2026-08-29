@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onMounted, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import QRCode from 'qrcode'
 import {
   createUser,
@@ -231,6 +231,7 @@ const showWorkspaceSearch = ref(false)
 const workspaceSearchInput = ref<HTMLInputElement | null>(null)
 const isWorkspaceMaximized = ref(false)
 const isAppFullscreen = ref(false)
+let nativeFullscreenActive = false
 const isDarkTheme = ref(localStorage.getItem('heihu_theme') === 'dark')
 const timezoneOptions = [
   { value: 'America/New_York', label: 'America/New_York (GMT-5)' },
@@ -490,24 +491,44 @@ function confirmTimezone() {
   showAction(`时区已切换为 ${selected?.label || selectedTimezone.value}`)
 }
 
-async function toggleAppFullscreen() {
+function syncNativeFullscreenState() {
   if (document.fullscreenElement) {
-    await document.exitFullscreen?.()
-    isAppFullscreen.value = false
+    nativeFullscreenActive = true
+    isAppFullscreen.value = true
     return
   }
 
-  try {
-    if (document.documentElement.requestFullscreen) {
-      await document.documentElement.requestFullscreen()
-      isAppFullscreen.value = true
-      return
+  if (nativeFullscreenActive) {
+    nativeFullscreenActive = false
+    isAppFullscreen.value = false
+  }
+}
+
+async function toggleAppFullscreen() {
+  if (isAppFullscreen.value) {
+    // Remove the app-level fallback immediately so the button never feels stuck.
+    isAppFullscreen.value = false
+    nativeFullscreenActive = false
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen?.()
+      } catch {
+        // The CSS fallback has already exited; browser-level fullscreen may be unavailable.
+      }
     }
-  } catch {
-    // Some local browsers deny the native API; keep the workspace usable with the fallback mode.
+    return
   }
 
-  isAppFullscreen.value = !isAppFullscreen.value
+  // Enter the reliable workspace mode first. Native browser fullscreen is only an enhancement.
+  isAppFullscreen.value = true
+  if (!document.documentElement.requestFullscreen) return
+
+  try {
+    await document.documentElement.requestFullscreen()
+    nativeFullscreenActive = true
+  } catch {
+    // Some local browsers deny the native API; the workspace fallback remains active.
+  }
 }
 
 function focusWorkspaceSearch() {
@@ -2727,6 +2748,8 @@ function logout() {
 }
 
 onMounted(() => {
+  document.addEventListener('fullscreenchange', syncNativeFullscreenState)
+
   if (token.value && currentUser.value && !isInternalChatWindow.value) {
     // 页面刷新后默认进入主页仪表盘，并显示可诊断的初始化进度。
     activeMainMenu.value = 'home'
@@ -2779,6 +2802,10 @@ onMounted(() => {
   document.addEventListener('fullscreenchange', () => {
     isAppFullscreen.value = Boolean(document.fullscreenElement)
   })
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', syncNativeFullscreenState)
 })
 
 const formatDateTime = (val: string) => {

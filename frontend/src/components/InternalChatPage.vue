@@ -25,6 +25,9 @@ const loadingContacts = ref(false)
 const loadingMessages = ref(false)
 const sending = ref(false)
 const errorMessage = ref('')
+const railView = ref<'messages' | 'contacts'>('messages')
+const showPresence = ref(false)
+const contactsSearch = ref<HTMLInputElement | null>(null)
 const messageList = ref<HTMLElement | null>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let contactsRequest: Promise<void> | null = null
@@ -37,6 +40,10 @@ const filteredContacts = computed(() => {
   return contacts.value.filter(contact => [contact.name, contact.username, contact.roleLabel, contact.departmentName]
     .filter(Boolean)
     .some(value => String(value).toLowerCase().includes(keyword)))
+})
+const displayContacts = computed(() => {
+  if (railView.value === 'messages') return filteredContacts.value
+  return [...filteredContacts.value].sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))
 })
 
 function initials(name: string) {
@@ -51,6 +58,41 @@ function formatTime(value?: string, withDate = false) {
     return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
   }
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
+
+function parseDate(value?: string) {
+  if (!value) return null
+  const date = new Date(value.replace(' ', 'T'))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatElapsed(value?: string) {
+  const date = parseDate(value)
+  if (!date) return '暂无活动记录'
+  const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000))
+  if (seconds < 10) return '刚刚活跃'
+  if (seconds < 60) return `${seconds}秒前活跃`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}分钟前活跃`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}小时前活跃`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}天前活跃`
+  return formatTime(value, true)
+}
+
+function presenceLabel(contact: InternalChatContactInfo) {
+  if (contact.online) {
+    const deviceCount = contact.onlineDeviceCount || contact.onlineDevices?.length || 0
+    return deviceCount > 1 ? `在线 · ${deviceCount} 台设备` : '在线'
+  }
+  return contact.lastSeenAt ? `离线 · ${formatElapsed(contact.lastSeenAt)}` : '暂无登录记录'
+}
+
+function presenceTitle(contact: InternalChatContactInfo) {
+  if (contact.online) return `${presenceLabel(contact)}，点击查看设备详情`
+  if (contact.lastSeenAt) return `${presenceLabel(contact)}，最近登录 ${formatTime(contact.lastLoginAt, true) || '暂无记录'}`
+  return '暂无登录记录'
 }
 
 function isMine(message: InternalChatMessageInfo) {
@@ -110,6 +152,21 @@ function selectContact(contact: InternalChatContactInfo) {
   if (activePeerId.value === contact.id) return
   activePeerId.value = contact.id
   messages.value = []
+  showPresence.value = false
+}
+
+function openMessages() {
+  railView.value = 'messages'
+}
+
+async function openContacts() {
+  railView.value = 'contacts'
+  await nextTick()
+  contactsSearch.value?.focus()
+}
+
+function togglePresence() {
+  showPresence.value = !showPresence.value
 }
 
 async function sendMessage() {
@@ -159,8 +216,12 @@ onBeforeUnmount(() => {
 <template>
   <section class="internal-chat-page">
     <aside class="internal-chat-rail" aria-label="沟通导航">
-      <div class="internal-chat-brand">工</div>
-      <div class="internal-chat-rail-btn active" title="消息" aria-current="page"><UiIcon name="message" :size="19" /></div>
+      <button class="internal-chat-rail-btn" :class="{ active: railView === 'messages' }" type="button" title="消息" :aria-current="railView === 'messages' ? 'page' : undefined" @click="openMessages">
+        <UiIcon name="message" :size="19" />
+      </button>
+      <button class="internal-chat-rail-btn" :class="{ active: railView === 'contacts' }" type="button" title="联系人" :aria-current="railView === 'contacts' ? 'page' : undefined" @click="openContacts">
+        <UiIcon name="user" :size="19" />
+      </button>
     </aside>
 
     <aside class="internal-chat-sidebar">
@@ -174,11 +235,11 @@ onBeforeUnmount(() => {
 
       <label class="internal-chat-search">
         <UiIcon name="search" :size="15" />
-        <input v-model="searchQuery" type="search" placeholder="搜索联系人" aria-label="搜索联系人" />
+        <input ref="contactsSearch" v-model="searchQuery" type="search" placeholder="搜索联系人" aria-label="搜索联系人" />
       </label>
 
       <div class="internal-chat-list-heading">
-        <span>最近会话</span>
+        <span>{{ railView === 'contacts' ? '联系人' : '最近会话' }}</span>
         <span v-if="contacts.length">{{ contacts.length }}</span>
       </div>
 
@@ -187,7 +248,7 @@ onBeforeUnmount(() => {
         <div v-else-if="errorMessage && contacts.length === 0" class="internal-chat-state error">{{ errorMessage }}</div>
         <div v-else-if="filteredContacts.length === 0" class="internal-chat-state">暂无可沟通的联系人</div>
         <button
-          v-for="contact in filteredContacts"
+          v-for="contact in displayContacts"
           :key="contact.id"
           class="internal-chat-contact"
           :class="{ active: activePeerId === contact.id }"
@@ -200,7 +261,10 @@ onBeforeUnmount(() => {
               <strong>{{ contact.name }}</strong>
               <time v-if="contact.lastMessageAt">{{ formatTime(contact.lastMessageAt) }}</time>
             </span>
-            <span class="internal-chat-contact-sub">{{ contact.departmentName || contact.roleLabel }}</span>
+            <span class="internal-chat-contact-sub">
+              <span class="internal-chat-presence-dot" :class="{ online: contact.online }"></span>
+              {{ contact.departmentName || contact.roleLabel }} · {{ contact.online ? '在线' : contact.lastSeenAt ? `离线 ${formatElapsed(contact.lastSeenAt)}` : '离线' }}
+            </span>
             <span class="internal-chat-contact-preview">{{ contact.lastMessage || '开始一段新的沟通' }}</span>
           </span>
           <span v-if="contact.unreadCount" class="internal-chat-unread">{{ contact.unreadCount > 99 ? '99+' : contact.unreadCount }}</span>
@@ -217,7 +281,35 @@ onBeforeUnmount(() => {
             <p>{{ activePeer.departmentName || activePeer.roleLabel }} · {{ activePeer.username }}</p>
           </div>
         </div>
-        <div class="internal-chat-peer-status"><span></span> 内部成员</div>
+        <div class="internal-chat-peer-status-wrap">
+          <button class="internal-chat-peer-status" :class="{ online: activePeer.online }" type="button" :title="presenceTitle(activePeer)" @click="togglePresence">
+            <span class="internal-chat-presence-dot" :class="{ online: activePeer.online }"></span>
+            {{ presenceLabel(activePeer) }}
+            <UiIcon name="chevronUp" :size="13" :class="{ rotated: !showPresence }" />
+          </button>
+          <div v-if="showPresence" class="internal-chat-presence-popover" @click.stop>
+            <div class="internal-chat-presence-popover-head">
+              <strong>{{ activePeer.online ? '在线设备' : '最近活动' }}</strong>
+              <span>{{ presenceLabel(activePeer) }}</span>
+            </div>
+            <div v-if="activePeer.onlineDevices?.length" class="internal-chat-presence-list">
+              <div v-for="device in activePeer.onlineDevices" :key="device.sessionId" class="internal-chat-presence-device">
+                <span class="internal-chat-presence-device-icon"><UiIcon name="user" :size="15" /></span>
+                <div class="internal-chat-presence-device-main">
+                  <strong>{{ device.deviceLabel }}</strong>
+                  <span>{{ device.operatingSystem }} · {{ device.browser }}</span>
+                  <span>{{ device.loginLocation }} · {{ device.ipAddress }}</span>
+                </div>
+                <time>{{ formatElapsed(device.lastActiveAt) }}</time>
+              </div>
+            </div>
+            <div v-else class="internal-chat-presence-offline">
+              <p>最近活动：{{ formatTime(activePeer.lastSeenAt, true) || '暂无记录' }}</p>
+              <p>最近登录：{{ formatTime(activePeer.lastLoginAt, true) || '暂无记录' }}</p>
+              <span>{{ activePeer.lastSeenAt ? formatElapsed(activePeer.lastSeenAt) : '该联系人还没有登录记录' }}</span>
+            </div>
+          </div>
+        </div>
       </header>
 
       <div v-if="activePeer" ref="messageList" class="internal-chat-messages">
@@ -287,19 +379,6 @@ onBeforeUnmount(() => {
   background: var(--sidebar);
 }
 
-.internal-chat-brand {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  margin-bottom: 16px;
-  border-radius: 8px;
-  color: #fff;
-  background: #18a77d;
-  font-size: 16px;
-  font-weight: 700;
-}
-
 .internal-chat-rail-btn {
   width: 36px;
   height: 36px;
@@ -309,9 +388,11 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   color: var(--sidebar-muted);
   background: transparent;
-  cursor: default;
+  cursor: pointer;
+  transition: color .16s ease, background .16s ease, transform .16s ease;
 }
 
+.internal-chat-rail-btn:hover { color: var(--text-primary); background: var(--surface-hover); transform: translateY(-1px); }
 .internal-chat-rail-btn.active { color: var(--text-primary); background: var(--sidebar-active); box-shadow: inset 2px 0 var(--accent); }
 
 .internal-chat-sidebar {
@@ -379,6 +460,7 @@ onBeforeUnmount(() => {
 .internal-chat-contact-title strong { overflow: hidden; color: var(--text-primary); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .internal-chat-contact-title time { color: var(--text-muted); font-size: 10px; white-space: nowrap; }
 .internal-chat-contact-sub, .internal-chat-contact-preview { overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.internal-chat-contact-sub { display: flex; align-items: center; gap: 4px; }
 .internal-chat-contact-preview { color: var(--text-secondary); }
 .internal-chat-unread { min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; color: #fff; background: #e45145; font-size: 10px; line-height: 17px; text-align: center; }
 
@@ -387,8 +469,29 @@ onBeforeUnmount(() => {
 .internal-chat-peer-title { display: flex; align-items: center; gap: 12px; }
 .internal-chat-main-head h2 { font-size: 16px; }
 .internal-chat-main-head p { margin: 4px 0 0; color: var(--text-muted); font-size: 11px; }
-.internal-chat-peer-status { color: var(--text-muted); font-size: 11px; }
-.internal-chat-peer-status span { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: #1ab686; }
+.internal-chat-peer-status-wrap { position: relative; display: flex; align-items: center; }
+.internal-chat-peer-status { display: inline-flex; align-items: center; gap: 6px; padding: 7px 8px; border: 0; border-radius: 5px; color: var(--text-muted); background: transparent; font: inherit; font-size: 11px; cursor: pointer; }
+.internal-chat-peer-status:hover { color: var(--text-primary); background: var(--surface-hover); }
+.internal-chat-peer-status .ui-icon { transition: transform .16s ease; }
+.internal-chat-peer-status .ui-icon.rotated { transform: rotate(180deg); }
+.internal-chat-presence-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: var(--text-muted); }
+.internal-chat-presence-dot.online { background: var(--accent); box-shadow: 0 0 0 3px var(--status-success-bg); }
+
+.internal-chat-presence-popover { position: absolute; top: calc(100% + 8px); right: 0; z-index: 5; width: min(360px, calc(100vw - 32px)); overflow: hidden; border: 1px solid var(--border-default); border-radius: 6px; color: var(--text-primary); background: var(--surface); box-shadow: 0 16px 36px rgba(20, 40, 32, .16); }
+.internal-chat-presence-popover-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border-default); }
+.internal-chat-presence-popover-head strong { font-size: 13px; }
+.internal-chat-presence-popover-head span { color: var(--text-muted); font-size: 11px; }
+.internal-chat-presence-list { padding: 4px 0; }
+.internal-chat-presence-device { display: flex; align-items: flex-start; gap: 9px; padding: 11px 16px; border-bottom: 1px solid var(--border-default); }
+.internal-chat-presence-device:last-child { border-bottom: 0; }
+.internal-chat-presence-device-icon { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; color: var(--accent-dark); background: var(--status-success-bg); }
+.internal-chat-presence-device-main { min-width: 0; display: grid; flex: 1; gap: 3px; }
+.internal-chat-presence-device-main strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.internal-chat-presence-device-main span, .internal-chat-presence-device time { color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+.internal-chat-presence-device time { flex: 0 0 auto; white-space: nowrap; }
+.internal-chat-presence-offline { display: grid; gap: 6px; padding: 14px 16px 16px; color: var(--text-muted); font-size: 11px; }
+.internal-chat-presence-offline p { margin: 0; }
+.internal-chat-presence-offline span { color: var(--text-secondary); }
 
 .internal-chat-messages { min-height: 0; flex: 1; overflow: auto; padding: 28px clamp(20px, 5vw, 76px); }
 .internal-chat-message-row { display: flex; align-items: flex-end; gap: 9px; margin: 0 0 18px; }
@@ -420,7 +523,7 @@ onBeforeUnmount(() => {
 @media (max-width: 820px) {
   .internal-chat-page { grid-template-columns: 50px 250px minmax(0, 1fr); }
   .internal-chat-main-head { padding-left: 16px; padding-right: 16px; }
-  .internal-chat-peer-status { display: none; }
+  .internal-chat-peer-status { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .internal-chat-messages { padding-left: 18px; padding-right: 18px; }
 }
 </style>

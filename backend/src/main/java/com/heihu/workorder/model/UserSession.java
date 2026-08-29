@@ -47,6 +47,9 @@ public class UserSession {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "last_active_at")
+    private LocalDateTime lastActiveAt;
+
     @Column(name = "ip_address", length = 64)
     private String ipAddress;
 
@@ -79,6 +82,8 @@ public class UserSession {
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getLastActiveAt() { return lastActiveAt; }
+    public void setLastActiveAt(LocalDateTime lastActiveAt) { this.lastActiveAt = lastActiveAt; }
     public String getIpAddress() { return ipAddress; }
     public void setIpAddress(String ipAddress) { this.ipAddress = ipAddress; }
     public String getLoginLocation() { return loginLocation; }

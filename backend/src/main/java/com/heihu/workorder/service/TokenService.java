@@ -75,7 +75,9 @@ public class TokenService {
             session.setDisplayName(user.getName());
             session.setKicked(false);
             session.setExpiresAt(Instant.now().plus(ttl));
-            session.setCreatedAt(LocalDateTime.now());
+            LocalDateTime issuedAt = LocalDateTime.now();
+            session.setCreatedAt(issuedAt);
+            session.setLastActiveAt(issuedAt);
             session.setIpAddress(ipAddress == null ? "-" : ipAddress);
             session.setLoginLocation(loginLocation == null ? "内网IP" : loginLocation);
             session.setOperatingSystem(operatingSystem == null ? "未知系统" : operatingSystem);
@@ -151,6 +153,7 @@ public class TokenService {
                 sessionRepository.delete(session);
                 throw new ApiException(HttpStatus.UNAUTHORIZED, "\u60a8\u7684\u8d26\u53f7\u5df2\u5728\u5176\u4ed6\u5730\u65b9\u767b\u5f55\uff0c\u60a8\u5df2\u88ab\u6324\u4e0b\u7ebf");
             }
+            touchSession(session);
             return new AuthenticatedUser(
                     session.getUserId(),
                     session.getFactoryId(),
@@ -173,6 +176,15 @@ public class TokenService {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "\u60a8\u7684\u8d26\u53f7\u5df2\u5728\u5176\u4ed6\u5730\u65b9\u767b\u5f55\uff0c\u60a8\u5df2\u88ab\u6324\u4e0b\u7ebf");
         }
         return currentUser;
+    }
+
+    private void touchSession(UserSession session) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime lastActiveAt = session.getLastActiveAt();
+        if (lastActiveAt == null || lastActiveAt.plusSeconds(30).isBefore(now)) {
+            session.setLastActiveAt(now);
+            sessionRepository.save(session);
+        }
     }
 
     private String extractToken(String authorization) {
