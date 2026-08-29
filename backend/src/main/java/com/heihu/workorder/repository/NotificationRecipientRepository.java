@@ -78,4 +78,14 @@ public interface NotificationRecipientRepository extends JpaRepository<Notificat
             @Param("now") LocalDateTime now,
             @Param("state") NotificationRecipientState state
     );
+
+    @Modifying
+    @Query("update NotificationRecipient r set r.readAt = coalesce(r.readAt, :now), " +
+            "r.handledAt = :now, r.state = :state, r.updatedAt = :now " +
+            "where r.event.id = :eventId and r.archivedAt is null")
+    int markHandledByEventId(
+            @Param("eventId") Long eventId,
+            @Param("now") LocalDateTime now,
+            @Param("state") NotificationRecipientState state
+    );
 }

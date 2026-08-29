@@ -421,6 +421,7 @@ public class NotificationService {
         eventRepository.findByFactoryIdAndDedupeKey(factoryId, dedupeKey).ifPresent(event -> {
             event.setResolvedAt(now);
             eventRepository.save(event);
+            recipientRepository.markHandledByEventId(event.getId(), now, NotificationRecipientState.HANDLED);
         });
     }
 
