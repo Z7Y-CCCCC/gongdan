@@ -95,7 +95,7 @@ const AdvancedOperationsPage = defineAsyncComponent(() => import('./components/A
 const OnlineUsersPage = defineAsyncComponent(() => import('./components/OnlineUsersPage.vue'))
 const CacheMonitorPage = defineAsyncComponent(() => import('./components/CacheMonitorPage.vue'))
 const CacheListPage = defineAsyncComponent(() => import('./components/CacheListPage.vue'))
-const MessageCenterPage = defineAsyncComponent(() => import('./components/MessageCenterPage.vue'))
+const InternalChatPage = defineAsyncComponent(() => import('./components/InternalChatPage.vue'))
 const PluginCenterPage = defineAsyncComponent(() => import('./components/PluginCenterPage.vue'))
 const PluginRuntimePage = defineAsyncComponent(() => import('./components/PluginRuntimePage.vue'))
 
@@ -231,7 +231,7 @@ const workspaceSearchInput = ref<HTMLInputElement | null>(null)
 const isWorkspaceMaximized = ref(false)
 const isAppFullscreen = ref(false)
 const isDarkTheme = ref(localStorage.getItem('heihu_theme') === 'dark')
-const isMessageCenterWindow = ref(window.location.hash === '#/message-center')
+const isInternalChatWindow = ref(['#/message-center', '#/im-chat'].includes(window.location.hash))
 const timezoneOptions = [
   { value: 'America/New_York', label: 'America/New_York (GMT-5)' },
   { value: 'Europe/London', label: 'Europe/London (GMT0)' },
@@ -452,12 +452,12 @@ function toggleTheme() {
   isDarkTheme.value = !isDarkTheme.value
 }
 
-function openMessageCenter() {
+function openInternalChat() {
   const url = new URL(window.location.href)
-  url.hash = '#/message-center'
+  url.hash = '#/im-chat'
   const messageWindow = window.open(url.toString(), '_blank', 'noopener,noreferrer')
   if (!messageWindow) {
-    errorMessage.value = '浏览器阻止了消息中心窗口，请允许弹窗后重试'
+    errorMessage.value = '浏览器阻止了内部沟通窗口，请允许弹窗后重试'
     return
   }
 }
@@ -2942,7 +2942,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     </section>
   </main>
 
-  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'app-fullscreen': isAppFullscreen, 'dark-theme': isDarkTheme }">
+  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'app-fullscreen': isAppFullscreen, 'dark-theme': isDarkTheme, 'internal-chat-shell': isInternalChatWindow }">
     <aside class="sidebar">
       <button class="collapse-toggle" type="button" @click="isSidebarCollapsed = !isSidebarCollapsed">
         <svg v-if="!isSidebarCollapsed" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
@@ -3150,8 +3150,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="workspace">
       <header class="topbar">
         <div class="breadcrumb">
-          <template v-if="isMessageCenterWindow">
-            消息中心
+          <template v-if="isInternalChatWindow">
+            内部沟通
           </template>
           <template v-else-if="activeMainMenu === 'home'">
             主页
@@ -3280,7 +3280,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <UiIcon :name="isAppFullscreen ? 'minimize' : 'fullscreen'" :size="17" />
             </button>
             <div class="chrome-dropdown-wrap">
-              <button class="topbar-icon-btn" type="button" title="消息中心" aria-label="消息中心" @click="openMessageCenter">
+              <button class="topbar-icon-btn" type="button" title="IM 聊天" aria-label="IM 聊天" @click="openInternalChat">
                 <UiIcon name="message" :size="17" />
               </button>
             </div>
@@ -3394,20 +3394,17 @@ function handleNavigate(menu: { main: string; sub: string }) {
         </button>
       </div>
 
-      <section v-if="!hasAdminAccess" class="content">
+      <section v-if="!hasAdminAccess && !isInternalChatWindow" class="content">
         <div class="placeholder-page">
           <div class="empty-state">当前账号为生产作业账号，请使用手机端接单、报工和查看任务。</div>
         </div>
       </section>
 
       <div ref="pageMotionStage" class="page-motion-stage">
-        <MessageCenterPage
-          v-if="isMessageCenterWindow"
-          :items="notificationItems"
-          :loading="notificationsLoading"
-          :error="notificationError"
-          @refresh="loadNotifications"
-          @open="openNotification"
+        <InternalChatPage
+          v-if="isInternalChatWindow"
+          :token="token"
+          :current-user="currentUser"
         />
         <KeepAlive v-else :max="32">
           <HomeDashboardPage

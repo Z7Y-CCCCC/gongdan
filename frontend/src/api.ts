@@ -167,6 +167,59 @@ export function fetchUsers(token: string) {
   })
 }
 
+export interface InternalChatContactInfo {
+  id: number
+  username: string
+  name: string
+  roleLabel: string
+  departmentName?: string
+  lastMessage?: string
+  lastMessageAt?: string
+  unreadCount: number
+}
+
+export interface InternalChatMessageInfo {
+  id: number
+  senderId: number
+  senderName: string
+  receiverId: number
+  content: string
+  read: boolean
+  createdAt: string
+}
+
+export interface SendInternalChatMessagePayload {
+  receiverId: number
+  content: string
+}
+
+export function fetchInternalChatContacts(token: string) {
+  return request<InternalChatContactInfo[]>('/internal-chat/contacts', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function fetchInternalChatMessages(token: string, peerId: number) {
+  return request<InternalChatMessageInfo[]>(`/internal-chat/conversations/${peerId}/messages`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function sendInternalChatMessage(token: string, payload: SendInternalChatMessagePayload) {
+  return request<InternalChatMessageInfo>('/internal-chat/messages', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function markInternalChatRead(token: string, peerId: number) {
+  return request<void>(`/internal-chat/conversations/${peerId}/read`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 export function createUser(token: string, payload: CreateUserPayload) {
   return request<UserInfo>('/users', {
     method: 'POST',
