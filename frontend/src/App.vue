@@ -56,7 +56,9 @@ import {
   type FactoryOptionItem,
   fetchWorkOrders,
   fetchReports,
-  fetchSalesOrders
+  fetchSalesOrders,
+  fetchPluginRuntimeManifest,
+  type PluginRuntimeManifestInfo
 } from './api'
 import DeleteConfirmDialog from './components/DeleteConfirmDialog.vue'
 import LoadingProgressOverlay from './components/LoadingProgressOverlay.vue'
@@ -94,6 +96,8 @@ const OnlineUsersPage = defineAsyncComponent(() => import('./components/OnlineUs
 const CacheMonitorPage = defineAsyncComponent(() => import('./components/CacheMonitorPage.vue'))
 const CacheListPage = defineAsyncComponent(() => import('./components/CacheListPage.vue'))
 const MessageCenterPage = defineAsyncComponent(() => import('./components/MessageCenterPage.vue'))
+const PluginCenterPage = defineAsyncComponent(() => import('./components/PluginCenterPage.vue'))
+const PluginRuntimePage = defineAsyncComponent(() => import('./components/PluginRuntimePage.vue'))
 
 const sharedAuth = useAuth()
 
@@ -157,6 +161,9 @@ const activeProductionMenu = ref('workorder')
 const activeCustomMenu = ref('workorder')
 const activeInventoryMenu = ref('inbound') // 'inbound' | 'outbound' | 'detail' | 'balance' | 'summary'
 const activeMonitorMenu = ref<'online' | 'cache' | 'cacheList'>('online')
+const activePluginKey = ref('')
+const runtimePlugins = ref<PluginRuntimeManifestInfo[]>([])
+const selectedRuntimePlugin = computed(() => runtimePlugins.value.find(item => item.pluginKey === activePluginKey.value) || null)
 const activePageCacheKey = computed(() => {
   if (activeMainMenu.value === 'production') return `production-${activeProductionMenu.value}`
   if (activeMainMenu.value === 'inventory') return `inventory-${activeInventoryMenu.value}`
@@ -164,6 +171,7 @@ const activePageCacheKey = computed(() => {
   if (activeMainMenu.value === 'custom') return `custom-${activeCustomMenu.value}`
   if (activeMainMenu.value === 'sysconfig') return `sysconfig-${activeConfigMenu.value}`
   if (activeMainMenu.value === 'monitor') return `monitor-${activeMonitorMenu.value}`
+  if (activeMainMenu.value === 'plugin') return `plugin-${activePluginKey.value}`
   return activeMainMenu.value
 })
 const pageMotionStage = ref<HTMLElement | null>(null)
@@ -186,6 +194,7 @@ function createWorkspaceLoadingStages(): WorkspaceLoadingStage[] {
     { key: 'load-processes', label: '加载工序数据', detail: '等待接口响应', status: 'pending' },
     { key: 'load-routes', label: '加载工艺路线', detail: '等待接口响应', status: 'pending' },
     { key: 'load-notifications', label: '同步工作台通知', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-plugin-manifest', label: '加载插件运行清单', detail: '等待接口响应', status: 'pending' },
     { key: 'prepare-workspace', label: '准备工作区', detail: '等待页面渲染', status: 'pending' }
   ]
 }
@@ -205,6 +214,7 @@ type WorkspaceTab = WorkspaceTabItem & {
   inventory?: string
   custom?: string
   monitor?: string
+  plugin?: string
 }
 
 const workspaceTabs = ref<WorkspaceTab[]>([
@@ -267,6 +277,7 @@ const workspaceLabels: Record<string, string> = {
   'sysconfig-department': '部门',
   'sysconfig-user': '用户',
   'sysconfig-factory': '工厂',
+  'sysconfig-plugin-center': '插件中心',
   'super-admin': '授权码管理',
   'monitor-online': '在线用户',
   'monitor-cache': '缓存监控',
@@ -277,7 +288,7 @@ function captureWorkspaceTab(): WorkspaceTab {
   const id = activePageCacheKey.value
   return {
     id,
-    label: workspaceLabels[id] || '工作台',
+    label: workspaceLabels[id] || selectedRuntimePlugin.value?.name || '工作台',
     main: activeMainMenu.value,
     config: activeConfigMenu.value,
     basedata: activeBasedataMenu.value,
@@ -285,6 +296,7 @@ function captureWorkspaceTab(): WorkspaceTab {
     inventory: activeInventoryMenu.value,
     custom: activeCustomMenu.value,
     monitor: activeMonitorMenu.value,
+    plugin: activePluginKey.value,
     closable: id !== 'home',
     pinned: id === 'home'
   }
@@ -307,6 +319,7 @@ function activateWorkspaceTab(tab: WorkspaceTab) {
   if (tab.inventory) activeInventoryMenu.value = tab.inventory
   if (tab.custom) activeCustomMenu.value = tab.custom
   if (tab.monitor) activeMonitorMenu.value = tab.monitor as 'online' | 'cache' | 'cacheList'
+  if (tab.plugin) activePluginKey.value = tab.plugin
   activeWorkspaceTabId.value = tab.id
   tabContextMenu.show = false
 }
@@ -396,7 +409,14 @@ function jumpFromQuickApp(main: string, sub = '') {
   if (main === 'basedata' && sub) activeBasedataMenu.value = sub
   if (main === 'sysconfig' && sub) activeConfigMenu.value = sub
   if (main === 'monitor' && sub) activeMonitorMenu.value = sub as 'online' | 'cache' | 'cacheList'
+  if (main === 'plugin' && sub) activePluginKey.value = sub
   showQuickApps.value = false
+}
+
+function openRuntimePlugin(pluginKey: string) {
+  activeMainMenu.value = 'plugin'
+  activePluginKey.value = pluginKey
+  expandedMenus.plugins = true
 }
 
 function selectLanguage(language: string) {
@@ -762,6 +782,25 @@ async function loadNotifications(): Promise<boolean> {
     return false
   } finally {
     notificationsLoading.value = false
+  }
+}
+
+async function loadPluginRuntimeManifest(): Promise<boolean> {
+  if (!token.value) {
+    runtimePlugins.value = []
+    return true
+  }
+  try {
+    runtimePlugins.value = await fetchPluginRuntimeManifest(token.value)
+    if (activePluginKey.value && !runtimePlugins.value.some(item => item.pluginKey === activePluginKey.value)) {
+      activePluginKey.value = ''
+      if (activeMainMenu.value === 'plugin') activeMainMenu.value = 'home'
+    }
+    return true
+  } catch (error) {
+    // 插件清单是可选能力，清单服务异常不能阻断核心工作台启动。
+    runtimePlugins.value = []
+    return true
   }
 }
 
@@ -1655,12 +1694,13 @@ const expandedMenus = reactive<Record<string, boolean>>({
   upstream: false,
   inventory: false,
   basedata: false,
-  custom: false,
-  report: false,
-  advanced: false,
-  sysconfig: false,
-  monitor: false
-})
+    custom: false,
+    report: false,
+    advanced: false,
+    sysconfig: false,
+    monitor: false,
+    plugins: false
+  })
 
 function toggleMenu(key: string) {
   expandedMenus[key] = !expandedMenus[key]
@@ -1912,6 +1952,12 @@ async function bootstrapWorkspace(): Promise<boolean> {
       if (!await loadNotifications()) throw new Error(notificationError.value || '通知接口没有返回成功')
       return hasAdminAccess.value ? `已同步 ${notificationItems.value.length} 条工作台通知` : '当前账号无需加载管理端通知'
     })
+    await runWorkspaceLoadingStage(runId, 'load-plugin-manifest', async () => {
+      await loadPluginRuntimeManifest()
+      return runtimePlugins.value.length > 0
+        ? `已挂载 ${runtimePlugins.value.length} 个插件入口`
+        : '当前工厂没有启用插件'
+    })
     await runWorkspaceLoadingStage(runId, 'prepare-workspace', async () => {
       await nextTick()
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
@@ -1985,6 +2031,7 @@ function handleSearch() {
     { label: '客户', mainMenu: 'custom', subMenu: 'customer', expandedMenu: 'custom' },
     { label: '部门', mainMenu: 'sysconfig', subMenu: 'department', expandedMenu: 'sysconfig' },
     { label: '用户', mainMenu: 'sysconfig', subMenu: 'user', expandedMenu: 'sysconfig' },
+    { label: '插件中心', mainMenu: 'sysconfig', subMenu: 'plugin-center', expandedMenu: 'sysconfig' },
     { label: '在线用户', mainMenu: 'monitor', subMenu: 'online', expandedMenu: 'monitor' },
     { label: '缓存监控', mainMenu: 'monitor', subMenu: 'cache', expandedMenu: 'monitor' },
     { label: '缓存列表', mainMenu: 'monitor', subMenu: 'cacheList', expandedMenu: 'monitor' },
@@ -2000,6 +2047,15 @@ function handleSearch() {
     { label: '现场事件', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '主页', mainMenu: 'home', subMenu: '', expandedMenu: '' }
   ]
+
+  const runtimePlugin = runtimePlugins.value.find(item =>
+    item.name.toLowerCase().includes(query) || item.pluginKey.toLowerCase().includes(query)
+  )
+  if (runtimePlugin) {
+    openRuntimePlugin(runtimePlugin.pluginKey)
+    searchQuery.value = ''
+    return
+  }
 
   const match = menuMap.find(m => m.label.includes(query))
   if (match) {
@@ -2649,6 +2705,8 @@ function logout() {
   currentUser.value = null
   isSuperAdmin.value = false
   users.value = []
+  runtimePlugins.value = []
+  activePluginKey.value = ''
   notificationItems.value = []
   notificationError.value = ''
   showNotificationDropdown.value = false
@@ -3028,6 +3086,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
               <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
               <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'">工厂</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'plugin-center'">插件中心</a>
             </div>
           </Transition>
         </div>
@@ -3043,6 +3102,25 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'online' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'online'">在线用户</a>
               <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cache'">缓存监控</a>
               <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cacheList'">缓存列表</a>
+            </div>
+          </Transition>
+        </div>
+
+        <div v-if="runtimePlugins.length > 0" class="nav-group">
+          <a class="nav-item expanded" :title="isSidebarCollapsed ? '插件扩展' : ''" @click.stop="toggleMenu('plugins')">
+            <UiIcon name="layers" :size="18" />
+            <span v-show="!isSidebarCollapsed">插件扩展</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.plugins }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.plugins" class="sub-items-container">
+              <a
+                v-for="plugin in runtimePlugins"
+                :key="plugin.pluginKey"
+                class="sub-item"
+                :class="{ selected: activeMainMenu === 'plugin' && activePluginKey === plugin.pluginKey }"
+                @click="openRuntimePlugin(plugin.pluginKey)"
+              >{{ plugin.name }}</a>
             </div>
           </Transition>
         </div>
@@ -3113,7 +3191,10 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <template v-else-if="activeMainMenu === 'super-admin'">
             授权码管理
           </template>
-          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : activeConfigMenu === 'factory' ? '工厂' : '用户' }}</template>
+          <template v-else-if="activeMainMenu === 'plugin'">
+            插件扩展 <span>></span> {{ selectedRuntimePlugin?.name || '插件' }}
+          </template>
+          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : activeConfigMenu === 'factory' ? '工厂' : activeConfigMenu === 'plugin-center' ? '插件中心' : '用户' }}</template>
         </div>
         <div class="top-actions">
           <div class="chrome-actions" aria-label="工作台工具">
@@ -3335,6 +3416,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
             :token="token"
           />
           <SuperAdminAuthCodesPage v-else-if="activeMainMenu === 'super-admin'" key="super-admin" />
+          <PluginRuntimePage
+            v-else-if="activeMainMenu === 'plugin'"
+            :key="`plugin-${activePluginKey}`"
+            :token="token"
+            :plugin="selectedRuntimePlugin"
+          />
           <AdvancedOperationsPage
             v-else-if="activeMainMenu === 'advanced'"
             key="advanced"
@@ -3509,6 +3596,14 @@ function handleNavigate(menu: { main: string; sub: string }) {
             :token="token"
             @error="msg => errorMessage = msg"
             @notice="msg => actionMessage = msg"
+          />
+          <PluginCenterPage
+            v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center'"
+            key="sysconfig-plugin-center"
+            :token="token"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+            @plugins-changed="loadPluginRuntimeManifest"
           />
           <DepartmentManagementPage
             v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'"

@@ -1682,6 +1682,141 @@ export async function deleteAdvancedRecord(token: string, id: number) {
   })
 }
 
+// ===== 插件平台 API =====
+export type PluginRuntimeMode = 'BUILT_IN' | 'REMOTE_SERVICE' | 'IFRAME'
+
+export interface PluginVersionInfo {
+  id: number
+  version: string
+  artifactUrl?: string
+  imageName?: string
+  checksum?: string
+  status: string
+  releaseNotes?: string
+  manifestJson?: string
+  createdAt?: string
+}
+
+export interface PluginCatalogInfo {
+  id: number
+  pluginKey: string
+  name: string
+  description?: string
+  pluginType: string
+  runtimeMode: PluginRuntimeMode
+  status: string
+  currentStableVersion?: string
+  minCoreVersion?: string
+  manifestJson?: string
+  factoryStatus: 'NOT_INSTALLED' | 'ENABLED' | 'DISABLED' | string
+  enabledVersion?: string
+  rolloutPercent: number
+  healthStatus: 'UP' | 'DOWN' | 'UNKNOWN' | string
+  healthMessage?: string
+  lastHealthAt?: string
+  configJson?: string
+  versions: PluginVersionInfo[]
+}
+
+export interface PluginCreatePayload {
+  pluginKey: string
+  name: string
+  description?: string
+  pluginType?: string
+  runtimeMode?: PluginRuntimeMode
+  minCoreVersion?: string
+  manifestJson?: string
+}
+
+export interface PluginVersionPayload {
+  version: string
+  artifactUrl?: string
+  imageName?: string
+  checksum?: string
+  releaseNotes?: string
+  manifestJson?: string
+}
+
+export interface PluginRuntimeManifestInfo {
+  pluginKey: string
+  name: string
+  version: string
+  runtimeMode: PluginRuntimeMode
+  manifest: Record<string, unknown>
+}
+
+export function fetchPlugins(token: string) {
+  return request<PluginCatalogInfo[]>('/platform/plugins', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function createPlugin(token: string, payload: PluginCreatePayload) {
+  return request<PluginCatalogInfo>('/platform/plugins', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function registerPluginVersion(token: string, pluginKey: string, payload: PluginVersionPayload) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/versions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function enablePlugin(token: string, pluginKey: string, version?: string, rolloutPercent = 100) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/enable`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ version, rolloutPercent })
+  })
+}
+
+export function disablePlugin(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/disable`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function activatePluginVersion(token: string, pluginKey: string, version: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/versions/${encodeURIComponent(version)}/activate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function rollbackPlugin(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/rollback`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function refreshPluginHealth(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/health/refresh`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function updatePluginConfig(token: string, pluginKey: string, configJson: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/config`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ configJson })
+  })
+}
+
+export function fetchPluginRuntimeManifest(token: string) {
+  return request<PluginRuntimeManifestInfo[]>('/platform/plugins/runtime-manifest', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 export interface MobileAuthResult {
   bindRequired: boolean
   openidTicket?: string
