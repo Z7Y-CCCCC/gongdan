@@ -92,6 +92,7 @@ const AdvancedOperationsPage = defineAsyncComponent(() => import('./components/A
 const OnlineUsersPage = defineAsyncComponent(() => import('./components/OnlineUsersPage.vue'))
 const CacheMonitorPage = defineAsyncComponent(() => import('./components/CacheMonitorPage.vue'))
 const CacheListPage = defineAsyncComponent(() => import('./components/CacheListPage.vue'))
+const MessageCenterPage = defineAsyncComponent(() => import('./components/MessageCenterPage.vue'))
 
 const sharedAuth = useAuth()
 
@@ -184,13 +185,27 @@ const tabContextMenu = reactive({ show: false, x: 0, y: 0, tabId: '' })
 const showChromeQuickMenu = ref(false)
 const showQuickApps = ref(false)
 const showLanguageMenu = ref(false)
-const showMessageMenu = ref(false)
-const showSourceInfo = ref(false)
+const showTimezoneDialog = ref(false)
 const showWorkspaceSearch = ref(false)
 const workspaceSearchInput = ref<HTMLInputElement | null>(null)
 const isWorkspaceMaximized = ref(false)
 const isAppFullscreen = ref(false)
-const chromeContrast = ref(true)
+const isDarkTheme = ref(localStorage.getItem('heihu_theme') === 'dark')
+const isMessageCenterWindow = ref(window.location.hash === '#/message-center')
+const timezoneOptions = [
+  { value: 'America/New_York', label: 'America/New_York (GMT-5)' },
+  { value: 'Europe/London', label: 'Europe/London (GMT0)' },
+  { value: 'Asia/Shanghai', label: 'Asia/Shanghai (GMT+8)' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (GMT+9)' },
+  { value: 'Asia/Seoul', label: 'Asia/Seoul (GMT+9)' }
+]
+const selectedTimezone = ref(localStorage.getItem('heihu_timezone') || 'Asia/Shanghai')
+const timezoneDraft = ref(selectedTimezone.value)
+
+watch(isDarkTheme, value => {
+  localStorage.setItem('heihu_theme', value ? 'dark' : 'light')
+  document.documentElement.classList.toggle('dark', value)
+}, { immediate: true })
 
 const workspaceLabels: Record<string, string> = {
   home: '分析页',
@@ -364,8 +379,7 @@ function toggleChromeQuickMenu() {
   showChromeQuickMenu.value = !showChromeQuickMenu.value
   showQuickApps.value = false
   showLanguageMenu.value = false
-  showMessageMenu.value = false
-  showSourceInfo.value = false
+  showTimezoneDialog.value = false
   showWorkspaceSearch.value = false
   tabContextMenu.show = false
 }
@@ -374,42 +388,68 @@ function toggleQuickApps() {
   showQuickApps.value = !showQuickApps.value
   showChromeQuickMenu.value = false
   showLanguageMenu.value = false
-  showMessageMenu.value = false
-  showSourceInfo.value = false
+  showTimezoneDialog.value = false
 }
 
 function toggleLanguageMenu() {
   showLanguageMenu.value = !showLanguageMenu.value
   showQuickApps.value = false
   showChromeQuickMenu.value = false
-  showMessageMenu.value = false
-  showSourceInfo.value = false
+  showTimezoneDialog.value = false
 }
 
-function toggleMessageMenu() {
-  showMessageMenu.value = !showMessageMenu.value
-  showQuickApps.value = false
-  showChromeQuickMenu.value = false
-  showLanguageMenu.value = false
-  showSourceInfo.value = false
+function toggleTheme() {
+  isDarkTheme.value = !isDarkTheme.value
 }
 
-function toggleSourceInfo() {
-  showSourceInfo.value = !showSourceInfo.value
-  showQuickApps.value = false
-  showChromeQuickMenu.value = false
-  showLanguageMenu.value = false
-  showMessageMenu.value = false
-}
-
-function toggleAppFullscreen() {
-  if (document.fullscreenElement) {
-    document.exitFullscreen?.()
-    isAppFullscreen.value = false
-  } else {
-    document.documentElement.requestFullscreen?.()
-    isAppFullscreen.value = true
+function openMessageCenter() {
+  const url = new URL(window.location.href)
+  url.hash = '#/message-center'
+  const messageWindow = window.open(url.toString(), '_blank', 'noopener,noreferrer')
+  if (!messageWindow) {
+    errorMessage.value = '浏览器阻止了消息中心窗口，请允许弹窗后重试'
+    return
   }
+}
+
+function openTimezoneDialog() {
+  timezoneDraft.value = selectedTimezone.value
+  showTimezoneDialog.value = true
+  showQuickApps.value = false
+  showChromeQuickMenu.value = false
+  showLanguageMenu.value = false
+}
+
+function closeTimezoneDialog() {
+  showTimezoneDialog.value = false
+}
+
+function confirmTimezone() {
+  selectedTimezone.value = timezoneDraft.value
+  localStorage.setItem('heihu_timezone', selectedTimezone.value)
+  showTimezoneDialog.value = false
+  const selected = timezoneOptions.find(option => option.value === selectedTimezone.value)
+  showAction(`时区已切换为 ${selected?.label || selectedTimezone.value}`)
+}
+
+async function toggleAppFullscreen() {
+  if (document.fullscreenElement) {
+    await document.exitFullscreen?.()
+    isAppFullscreen.value = false
+    return
+  }
+
+  try {
+    if (document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen()
+      isAppFullscreen.value = true
+      return
+    }
+  } catch {
+    // Some local browsers deny the native API; keep the workspace usable with the fallback mode.
+  }
+
+  isAppFullscreen.value = !isAppFullscreen.value
 }
 
 function focusWorkspaceSearch() {
@@ -615,7 +655,21 @@ const notificationPreview = computed(() => notificationItems.value.slice(0, 8))
 
 function normalizeDate(value?: string) {
   if (!value) return ''
-  return value.replace('T', ' ').substring(0, 16)
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.replace('T', ' ').substring(0, 16)
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: selectedTimezone.value,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(date).replace(/\//g, '-')
+  } catch {
+    return value.replace('T', ' ').substring(0, 16)
+  }
 }
 
 async function loadNotifications() {
@@ -2488,8 +2542,6 @@ onMounted(() => {
     if (!target.closest('.chrome-dropdown-wrap')) {
       showQuickApps.value = false
       showLanguageMenu.value = false
-      showMessageMenu.value = false
-      showSourceInfo.value = false
     }
     if (!target.closest('.tab-context-menu') && !target.closest('.workspace-tabs')) {
       closeTabContextMenu()
@@ -2510,6 +2562,21 @@ onMounted(() => {
 const formatDateTime = (val: string) => {
   if (!val) return '-';
   const d = new Date(val);
+  if (Number.isNaN(d.getTime())) return '-';
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: selectedTimezone.value,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).format(d).replace(/\//g, '-');
+  } catch {
+    // Fall back to the browser timezone if a stored timezone is no longer valid.
+  }
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -2661,7 +2728,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     </section>
   </main>
 
-  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'chrome-light': !chromeContrast }">
+  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'app-fullscreen': isAppFullscreen, 'dark-theme': isDarkTheme }">
     <aside class="sidebar">
       <button class="collapse-toggle" type="button" @click="isSidebarCollapsed = !isSidebarCollapsed">
         <svg v-if="!isSidebarCollapsed" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
@@ -2849,7 +2916,10 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="workspace">
       <header class="topbar">
         <div class="breadcrumb">
-          <template v-if="activeMainMenu === 'home'">
+          <template v-if="isMessageCenterWindow">
+            消息中心
+          </template>
+          <template v-else-if="activeMainMenu === 'home'">
             主页
           </template>
           <template v-else-if="activeMainMenu === 'basedata'">
@@ -2940,7 +3010,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
                   <button type="button" @click="refreshWorkspace">
                     <UiIcon name="refresh" :size="15" /> 刷新当前页
                   </button>
-                  <button type="button" @click="toggleAppFullscreen; showChromeQuickMenu = false">
+                  <button type="button" @click="toggleAppFullscreen(); showChromeQuickMenu = false">
                     <UiIcon name="fullscreen" :size="15" /> {{ isAppFullscreen ? '退出全屏' : '全屏工作区' }}
                   </button>
                   <button type="button" @click="closeAllTabs">
@@ -2949,15 +3019,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 </div>
               </Transition>
             </div>
-            <button class="topbar-icon-btn" type="button" :title="chromeContrast ? '切换浅色顶栏' : '切换深色顶栏'" @click="chromeContrast = !chromeContrast">
-              <UiIcon name="sun" :size="17" />
-            </button>
-            <button class="topbar-icon-btn" type="button" :title="isAppFullscreen ? '退出全屏' : '全屏工作区'" @click="toggleAppFullscreen">
-              <UiIcon name="fullscreen" :size="17" />
+            <button class="topbar-icon-btn theme-toggle-btn" type="button" :title="isDarkTheme ? '切换浅色主题' : '切换深色主题'" :aria-label="isDarkTheme ? '切换浅色主题' : '切换深色主题'" @click="toggleTheme">
+              <UiIcon :key="isDarkTheme ? 'moon' : 'sun'" :name="isDarkTheme ? 'moon' : 'sun'" :size="17" />
             </button>
             <div class="chrome-dropdown-wrap">
               <button class="topbar-icon-btn" type="button" title="语言" @click.stop="toggleLanguageMenu">
-                <UiIcon name="language" :size="17" />
+                <UiIcon name="languages" :size="17" />
               </button>
               <Transition name="dropdown-motion">
                 <div v-if="showLanguageMenu" class="chrome-quick-menu chrome-language-menu" @click.stop>
@@ -2968,28 +3035,17 @@ function handleNavigate(menu: { main: string; sub: string }) {
               </Transition>
             </div>
             <div class="chrome-dropdown-wrap">
-              <button class="topbar-icon-btn" type="button" title="消息" @click.stop="toggleMessageMenu">
+              <button class="topbar-icon-btn" type="button" title="设置时区" aria-label="设置时区" @click.stop="openTimezoneDialog">
+                <UiIcon name="timezone" :size="17" />
+              </button>
+            </div>
+            <button class="topbar-icon-btn" type="button" :title="isAppFullscreen ? '退出全屏' : '全屏工作区'" @click="toggleAppFullscreen">
+              <UiIcon :name="isAppFullscreen ? 'minimize' : 'fullscreen'" :size="17" />
+            </button>
+            <div class="chrome-dropdown-wrap">
+              <button class="topbar-icon-btn" type="button" title="消息中心" aria-label="消息中心" @click="openMessageCenter">
                 <UiIcon name="message" :size="17" />
               </button>
-              <Transition name="dropdown-motion">
-                <div v-if="showMessageMenu" class="chrome-quick-menu chrome-message-menu" @click.stop>
-                  <div class="chrome-menu-title">消息</div>
-                  <div class="chrome-menu-empty">暂无未读消息</div>
-                  <button type="button" @click="showMessageMenu = false; toggleNotifications()">打开通知中心</button>
-                </div>
-              </Transition>
-            </div>
-            <div class="chrome-dropdown-wrap chrome-source-wrap">
-              <button class="chrome-source-button" type="button" title="源码与版本信息" @click.stop="toggleSourceInfo">
-                <span class="chrome-source-label">源码</span>
-                <span class="chrome-source-dot"></span>
-              </button>
-              <Transition name="dropdown-motion">
-                <div v-if="showSourceInfo" class="chrome-quick-menu chrome-source-menu" @click.stop>
-                  <div class="chrome-menu-title">数字工单通</div>
-                  <div class="chrome-menu-empty">本地开发版 · 前后端已连接</div>
-                </div>
-              </Transition>
             </div>
           </div>
           <template v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'">
@@ -3002,7 +3058,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
           <div class="notification-wrap">
             <button class="topbar-icon-btn notification-btn" type="button" title="通知" @click.stop="toggleNotifications">
-              <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+              <UiIcon name="bell" :size="18" />
               <span v-if="notificationCount" class="notification-badge">{{ notificationCount > 99 ? '99+' : notificationCount }}</span>
             </button>
             <Transition name="dropdown-motion">
@@ -3040,7 +3096,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </div>
           <div class="topbar-divider"></div>
           <div class="user-profile" @click="showUserDropdown = !showUserDropdown">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <UiIcon name="user" :size="18" />
             <span class="username">{{ currentUser?.name }}</span>
             <svg class="dropdown-arrow" :class="{ 'open': showUserDropdown }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M6 9l6 6 6-6"/></svg>
             <Transition name="dropdown-motion">
@@ -3108,7 +3164,15 @@ function handleNavigate(menu: { main: string; sub: string }) {
       </section>
 
       <div ref="pageMotionStage" class="page-motion-stage">
-        <KeepAlive :max="32">
+        <MessageCenterPage
+          v-if="isMessageCenterWindow"
+          :items="notificationItems"
+          :loading="notificationsLoading"
+          :error="notificationError"
+          @refresh="loadNotifications"
+          @open="openNotification"
+        />
+        <KeepAlive v-else :max="32">
           <HomeDashboardPage
             v-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
             key="home"
@@ -4456,6 +4520,27 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
     </section>
   </main>
+
+  <div v-if="showTimezoneDialog" class="timezone-overlay" @click.self="closeTimezoneDialog">
+    <section class="timezone-dialog" role="dialog" aria-modal="true" aria-labelledby="timezone-dialog-title">
+      <header class="timezone-dialog-header">
+        <h2 id="timezone-dialog-title">设置时区</h2>
+        <button class="timezone-close" type="button" title="关闭" aria-label="关闭" @click="closeTimezoneDialog">
+          <UiIcon name="close" :size="16" />
+        </button>
+      </header>
+      <div class="timezone-options" role="radiogroup" aria-label="时区选项">
+        <label v-for="option in timezoneOptions" :key="option.value" class="timezone-option">
+          <input v-model="timezoneDraft" type="radio" name="system-timezone" :value="option.value" />
+          <span>{{ option.label }}</span>
+        </label>
+      </div>
+      <footer class="timezone-dialog-footer">
+        <button class="ghost-btn" type="button" @click="closeTimezoneDialog">取消</button>
+        <button class="primary-btn" type="button" @click="confirmTimezone">确认</button>
+      </footer>
+    </section>
+  </div>
 
   <!-- 导入日志弹窗 -->
   <div v-if="false" class="modal-backdrop">
