@@ -27,11 +27,11 @@
   --table-line: #e2e8e6;
   --table-text: #27302e;
   --table-fixed-shadow: rgba(14, 55, 44, .12);
-  --sidebar: #ffffff;
-  --sidebar-text: #3e4b47;
-  --sidebar-muted: #71807c;
-  --sidebar-hover: #edf7f4;
-  --sidebar-active: #e4f6f0;
+  --sidebar: #edf6ff;
+  --sidebar-text: #354b5c;
+  --sidebar-muted: #6d8190;
+  --sidebar-hover: #e2f0ff;
+  --sidebar-active: #d5eaff;
   --tabbar-bg: #f1f4f5;
   --tab-text: #687570;
   --tab-hover: #e5eceb;
@@ -6132,6 +6132,22 @@ button:active:not(:disabled),
 .admin-shell .user-profile:hover {
   color: var(--accent-dark);
   background: var(--surface-hover);
+}
+
+.admin-shell:not(.dark-theme) .header-search-trigger,
+.admin-shell:not(.dark-theme) .header-search-input {
+  color: #36566d;
+  background: #e8f3ff;
+  border-color: #bfd8ee;
+}
+.admin-shell:not(.dark-theme) .header-search-trigger:hover {
+  color: #1f5d88;
+  background: #deefff;
+  border-color: #9fc4e4;
+}
+.admin-shell:not(.dark-theme) .header-search-trigger kbd {
+  color: #55758d;
+  background: #d4e8fa;
 }
 
 .admin-shell .workspace-tabs {
