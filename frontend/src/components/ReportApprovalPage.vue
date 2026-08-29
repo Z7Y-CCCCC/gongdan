@@ -211,7 +211,7 @@ onBeforeUnmount(revokeImageObjectUrls)
             </td>
           </tr>
           <tr v-if="!loading && reports.length === 0">
-            <td colspan="11" style="text-align:center;color:#8a9693;padding:32px">暂无报工记录</td>
+            <td colspan="11" style="text-align:center;color:var(--text-muted);padding:32px">暂无报工记录</td>
           </tr>
           <tr v-if="loading">
             <td colspan="11" style="text-align:center;color:#8a9693;padding:32px">加载中...</td>

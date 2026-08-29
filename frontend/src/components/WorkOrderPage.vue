@@ -137,7 +137,7 @@ function workOrderColumnStyle(column: ColumnSetting): CSSProperties {
   if (fixed) {
     style.position = 'sticky'
     style.zIndex = 3
-    style.background = '#fff'
+    style.background = 'var(--table-row-bg)'
     if (column.fixed === 'left') style.left = `${leftWidth}px`
     else style.right = `${rightWidth}px`
   }
@@ -2377,7 +2377,7 @@ onUnmounted(() => {
                 <div style="display: flex; align-items: center; flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 6px 0; gap: 4px; max-width: 360px;" class="scroll-thin">
                   <div v-for="(task, i) in item.tasks" :key="i" style="display: flex; align-items: center; position: relative;">
                     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 68px; flex-shrink: 0; cursor: pointer; position: relative; z-index: 2;" @mouseenter="showTaskTooltip($event, task)" @mouseleave="hideTaskTooltip">
-                      <div :style="{ width: '48px', height: '48px', borderRadius: '50%', background: '#ffffff', border: '2.5px solid', borderColor: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : '#d9d9d9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12.5px', fontWeight: 'bold', color: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : '#1677ff', boxShadow: '0 2px 6px rgba(0,0,0,0.05)', transition: 'all 0.2s' }">
+                      <div :style="{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--surface-raised)', border: '2.5px solid', borderColor: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : 'var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12.5px', fontWeight: 'bold', color: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : '#1677ff', boxShadow: '0 2px 6px rgba(0,0,0,0.05)', transition: 'all 0.2s' }">
                         <template v-if="taskProgressState(task) === 'complete'"><UiIcon name="check" :size="16" /></template>
                         <template v-else>{{ taskProgressPercent(task) }}%</template>
                       </div>
@@ -2397,7 +2397,7 @@ onUnmounted(() => {
         </tbody>
         <tfoot>
           <tr>
-            <td :colspan="visibleWorkOrderColumns.length + 2" style="font-size: 13px; color: #586360; background: #fdfdfd; position: sticky; bottom: 0; text-align: left; font-weight: 500;">
+            <td :colspan="visibleWorkOrderColumns.length + 2" style="font-size: 13px; color: var(--text-secondary); background: var(--surface-subtle); position: sticky; bottom: 0; text-align: left; font-weight: 500;">
               当前页合计计划数: <span style="color: #00b889;">{{ totalPlannedQuantity }}</span>
             </td>
           </tr>

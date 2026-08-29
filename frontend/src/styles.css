@@ -12,7 +12,43 @@
   --muted: #7a8582;
   --line: #dde5e2;
   --panel: #ffffff;
-  --sidebar: #111312;
+  --page-bg: #f3f5f6;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-subtle: #f7f9f8;
+  --surface-hover: #f0f8f5;
+  --text-primary: #1e2724;
+  --text-secondary: #586360;
+  --text-muted: #879390;
+  --border-default: #dde5e2;
+  --table-head-bg: #f4f7f6;
+  --table-row-bg: #ffffff;
+  --table-row-hover: #f0f8f5;
+  --table-line: #e2e8e6;
+  --table-text: #27302e;
+  --table-fixed-shadow: rgba(14, 55, 44, .12);
+  --sidebar: #ffffff;
+  --sidebar-text: #3e4b47;
+  --sidebar-muted: #71807c;
+  --sidebar-hover: #edf7f4;
+  --sidebar-active: #e4f6f0;
+  --tabbar-bg: #f1f4f5;
+  --tab-text: #687570;
+  --tab-hover: #e5eceb;
+  --tab-active: #ffffff;
+  --control-bg: #ffffff;
+  --control-border: #d5dedb;
+  --status-info-bg: #e8f5ff;
+  --status-info-text: #1677ff;
+  --status-success-bg: #e6f6f3;
+  --status-success-text: #00a67d;
+  --status-danger-bg: #fff0f0;
+  --status-danger-text: #ff5a5a;
+  --status-disabled-bg: #f3f4f6;
+  --status-disabled-text: #9aa4a1;
+  --scroll-track: #edf2f1;
+  --scroll-thumb: #aab8b4;
+  --overlay-bg: rgba(9, 14, 18, .48);
 }
 
 * {
@@ -429,7 +465,7 @@ button {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 192px minmax(0, 1fr);
-  background: #ffffff;
+  background: var(--page-bg);
   transition: grid-template-columns 0.2s ease;
 }
 
@@ -439,7 +475,7 @@ button {
 
 .sidebar {
   background: var(--sidebar);
-  color: #e6ecea;
+  color: var(--sidebar-text);
   padding: 14px 10px;
   position: relative;
 }
@@ -451,9 +487,9 @@ button {
   transform: translateY(-50%);
   width: 24px;
   height: 48px;
-  background: #2a312f;
-  color: #a8b1ae;
-  border: 1px solid #1c2422;
+  background: var(--sidebar-hover);
+  color: var(--sidebar-muted);
+  border: 1px solid var(--border-default);
   border-radius: 0 6px 6px 0;
   display: flex;
   align-items: center;
@@ -463,7 +499,7 @@ button {
   padding: 0;
 }
 .collapse-toggle:hover {
-  background: #3e4845;
+  background: var(--sidebar-active);
   color: #fff;
 }
 
@@ -481,7 +517,7 @@ button {
   display: flex;
   align-items: center;
   padding: 0 10px;
-  color: #d8dfdd;
+  color: var(--sidebar-text);
   border-radius: 4px;
   font-size: 14px;
   text-decoration: none;
@@ -498,7 +534,7 @@ button {
 }
 
 .nav-chevron {
-  color: #8a9693;
+  color: var(--sidebar-muted);
   flex-shrink: 0;
   transition: transform 0.2s ease;
   margin-left: auto;
@@ -511,17 +547,17 @@ button {
 .nav-item:hover,
 .sub-item:hover,
 .sub-item.selected {
-  background: #050606;
+  background: var(--sidebar-hover);
 }
 
 .nav-item.expanded {
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 700;
 }
 
 .sub-item {
   margin-left: 28px;
-  color: #b8c3c0;
+  color: var(--sidebar-muted);
 }
 
 .sidebar-collapsed .sub-items-container {
@@ -544,6 +580,7 @@ button {
 .workspace {
   min-width: 0;
   overflow: hidden;
+  background: var(--page-bg);
 }
 
 .topbar {
@@ -552,12 +589,12 @@ button {
   justify-content: space-between;
   align-items: center;
   padding: 0 22px;
-  background: #fff;
-  border-bottom: 1px solid #e4e9e7;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .breadcrumb {
-  color: #65716e;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -570,14 +607,14 @@ button {
   display: flex;
   align-items: center;
   gap: 14px;
-  color: #1f2725;
+  color: var(--text-primary);
   font-size: 14px;
 }
 
 .topbar-icon-btn {
   background: transparent;
   border: 0;
-  color: #59635f;
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -830,7 +867,7 @@ button {
   gap: 16px 24px;
   align-items: end;
   margin-bottom: 20px;
-  border-bottom: 1px solid #cbd6d3;
+  border-bottom: 1px solid var(--border-default);
   padding-bottom: 16px;
   width: 100%;
 }
@@ -860,7 +897,7 @@ button {
   align-items: center;
   gap: 0 8px;
   font-size: 13px;
-  color: #586360;
+  color: var(--text-secondary);
 }
 .filters label span {
   white-space: nowrap;
@@ -930,10 +967,10 @@ button {
   gap: 5px;
   padding: 0 12px;
   height: 34px;
-  border: 1px solid #d5dedb;
+  border: 1px solid var(--control-border);
   border-radius: 4px;
-  background: #fff;
-  color: #3d4a47;
+  background: var(--control-bg);
+  color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
@@ -947,8 +984,8 @@ button {
 
 .table-wrap {
   overflow: auto;
-  background: #fff;
-  border: 1px solid #e2e8e6;
+  background: var(--surface);
+  border: 1px solid var(--table-line);
 }
 
 table {
@@ -961,16 +998,16 @@ table {
 th,
 td {
   height: 46px;
-  border-bottom: 1px solid #eef2f1;
+  border-bottom: 1px solid var(--table-line);
   padding: 0 12px;
   text-align: left;
-  color: #27302e;
+  color: var(--table-text);
   white-space: nowrap;
 }
 
 th {
-  background: #fbfcfc;
-  color: #59635f;
+  background: var(--table-head-bg);
+  color: var(--text-secondary);
   font-weight: 700;
 }
 
@@ -1537,8 +1574,8 @@ th {
 /* ===== 新拆分页面沿用老界面的紧凑样式 ===== */
 .table-container {
   overflow: auto;
-  background: #fff;
-  border: 1px solid #e2e8e6;
+  background: var(--surface);
+  border: 1px solid var(--table-line);
 }
 
 .data-table {
@@ -1550,14 +1587,14 @@ th {
 }
 
 .data-table th, .data-table td {
-  border-bottom: 1px solid #e2e8e6;
+  border-bottom: 1px solid var(--table-line);
   white-space: nowrap;
 }
 
 .data-table th {
   position: sticky;
   top: 0;
-  background: #f4f6f6;
+  background: var(--table-head-bg);
   z-index: 10;
 }
 
@@ -1566,16 +1603,16 @@ th {
 .data-table td:last-child {
   position: sticky;
   right: 0;
-  background: #fff;
+  background: var(--table-row-bg);
 }
 .data-table th:last-child {
-  background: #f4f6f6;
+  background: var(--table-head-bg);
   z-index: 11;
-  box-shadow: -6px 0 12px rgba(0, 0, 0, 0.06);
+  box-shadow: -6px 0 12px var(--table-fixed-shadow);
 }
 .data-table td:last-child {
   z-index: 9;
-  box-shadow: -6px 0 12px rgba(0, 0, 0, 0.06);
+  box-shadow: -6px 0 12px var(--table-fixed-shadow);
 }
 
 .category-tabs {
@@ -3037,20 +3074,20 @@ input::-ms-clear {
 
 /* ======== 全局表格表头美化升级 (图2风格) ======== */
 th {
-  background: #f5f8f7 !important; /* 优雅的淡淡青灰色底色 */
-  color: #4a5553 !important;     /* 表头深灰色文字 */
+  background: var(--table-head-bg) !important;
+  color: var(--text-secondary) !important;
   font-weight: 600 !important;
   font-size: 13.5px !important;
   padding: 0 !important;          /* 必须清空原本内边距，让 th-container 填满，以便控制垂直分割线 */
   height: 46px !important;
-  border-bottom: 1px solid #e2e8f0 !important;
+  border-bottom: 1px solid var(--table-line) !important;
   position: relative !important;
   text-align: left !important;
 }
 
 /* 最后一列通常不要右边框分界线 */
 th:not(:last-child) .th-container {
-  border-right: 1px solid #e5ebe9 !important; /* 精致的淡色右侧分界线，带有一点青灰调，使其完美契合整体 */
+  border-right: 1px solid var(--table-line) !important;
 }
 
 .th-container {
@@ -3065,7 +3102,7 @@ th:not(:last-child) .th-container {
 }
 
 th:hover {
-  background: #edf1f0 !important;
+  background: var(--surface-hover) !important;
 }
 
 .th-icon-wrapper {
@@ -3093,9 +3130,9 @@ th:hover {
 
 /* 确保选择框列（第一列）的 th 背景和边框与其它 th 保持绝对一致 */
 th.check-cell, th:has(input[type="checkbox"]) {
-  background: #f5f8f7 !important;
+  background: var(--table-head-bg) !important;
   padding: 0 14px !important;
-  border-right: 1px solid #e5ebe9 !important;
+  border-right: 1px solid var(--table-line) !important;
 }
 
 /* 不良品项工具栏功能专属高颜值样式 */
@@ -4080,7 +4117,7 @@ button:active:not(:disabled),
 
 .factory-item:hover {
   border-color: #75c7b4;
-  background: #f0faf7;
+  background: var(--surface-hover);
 }
 
 .login-help {
@@ -5263,13 +5300,51 @@ button:active:not(:disabled),
 :root.dark {
   color: #d9e2e7;
   background: #0f1317;
+  --accent-dark: #55d9b7;
   --ink: #e4ebef;
   --muted: #91a0aa;
   --line: #303a44;
   --panel: #171c22;
+  --page-bg: #0f1418;
+  --surface: #171e24;
+  --surface-raised: #1a2127;
+  --surface-subtle: #151b20;
+  --surface-hover: #202d2a;
+  --text-primary: #f0f5f6;
+  --text-secondary: #d1dde2;
+  --text-muted: #a2b0b8;
+  --border-default: #3a4852;
+  --table-head-bg: #26323b;
+  --table-row-bg: #171e24;
+  --table-row-hover: #253631;
+  --table-line: #36434d;
+  --table-text: #e0e9ed;
+  --table-fixed-shadow: rgba(0, 0, 0, .34);
+  --sidebar: #11171b;
+  --sidebar-text: #e5eeec;
+  --sidebar-muted: #b2c0bc;
+  --sidebar-hover: #26332f;
+  --sidebar-active: #21463c;
+  --tabbar-bg: #151b20;
+  --tab-text: #b7c5cc;
+  --tab-hover: #2a3740;
+  --tab-active: #293640;
+  --control-bg: #1c252c;
+  --control-border: #4a5964;
+  --status-info-bg: rgba(22, 119, 255, .14);
+  --status-info-text: #4aa3ff;
+  --status-success-bg: rgba(0, 184, 137, .14);
+  --status-success-text: #6dd6b5;
+  --status-danger-bg: rgba(255, 90, 90, .14);
+  --status-danger-text: #ff7777;
+  --status-disabled-bg: #252f37;
+  --status-disabled-text: #a2b0b8;
+  --scroll-track: #11171b;
+  --scroll-thumb: #66747e;
+  --overlay-bg: rgba(4, 9, 12, .67);
 }
 
-:root.dark body { background: #0f1317; }
+:root.dark body { background: var(--page-bg); }
 
 .admin-shell.dark-theme {
   color-scheme: dark;
@@ -5919,4 +5994,243 @@ button:active:not(:disabled),
   .monitor-header-actions { justify-content: space-between; }
   .command-chart { padding: 20px 16px 22px; }
   .command-legend { grid-template-columns: 1fr; }
+}
+
+/* Theme contract: all workbench surfaces use the same semantic palette. */
+:root:not(.dark) { color-scheme: light; }
+
+.admin-shell {
+  color: var(--text-primary);
+  background: var(--page-bg);
+}
+
+.admin-shell .workspace,
+.admin-shell .content,
+.admin-shell .page-motion-stage,
+.admin-shell .placeholder-page {
+  color: var(--text-primary);
+  background: var(--page-bg);
+}
+
+.admin-shell .sidebar {
+  color: var(--sidebar-text);
+  background: var(--sidebar);
+  border-right: 1px solid var(--border-default);
+}
+
+.admin-shell .factory-name,
+.admin-shell .nav-item,
+.admin-shell .sub-item { color: var(--sidebar-text); }
+.admin-shell .nav-chevron { color: var(--sidebar-muted); }
+.admin-shell .nav-item:hover,
+.admin-shell .sub-item:hover,
+.admin-shell .sub-item.selected { background: var(--sidebar-hover); }
+.admin-shell .nav-item.expanded { color: var(--text-primary); }
+.admin-shell .sub-item.selected { color: var(--accent-dark); }
+.admin-shell .collapse-toggle {
+  color: var(--sidebar-muted);
+  background: var(--sidebar-hover);
+  border-color: var(--border-default);
+}
+.admin-shell .collapse-toggle:hover {
+  color: var(--accent-dark);
+  background: var(--sidebar-active);
+}
+
+.admin-shell .topbar {
+  color: var(--text-primary);
+  background: var(--surface);
+  border-bottom-color: var(--border-default);
+}
+.admin-shell .breadcrumb { color: var(--text-secondary); }
+.admin-shell .breadcrumb span { color: var(--text-muted); }
+.admin-shell .top-actions,
+.admin-shell .topbar-icon-btn,
+.admin-shell .user-profile { color: var(--text-secondary); }
+.admin-shell .topbar-icon-btn:hover,
+.admin-shell .user-profile:hover {
+  color: var(--accent-dark);
+  background: var(--surface-hover);
+}
+
+.admin-shell .workspace-tabs {
+  color: var(--tab-text);
+  background: var(--tabbar-bg);
+  border-bottom-color: var(--border-default);
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+.admin-shell .workspace-tabs::-webkit-scrollbar-track { background: var(--scroll-track); }
+.admin-shell .workspace-tabs::-webkit-scrollbar-thumb { background: var(--scroll-thumb); }
+.admin-shell .workspace-tabs::-webkit-scrollbar-thumb:hover { background: var(--accent-dark); }
+.admin-shell .workspace-tab { color: var(--tab-text); }
+.admin-shell .workspace-tab:hover {
+  color: var(--text-primary);
+  background: var(--tab-hover);
+}
+.admin-shell .workspace-tab.active {
+  color: var(--text-primary);
+  background: var(--tab-active);
+  border-color: var(--border-default);
+  border-bottom-color: var(--tab-active);
+}
+.admin-shell .workspace-tab-page-icon { color: var(--text-muted); }
+.admin-shell .workspace-tab.active .workspace-tab-page-icon { color: var(--accent-dark); }
+
+.admin-shell .filters,
+.admin-shell .inline-filters:last-of-type { border-color: var(--border-default) !important; }
+.admin-shell .filters label,
+.admin-shell .form-label,
+.admin-shell .field-label,
+.admin-shell .toolbar-label { color: var(--text-secondary); }
+.admin-shell input:not([type='checkbox']):not([type='radio']),
+.admin-shell select,
+.admin-shell textarea {
+  color: var(--text-primary);
+  background-color: var(--control-bg);
+  border-color: var(--control-border);
+}
+.admin-shell input::placeholder,
+.admin-shell textarea::placeholder { color: var(--text-muted); }
+
+.admin-shell .toolbar-btn,
+.admin-shell .ghost-btn,
+.admin-shell .secondary-btn,
+.admin-shell .table-config-trigger {
+  color: var(--text-secondary);
+  background: var(--control-bg);
+  border-color: var(--control-border);
+}
+.admin-shell .toolbar-btn:hover,
+.admin-shell .ghost-btn:hover,
+.admin-shell .secondary-btn:hover,
+.admin-shell .table-config-trigger:hover {
+  color: var(--accent-dark);
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.admin-shell .table-wrap,
+.admin-shell .table-container,
+.admin-shell .data-table,
+.admin-shell .collect-wrap,
+.admin-shell .collect-table,
+.admin-shell .route-steps-table {
+  color: var(--table-text);
+  background: var(--surface);
+  border-color: var(--table-line);
+}
+.admin-shell table th {
+  color: var(--text-secondary);
+  background: var(--table-head-bg);
+  border-color: var(--table-line);
+}
+.admin-shell table td {
+  color: var(--table-text);
+  background: var(--table-row-bg);
+  border-color: var(--table-line);
+}
+.admin-shell table tbody tr:hover td { background: var(--table-row-hover); }
+.admin-shell table th:last-child {
+  background: var(--table-head-bg) !important;
+  box-shadow: -6px 0 12px var(--table-fixed-shadow);
+}
+.admin-shell table td:last-child {
+  background: var(--table-row-bg) !important;
+  box-shadow: -6px 0 12px var(--table-fixed-shadow);
+}
+.admin-shell table tbody tr:hover td:last-child {
+  background: var(--table-row-hover) !important;
+}
+.admin-shell .th-icon-wrapper { color: var(--text-muted) !important; }
+.admin-shell .th-container { border-color: var(--table-line) !important; }
+.admin-shell .empty-cell,
+.admin-shell .empty-state,
+.admin-shell .muted,
+.admin-shell .page-subtitle { color: var(--text-muted); }
+
+.admin-shell .modal,
+.admin-shell .modal-header,
+.admin-shell .modal-footer,
+.admin-shell .dropdown-bubble,
+.admin-shell .column-config-dropdown,
+.admin-shell .search-dropdown-list,
+.admin-shell .user-dropdown,
+.admin-shell .chrome-quick-menu,
+.admin-shell .tab-context-menu {
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border-color: var(--border-default);
+}
+.admin-shell .modal-header,
+.admin-shell .modal-footer { border-color: var(--border-default); }
+.admin-shell .user-dropdown button:hover,
+.admin-shell .chrome-quick-menu button:hover,
+.admin-shell .tab-context-menu button:hover { background: var(--surface-hover); }
+
+/* Task summary cards and local page styles follow the same contract. */
+.admin-shell .task-metric {
+  color: var(--text-secondary);
+  background: var(--surface);
+  border-color: var(--border-default);
+}
+.admin-shell .task-metric strong,
+.admin-shell .task-main-text { color: var(--text-primary); }
+.admin-shell .task-metric.active { border-color: var(--accent); }
+.admin-shell .task-search {
+  color: var(--text-muted);
+  background: var(--control-bg);
+  border-color: var(--control-border);
+}
+.admin-shell .task-search input { color: var(--text-primary); background: transparent; }
+.admin-shell .task-sub-text,
+.admin-shell .task-empty { color: var(--text-muted); }
+.admin-shell .task-progress-bar { background: var(--scroll-track); }
+.admin-shell .task-state { color: var(--text-secondary); background: var(--surface-subtle); }
+.admin-shell .task-state-running { color: #4aa3ff; background: rgba(22, 119, 255, .14); }
+.admin-shell .task-state-completed { color: var(--accent); background: rgba(0, 184, 137, .14); }
+.admin-shell .task-state-overdue { color: #ff7777; background: rgba(255, 90, 90, .14); }
+.admin-shell .task-state-disabled { color: var(--text-muted); background: var(--surface-subtle); }
+
+/* The standalone chat window also participates in the global theme. */
+.admin-shell .internal-chat-page {
+  color: var(--text-primary);
+  background: var(--page-bg);
+}
+.admin-shell .internal-chat-rail {
+  color: var(--sidebar-muted);
+  background: var(--sidebar);
+}
+.admin-shell .internal-chat-rail-btn.active {
+  color: var(--text-primary);
+  background: var(--sidebar-active);
+}
+.admin-shell .internal-chat-sidebar,
+.admin-shell .internal-chat-main-head,
+.admin-shell .internal-chat-composer {
+  background: var(--surface);
+  border-color: var(--border-default);
+}
+.admin-shell .internal-chat-search {
+  color: var(--text-muted);
+  background: var(--surface-subtle);
+  border-color: var(--border-default);
+}
+.admin-shell .internal-chat-search input,
+.admin-shell .internal-chat-composer textarea { color: var(--text-primary); }
+.admin-shell .internal-chat-contact:hover { background: var(--surface-hover); }
+.admin-shell .internal-chat-contact.active { background: var(--sidebar-active); }
+.admin-shell .internal-chat-contact-title strong,
+.admin-shell .internal-chat-main-head h2,
+.admin-shell .internal-chat-empty strong { color: var(--text-primary); }
+.admin-shell .internal-chat-contact-sub,
+.admin-shell .internal-chat-contact-preview,
+.admin-shell .internal-chat-contact-title time,
+.admin-shell .internal-chat-main-head p,
+.admin-shell .internal-chat-peer-status,
+.admin-shell .internal-chat-message-time,
+.admin-shell .internal-chat-composer-foot { color: var(--text-muted); }
+.admin-shell .internal-chat-bubble {
+  color: var(--text-primary);
+  background: var(--surface-raised);
+  border-color: var(--border-default);
 }

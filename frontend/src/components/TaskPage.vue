@@ -265,10 +265,10 @@ onMounted(loadData)
 
 .task-metric {
   height: 70px;
-  border: 1px solid #dce3e0;
+  border: 1px solid var(--border-default);
   border-radius: 6px;
-  background: #fff;
-  color: #586360;
+  background: var(--surface);
+  color: var(--text-secondary);
   text-align: left;
   padding: 12px 14px;
   cursor: pointer;
@@ -283,7 +283,7 @@ onMounted(loadData)
 .task-metric strong {
   display: block;
   font-size: 24px;
-  color: #1e2724;
+  color: var(--text-primary);
 }
 
 .task-metric.active {
@@ -305,11 +305,11 @@ onMounted(loadData)
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid #dce3e0;
+  border: 1px solid var(--control-border);
   border-radius: 4px;
   padding: 0 10px;
-  color: #8a9693;
-  background: #fff;
+  color: var(--text-muted);
+  background: var(--control-bg);
 }
 
 .task-search input {
@@ -317,17 +317,17 @@ onMounted(loadData)
   border: 0;
   outline: 0;
   font-size: 13px;
-  color: #1e2724;
+  color: var(--text-primary);
 }
 
 .task-main-text {
-  color: #1e2724;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .task-sub-text {
   margin-top: 4px;
-  color: #8a9693;
+  color: var(--text-muted);
   font-size: 12px;
 }
 
@@ -342,14 +342,14 @@ onMounted(loadData)
   width: 84px;
   height: 7px;
   border-radius: 999px;
-  background: #edf2f0;
+  background: var(--scroll-track);
   overflow: hidden;
 }
 
 .task-progress-fill {
   height: 100%;
   border-radius: 999px;
-  background: #00b889;
+  background: var(--accent);
 }
 
 .task-state {
@@ -361,33 +361,33 @@ onMounted(loadData)
   padding: 0 8px;
   border-radius: 999px;
   font-size: 12px;
-  background: #eef2f1;
-  color: #586360;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
 }
 
 .task-state-running {
-  background: #e8f5ff;
-  color: #1677ff;
+  background: var(--status-info-bg);
+  color: var(--status-info-text);
 }
 
 .task-state-completed {
-  background: #e6f6f3;
-  color: #00a67d;
+  background: var(--status-success-bg);
+  color: var(--status-success-text);
 }
 
 .task-state-overdue {
-  background: #fff0f0;
-  color: #ff5a5a;
+  background: var(--status-danger-bg);
+  color: var(--status-danger-text);
 }
 
 .task-state-disabled {
-  background: #f3f4f6;
-  color: #9aa4a1;
+  background: var(--status-disabled-bg);
+  color: var(--status-disabled-text);
 }
 
 .task-empty {
   text-align: center;
-  color: #8a9693;
+  color: var(--text-muted);
   padding: 32px 0;
 }
 
