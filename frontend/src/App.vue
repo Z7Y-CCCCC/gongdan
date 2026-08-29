@@ -59,6 +59,7 @@ import {
   fetchSalesOrders
 } from './api'
 import DeleteConfirmDialog from './components/DeleteConfirmDialog.vue'
+import LoadingProgressOverlay from './components/LoadingProgressOverlay.vue'
 import WorkspaceTabs, { type WorkspaceTabItem } from './components/WorkspaceTabs.vue'
 import UiIcon from './components/UiIcon.vue'
 import { useAuth } from './composables/useAuth'
@@ -166,6 +167,35 @@ const activePageCacheKey = computed(() => {
   return activeMainMenu.value
 })
 const pageMotionStage = ref<HTMLElement | null>(null)
+
+type WorkspaceLoadingStageStatus = 'pending' | 'loading' | 'done' | 'error'
+interface WorkspaceLoadingStage {
+  key: string
+  label: string
+  detail: string
+  status: WorkspaceLoadingStageStatus
+}
+
+function createWorkspaceLoadingStages(): WorkspaceLoadingStage[] {
+  return [
+    { key: 'restore-session', label: '恢复登录会话', detail: '读取本地登录状态', status: 'pending' },
+    { key: 'load-users', label: '加载用户数据', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-departments', label: '加载部门数据', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-units', label: '加载单位数据', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-defects', label: '加载不良品项', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-processes', label: '加载工序数据', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-routes', label: '加载工艺路线', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-notifications', label: '同步工作台通知', detail: '等待接口响应', status: 'pending' },
+    { key: 'prepare-workspace', label: '准备工作区', detail: '等待页面渲染', status: 'pending' }
+  ]
+}
+
+const workspaceLoadingStages = ref<WorkspaceLoadingStage[]>(createWorkspaceLoadingStages())
+const workspaceLoadingVisible = ref(Boolean(token.value && currentUser.value))
+const workspaceLoadingProgress = ref(workspaceLoadingVisible.value ? 4 : 0)
+const workspaceLoadingStage = ref(workspaceLoadingVisible.value ? '正在恢复登录会话' : '')
+const workspaceLoadingError = ref('')
+let workspaceBootstrapRun = 0
 
 type WorkspaceTab = WorkspaceTabItem & {
   main: string
@@ -672,10 +702,10 @@ function normalizeDate(value?: string) {
   }
 }
 
-async function loadNotifications() {
+async function loadNotifications(): Promise<boolean> {
   if (!token.value || (!isSuperAdmin.value && currentUser.value?.role !== 'ADMIN')) {
     notificationItems.value = []
-    return
+    return true
   }
   notificationsLoading.value = true
   notificationError.value = ''
@@ -725,9 +755,11 @@ async function loadNotifications() {
     })
 
     notificationItems.value = items
+    return true
   } catch (error) {
     notificationItems.value = []
     notificationError.value = error instanceof Error ? error.message : '通知加载失败'
+    return false
   } finally {
     notificationsLoading.value = false
   }
@@ -903,11 +935,15 @@ const showUnitModal = ref(false)
 const editingUnit = ref<UnitInfo | null>(null)
 const unitForm = reactive({ name: '', remark: '' })
 
-async function loadUnits() {
+async function loadUnits(): Promise<boolean> {
   try {
     const res = await fetchUnits(token.value)
     units.value = res.items
-  } catch (e) { console.error('加载单位失败', e) }
+    return true
+  } catch (e) {
+    console.error('加载单位失败', e)
+    return false
+  }
 }
 function openCreateUnit() {
   editingUnit.value = null
@@ -956,11 +992,15 @@ const showDefectModal = ref(false)
 const editingDefect = ref<DefectInfo | null>(null)
 const defectForm = reactive({ code: '', name: '' })
 
-async function loadDefects() {
+async function loadDefects(): Promise<boolean> {
   try {
     const res = await fetchDefects(token.value)
     defects.value = res.items
-  } catch (e) { console.error('加载不良品项失败', e) }
+    return true
+  } catch (e) {
+    console.error('加载不良品项失败', e)
+    return false
+  }
 }
 function openCreateDefect() {
   editingDefect.value = null
@@ -1257,8 +1297,8 @@ function confirmDeleteRoute(r: RouteItem) {
   }
   confirmState.show = true
 }
-async function loadRoutes() {
-  if (!token.value) return
+async function loadRoutes(): Promise<boolean> {
+  if (!token.value) return false
   try {
     const res = await fetchProcessRoutes(token.value, { size: 999 })
     routes.value = res.items.map(r => ({
@@ -1275,8 +1315,10 @@ async function loadRoutes() {
       creator: r.creator || '',
       createdAt: r.createdAt ? r.createdAt.slice(0, 10) : ''
     }))
+    return true
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : '工艺路线加载失败'
+    return false
   }
 }
 
@@ -1564,8 +1606,8 @@ async function handleDeleteProcess(p: ProcessItem) {
     errorMessage.value = e instanceof Error ? e.message : '删除失败'
   }
 }
-async function loadProcesses() {
-  if (!token.value) return
+async function loadProcesses(): Promise<boolean> {
+  if (!token.value) return false
   try {
     const res = await fetchProcesses(token.value, { size: 999 })
     processes.value = res.items.map(p => ({
@@ -1583,8 +1625,10 @@ async function loadProcesses() {
       requirements: p.requirements || '',
       collectData: (p.collectData || []).map(c => ({ type: c.type, name: c.name }))
     }))
+    return true
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : '工序加载失败'
+    return false
   }
 }
 function addCollectDataRow() {
@@ -1777,6 +1821,124 @@ function readStoredUser() {
   }
 }
 
+function resetWorkspaceLoading() {
+  workspaceLoadingStages.value = createWorkspaceLoadingStages()
+  workspaceLoadingProgress.value = 0
+  workspaceLoadingStage.value = '准备启动'
+  workspaceLoadingError.value = ''
+  workspaceLoadingVisible.value = true
+}
+
+function updateWorkspaceLoadingProgress() {
+  const total = workspaceLoadingStages.value.length
+  const completed = workspaceLoadingStages.value.filter(stage => stage.status === 'done').length
+  workspaceLoadingProgress.value = total > 0 ? Math.round((completed / total) * 100) : 100
+}
+
+async function runWorkspaceLoadingStage(
+  runId: number,
+  key: string,
+  task: () => Promise<string | void> | string | void
+) {
+  const stage = workspaceLoadingStages.value.find(item => item.key === key)
+  if (!stage || runId !== workspaceBootstrapRun) return
+
+  stage.status = 'loading'
+  stage.detail = '正在请求数据，请稍候'
+  workspaceLoadingStage.value = stage.label
+  updateWorkspaceLoadingProgress()
+
+  try {
+    const detail = await task()
+    if (runId !== workspaceBootstrapRun) return
+    stage.status = 'done'
+    stage.detail = detail || '已完成'
+    updateWorkspaceLoadingProgress()
+  } catch (error) {
+    if (runId !== workspaceBootstrapRun) return
+    stage.status = 'error'
+    stage.detail = '请求失败，已暂停'
+    workspaceLoadingStage.value = stage.label
+    workspaceLoadingError.value = `${stage.label}失败：${error instanceof Error ? error.message : '接口返回失败'}`
+    updateWorkspaceLoadingProgress()
+    throw error
+  }
+}
+
+async function bootstrapWorkspace(): Promise<boolean> {
+  if (!token.value || !currentUser.value) {
+    workspaceLoadingVisible.value = false
+    return true
+  }
+
+  const runId = ++workspaceBootstrapRun
+  resetWorkspaceLoading()
+  errorMessage.value = ''
+
+  try {
+    await runWorkspaceLoadingStage(runId, 'restore-session', async () => {
+      currentFactoryCode.value = localStorage.getItem('heihu_factory_code') || currentFactoryCode.value
+      await nextTick()
+      return `已恢复 ${currentFactoryCode.value} 工厂会话`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-users', async () => {
+      if (!await loadUsers()) throw new Error(errorMessage.value || '用户接口没有返回成功')
+      return `已加载 ${users.value.length} 个用户`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-departments', async () => {
+      if (!await loadDepartments()) throw new Error(errorMessage.value || '部门接口没有返回成功')
+      const allDepartments = await fetchDepartments(token.value, { code: '', name: '', page: 1, size: 999 })
+      departments.value = allDepartments.items
+      departmentTotal.value = allDepartments.total
+      return `已加载 ${allDepartments.items.length} 个部门`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-units', async () => {
+      if (!await loadUnits()) throw new Error('单位接口没有返回成功')
+      return `已加载 ${units.value.length} 个单位`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-defects', async () => {
+      if (!await loadDefects()) throw new Error('不良品项接口没有返回成功')
+      return `已加载 ${defects.value.length} 个不良品项`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-processes', async () => {
+      if (!await loadProcesses()) throw new Error(errorMessage.value || '工序接口没有返回成功')
+      return `已加载 ${processes.value.length} 道工序`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-routes', async () => {
+      if (!await loadRoutes()) throw new Error(errorMessage.value || '工艺路线接口没有返回成功')
+      return `已加载 ${routes.value.length} 条工艺路线`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-notifications', async () => {
+      if (!await loadNotifications()) throw new Error(notificationError.value || '通知接口没有返回成功')
+      return hasAdminAccess.value ? `已同步 ${notificationItems.value.length} 条工作台通知` : '当前账号无需加载管理端通知'
+    })
+    await runWorkspaceLoadingStage(runId, 'prepare-workspace', async () => {
+      await nextTick()
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      return '工作区已准备完成'
+    })
+
+    if (runId !== workspaceBootstrapRun) return false
+    workspaceLoadingProgress.value = 100
+    workspaceLoadingStage.value = '加载完成'
+    await new Promise(resolve => setTimeout(resolve, 220))
+    if (runId === workspaceBootstrapRun) workspaceLoadingVisible.value = false
+    return true
+  } catch (error) {
+    if (runId === workspaceBootstrapRun) {
+      workspaceLoadingVisible.value = true
+      if (!workspaceLoadingError.value) {
+        workspaceLoadingError.value = error instanceof Error ? error.message : '工作区初始化失败'
+      }
+    }
+    return false
+  }
+}
+
+function retryWorkspaceBootstrap() {
+  void bootstrapWorkspace()
+}
+
 function persistSession(response: LoginResponse) {
   token.value = response.token
   currentUser.value = response.user
@@ -1788,7 +1950,6 @@ function persistSession(response: LoginResponse) {
   sharedAuth.persistSession(response)
   // 登录后默认进入主页仪表盘
   activeMainMenu.value = 'home'
-  loadNotifications()
 }
 
 const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
@@ -1872,8 +2033,7 @@ async function handleLogin() {
     persistSession(response)
     currentFactoryCode.value = loginForm.factoryCode
     localStorage.setItem('heihu_factory_code', loginForm.factoryCode)
-    await loadUsers()
-    await loadDepartments()
+    await bootstrapWorkspace()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败'
   } finally {
@@ -1933,7 +2093,7 @@ async function handlePhoneLogin() {
       pendingPhoneCredential.loginType = 'sms'
       pendingPhoneCredential.credential = phoneForm.code
     }
-    handlePhoneLoginResult(result)
+    await handlePhoneLoginResult(result)
   } catch (e) {
     phoneError.value = e instanceof Error ? e.message : '登录失败'
   } finally {
@@ -1941,7 +2101,7 @@ async function handlePhoneLogin() {
   }
 }
 
-function handlePhoneLoginResult(result: PhoneLoginResult) {
+async function handlePhoneLoginResult(result: PhoneLoginResult) {
   if (result.bindingRequired && result.phone) {
     // 需要绑定工厂，携带手机号跳转到绑定页面，不显示错误提示
     bindingPhone.value = result.phone
@@ -1951,8 +2111,7 @@ function handlePhoneLoginResult(result: PhoneLoginResult) {
     showFactorySelect.value = true
   } else if (result.token && result.user) {
     persistSession({ token: result.token, user: result.user, isSuperAdmin: false })
-    loadUsers()
-    loadDepartments()
+    await bootstrapWorkspace()
   }
 }
 
@@ -1981,8 +2140,7 @@ async function handleSelectFactory(factoryId: number) {
         localStorage.setItem('heihu_factory_code', factory.factoryCode)
       }
       showFactorySelect.value = false
-      loadUsers()
-      loadDepartments()
+      await bootstrapWorkspace()
     }
   } catch (e) {
     phoneError.value = e instanceof Error ? e.message : '登录失败'
@@ -1991,29 +2149,33 @@ async function handleSelectFactory(factoryId: number) {
   }
 }
 
-async function loadUsers() {
+async function loadUsers(): Promise<boolean> {
   if (!token.value) {
-    return
+    return false
   }
   usersLoading.value = true
   try {
     users.value = await fetchUsers(token.value)
+    return true
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '用户列表加载失败'
+    return false
   } finally {
     usersLoading.value = false
   }
 }
 
-async function loadDepartments() {
-  if (!token.value) return
+async function loadDepartments(): Promise<boolean> {
+  if (!token.value) return false
   departmentsLoading.value = true
   try {
     const res = await fetchDepartments(token.value, departmentFilterForm)
     departments.value = res.items
     departmentTotal.value = res.total
+    return true
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '部门加载失败'
+    return false
   } finally {
     departmentsLoading.value = false
   }
@@ -2481,6 +2643,8 @@ function handlePrintTemplate() {
 }
 
 function logout() {
+  workspaceBootstrapRun += 1
+  workspaceLoadingVisible.value = false
   token.value = ''
   currentUser.value = null
   isSuperAdmin.value = false
@@ -2497,20 +2661,12 @@ function logout() {
 }
 
 onMounted(() => {
-  if (token.value) {
-    // 页面刷新后默认进入主页仪表盘
+  if (token.value && currentUser.value) {
+    // 页面刷新后默认进入主页仪表盘，并显示可诊断的初始化进度。
     activeMainMenu.value = 'home'
-    loadUsers()
-    loadDepartments()
-    loadUnits()
-    loadDefects()
-    loadProcesses()
-    loadRoutes()
-    loadNotifications()
-    // 额外全量拉取部门（供报工权限树使用，不受列表分页影响）
-    fetchDepartments(token.value, { code: '', name: '', page: 1, size: 999 })
-      .then(res => { departments.value = res.items })
-      .catch(() => {})
+    void bootstrapWorkspace()
+  } else {
+    workspaceLoadingVisible.value = false
   }
 
   window.addEventListener('click', (e) => {
@@ -5043,4 +5199,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
     </section>
   </div>
 
+  <LoadingProgressOverlay
+    :visible="workspaceLoadingVisible"
+    :progress="workspaceLoadingProgress"
+    :stage="workspaceLoadingStage"
+    :stages="workspaceLoadingStages"
+    :error="workspaceLoadingError"
+    @retry="retryWorkspaceBootstrap"
+  />
 </template>
