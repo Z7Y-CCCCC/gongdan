@@ -132,9 +132,9 @@ function confirm() {
             </div>
           </div>
           <div class="column-fixed-group" role="group" aria-label="冻结位置">
-            <button type="button" :class="{ active: column.fixed === 'left' }" @click="column.fixed = 'left'">左侧</button>
-            <button type="button" :class="{ active: column.fixed === 'none' }" @click="column.fixed = 'none'">不设置</button>
-            <button type="button" :class="{ active: column.fixed === 'right' }" @click="column.fixed = 'right'">右侧</button>
+            <button type="button" :disabled="column.locked" :class="{ active: column.fixed === 'left' }" @click="column.fixed = 'left'">左侧</button>
+            <button type="button" :disabled="column.locked" :class="{ active: column.fixed === 'none' }" @click="column.fixed = 'none'">不设置</button>
+            <button type="button" :disabled="column.locked" :class="{ active: column.fixed === 'right' }" @click="column.fixed = 'right'">右侧</button>
           </div>
         </div>
       </div>

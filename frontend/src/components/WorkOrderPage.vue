@@ -108,7 +108,8 @@ const columnDefinitions: ColumnSetting[] = [
   { key: 'plannedQuantity', label: '计划数', visible: true, width: 100, fixed: 'none' },
   { key: 'status', label: '状态', visible: true, width: 100, fixed: 'none' },
   { key: 'priority', label: '优先级', visible: true, width: 100, fixed: 'none' },
-  { key: 'routeName', label: '工单进度条', visible: true, width: 360, fixed: 'none' }
+  { key: 'routeName', label: '工单进度条', visible: true, width: 360, fixed: 'none' },
+  { key: 'actions', label: '操作', visible: true, width: 130, fixed: 'right', locked: true }
 ]
 const defaultColumnSettings = columnDefinitions.map(column => ({ ...column }))
 const workOrderColumns = ref<ColumnSetting[]>(columnDefinitions.map(column => ({ ...column })))
@@ -119,7 +120,7 @@ function syncVisibleWorkOrderColumns() {
   visibleColumns.value = workOrderColumns.value.filter(column => column.visible).map(column => column.key)
 }
 
-function workOrderColumnStyle(column: ColumnSetting): CSSProperties {
+function workOrderColumnStyle(column: ColumnSetting, header = false): CSSProperties {
   const currentIndex = visibleWorkOrderColumns.value.findIndex(item => item.key === column.key)
   const leftWidth = visibleWorkOrderColumns.value
     .slice(0, currentIndex)
@@ -128,7 +129,7 @@ function workOrderColumnStyle(column: ColumnSetting): CSSProperties {
   const rightWidth = visibleWorkOrderColumns.value
     .slice(currentIndex + 1)
     .filter(item => item.fixed === 'right')
-    .reduce((sum, item) => sum + item.width, 130)
+    .reduce((sum, item) => sum + item.width, 0)
   const fixed = column.fixed !== 'none'
   const style: CSSProperties = {
     width: `${column.width}px`,
@@ -136,8 +137,8 @@ function workOrderColumnStyle(column: ColumnSetting): CSSProperties {
   }
   if (fixed) {
     style.position = 'sticky'
-    style.zIndex = 3
-    style.background = 'var(--table-row-bg)'
+    style.zIndex = header ? 12 : 3
+    style.background = header ? 'var(--table-head-bg)' : 'var(--table-row-bg)'
     if (column.fixed === 'left') style.left = `${leftWidth}px`
     else style.right = `${rightWidth}px`
   }
@@ -145,14 +146,22 @@ function workOrderColumnStyle(column: ColumnSetting): CSSProperties {
 }
 
 function restoreWorkOrderColumnSettings(savedKeys?: string[]) {
-  const saved = savedKeys && savedKeys.length > 0 ? new Set(savedKeys) : null
+  const actionKey = 'actions'
+  const saved = savedKeys && savedKeys.length > 0 ? new Set([...savedKeys, actionKey]) : null
   const order = savedKeys && savedKeys.length > 0
-    ? [...savedKeys, ...columnDefinitions.map(column => column.key).filter(key => !savedKeys.includes(key))]
-    : columnDefinitions.map(column => column.key)
+    ? [
+        ...savedKeys.filter(key => key !== actionKey),
+        ...columnDefinitions.map(column => column.key).filter(key => key !== actionKey && !savedKeys.includes(key)),
+        actionKey
+      ]
+    : [...columnDefinitions.map(column => column.key).filter(key => key !== actionKey), actionKey]
   workOrderColumns.value = order
     .map(key => columnDefinitions.find(column => column.key === key))
     .filter((column): column is ColumnSetting => Boolean(column))
-    .map(column => ({ ...column, visible: saved ? saved.has(column.key) : true }))
+    .map(column => ({
+      ...column,
+      visible: column.key === actionKey ? true : saved ? saved.has(column.key) : true
+    }))
   syncVisibleWorkOrderColumns()
 }
 
@@ -515,7 +524,11 @@ async function removeCategory(item: any, event: Event) {
 
 async function handleSaveColumns(settings = workOrderColumns.value) {
   try {
-    workOrderColumns.value = settings.map(column => ({ ...column }))
+    const actionColumn = columnDefinitions.find(column => column.key === 'actions')!
+    workOrderColumns.value = [
+      ...settings.filter(column => column.key !== 'actions').map(column => ({ ...column })),
+      { ...actionColumn }
+    ]
     syncVisibleWorkOrderColumns()
     await setUserPreference(props.token, 'WORK_ORDER_COLUMNS', JSON.stringify(workOrderColumns.value.filter(column => column.visible).map(column => column.key)))
     showColumnModal.value = false
@@ -2358,15 +2371,31 @@ onUnmounted(() => {
         <thead>
           <tr>
             <th class="work-order-select-column"><input type="checkbox" :checked="allSelected" @change="toggleAll(($event.target as HTMLInputElement).checked)" /></th>
-            <th v-for="column in visibleWorkOrderColumns" :key="column.key" :style="workOrderColumnStyle(column)">{{ column.label }}</th>
-            <th class="work-order-actions-column">操作</th>
+            <th
+              v-for="column in visibleWorkOrderColumns"
+              :key="column.key"
+              :class="{ 'work-order-actions-column': column.key === 'actions' }"
+              :style="workOrderColumnStyle(column, true)"
+            >
+              <template v-if="column.key === 'actions'"><UiIcon name="settings" :size="14" /> {{ column.label }}</template>
+              <template v-else>{{ column.label }}</template>
+            </th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in filteredOrders" :key="item.id">
             <td class="work-order-select-column"><input type="checkbox" :checked="selectedIds.includes(item.id)" @change="toggleOne(item.id, ($event.target as HTMLInputElement).checked)" /></td>
-            <td v-for="column in visibleWorkOrderColumns" :key="column.key" :style="workOrderColumnStyle(column)">
-              <template v-if="column.key === 'code'">{{ item.code }}</template>
+            <td
+              v-for="column in visibleWorkOrderColumns"
+              :key="column.key"
+              :class="{ 'action-cell work-order-actions-column': column.key === 'actions' }"
+              :style="workOrderColumnStyle(column)"
+            >
+              <template v-if="column.key === 'actions'">
+                <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
+                <button class="action-link danger" type="button" @click="removeOrder(item)">删除</button>
+              </template>
+              <template v-else-if="column.key === 'code'">{{ item.code }}</template>
               <template v-else-if="column.key === 'productCode'">{{ item.productCode }}</template>
               <template v-else-if="column.key === 'productName'">{{ item.productName }}</template>
               <template v-else-if="column.key === 'productSpec'">{{ item.productSpec || '-' }}</template>
@@ -2389,15 +2418,11 @@ onUnmounted(() => {
                 </div>
               </template>
             </td>
-            <td class="action-cell work-order-actions-column">
-              <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
-              <button class="action-link danger" type="button" @click="removeOrder(item)">删除</button>
-            </td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <td :colspan="visibleWorkOrderColumns.length + 2" style="font-size: 13px; color: var(--text-secondary); background: var(--surface-subtle); position: sticky; bottom: 0; text-align: left; font-weight: 500;">
+            <td :colspan="visibleWorkOrderColumns.length + 1" style="font-size: 13px; color: var(--text-secondary); background: var(--surface-subtle); position: sticky; bottom: 0; text-align: left; font-weight: 500;">
               当前页合计计划数: <span style="color: #00b889;">{{ totalPlannedQuantity }}</span>
             </td>
           </tr>

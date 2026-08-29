@@ -4909,6 +4909,11 @@ button:active:not(:disabled),
   border-color: #1689ed;
 }
 
+.column-fixed-group button:disabled {
+  cursor: not-allowed;
+  opacity: .7;
+}
+
 .column-settings-footer {
   min-height: 58px;
   display: flex;
@@ -4956,6 +4961,13 @@ button:active:not(:disabled),
 
 .work-order-data-table {
   min-width: 1180px;
+}
+
+.work-order-data-table th {
+  /* The global header polish rule sets position: relative !important. Keep
+     the work-order header on the same sticky track as its body cells. */
+  position: sticky !important;
+  top: 0 !important;
 }
 
 .work-order-data-table th,

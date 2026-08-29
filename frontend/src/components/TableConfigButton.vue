@@ -42,14 +42,15 @@ function collectColumns() {
     const element = cell as HTMLElement
     const label = element.innerText.replace(/\s+/g, ' ').trim() || `第 ${index + 1} 列`
     const key = `column-${index}`
+    const isOperation = label === '操作'
     const previous = saved.find(item => item.key === key || item.label === label)
     return {
       key,
       label,
-      visible: previous?.visible ?? true,
+      visible: isOperation ? true : previous?.visible ?? true,
       width: previous?.width ?? Math.max(70, Math.round(element.getBoundingClientRect().width || 120)),
-      fixed: previous?.fixed || (label === '操作' ? 'right' : 'none'),
-      locked: label === '操作'
+      fixed: isOperation ? 'right' : previous?.fixed || 'none',
+      locked: isOperation
     } satisfies ColumnSetting
   })
 
