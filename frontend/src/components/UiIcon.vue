@@ -60,7 +60,14 @@ const glyph = computed(() => glyphs[props.name] || glyphs.more)
 </script>
 
 <template>
+  <span
+    v-if="name === 'table-columns'"
+    class="ui-icon vxe-custom-column-icon"
+    :style="{ width: `${size}px`, height: `${size}px`, fontSize: `${size}px` }"
+    aria-hidden="true"
+  ></span>
   <svg
+    v-else
     class="ui-icon"
     :width="size"
     :height="size"
@@ -77,9 +84,29 @@ const glyph = computed(() => glyphs[props.name] || glyphs.more)
 </template>
 
 <style scoped>
+@font-face {
+  font-family: 'vxe-table-iconfont';
+  src: url('../assets/vxe-table-iconfont.woff2') format('woff2');
+  font-display: block;
+}
+
 .ui-icon {
   display: inline-block;
   flex: 0 0 auto;
   vertical-align: -2px;
+}
+
+.vxe-custom-column-icon {
+  font-family: 'vxe-table-iconfont' !important;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1;
+  text-align: center;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.vxe-custom-column-icon::before {
+  content: '\e62d';
 }
 </style>
