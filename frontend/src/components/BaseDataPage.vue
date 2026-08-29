@@ -19,6 +19,7 @@ import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
 import TableConfigButton from '@/components/TableConfigButton.vue'
+import ColumnSettingsPanel, { type ColumnSetting } from '@/components/ColumnSettingsPanel.vue'
 
 const { visible: deleteVisible, title: deleteTitle, message: deleteMessage, loading: deleteLoading, confirm: deleteConfirm, handleConfirm: deleteHandleConfirm, handleCancel: deleteHandleCancel } = useDeleteConfirm()
 
@@ -48,18 +49,44 @@ function showTooltip(e: MouseEvent, text: string) {
 }
 function hideTooltip() { tooltipState.visible = false }
 
+function baseDataColumnStyle(columns: ColumnSetting[], column: ColumnSetting, header = false): Record<string, string | number> {
+  const visibleColumns = columns.filter(item => item.visible)
+  const currentIndex = visibleColumns.findIndex(item => item.key === column.key)
+  const left = visibleColumns
+    .slice(0, currentIndex)
+    .filter(item => item.fixed === 'left')
+    .reduce((sum, item) => sum + item.width, 0)
+  const right = visibleColumns
+    .slice(currentIndex + 1)
+    .filter(item => item.fixed === 'right')
+    .reduce((sum, item) => sum + item.width, 0)
+  const style: Record<string, string | number> = {
+    width: `${column.width}px`,
+    minWidth: `${column.width}px`
+  }
+  if (column.fixed !== 'none') {
+    style.position = 'sticky'
+    style.zIndex = header ? 12 : 3
+    style.background = header ? 'var(--table-head-bg)' : 'var(--table-row-bg)'
+    if (column.fixed === 'left') style.left = `${left}px`
+    if (column.fixed === 'right') style.right = `${right}px`
+  }
+  return style
+}
+
 // 单位管理
 const units = ref<UnitInfo[]>([])
 const unitFilterForm = reactive({ name: '', remark: '' })
 
 // 单位扩展交互状态
-const unitColumns = ref([
-  { key: 'checkbox', label: '选择', visible: true },
-  { key: 'index', label: '序号', visible: true },
-  { key: 'name', label: '单位名称', visible: true },
-  { key: 'remark', label: '备注', visible: true },
-  { key: 'action', label: '操作', visible: true }
-])
+const unitColumnDefaults: ColumnSetting[] = [
+  { key: 'checkbox', label: '选择', visible: true, width: 50, fixed: 'left' },
+  { key: 'index', label: '序号', visible: true, width: 60, fixed: 'left' },
+  { key: 'name', label: '单位名称', visible: true, width: 150, fixed: 'none' },
+  { key: 'remark', label: '备注', visible: true, width: 220, fixed: 'none' },
+  { key: 'action', label: '操作', visible: true, width: 140, fixed: 'right', locked: true }
+]
+const unitColumns = ref<ColumnSetting[]>(unitColumnDefaults.map(column => ({ ...column })))
 const showUnitColumnConfig = ref(false)
 
 const unitRowHeight = ref<'compact' | 'default' | 'relaxed'>('default')
@@ -92,13 +119,9 @@ async function refreshUnitImportLogs() {
 const unitImporting = ref(false)
 const unitImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
 
-function isUnitColumnVisible(key: string) {
-  return unitColumns.value.find(c => c.key === key)?.visible ?? true
-}
-
-function toggleUnitColumn(key: string) {
-  const col = unitColumns.value.find(c => c.key === key)
-  if (col) col.visible = !col.visible
+function saveUnitColumnSettings(settings: ColumnSetting[]) {
+  unitColumns.value = settings.map(column => ({ ...column }))
+  showUnitColumnConfig.value = false
 }
 
 const unitFilteredList = computed(() => {
@@ -333,13 +356,14 @@ const defects = ref<DefectInfo[]>([])
 const defectFilterForm = reactive({ code: '', name: '' })
 
 // 不良品项扩展交互状态
-const defectColumns = ref([
-  { key: 'checkbox', label: '选择', visible: true },
-  { key: 'index', label: '序号', visible: true },
-  { key: 'code', label: '不良品项编号', visible: true },
-  { key: 'name', label: '不良品项名称', visible: true },
-  { key: 'action', label: '操作', visible: true }
-])
+const defectColumnDefaults: ColumnSetting[] = [
+  { key: 'checkbox', label: '选择', visible: true, width: 50, fixed: 'left' },
+  { key: 'index', label: '序号', visible: true, width: 60, fixed: 'left' },
+  { key: 'code', label: '不良品项编号', visible: true, width: 180, fixed: 'none' },
+  { key: 'name', label: '不良品项名称', visible: true, width: 180, fixed: 'none' },
+  { key: 'action', label: '操作', visible: true, width: 140, fixed: 'right', locked: true }
+]
+const defectColumns = ref<ColumnSetting[]>(defectColumnDefaults.map(column => ({ ...column })))
 const showDefectColumnConfig = ref(false)
 
 const defectRowHeight = ref<'compact' | 'default' | 'relaxed'>('default')
@@ -372,13 +396,9 @@ async function refreshDefectImportLogs() {
 const defectImporting = ref(false)
 const defectImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
 
-function isDefectColumnVisible(key: string) {
-  return defectColumns.value.find(c => c.key === key)?.visible ?? true
-}
-
-function toggleDefectColumn(key: string) {
-  const col = defectColumns.value.find(c => c.key === key)
-  if (col) col.visible = !col.visible
+function saveDefectColumnSettings(settings: ColumnSetting[]) {
+  defectColumns.value = settings.map(column => ({ ...column }))
+  showDefectColumnConfig.value = false
 }
 
 const defectFilteredList = computed(() => {
@@ -632,16 +652,17 @@ const processes = ref<ProcessItem[]>([])
 const processFilterForm = reactive({ code: '', name: '', creator: '' })
 
 // 工序扩展交互状态
-const processColumns = ref([
-  { key: 'checkbox', label: '选择', visible: true },
-  { key: 'index', label: '序号', visible: true },
-  { key: 'code', label: '工序编号', visible: true },
-  { key: 'name', label: '工序名称', visible: true },
-  { key: 'reportPermission', label: '报工权限', visible: true },
-  { key: 'reportRatio', label: '报工数配比', visible: true },
-  { key: 'taskPunchIn', label: '任务打卡', visible: true },
-  { key: 'action', label: '操作', visible: true }
-])
+const processColumnDefaults: ColumnSetting[] = [
+  { key: 'checkbox', label: '选择', visible: true, width: 40, fixed: 'left' },
+  { key: 'index', label: '序号', visible: true, width: 50, fixed: 'left' },
+  { key: 'code', label: '工序编号', visible: true, width: 140, fixed: 'none' },
+  { key: 'name', label: '工序名称', visible: true, width: 150, fixed: 'none' },
+  { key: 'reportPermission', label: '报工权限', visible: true, width: 200, fixed: 'none' },
+  { key: 'reportRatio', label: '报工数配比', visible: true, width: 120, fixed: 'none' },
+  { key: 'taskPunchIn', label: '任务打卡', visible: true, width: 100, fixed: 'none' },
+  { key: 'action', label: '操作', visible: true, width: 260, fixed: 'right', locked: true }
+]
+const processColumns = ref<ColumnSetting[]>(processColumnDefaults.map(column => ({ ...column })))
 const showProcessColumnConfig = ref(false)
 
 const processRowHeight = ref<'compact' | 'default' | 'relaxed'>('default')
@@ -832,13 +853,9 @@ function printProcess(p: ProcessItem) {
   printWindow.focus()
 }
 
-function isProcessColumnVisible(key: string) {
-  return processColumns.value.find(c => c.key === key)?.visible ?? true
-}
-
-function toggleProcessColumn(key: string) {
-  const col = processColumns.value.find(c => c.key === key)
-  if (col) col.visible = !col.visible
+function saveProcessColumnSettings(settings: ColumnSetting[]) {
+  processColumns.value = settings.map(column => ({ ...column }))
+  showProcessColumnConfig.value = false
 }
 
 const processFilteredList = computed(() => {
@@ -973,22 +990,23 @@ async function refreshRouteImportLogs() {
 }
 
 const showRouteColumnConfig = ref(false)
-const routeColumns = ref([
-  { key: 'code', label: '工艺路线编号', visible: true },
-  { key: 'name', label: '工艺路线名称', visible: true },
-  { key: 'steps', label: '工序/工艺路线列表', visible: true },
-  { key: 'creator', label: '创建人', visible: true },
-  { key: 'createdAt', label: '创建时间', visible: true }
-])
-function isRouteColumnVisible(key: string) {
-  return routeColumns.value.find(c => c.key === key)?.visible ?? true
-}
-function toggleRouteColumn(key: string) {
-  const col = routeColumns.value.find(c => c.key === key)
-  if (col) col.visible = !col.visible
+const routeColumnDefaults: ColumnSetting[] = [
+  { key: 'checkbox', label: '选择', visible: true, width: 50, fixed: 'left' },
+  { key: 'index', label: '序号', visible: true, width: 60, fixed: 'left' },
+  { key: 'code', label: '工艺路线编号', visible: true, width: 150, fixed: 'none' },
+  { key: 'name', label: '工艺路线名称', visible: true, width: 180, fixed: 'none' },
+  { key: 'steps', label: '工序/工艺路线列表', visible: true, width: 240, fixed: 'none' },
+  { key: 'creator', label: '创建人', visible: true, width: 120, fixed: 'none' },
+  { key: 'createdAt', label: '创建时间', visible: true, width: 180, fixed: 'none' },
+  { key: 'action', label: '操作', visible: true, width: 180, fixed: 'right', locked: true }
+]
+const routeColumns = ref<ColumnSetting[]>(routeColumnDefaults.map(column => ({ ...column })))
+function saveRouteColumnSettings(settings: ColumnSetting[]) {
+  routeColumns.value = settings.map(column => ({ ...column }))
+  showRouteColumnConfig.value = false
 }
 const visibleRouteColumnsCount = computed(() => {
-  return routeColumns.value.filter(c => c.visible).length + 2
+  return routeColumns.value.filter(c => c.visible).length
 })
 
 function handleExportRoutes() {
@@ -2048,16 +2066,16 @@ onMounted(() => {
             <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showUnitColumnConfig = !showUnitColumnConfig; showUnitRowHeightConfig = false; showUnitSortConfig = false" :class="{ 'active-btn': showUnitColumnConfig }">
               <UiIcon name="table-columns" :size="16" />
             </button>
-            <div v-if="showUnitColumnConfig" class="dropdown-bubble column-config-bubble">
-              <div class="dropdown-header">显示列配置</div>
-              <div class="dropdown-content">
-                <label v-for="col in unitColumns" :key="col.key" class="dropdown-item">
-                  <input type="checkbox" :checked="col.visible" @change="toggleUnitColumn(col.key)" />
-                  <span>{{ col.label }}</span>
-                </label>
-              </div>
-            </div>
           </div>
+
+          <ColumnSettingsPanel
+            v-if="showUnitColumnConfig"
+            v-model="unitColumns"
+            :defaults="unitColumnDefaults"
+            title="列设置"
+            @confirm="saveUnitColumnSettings"
+            @cancel="showUnitColumnConfig = false"
+          />
 
           <!-- 排序配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
@@ -2134,23 +2152,28 @@ onMounted(() => {
           <table class="data-table">
             <thead>
               <tr>
-                <th v-if="isUnitColumnVisible('checkbox')" style="width:50px"><input type="checkbox" /></th>
-                <th v-if="isUnitColumnVisible('index')" style="width:60px">序号</th>
-                <th v-if="isUnitColumnVisible('name')">名称</th>
-                <th v-if="isUnitColumnVisible('remark')">备注</th>
-                <th v-if="isUnitColumnVisible('action')" style="width:120px">操作</th>
+                <template v-for="column in unitColumns.filter(item => item.visible)" :key="column.key">
+                  <th :style="baseDataColumnStyle(unitColumns, column, true)">
+                    <input v-if="column.key === 'checkbox'" type="checkbox" />
+                    <span v-else>{{ column.label }}</span>
+                  </th>
+                </template>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(unit, idx) in unitFilteredList" :key="unit.id" :class="['unit-row', 'row-height-' + unitRowHeight]">
-                <td v-if="isUnitColumnVisible('checkbox')"><input type="checkbox" /></td>
-                <td v-if="isUnitColumnVisible('index')">{{ idx + 1 }}</td>
-                <td v-if="isUnitColumnVisible('name')">{{ unit.name }}</td>
-                <td v-if="isUnitColumnVisible('remark')">{{ unit.remark || '-' }}</td>
-                <td v-if="isUnitColumnVisible('action')" class="action-cell">
-                  <button class="action-link" type="button" @click="openEditUnit(unit)">编辑</button>
-                  <button class="action-link danger" type="button" @click="handleDeleteUnit(unit)">删除</button>
-                </td>
+                <template v-for="column in unitColumns.filter(item => item.visible)" :key="column.key">
+                  <td :class="{ 'action-cell': column.key === 'action' }" :style="baseDataColumnStyle(unitColumns, column)">
+                    <input v-if="column.key === 'checkbox'" type="checkbox" />
+                    <span v-else-if="column.key === 'index'">{{ idx + 1 }}</span>
+                    <span v-else-if="column.key === 'name'">{{ unit.name }}</span>
+                    <span v-else-if="column.key === 'remark'">{{ unit.remark || '-' }}</span>
+                    <template v-else-if="column.key === 'action'">
+                      <button class="action-link" type="button" @click="openEditUnit(unit)">编辑</button>
+                      <button class="action-link danger" type="button" @click="handleDeleteUnit(unit)">删除</button>
+                    </template>
+                  </td>
+                </template>
               </tr>
               <tr v-if="unitFilteredList.length === 0">
                 <td :colspan="unitColumns.filter(c => c.visible).length" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
@@ -2226,16 +2249,16 @@ onMounted(() => {
             <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showDefectColumnConfig = !showDefectColumnConfig; showDefectRowHeightConfig = false; showDefectSortConfig = false" :class="{ 'active-btn': showDefectColumnConfig }">
               <UiIcon name="table-columns" :size="16" />
             </button>
-            <div v-if="showDefectColumnConfig" class="dropdown-bubble column-config-bubble">
-              <div class="dropdown-header">显示列配置</div>
-              <div class="dropdown-content">
-                <label v-for="col in defectColumns" :key="col.key" class="dropdown-item">
-                  <input type="checkbox" :checked="col.visible" @change="toggleDefectColumn(col.key)" />
-                  <span>{{ col.label }}</span>
-                </label>
-              </div>
-            </div>
           </div>
+
+          <ColumnSettingsPanel
+            v-if="showDefectColumnConfig"
+            v-model="defectColumns"
+            :defaults="defectColumnDefaults"
+            title="列设置"
+            @confirm="saveDefectColumnSettings"
+            @cancel="showDefectColumnConfig = false"
+          />
 
           <!-- 排序配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
@@ -2312,23 +2335,28 @@ onMounted(() => {
           <table class="data-table">
             <thead>
               <tr>
-                <th v-if="isDefectColumnVisible('checkbox')" style="width:50px"><input type="checkbox" /></th>
-                <th v-if="isDefectColumnVisible('index')" style="width:60px">序号</th>
-                <th v-if="isDefectColumnVisible('code')">不良品项编号</th>
-                <th v-if="isDefectColumnVisible('name')">不良品项名称</th>
-                <th v-if="isDefectColumnVisible('action')" style="width:120px">操作</th>
+                <template v-for="column in defectColumns.filter(item => item.visible)" :key="column.key">
+                  <th :style="baseDataColumnStyle(defectColumns, column, true)">
+                    <input v-if="column.key === 'checkbox'" type="checkbox" />
+                    <span v-else>{{ column.label }}</span>
+                  </th>
+                </template>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(d, idx) in defectFilteredList" :key="d.id" :class="['defect-row', 'row-height-' + defectRowHeight]">
-                <td v-if="isDefectColumnVisible('checkbox')"><input type="checkbox" /></td>
-                <td v-if="isDefectColumnVisible('index')">{{ idx + 1 }}</td>
-                <td v-if="isDefectColumnVisible('code')">{{ d.code }}</td>
-                <td v-if="isDefectColumnVisible('name')">{{ d.name }}</td>
-                <td v-if="isDefectColumnVisible('action')" class="action-cell">
-                  <button class="action-link" type="button" @click="openEditDefect(d)">编辑</button>
-                  <button class="action-link danger" type="button" @click="handleDeleteDefect(d)">删除</button>
-                </td>
+                <template v-for="column in defectColumns.filter(item => item.visible)" :key="column.key">
+                  <td :class="{ 'action-cell': column.key === 'action' }" :style="baseDataColumnStyle(defectColumns, column)">
+                    <input v-if="column.key === 'checkbox'" type="checkbox" />
+                    <span v-else-if="column.key === 'index'">{{ idx + 1 }}</span>
+                    <span v-else-if="column.key === 'code'">{{ d.code }}</span>
+                    <span v-else-if="column.key === 'name'">{{ d.name }}</span>
+                    <template v-else-if="column.key === 'action'">
+                      <button class="action-link" type="button" @click="openEditDefect(d)">编辑</button>
+                      <button class="action-link danger" type="button" @click="handleDeleteDefect(d)">删除</button>
+                    </template>
+                  </td>
+                </template>
               </tr>
               <tr v-if="defectFilteredList.length === 0">
                 <td :colspan="defectColumns.filter(c => c.visible).length" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
@@ -2436,16 +2464,16 @@ onMounted(() => {
             <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showProcessColumnConfig = !showProcessColumnConfig; showDefaultSOPConfig = false; showProcessRowHeightConfig = false; showProcessSortConfig = false" :class="{ 'active-btn': showProcessColumnConfig }">
               <UiIcon name="table-columns" :size="16" />
             </button>
-            <div v-if="showProcessColumnConfig" class="dropdown-bubble column-config-bubble">
-              <div class="dropdown-header">显示列配置</div>
-              <div class="dropdown-content">
-                <label v-for="col in processColumns" :key="col.key" class="dropdown-item">
-                  <input type="checkbox" :checked="col.visible" @change="toggleProcessColumn(col.key)" />
-                  <span>{{ col.label }}</span>
-                </label>
-              </div>
-            </div>
           </div>
+
+          <ColumnSettingsPanel
+            v-if="showProcessColumnConfig"
+            v-model="processColumns"
+            :defaults="processColumnDefaults"
+            title="列设置"
+            @confirm="saveProcessColumnSettings"
+            @cancel="showProcessColumnConfig = false"
+          />
 
           <!-- 排序配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
@@ -2526,40 +2554,42 @@ onMounted(() => {
           <table class="data-table">
             <thead>
               <tr>
-                <th v-if="isProcessColumnVisible('checkbox')" style="width:40px"><input type="checkbox" /></th>
-                <th v-if="isProcessColumnVisible('index')" style="width:50px">序号</th>
-                <th v-if="isProcessColumnVisible('code')" style="min-width:140px">工序编号</th>
-                <th v-if="isProcessColumnVisible('name')" style="min-width:150px">工序名称</th>
-                <th v-if="isProcessColumnVisible('reportPermission')" style="min-width:200px">报工权限</th>
-                <th v-if="isProcessColumnVisible('reportRatio')" style="min-width:120px">报工数配比</th>
-                <th v-if="isProcessColumnVisible('taskPunchIn')" style="min-width:100px">任务打卡</th>
-                <th v-if="isProcessColumnVisible('action')" class="action-cell" style="min-width:240px">操作</th>
+                <template v-for="column in processColumns.filter(item => item.visible)" :key="column.key">
+                  <th :class="{ 'action-cell': column.key === 'action' }" :style="baseDataColumnStyle(processColumns, column, true)">
+                    <input v-if="column.key === 'checkbox'" type="checkbox" />
+                    <span v-else>{{ column.label }}</span>
+                  </th>
+                </template>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(p, index) in processFilteredList" :key="p.id" :class="['process-row', 'row-height-' + processRowHeight]">
-                <td v-if="isProcessColumnVisible('checkbox')"><input type="checkbox" /></td>
-                <td v-if="isProcessColumnVisible('index')">{{ index + 1 }}</td>
-                <td v-if="isProcessColumnVisible('code')">{{ p.code }}</td>
-                <td v-if="isProcessColumnVisible('name')">{{ p.name }}</td>
-                <td v-if="isProcessColumnVisible('reportPermission')" class="perm-cell">
-                  <template v-for="(tag, ti) in formatPermissionTags(p.reportPermission)" :key="ti">
-                    <span
-                      class="perm-cell-tag"
-                      :class="{ 'perm-partial': tag.partial }"
-                      @mouseenter="tag.tooltip ? showTooltip($event, tag.tooltip) : null"
-                      @mouseleave="hideTooltip"
-                    >{{ tag.label }}</span>
-                  </template>
-                </td>
-                <td v-if="isProcessColumnVisible('reportRatio')">{{ p.reportRatio }}</td>
-                <td v-if="isProcessColumnVisible('taskPunchIn')">{{ p.taskPunchIn ? '开启' : '关闭' }}</td>
-                <td v-if="isProcessColumnVisible('action')" class="action-cell">
-                  <button class="action-link" type="button" @click="openEditProcess(p)">编辑</button>
-                  <button class="action-link" type="button" @click="printProcess(p)">打印</button>
-                  <button class="action-link" type="button" @click="openProcessSop(p)">SOP模版</button>
-                  <button class="action-link danger" type="button" @click="handleDeleteProcess(p)">删除</button>
-                </td>
+                <template v-for="column in processColumns.filter(item => item.visible)" :key="column.key">
+                  <td :class="{ 'perm-cell': column.key === 'reportPermission', 'action-cell': column.key === 'action' }" :style="baseDataColumnStyle(processColumns, column)">
+                    <input v-if="column.key === 'checkbox'" type="checkbox" />
+                    <span v-else-if="column.key === 'index'">{{ index + 1 }}</span>
+                    <span v-else-if="column.key === 'code'">{{ p.code }}</span>
+                    <span v-else-if="column.key === 'name'">{{ p.name }}</span>
+                    <template v-else-if="column.key === 'reportPermission'">
+                      <template v-for="(tag, ti) in formatPermissionTags(p.reportPermission)" :key="ti">
+                        <span
+                          class="perm-cell-tag"
+                          :class="{ 'perm-partial': tag.partial }"
+                          @mouseenter="tag.tooltip ? showTooltip($event, tag.tooltip) : null"
+                          @mouseleave="hideTooltip"
+                        >{{ tag.label }}</span>
+                      </template>
+                    </template>
+                    <span v-else-if="column.key === 'reportRatio'">{{ p.reportRatio }}</span>
+                    <span v-else-if="column.key === 'taskPunchIn'">{{ p.taskPunchIn ? '开启' : '关闭' }}</span>
+                    <template v-else-if="column.key === 'action'">
+                      <button class="action-link" type="button" @click="openEditProcess(p)">编辑</button>
+                      <button class="action-link" type="button" @click="printProcess(p)">打印</button>
+                      <button class="action-link" type="button" @click="openProcessSop(p)">SOP模版</button>
+                      <button class="action-link danger" type="button" @click="handleDeleteProcess(p)">删除</button>
+                    </template>
+                  </td>
+                </template>
               </tr>
               <tr v-if="processFilteredList.length === 0">
                 <td :colspan="processColumns.filter(c => c.visible).length" style="text-align:center;color:#aaa;padding:32px">暂无数据</td>
@@ -2849,16 +2879,16 @@ onMounted(() => {
             <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showRouteColumnConfig = !showRouteColumnConfig" :class="{ 'active-btn': showRouteColumnConfig }">
               <UiIcon name="table-columns" :size="16" />
             </button>
-            <div v-if="showRouteColumnConfig" class="dropdown-bubble column-config-bubble">
-              <div class="dropdown-header">显示列配置</div>
-              <div class="dropdown-content">
-                <label v-for="col in routeColumns" :key="col.key" class="dropdown-item">
-                  <input type="checkbox" :checked="col.visible" @change="toggleRouteColumn(col.key)" />
-                  <span>{{ col.label }}</span>
-                </label>
-              </div>
-            </div>
           </div>
+
+          <ColumnSettingsPanel
+            v-if="showRouteColumnConfig"
+            v-model="routeColumns"
+            :defaults="routeColumnDefaults"
+            title="列设置"
+            @confirm="saveRouteColumnSettings"
+            @cancel="showRouteColumnConfig = false"
+          />
 
           <button class="toolbar-btn" style="margin-left:auto" type="button" @click="showRouteImportLogs = true"><UiIcon name="file" />导入日志</button>
         </div>
@@ -2866,40 +2896,40 @@ onMounted(() => {
           <table class="data-table">
             <thead>
               <tr>
-                <th style="width:40px"><input type="checkbox" /></th>
-                <th v-if="isRouteColumnVisible('code')" style="min-width:150px">工艺路线编号</th>
-                <th v-if="isRouteColumnVisible('name')" style="min-width:180px">工艺路线名称</th>
-                <th v-if="isRouteColumnVisible('steps')" style="min-width:240px">工序/工艺路线列表</th>
-                <th v-if="isRouteColumnVisible('creator')" style="min-width:120px">创建人</th>
-                <th v-if="isRouteColumnVisible('createdAt')" style="min-width:180px">创建时间</th>
-                <th style="min-width:180px">操作</th>
+                <template v-for="column in routeColumns.filter(item => item.visible)" :key="column.key">
+                  <th :class="{ 'action-cell': column.key === 'action' }" :style="baseDataColumnStyle(routeColumns, column, true)">
+                    <input v-if="column.key === 'checkbox'" type="checkbox" />
+                    <span v-else>{{ column.label }}</span>
+                  </th>
+                </template>
               </tr>
             </thead>
-          <tbody>
-            <tr v-for="(r, idx) in routeFilteredList" :key="r.id">
-              <td style="text-align:center">{{ idx + 1 }}</td>
-              <td v-if="isRouteColumnVisible('code')">
-                <a href="#" style="color:var(--accent);text-decoration:none" @click.prevent="openEditRoute(r)">{{ r.code }}</a>
-              </td>
-              <td v-if="isRouteColumnVisible('name')">{{ r.name }}</td>
-              <td v-if="isRouteColumnVisible('steps')" style="color:#586360">
-                {{ r.steps.map(s => getProcessName(s.processId)).filter(Boolean).join('、') || '-' }}
-              </td>
-              <td v-if="isRouteColumnVisible('creator')">{{ r.creator }}</td>
-              <td v-if="isRouteColumnVisible('createdAt')">{{ r.createdAt }}</td>
-              <td style="white-space:nowrap">
-                <button class="link-btn" type="button" @click="openEditRoute(r)" style="margin-right:8px">编辑</button>
-                <button class="link-btn" type="button" style="margin-right:8px">复制</button>
-                <button class="link-btn danger" type="button" @click="confirmDeleteRoute(r)">删除</button>
-              </td>
-            </tr>
-            <tr v-if="routeFilteredList.length === 0">
-              <td :colspan="visibleRouteColumnsCount" style="text-align:center;padding:48px;color:#bbb">
-                <svg viewBox="0 0 64 64" width="40" height="40" style="display:block;margin:0 auto 10px" fill="none"><rect x="8" y="12" width="48" height="40" rx="4" fill="#f2f4f3" stroke="#dde3e0" stroke-width="1.5"/><line x1="18" y1="24" x2="46" y2="24" stroke="#dde3e0" stroke-width="2"/><line x1="18" y1="32" x2="38" y2="32" stroke="#dde3e0" stroke-width="2"/></svg>
-                暂无工艺路线
-              </td>
-            </tr>
-          </tbody>
+            <tbody>
+              <tr v-for="(r, idx) in routeFilteredList" :key="r.id">
+                <template v-for="column in routeColumns.filter(item => item.visible)" :key="column.key">
+                  <td :class="{ 'action-cell': column.key === 'action' }" :style="baseDataColumnStyle(routeColumns, column)">
+                    <input v-if="column.key === 'checkbox'" type="checkbox" />
+                    <span v-else-if="column.key === 'index'">{{ idx + 1 }}</span>
+                    <a v-else-if="column.key === 'code'" href="#" style="color:var(--accent);text-decoration:none" @click.prevent="openEditRoute(r)">{{ r.code }}</a>
+                    <span v-else-if="column.key === 'name'">{{ r.name }}</span>
+                    <span v-else-if="column.key === 'steps'" style="color:var(--text-secondary)">{{ r.steps.map(s => getProcessName(s.processId)).filter(Boolean).join('、') || '-' }}</span>
+                    <span v-else-if="column.key === 'creator'">{{ r.creator }}</span>
+                    <span v-else-if="column.key === 'createdAt'">{{ r.createdAt }}</span>
+                    <template v-else-if="column.key === 'action'">
+                      <button class="link-btn" type="button" @click="openEditRoute(r)" style="margin-right:8px">编辑</button>
+                      <button class="link-btn" type="button" style="margin-right:8px">复制</button>
+                      <button class="link-btn danger" type="button" @click="confirmDeleteRoute(r)">删除</button>
+                    </template>
+                  </td>
+                </template>
+              </tr>
+              <tr v-if="routeFilteredList.length === 0">
+                <td :colspan="visibleRouteColumnsCount" style="text-align:center;padding:48px;color:#bbb">
+                  <svg viewBox="0 0 64 64" width="40" height="40" style="display:block;margin:0 auto 10px" fill="none"><rect x="8" y="12" width="48" height="40" rx="4" fill="#f2f4f3" stroke="#dde3e0" stroke-width="1.5"/><line x1="18" y1="24" x2="46" y2="24" stroke="#dde3e0" stroke-width="2"/><line x1="18" y1="32" x2="38" y2="32" stroke="#dde3e0" stroke-width="2"/></svg>
+                  暂无工艺路线
+                </td>
+              </tr>
+            </tbody>
         </table>
       </div>
 
