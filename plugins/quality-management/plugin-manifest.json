@@ -1,0 +1,12 @@
+{
+  "pluginKey": "quality-management",
+  "name": "质量管理",
+  "runtimeMode": "IFRAME",
+  "frontendEntry": "http://127.0.0.1:9101/",
+  "backendUrl": "http://127.0.0.1:9101",
+  "healthUrl": "/actuator/health",
+  "requiredRoles": ["ADMIN", "PRODUCTION"],
+  "menus": [
+    { "label": "质量管理", "icon": "activity", "path": "/" }
+  ]
+}

@@ -133,6 +133,6 @@ public class PluginControlController {
         AuthenticatedUser currentUser = tokenService.requireUser(authorization);
         String currentRole = role == null ? currentUser.getRole().name() : role;
         return ResponseEntity.ok(pluginControlService.runtimeManifest(
-                currentUser.getFactoryId(), currentRole));
+                currentUser.getFactoryId(), currentRole, currentUser.getUserId()));
     }
 }

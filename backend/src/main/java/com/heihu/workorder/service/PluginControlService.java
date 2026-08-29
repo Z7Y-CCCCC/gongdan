@@ -90,11 +90,12 @@ public class PluginControlService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(cacheNames = "platform.plugins.runtime", key = "#factoryId + ':' + #role")
-    public List<PluginRuntimeManifestResponse> runtimeManifest(Long factoryId, String role) {
+    @Cacheable(cacheNames = "platform.plugins.runtime", key = "#factoryId + ':' + #role + ':' + #userId")
+    public List<PluginRuntimeManifestResponse> runtimeManifest(Long factoryId, String role, Long userId) {
         List<PluginRuntimeManifestResponse> result = new ArrayList<>();
         for (FactoryPlugin binding : factoryPluginRepository.findByFactoryId(factoryId)) {
-            if (!"ENABLED".equals(binding.getStatus()) || !StringUtils.hasText(binding.getEnabledVersion())) {
+            if (!"ENABLED".equals(binding.getStatus()) || "DOWN".equals(binding.getHealthStatus())
+                    || !StringUtils.hasText(binding.getEnabledVersion())) {
                 continue;
             }
             PluginCatalog catalog = catalogRepository.findById(binding.getPluginId()).orElse(null);
@@ -107,7 +108,7 @@ public class PluginControlService {
             }
             JsonNode manifest = parseManifest(StringUtils.hasText(version.getManifestJson())
                     ? version.getManifestJson() : catalog.getManifestJson());
-            if (!roleAllowed(manifest, role)) {
+            if (!roleAllowed(manifest, role) || !inRollout(binding, factoryId, catalog.getPluginKey(), userId)) {
                 continue;
             }
             PluginRuntimeManifestResponse item = new PluginRuntimeManifestResponse();
@@ -119,6 +120,72 @@ public class PluginControlService {
             result.add(item);
         }
         return result;
+    }
+
+    /**
+     * Keeps the two-argument service call source-compatible for internal tools that do
+     * not have a user id. User-facing controllers should pass the authenticated id so
+     * rollout assignment remains stable per user.
+     */
+    @Transactional(readOnly = true)
+    public List<PluginRuntimeManifestResponse> runtimeManifest(Long factoryId, String role) {
+        return runtimeManifest(factoryId, role, null);
+    }
+
+    @Transactional(readOnly = true)
+    public PluginTarget resolveBackendTarget(Long factoryId, Long userId, String role, String pluginKey) {
+        PluginCatalog catalog = findCatalog(pluginKey);
+        FactoryPlugin binding = factoryPluginRepository.findByFactoryIdAndPluginId(factoryId, catalog.getId())
+                .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "插件未在当前工厂启用"));
+        if (!"ENABLED".equals(binding.getStatus()) || !StringUtils.hasText(binding.getEnabledVersion())) {
+            throw new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "插件未在当前工厂启用");
+        }
+        if (!"ACTIVE".equals(catalog.getStatus())) {
+            throw new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "插件已下线");
+        }
+        PluginVersion version = versionRepository.findByPluginIdAndVersion(catalog.getId(), binding.getEnabledVersion())
+                .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "插件版本不存在"));
+        if (!"READY".equals(version.getStatus())) {
+            throw new ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "插件版本尚未就绪");
+        }
+        JsonNode manifest = parseManifest(StringUtils.hasText(version.getManifestJson())
+                ? version.getManifestJson() : catalog.getManifestJson());
+        if (!roleAllowed(manifest, role) || !inRollout(binding, factoryId, catalog.getPluginKey(), userId)) {
+            throw new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "当前账号未命中插件灰度范围");
+        }
+        if ("BUILT_IN".equals(catalog.getRuntimeMode())) {
+            throw new ApiException(org.springframework.http.HttpStatus.CONFLICT, "内置插件不需要远程代理");
+        }
+        String backendUrl = text(manifest, "backendUrl");
+        if (!StringUtils.hasText(backendUrl)) {
+            throw new ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "插件尚未配置 backendUrl");
+        }
+        try {
+            URI target = URI.create(trimTrailingSlash(backendUrl));
+            if (!("http".equalsIgnoreCase(target.getScheme()) || "https".equalsIgnoreCase(target.getScheme()))
+                    || !StringUtils.hasText(target.getHost())) {
+                throw new IllegalArgumentException("backendUrl 必须是带主机的 HTTP(S) 地址");
+            }
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件 backendUrl 配置不正确");
+        }
+        return new PluginTarget(catalog.getPluginKey(), version.getVersion(), trimTrailingSlash(backendUrl));
+    }
+
+    public static final class PluginTarget {
+        private final String pluginKey;
+        private final String version;
+        private final String backendUrl;
+
+        public PluginTarget(String pluginKey, String version, String backendUrl) {
+            this.pluginKey = pluginKey;
+            this.version = version;
+            this.backendUrl = backendUrl;
+        }
+
+        public String getPluginKey() { return pluginKey; }
+        public String getVersion() { return version; }
+        public String getBackendUrl() { return backendUrl; }
     }
 
     @CacheEvict(cacheNames = {"platform.plugins.list", "platform.plugins.runtime"}, allEntries = true)
@@ -295,6 +362,15 @@ public class PluginControlService {
 
     @CacheEvict(cacheNames = {"platform.plugins.list", "platform.plugins.runtime"}, allEntries = true)
     public PluginCatalogResponse refreshHealth(Long factoryId, String operator, String pluginKey) {
+        return refreshHealthInternal(factoryId, operator, pluginKey, true);
+    }
+
+    @CacheEvict(cacheNames = {"platform.plugins.list", "platform.plugins.runtime"}, allEntries = true)
+    public PluginCatalogResponse refreshHealthSystem(Long factoryId, String pluginKey) {
+        return refreshHealthInternal(factoryId, "SYSTEM", pluginKey, false);
+    }
+
+    private PluginCatalogResponse refreshHealthInternal(Long factoryId, String operator, String pluginKey, boolean writeAudit) {
         PluginCatalog catalog = findCatalog(pluginKey);
         FactoryPlugin binding = factoryPluginRepository.findByFactoryIdAndPluginId(factoryId, catalog.getId())
                 .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "当前工厂尚未安装该插件"));
@@ -337,7 +413,9 @@ public class PluginControlService {
         binding.setLastHealthAt(LocalDateTime.now());
         binding.setUpdatedAt(LocalDateTime.now());
         factoryPluginRepository.save(binding);
-        audit(factoryId, operator, "PLUGIN_HEALTH_REFRESH", catalog.getPluginKey(), binding.getHealthStatus(), "刷新插件健康状态");
+        if (writeAudit) {
+            audit(factoryId, operator, "PLUGIN_HEALTH_REFRESH", catalog.getPluginKey(), binding.getHealthStatus(), "刷新插件健康状态");
+        }
         return toResponse(catalog, binding);
     }
 
@@ -420,6 +498,15 @@ public class PluginControlService {
             if (role.equalsIgnoreCase(item.asText())) return true;
         }
         return false;
+    }
+
+    private boolean inRollout(FactoryPlugin binding, Long factoryId, String pluginKey, Long userId) {
+        Integer rollout = binding.getRolloutPercent() == null ? 100 : binding.getRolloutPercent();
+        if (rollout >= 100) return true;
+        if (rollout <= 0) return false;
+        String subject = factoryId + ":" + (userId == null ? "anonymous" : userId) + ":" + pluginKey;
+        int bucket = Math.floorMod(subject.hashCode(), 100);
+        return bucket < rollout;
     }
 
     private JsonNode parseManifest(String raw) {

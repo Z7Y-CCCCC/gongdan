@@ -111,6 +111,19 @@ services:
     ports:
       - "${FRONTEND_PORT:-8080}:80"
 
+  quality-plugin:
+    profiles: ["plugins"]
+    build:
+      context: ./plugins/quality-management
+    restart: unless-stopped
+    ports:
+      - "${QUALITY_PLUGIN_PORT:-9101}:9101"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9101/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
 volumes:
   db-data:
   redis-data:
