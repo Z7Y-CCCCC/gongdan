@@ -555,7 +555,7 @@ button {
 
 .nav-item.expanded {
   color: var(--text-primary);
-  font-weight: 700;
+  font-weight: 400;
 }
 
 .sub-item {
