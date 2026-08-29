@@ -236,6 +236,9 @@ onBeforeUnmount(() => {
             <div class="internal-chat-message-stack">
               <span class="internal-chat-message-time">{{ formatTime(message.createdAt, true) }}</span>
               <div class="internal-chat-bubble">{{ message.content }}</div>
+              <span v-if="isMine(message)" class="internal-chat-message-read-state" :class="{ read: message.read }">
+                {{ message.read ? '已读' : '未读' }}
+              </span>
             </div>
           </div>
         </template>
@@ -401,6 +404,8 @@ onBeforeUnmount(() => {
 .internal-chat-message-time { color: #9aa6a2; font-size: 10px; }
 .internal-chat-bubble { padding: 10px 13px; border: 1px solid #e0e8e4; border-radius: 4px 12px 12px 12px; color: #32413c; background: #fff; font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; box-shadow: 0 2px 8px rgba(32, 60, 48, .04); }
 .mine .internal-chat-bubble { border-color: #1aab83; border-radius: 12px 4px 12px 12px; color: #fff; background: #1aab83; }
+.internal-chat-message-read-state { color: #a0aaa6; font-size: 10px; line-height: 1; }
+.internal-chat-message-read-state.read { color: #18a77d; }
 
 .internal-chat-empty { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #8d9a95; text-align: center; }
 .internal-chat-empty.full { flex: 1; }
