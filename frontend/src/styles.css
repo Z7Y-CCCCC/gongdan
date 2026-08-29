@@ -5242,6 +5242,22 @@ button:active:not(:disabled),
   min-height: 100vh;
 }
 
+/* The IM route is a dedicated window, so it must not inherit workbench chrome. */
+.admin-shell.internal-chat-window-shell {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #f7f9f8;
+}
+
+.internal-chat-window-shell .internal-chat-page {
+  width: 100%;
+  height: 100vh !important;
+  min-height: 100vh !important;
+}
+
 /* Full system theme. Child pages use a mixture of shared and scoped styles, so these
    surface rules intentionally sit at the end of the stylesheet to keep the switch coherent. */
 :root.dark {

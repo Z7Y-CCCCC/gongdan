@@ -103,6 +103,7 @@ const sharedAuth = useAuth()
 
 const token = ref(localStorage.getItem('heihu_token') || '')
 const currentUser = ref<UserInfo | null>(readStoredUser())
+const isInternalChatWindow = ref(['#/message-center', '#/im-chat'].includes(window.location.hash))
 const isSuperAdmin = ref(localStorage.getItem('heihu_is_super_admin') === 'true')
 const users = ref<UserInfo[]>([])
 const loading = ref(false)
@@ -200,7 +201,7 @@ function createWorkspaceLoadingStages(): WorkspaceLoadingStage[] {
 }
 
 const workspaceLoadingStages = ref<WorkspaceLoadingStage[]>(createWorkspaceLoadingStages())
-const workspaceLoadingVisible = ref(Boolean(token.value && currentUser.value))
+const workspaceLoadingVisible = ref(Boolean(token.value && currentUser.value && !isInternalChatWindow.value))
 const workspaceLoadingProgress = ref(workspaceLoadingVisible.value ? 4 : 0)
 const workspaceLoadingStage = ref(workspaceLoadingVisible.value ? '正在恢复登录会话' : '')
 const workspaceLoadingError = ref('')
@@ -231,7 +232,6 @@ const workspaceSearchInput = ref<HTMLInputElement | null>(null)
 const isWorkspaceMaximized = ref(false)
 const isAppFullscreen = ref(false)
 const isDarkTheme = ref(localStorage.getItem('heihu_theme') === 'dark')
-const isInternalChatWindow = ref(['#/message-center', '#/im-chat'].includes(window.location.hash))
 const timezoneOptions = [
   { value: 'America/New_York', label: 'America/New_York (GMT-5)' },
   { value: 'Europe/London', label: 'Europe/London (GMT0)' },
@@ -2727,7 +2727,7 @@ function logout() {
 }
 
 onMounted(() => {
-  if (token.value && currentUser.value) {
+  if (token.value && currentUser.value && !isInternalChatWindow.value) {
     // 页面刷新后默认进入主页仪表盘，并显示可诊断的初始化进度。
     activeMainMenu.value = 'home'
     void bootstrapWorkspace()
@@ -2950,7 +2950,14 @@ function handleNavigate(menu: { main: string; sub: string }) {
     </section>
   </main>
 
-  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'app-fullscreen': isAppFullscreen, 'dark-theme': isDarkTheme, 'internal-chat-shell': isInternalChatWindow }">
+  <main v-else-if="isInternalChatWindow" class="admin-shell internal-chat-window-shell" :class="{ 'dark-theme': isDarkTheme }">
+    <InternalChatPage
+      :token="token"
+      :current-user="currentUser"
+    />
+  </main>
+
+  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'app-fullscreen': isAppFullscreen, 'dark-theme': isDarkTheme }">
     <aside class="sidebar">
       <button class="collapse-toggle" type="button" @click="isSidebarCollapsed = !isSidebarCollapsed">
         <svg v-if="!isSidebarCollapsed" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
@@ -3406,12 +3413,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
       </section>
 
       <div ref="pageMotionStage" class="page-motion-stage">
-        <InternalChatPage
-          v-if="isInternalChatWindow"
-          :token="token"
-          :current-user="currentUser"
-        />
-        <KeepAlive v-else :max="32">
+        <KeepAlive :max="32">
           <HomeDashboardPage
             v-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
             key="home"
@@ -5297,7 +5299,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
   </div>
 
   <LoadingProgressOverlay
-    :visible="workspaceLoadingVisible"
+    :visible="workspaceLoadingVisible && !isInternalChatWindow"
     :progress="workspaceLoadingProgress"
     :stage="workspaceLoadingStage"
     :stages="workspaceLoadingStages"
