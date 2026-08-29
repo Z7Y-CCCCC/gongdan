@@ -14,6 +14,7 @@ import {
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import UiIcon from './UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 type BomFormItem = {
   productId: number | ''
@@ -242,10 +243,11 @@ onMounted(loadData)
     <div class="toolbar">
       <button class="primary-btn" type="button" @click="openCreate"><UiIcon name="plus" />新建物料清单</button>
       <span class="muted">共 {{ total }} 个BOM</span>
+      <TableConfigButton table-id="bom-list-table" />
     </div>
 
     <div class="table-container">
-      <table class="data-table">
+      <table id="bom-list-table" class="data-table">
         <thead>
           <tr>
             <th style="width:70px">序号</th>
@@ -328,10 +330,13 @@ onMounted(loadData)
 
           <div class="bom-detail-header">
             <h3>子件明细</h3>
-            <button class="ghost-btn" type="button" @click="addItem"><UiIcon name="plus" />添加子件</button>
+            <div class="bom-detail-actions">
+              <TableConfigButton table-id="bom-item-table" />
+              <button class="ghost-btn" type="button" @click="addItem"><UiIcon name="plus" />添加子件</button>
+            </div>
           </div>
           <div class="table-container compact-table">
-            <table class="data-table">
+            <table id="bom-item-table" class="data-table">
               <thead>
                 <tr>
                   <th style="width:40%">子件</th>

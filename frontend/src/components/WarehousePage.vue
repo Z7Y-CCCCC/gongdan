@@ -9,6 +9,7 @@ import {
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
+import TableConfigButton from './TableConfigButton.vue'
 import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
@@ -137,10 +138,11 @@ onMounted(loadData)
     <div class="toolbar">
       <button class="primary-btn" type="button" @click="openCreate"><UiIcon name="plus" />新建仓库</button>
       <span class="muted">共 {{ total }} 个仓库</span>
+      <TableConfigButton table-id="warehouse-list-table" />
     </div>
 
     <div class="table-container">
-      <table class="data-table">
+      <table id="warehouse-list-table" class="data-table">
         <thead>
           <tr>
             <th style="width:70px">序号</th>

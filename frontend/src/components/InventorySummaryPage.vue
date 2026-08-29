@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchInventoryDetails, type InventoryDetailInfo } from '../api'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -303,10 +304,11 @@ onMounted(loadData)
         </svg>
         导出
       </button>
+      <TableConfigButton table-id="inventory-summary-table" />
     </div>
 
     <div class="table-container">
-      <table class="data-table">
+      <table id="inventory-summary-table" class="data-table">
         <thead>
           <tr>
             <th class="sortable" @click="toggleSort('productCode')">产品编号</th>

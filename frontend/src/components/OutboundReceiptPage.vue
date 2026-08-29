@@ -13,6 +13,7 @@ import {
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -540,19 +541,8 @@ onMounted(() => {
         </button>
 
         <div style="margin-left: auto; display:flex; gap: 8px;">
-          <button class="text-btn" type="button" style="color:#586360;" @click="showColumnConfig = true">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-              <line x1="4" y1="21" x2="4" y2="14"></line>
-              <line x1="4" y1="10" x2="4" y2="3"></line>
-              <line x1="12" y1="21" x2="12" y2="12"></line>
-              <line x1="12" y1="8" x2="12" y2="3"></line>
-              <line x1="20" y1="21" x2="20" y2="16"></line>
-              <line x1="20" y1="12" x2="20" y2="3"></line>
-              <line x1="1" y1="14" x2="7" y2="14"></line>
-              <line x1="9" y1="8" x2="15" y2="8"></line>
-              <line x1="17" y1="16" x2="23" y2="16"></line>
-            </svg>
-            列配置
+          <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true">
+            <UiIcon name="columns" :size="16" />
           </button>
         </div>
       </div>
@@ -696,9 +686,8 @@ onMounted(() => {
         </button>
 
         <div style="margin-left: auto">
-          <button class="text-btn" type="button" style="color:#586360;" @click="showItemColumnConfig = true">
-            <UiIcon name="columns" />
-            列配置
+          <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showItemColumnConfig = true">
+            <UiIcon name="columns" :size="16" />
           </button>
         </div>
       </div>
@@ -821,9 +810,12 @@ onMounted(() => {
               <span style="color:#1e2724">{{ getReceiptCustomValue(activeReceipt, field.id) }}</span>
             </div>
           </div>
-          <h4 style="margin:0 0 12px;font-size:14px;font-weight:600">出库物料明细</h4>
+          <div class="order-detail-header">
+            <h4 style="margin:0;font-size:14px;font-weight:600">出库物料明细</h4>
+            <TableConfigButton table-id="outbound-readonly-item-table" />
+          </div>
           <div class="table-container">
-            <table class="data-table">
+            <table id="outbound-readonly-item-table" class="data-table">
               <thead>
                 <tr>
                   <th style="width:50px">序号</th>

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { fetchReports, fetchWorkOrders, type WorkOrderInfo, type WorkOrderReportInfo } from '../api'
 import UiIcon from './UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -123,8 +124,8 @@ onMounted(loadData)
 
     <div v-else class="report-grid">
       <div class="report-panel">
-        <div class="panel-title">产品产出排行</div>
-        <table class="data-table compact-table">
+        <div class="panel-title report-panel-heading"><span>产品产出排行</span><TableConfigButton table-id="report-product-table" /></div>
+        <table id="report-product-table" class="data-table compact-table">
           <thead>
             <tr>
               <th>产品</th>
@@ -148,8 +149,8 @@ onMounted(loadData)
       </div>
 
       <div class="report-panel">
-        <div class="panel-title">人员产出排行</div>
-        <table class="data-table compact-table">
+        <div class="panel-title report-panel-heading"><span>人员产出排行</span><TableConfigButton table-id="report-worker-table" /></div>
+        <table id="report-worker-table" class="data-table compact-table">
           <thead>
             <tr>
               <th>报工人</th>
@@ -174,8 +175,8 @@ onMounted(loadData)
     </div>
 
     <div class="report-panel">
-      <div class="panel-title">最近报工</div>
-      <table class="data-table compact-table">
+      <div class="panel-title report-panel-heading"><span>最近报工</span><TableConfigButton table-id="report-latest-table" /></div>
+      <table id="report-latest-table" class="data-table compact-table">
         <thead>
           <tr>
             <th>工单编号</th>
@@ -282,6 +283,13 @@ onMounted(loadData)
   color: #1f2d2a;
   font-size: 14px;
   font-weight: 600;
+}
+
+.report-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .compact-table th,

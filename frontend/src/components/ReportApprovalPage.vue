@@ -9,6 +9,7 @@ import {
   type WorkOrderReportInfo
 } from '../api'
 import UiIcon from './UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -169,10 +170,11 @@ onBeforeUnmount(revokeImageObjectUrls)
         刷新
       </button>
       <span class="muted">审批通过后才会同步更新工单工序进度</span>
+      <TableConfigButton table-id="report-approval-list-table" />
     </div>
 
     <div class="table-container">
-      <table class="data-table">
+      <table id="report-approval-list-table" class="data-table">
         <thead>
           <tr>
             <th style="width:70px">序号</th>

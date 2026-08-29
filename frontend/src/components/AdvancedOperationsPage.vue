@@ -34,7 +34,8 @@
     </div>
 
     <div v-if="activeTab === 'SOP'" class="table-container">
-      <table class="data-table">
+      <div class="table-config-line"><TableConfigButton table-id="advanced-sop-table" /></div>
+      <table id="advanced-sop-table" class="data-table">
         <thead>
           <tr>
             <th>文档名称</th>
@@ -69,7 +70,8 @@
     </div>
 
     <div v-else-if="activeTab === 'MESSAGE'" class="table-container">
-      <table class="data-table">
+      <div class="table-config-line"><TableConfigButton table-id="advanced-message-table" /></div>
+      <table id="advanced-message-table" class="data-table">
         <thead>
           <tr>
             <th>推送名称</th>
@@ -99,7 +101,8 @@
     </div>
 
     <div v-else-if="activeTab === 'QUALITY'" class="table-container">
-      <table class="data-table">
+      <div class="table-config-line"><TableConfigButton table-id="advanced-quality-table" /></div>
+      <table id="advanced-quality-table" class="data-table">
         <thead>
           <tr>
             <th>问题标题</th>
@@ -132,7 +135,8 @@
     </div>
 
     <div v-else-if="activeTab === 'EQUIPMENT'" class="table-container">
-      <table class="data-table">
+      <div class="table-config-line"><TableConfigButton table-id="advanced-equipment-table" /></div>
+      <table id="advanced-equipment-table" class="data-table">
         <thead>
           <tr>
             <th>设备/工位</th>
@@ -192,8 +196,9 @@
         <div class="section-heading">
           <strong>计件规则</strong>
           <span>按工序名称匹配，未匹配时单价为 0。</span>
+          <TableConfigButton table-id="advanced-payroll-rules-table" />
         </div>
-        <table class="data-table">
+        <table id="advanced-payroll-rules-table" class="data-table">
           <thead>
             <tr>
               <th>规则</th>
@@ -224,8 +229,9 @@
         <div class="section-heading">
           <strong>绩效核算</strong>
           <span>基于最近 500 条报工记录估算。</span>
+          <TableConfigButton table-id="advanced-payroll-result-table" />
         </div>
-        <table class="data-table">
+        <table id="advanced-payroll-result-table" class="data-table">
           <thead>
             <tr>
               <th>员工</th>
@@ -250,7 +256,8 @@
     </div>
 
     <div v-else-if="activeTab === 'FIELD_EVENT'" class="table-container">
-      <table class="data-table">
+      <div class="table-config-line"><TableConfigButton table-id="advanced-field-event-table" /></div>
+      <table id="advanced-field-event-table" class="data-table">
         <thead>
           <tr>
             <th>现场事件</th>
@@ -390,6 +397,7 @@ import {
   type WorkOrderReportInfo
 } from '../api'
 import UiIcon from './UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ (e: 'notice', message: string): void }>()

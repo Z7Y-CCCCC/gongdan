@@ -13,6 +13,7 @@ import {
   type MonitorCacheRecoveryInfo
 } from '../api'
 import UiIcon from './UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -152,9 +153,9 @@ onMounted(loadNames)
 
     <div class="cache-list-layout">
       <section class="monitor-panel cache-column">
-        <div class="monitor-panel-head"><div><UiIcon name="list" :size="16" /><strong>缓存列表</strong></div><button class="icon-btn" title="刷新缓存名称" type="button" @click="loadNames"><UiIcon name="refresh" :size="14" /></button></div>
+        <div class="monitor-panel-head"><div><UiIcon name="list" :size="16" /><strong>缓存列表</strong></div><span class="monitor-panel-actions"><TableConfigButton table-id="cache-names-table" /><button class="icon-btn" title="刷新缓存名称" type="button" @click="loadNames"><UiIcon name="refresh" :size="14" /></button></span></div>
         <div class="monitor-inner-table">
-          <table class="data-table compact-table"><thead><tr><th>序号</th><th>缓存名称</th><th>备注</th><th>数量</th><th>操作</th></tr></thead>
+          <table id="cache-names-table" class="data-table compact-table"><thead><tr><th>序号</th><th>缓存名称</th><th>备注</th><th>数量</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="(item, index) in cacheNames" :key="item.cacheName" :class="{ selected: selectedCacheName === item.cacheName }" @click="selectCache(item.cacheName)">
                 <td>{{ index + 1 }}</td><td class="strong-text">{{ item.cacheName }}</td><td>{{ item.remark }}</td><td>{{ item.keyCount }}</td>
@@ -168,10 +169,10 @@ onMounted(loadNames)
       </section>
 
       <section class="monitor-panel cache-column">
-        <div class="monitor-panel-head"><div><UiIcon name="layers" :size="16" /><strong>键名列表</strong></div><button class="icon-btn" title="刷新缓存键" type="button" :disabled="!selectedCacheName" @click="selectCache(selectedCacheName)"><UiIcon name="refresh" :size="14" /></button></div>
+        <div class="monitor-panel-head"><div><UiIcon name="layers" :size="16" /><strong>键名列表</strong></div><span class="monitor-panel-actions"><TableConfigButton table-id="cache-keys-table" /><button class="icon-btn" title="刷新缓存键" type="button" :disabled="!selectedCacheName" @click="selectCache(selectedCacheName)"><UiIcon name="refresh" :size="14" /></button></span></div>
         <div class="selected-cache-hint">{{ selectedCacheName || '请先选择缓存名称' }}</div>
         <div class="monitor-inner-table">
-          <table class="data-table compact-table"><thead><tr><th>序号</th><th>缓存键名</th><th>操作</th></tr></thead>
+          <table id="cache-keys-table" class="data-table compact-table"><thead><tr><th>序号</th><th>缓存键名</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="(key, index) in cacheKeys" :key="key" :class="{ selected: selectedCacheKey === key }" @click="selectKey(key)">
                 <td>{{ index + 1 }}</td><td class="mono-text">{{ key }}</td><td><button class="icon-btn danger" title="清理缓存键" type="button" @click.stop="clearKey(key)"><UiIcon name="trash" :size="14" /></button></td>

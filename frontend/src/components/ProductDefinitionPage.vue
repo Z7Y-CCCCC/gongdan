@@ -22,6 +22,7 @@ import {
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -344,8 +345,6 @@ const productColumns = ref([
   { key: 'supplierName', label: '默认供应商', visible: true },
   { key: 'action', label: '操作', visible: true }
 ])
-const showProductColumnConfig = ref(false)
-
 const productRowHeight = ref<'compact' | 'default' | 'relaxed'>('default')
 const showProductRowHeightConfig = ref(false)
 
@@ -387,11 +386,6 @@ const productImportProgress = reactive({ total: 0, current: 0, success: 0, fail:
 
 function isProductColumnVisible(key: string) {
   return productColumns.value.find(c => c.key === key)?.visible ?? true
-}
-
-function toggleProductColumn(key: string) {
-  const col = productColumns.value.find(c => c.key === key)
-  if (col) col.visible = !col.visible
 }
 
 function handleExportProducts() {
@@ -679,26 +673,11 @@ onMounted(loadData)
         </button>
         <input type="file" ref="productFileInput" style="display:none" accept=".csv" @change="handleImportProducts" />
 
-        <!-- 字段配置下拉菜单 -->
-        <div class="toolbar-dropdown-container">
-          <button class="toolbar-btn" type="button" @click="showProductColumnConfig = !showProductColumnConfig; showProductRowHeightConfig = false; showProductSortConfig = false" :class="{ 'active-btn': showProductColumnConfig }">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            字段配置
-          </button>
-          <div v-if="showProductColumnConfig" class="dropdown-bubble column-config-bubble">
-            <div class="dropdown-header">显示列配置</div>
-            <div class="dropdown-content">
-              <label v-for="col in productColumns" :key="col.key" class="dropdown-item">
-                <input type="checkbox" :checked="col.visible" @change="toggleProductColumn(col.key)" />
-                <span>{{ col.label }}</span>
-              </label>
-            </div>
-          </div>
-        </div>
+        <TableConfigButton table-id="product-list-table" />
 
         <!-- 排序配置下拉菜单 -->
         <div class="toolbar-dropdown-container">
-          <button class="toolbar-btn" type="button" @click="showProductSortConfig = !showProductSortConfig; showProductColumnConfig = false; showProductRowHeightConfig = false" :class="{ 'active-btn': showProductSortConfig }">
+          <button class="toolbar-btn" type="button" @click="showProductSortConfig = !showProductSortConfig; showProductRowHeightConfig = false" :class="{ 'active-btn': showProductSortConfig }">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
             排序
           </button>
@@ -753,7 +732,7 @@ onMounted(loadData)
 
         <!-- 行高配置下拉菜单 -->
         <div class="toolbar-dropdown-container">
-          <button class="toolbar-btn" type="button" @click="showProductRowHeightConfig = !showProductRowHeightConfig; showProductColumnConfig = false; showProductSortConfig = false" :class="{ 'active-btn': showProductRowHeightConfig }">
+          <button class="toolbar-btn" type="button" @click="showProductRowHeightConfig = !showProductRowHeightConfig; showProductSortConfig = false" :class="{ 'active-btn': showProductRowHeightConfig }">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
             行高
           </button>
@@ -787,7 +766,7 @@ onMounted(loadData)
       </div>
 
       <div class="table-container">
-        <table class="data-table">
+        <table id="product-list-table" class="data-table">
           <thead>
             <tr>
               <th v-if="isProductColumnVisible('checkbox')" style="width:50px"><input type="checkbox" /></th>

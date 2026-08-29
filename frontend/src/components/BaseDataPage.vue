@@ -18,6 +18,7 @@ import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
+import TableConfigButton from '@/components/TableConfigButton.vue'
 
 const { visible: deleteVisible, title: deleteTitle, message: deleteMessage, loading: deleteLoading, confirm: deleteConfirm, handleConfirm: deleteHandleConfirm, handleCancel: deleteHandleCancel } = useDeleteConfirm()
 
@@ -2044,9 +2045,8 @@ onMounted(() => {
 
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
-            <button class="toolbar-btn" type="button" @click="showUnitColumnConfig = !showUnitColumnConfig; showUnitRowHeightConfig = false; showUnitSortConfig = false" :class="{ 'active-btn': showUnitColumnConfig }">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-              字段配置
+            <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showUnitColumnConfig = !showUnitColumnConfig; showUnitRowHeightConfig = false; showUnitSortConfig = false" :class="{ 'active-btn': showUnitColumnConfig }">
+              <UiIcon name="columns" :size="16" />
             </button>
             <div v-if="showUnitColumnConfig" class="dropdown-bubble column-config-bubble">
               <div class="dropdown-header">显示列配置</div>
@@ -2223,9 +2223,8 @@ onMounted(() => {
 
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
-            <button class="toolbar-btn" type="button" @click="showDefectColumnConfig = !showDefectColumnConfig; showDefectRowHeightConfig = false; showDefectSortConfig = false" :class="{ 'active-btn': showDefectColumnConfig }">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-              字段配置
+            <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showDefectColumnConfig = !showDefectColumnConfig; showDefectRowHeightConfig = false; showDefectSortConfig = false" :class="{ 'active-btn': showDefectColumnConfig }">
+              <UiIcon name="columns" :size="16" />
             </button>
             <div v-if="showDefectColumnConfig" class="dropdown-bubble column-config-bubble">
               <div class="dropdown-header">显示列配置</div>
@@ -2434,9 +2433,8 @@ onMounted(() => {
 
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
-            <button class="toolbar-btn" type="button" @click="showProcessColumnConfig = !showProcessColumnConfig; showDefaultSOPConfig = false; showProcessRowHeightConfig = false; showProcessSortConfig = false" :class="{ 'active-btn': showProcessColumnConfig }">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-              字段配置
+            <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showProcessColumnConfig = !showProcessColumnConfig; showDefaultSOPConfig = false; showProcessRowHeightConfig = false; showProcessSortConfig = false" :class="{ 'active-btn': showProcessColumnConfig }">
+              <UiIcon name="columns" :size="16" />
             </button>
             <div v-if="showProcessColumnConfig" class="dropdown-bubble column-config-bubble">
               <div class="dropdown-header">显示列配置</div>
@@ -2848,9 +2846,8 @@ onMounted(() => {
           
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
-            <button class="toolbar-btn" type="button" @click="showRouteColumnConfig = !showRouteColumnConfig" :class="{ 'active-btn': showRouteColumnConfig }">
-              <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-              字段配置
+            <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showRouteColumnConfig = !showRouteColumnConfig" :class="{ 'active-btn': showRouteColumnConfig }">
+              <UiIcon name="columns" :size="16" />
             </button>
             <div v-if="showRouteColumnConfig" class="dropdown-bubble column-config-bubble">
               <div class="dropdown-header">显示列配置</div>
@@ -2960,16 +2957,13 @@ onMounted(() => {
                   <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   添加一行
                 </button>
-                <button type="button" class="toolbar-btn" style="height:32px;font-size:13px">
-                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-                  字段配置
-                </button>
+                <TableConfigButton table-id="base-route-steps-table" />
               </div>
             </div>
 
             <!-- 工序表格 -->
             <div class="collect-wrap route-steps-wrap" style="overflow: visible;">
-              <table class="collect-table route-steps-table">
+              <table id="base-route-steps-table" class="collect-table route-steps-table">
                 <thead>
                   <tr>
                     <th style="width:36px"></th>

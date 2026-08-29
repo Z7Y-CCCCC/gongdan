@@ -4555,6 +4555,43 @@ button:active:not(:disabled),
   transition: color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 
+.table-config-control {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+
+.table-config-line {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 10px 0;
+}
+
+.modal-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bom-detail-actions,
+.order-detail-actions,
+.work-order-progress__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.work-order-progress__title-row {
+  justify-content: space-between;
+}
+
+.table-config-trigger[aria-expanded='true'] {
+  color: var(--accent-dark);
+  border-color: #83cbbb;
+  background: #f0faf7;
+  box-shadow: 0 4px 12px rgba(0, 136, 112, .16);
+}
+
 .table-config-trigger:hover {
   color: var(--accent-dark);
   border-color: #83cbbb;
@@ -4912,6 +4949,12 @@ button:active:not(:disabled),
 
 .monitor-header-actions {
   gap: 12px;
+}
+
+.monitor-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .monitor-status {

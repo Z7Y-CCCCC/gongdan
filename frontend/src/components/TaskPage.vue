@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { fetchWorkOrders, type WorkOrderInfo, type WorkOrderTaskPayload } from '../api'
 import UiIcon from './UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -183,10 +184,11 @@ onMounted(loadData)
         <input v-model="keyword" placeholder="搜索工单、产品、工序、负责人" />
       </div>
       <button class="toolbar-btn" type="button" :disabled="loading" @click="loadData"><UiIcon name="refresh" />刷新</button>
+      <TableConfigButton table-id="task-list-table" />
     </div>
 
     <div class="table-container">
-      <table class="data-table">
+      <table id="task-list-table" class="data-table">
         <thead>
           <tr>
             <th style="width:70px">序号</th>

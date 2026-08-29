@@ -15,6 +15,7 @@ import {
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import UiIcon from './UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 type SalesOrderFormItem = {
   productId: number | ''
@@ -246,10 +247,11 @@ onMounted(loadData)
     <div class="toolbar">
       <button class="primary-btn" type="button" @click="openCreate"><UiIcon name="plus" />新建销售订单</button>
       <span class="muted">共 {{ total }} 个销售订单</span>
+      <TableConfigButton table-id="sales-order-list-table" />
     </div>
 
     <div class="table-container">
-      <table class="data-table">
+      <table id="sales-order-list-table" class="data-table">
         <thead>
           <tr>
             <th style="width:70px">序号</th>
@@ -333,10 +335,13 @@ onMounted(loadData)
 
           <div class="order-detail-header">
             <h3>订单明细</h3>
-            <button class="ghost-btn" type="button" @click="addItem"><UiIcon name="plus" />添加产品</button>
+            <div class="order-detail-actions">
+              <TableConfigButton table-id="sales-order-item-table" />
+              <button class="ghost-btn" type="button" @click="addItem"><UiIcon name="plus" />添加产品</button>
+            </div>
           </div>
           <div class="table-container compact-table">
-            <table class="data-table">
+            <table id="sales-order-item-table" class="data-table">
               <thead>
                 <tr>
                   <th style="width:48%">产品</th>

@@ -6,6 +6,7 @@ import {
   type CreateUserPayload, type Role, type UpdateUserPayload, type UserInfo, type DepartmentInfo,
   fetchSystemImportLogs, createSystemImportLog
 } from '../api'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{
   token: string
@@ -584,11 +585,12 @@ function handlePrintTemplate() {
               导入
               <input type="file" accept=".csv" style="display:none" @change="handleImport" />
             </label>
+            <TableConfigButton table-id="user-list-table" />
           </div>
         </div>
 
         <div class="table-container">
-          <table class="data-table">
+          <table id="user-list-table" class="data-table">
             <thead>
               <tr>
                 <th style="min-width: 100px;">姓名</th>

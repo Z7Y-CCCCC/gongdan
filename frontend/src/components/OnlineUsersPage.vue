@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchOnlineUsers, forceLogoutOnlineUser, type MonitorOnlineUserInfo } from '../api'
+import TableConfigButton from './TableConfigButton.vue'
 import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{ token: string }>()
@@ -84,9 +85,12 @@ onMounted(load)
       </div>
     </div>
 
-    <div class="monitor-section-caption"><span>在线会话</span><small>共 {{ total }} 条</small></div>
+    <div class="monitor-section-caption">
+      <div><span>在线会话</span><small>共 {{ total }} 条</small></div>
+      <TableConfigButton table-id="online-users-table" />
+    </div>
     <div class="table-container monitor-table-container">
-      <table class="data-table monitor-table">
+      <table id="online-users-table" class="data-table monitor-table">
         <thead>
           <tr>
             <th>序号</th><th>会话编号</th><th>登录名称</th><th>所属部门</th><th>主机</th><th>登录地点</th><th>操作系统</th><th>浏览器</th><th>登录时间</th><th>操作</th>
