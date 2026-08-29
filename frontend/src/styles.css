@@ -3084,7 +3084,8 @@ th {
   padding: 0 !important;          /* 必须清空原本内边距，让 th-container 填满，以便控制垂直分割线 */
   height: 46px !important;
   border-bottom: 1px solid var(--table-line) !important;
-  position: relative !important;
+  position: sticky !important;
+  top: 0 !important;
   text-align: left !important;
 }
 
