@@ -729,6 +729,7 @@ const notificationItems = ref<NotificationInfo[]>([])
 const notificationUnreadCount = ref(0)
 const notificationCount = computed(() => notificationUnreadCount.value)
 const notificationPreview = computed(() => notificationItems.value.slice(0, 8))
+let notificationPollTimer: ReturnType<typeof setInterval> | null = null
 
 function normalizeDate(value?: string) {
   if (!value) return ''
@@ -784,6 +785,15 @@ async function loadNotifications(): Promise<boolean> {
   } finally {
     notificationsLoading.value = false
   }
+}
+
+function startNotificationPolling() {
+  if (notificationPollTimer) clearInterval(notificationPollTimer)
+  notificationPollTimer = setInterval(() => {
+    if (!token.value || isInternalChatWindow.value) return
+    void loadNotificationCount()
+    if (showNotificationDropdown.value) void loadNotifications()
+  }, 60000)
 }
 
 async function loadPluginRuntimeManifest(): Promise<boolean> {
@@ -2027,6 +2037,7 @@ function persistSession(response: LoginResponse) {
   sharedAuth.persistSession(response)
   // 登录后默认进入主页仪表盘
   activeMainMenu.value = 'home'
+  startNotificationPolling()
 }
 
 const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
@@ -2741,6 +2752,10 @@ function logout() {
   notificationItems.value = []
   notificationUnreadCount.value = 0
   notificationError.value = ''
+  if (notificationPollTimer) {
+    clearInterval(notificationPollTimer)
+    notificationPollTimer = null
+  }
   showNotificationDropdown.value = false
   localStorage.removeItem('heihu_token')
   localStorage.removeItem('heihu_user')
@@ -2756,6 +2771,7 @@ onMounted(() => {
   if (token.value && currentUser.value && !isInternalChatWindow.value) {
     // 页面刷新后默认进入主页仪表盘，并显示可诊断的初始化进度。
     activeMainMenu.value = 'home'
+    startNotificationPolling()
     void bootstrapWorkspace()
   } else {
     workspaceLoadingVisible.value = false
@@ -2809,6 +2825,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncNativeFullscreenState)
+  if (notificationPollTimer) clearInterval(notificationPollTimer)
 })
 
 const formatDateTime = (val: string) => {
