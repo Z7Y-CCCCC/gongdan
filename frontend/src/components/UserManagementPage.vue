@@ -199,7 +199,7 @@ async function copySuccessUser() {
     await navigator.clipboard.writeText(text)
     showAction('账号信息已复制到剪贴板')
   } catch (err) {
-    window.alert('复制失败，请手动复制')
+    errorMessage.value = '复制失败，请手动复制'
   }
 }
 
@@ -285,11 +285,11 @@ async function handleResetPassword() {
   const newPassword = resetPasswordForm.password
   const confirmPassword = resetPasswordForm.confirmPassword
   if (!newPassword.trim()) {
-    window.alert('新密码不能为空')
+    errorMessage.value = '新密码不能为空'
     return
   }
   if (newPassword !== confirmPassword) {
-    window.alert('两次输入的密码不一致')
+    errorMessage.value = '两次输入的密码不一致'
     return
   }
   errorMessage.value = ''

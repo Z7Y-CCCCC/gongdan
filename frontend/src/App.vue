@@ -2384,7 +2384,7 @@ async function copySuccessUser() {
     await navigator.clipboard.writeText(text)
     showAction('账号信息已复制到剪贴板')
   } catch (err) {
-    window.alert('复制失败，请手动复制')
+    errorMessage.value = '复制失败，请手动复制'
   }
 }
 
@@ -2470,11 +2470,11 @@ async function handleResetPassword() {
   const newPassword = resetPasswordForm.password
   const confirmPassword = resetPasswordForm.confirmPassword
   if (!newPassword.trim()) {
-    window.alert('新密码不能为空')
+    errorMessage.value = '新密码不能为空'
     return
   }
   if (newPassword !== confirmPassword) {
-    window.alert('两次输入的密码不一致')
+    errorMessage.value = '两次输入的密码不一致'
     return
   }
   errorMessage.value = ''
@@ -4776,21 +4776,21 @@ function handleNavigate(menu: { main: string; sub: string }) {
     </section>
   </main>
 
-  <div v-if="showTimezoneDialog" class="timezone-overlay" @click.self="closeTimezoneDialog">
-    <section class="timezone-dialog" role="dialog" aria-modal="true" aria-labelledby="timezone-dialog-title">
-      <header class="timezone-dialog-header">
+  <div v-if="showTimezoneDialog" class="timezone-overlay modal-backdrop" @click.self="closeTimezoneDialog">
+    <section class="timezone-dialog modal" role="dialog" aria-modal="true" aria-labelledby="timezone-dialog-title">
+      <header class="timezone-dialog-header modal-header">
         <h2 id="timezone-dialog-title">设置时区</h2>
         <button class="timezone-close" type="button" title="关闭" aria-label="关闭" @click="closeTimezoneDialog">
           <UiIcon name="close" :size="16" />
         </button>
       </header>
-      <div class="timezone-options" role="radiogroup" aria-label="时区选项">
+      <div class="timezone-options modal-body" role="radiogroup" aria-label="时区选项">
         <label v-for="option in timezoneOptions" :key="option.value" class="timezone-option">
           <input v-model="timezoneDraft" type="radio" name="system-timezone" :value="option.value" />
           <span>{{ option.label }}</span>
         </label>
       </div>
-      <footer class="timezone-dialog-footer">
+      <footer class="timezone-dialog-footer modal-footer">
         <button class="ghost-btn" type="button" @click="closeTimezoneDialog">取消</button>
         <button class="primary-btn" type="button" @click="confirmTimezone">确认</button>
       </footer>

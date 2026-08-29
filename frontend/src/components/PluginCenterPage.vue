@@ -14,6 +14,8 @@ import {
   type PluginRuntimeMode
 } from '../api'
 import UiIcon from './UiIcon.vue'
+import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
+import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{
@@ -28,6 +30,15 @@ const plugins = ref<PluginCatalogInfo[]>([])
 const selectedKey = ref('')
 const showCreateForm = ref(false)
 const showVersionForm = ref(false)
+const {
+  visible: confirmVisible,
+  title: confirmTitle,
+  message: confirmMessage,
+  loading: confirmLoading,
+  confirm: requestConfirm,
+  handleConfirm,
+  handleCancel
+} = useDeleteConfirm()
 
 const createForm = reactive({
   pluginKey: '',
@@ -145,15 +156,21 @@ function enableSelected() {
   void runAction(() => enablePlugin(props.token, plugin.pluginKey, version), '插件已启用')
 }
 
-function disableSelected() {
+async function disableSelected() {
   const plugin = selectedPlugin.value
-  if (!plugin || !window.confirm(`确定下线插件「${plugin.name}」吗？下线后只影响当前工厂。`)) return
+  if (!plugin) return
+  const accepted = await requestConfirm({ title: '下线插件', message: `确定下线插件「${plugin.name}」吗？下线后只影响当前工厂。` })
+  confirmVisible.value = false
+  if (!accepted) return
   void runAction(() => disablePlugin(props.token, plugin.pluginKey), '插件已下线')
 }
 
-function rollbackSelected() {
+async function rollbackSelected() {
   const plugin = selectedPlugin.value
-  if (!plugin || !window.confirm(`确定将「${plugin.name}」回滚到上一版吗？`)) return
+  if (!plugin) return
+  const accepted = await requestConfirm({ title: '回滚插件版本', message: `确定将「${plugin.name}」回滚到上一版吗？` })
+  confirmVisible.value = false
+  if (!accepted) return
   void runAction(() => rollbackPlugin(props.token, plugin.pluginKey), '插件已回滚')
 }
 
@@ -277,9 +294,9 @@ onMounted(() => { void loadPlugins(false) })
       <div v-else class="plugin-detail-panel plugin-empty-detail">选择一个插件查看版本和工厂配置</div>
     </div>
 
-    <div v-if="showCreateForm" class="plugin-modal-mask" @click.self="showCreateForm = false">
-      <form class="plugin-modal" @submit.prevent="submitCreate">
-        <div class="plugin-modal-header"><h3>登记插件</h3><button type="button" class="icon-btn" @click="showCreateForm = false"><UiIcon name="close" /></button></div>
+    <div v-if="showCreateForm" class="plugin-modal-mask modal-backdrop" @click.self="showCreateForm = false">
+      <form class="plugin-modal modal" @submit.prevent="submitCreate">
+        <div class="plugin-modal-header modal-header"><h3>登记插件</h3><button type="button" class="icon-btn" @click="showCreateForm = false"><UiIcon name="close" /></button></div>
         <div class="plugin-form-grid">
           <label><span>插件标识</span><input v-model="createForm.pluginKey" placeholder="例如 quality-management" maxlength="64" /></label>
           <label><span>插件名称</span><input v-model="createForm.name" placeholder="例如质量管理" maxlength="128" /></label>
@@ -288,13 +305,13 @@ onMounted(() => { void loadPlugins(false) })
           <label class="full"><span>描述</span><input v-model="createForm.description" placeholder="说明插件解决的业务问题" maxlength="500" /></label>
           <label class="full"><span>插件清单 JSON</span><textarea v-model="createForm.manifestJson" class="plugin-json-editor" spellcheck="false"></textarea></label>
         </div>
-        <div class="plugin-modal-footer"><button class="ghost-btn" type="button" @click="showCreateForm = false">取消</button><button class="primary-btn" type="submit" :disabled="saving">登记</button></div>
+        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn" type="button" @click="showCreateForm = false">取消</button><button class="primary-btn" type="submit" :disabled="saving">登记</button></div>
       </form>
     </div>
 
-    <div v-if="showVersionForm" class="plugin-modal-mask" @click.self="showVersionForm = false">
-      <form class="plugin-modal" @submit.prevent="submitVersion">
-        <div class="plugin-modal-header"><h3>登记插件版本</h3><button type="button" class="icon-btn" @click="showVersionForm = false"><UiIcon name="close" /></button></div>
+    <div v-if="showVersionForm" class="plugin-modal-mask modal-backdrop" @click.self="showVersionForm = false">
+      <form class="plugin-modal modal" @submit.prevent="submitVersion">
+        <div class="plugin-modal-header modal-header"><h3>登记插件版本</h3><button type="button" class="icon-btn" @click="showVersionForm = false"><UiIcon name="close" /></button></div>
         <div class="plugin-form-grid">
           <label><span>版本号</span><input v-model="versionForm.version" placeholder="例如 1.0.0" maxlength="64" /></label>
           <label><span>镜像名称</span><input v-model="versionForm.imageName" placeholder="quality-management:1.0.0" /></label>
@@ -303,9 +320,18 @@ onMounted(() => { void loadPlugins(false) })
           <label class="full"><span>发布说明</span><textarea v-model="versionForm.releaseNotes" placeholder="本次版本变更内容"></textarea></label>
           <label class="full"><span>版本清单 JSON</span><textarea v-model="versionForm.manifestJson" class="plugin-json-editor" spellcheck="false" placeholder="留空则沿用插件目录清单"></textarea></label>
         </div>
-        <div class="plugin-modal-footer"><button class="ghost-btn" type="button" @click="showVersionForm = false">取消</button><button class="primary-btn" type="submit" :disabled="saving">登记并设为可上线</button></div>
+        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn" type="button" @click="showVersionForm = false">取消</button><button class="primary-btn" type="submit" :disabled="saving">登记并设为可上线</button></div>
       </form>
     </div>
+
+    <DeleteConfirmDialog
+      v-model:visible="confirmVisible"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      :loading="confirmLoading"
+      @confirm="handleConfirm"
+      @update:visible="(value: boolean) => { if (!value) handleCancel() }"
+    />
   </section>
 </template>
 

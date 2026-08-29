@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchOnlineUsers, forceLogoutOnlineUser, type MonitorOnlineUserInfo } from '../api'
 import TableConfigButton from './TableConfigButton.vue'
 import UiIcon from './UiIcon.vue'
+import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
+import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -14,6 +16,15 @@ const size = ref(10)
 const loading = ref(false)
 const filters = reactive({ ipAddress: '', loginName: '' })
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size.value)))
+const {
+  visible: confirmVisible,
+  title: confirmTitle,
+  message: confirmMessage,
+  loading: confirmLoading,
+  confirm: requestConfirm,
+  handleConfirm,
+  handleCancel
+} = useDeleteConfirm()
 
 function formatDate(value?: string) {
   return value ? value.replace('T', ' ').slice(0, 19) : '-'
@@ -45,7 +56,9 @@ function reset() {
 }
 
 async function forceLogout(row: MonitorOnlineUserInfo) {
-  if (!window.confirm(`确定强制退出「${row.loginName}」的当前会话吗？`)) return
+  const accepted = await requestConfirm({ title: '强制退出会话', message: `确定强制退出「${row.loginName}」的当前会话吗？` })
+  confirmVisible.value = false
+  if (!accepted) return
   try {
     await forceLogoutOnlineUser(props.token, row.id)
     emit('notice', `已强制退出 ${row.loginName}`)
@@ -120,5 +133,14 @@ onMounted(load)
       <button type="button" :disabled="page === 1" @click="changePage(page - 1)"><UiIcon name="arrowLeft" :size="14" />上一页</button>
       <button type="button" :disabled="page === totalPages" @click="changePage(page + 1)">下一页<UiIcon name="arrowRight" :size="14" /></button>
     </div>
+
+    <DeleteConfirmDialog
+      v-model:visible="confirmVisible"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      :loading="confirmLoading"
+      @confirm="handleConfirm"
+      @update:visible="(value: boolean) => { if (!value) handleCancel() }"
+    />
   </section>
 </template>

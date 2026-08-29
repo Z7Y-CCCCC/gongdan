@@ -379,6 +379,15 @@
         </form>
       </section>
     </div>
+
+    <DeleteConfirmDialog
+      v-model:visible="confirmVisible"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      :loading="confirmLoading"
+      @confirm="handleConfirm"
+      @update:visible="(value: boolean) => { if (!value) handleCancel() }"
+    />
   </section>
 </template>
 
@@ -398,9 +407,20 @@ import {
 } from '../api'
 import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
+import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
+import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ (e: 'notice', message: string): void }>()
+const {
+  visible: confirmVisible,
+  title: confirmTitle,
+  message: confirmMessage,
+  loading: confirmLoading,
+  confirm: requestConfirm,
+  handleConfirm,
+  handleCancel
+} = useDeleteConfirm()
 
 type TabKey = Exclude<AdvancedRecordModule, 'PAYROLL_RULE'> | 'PAYROLL' | 'GANTT'
 type StatusItem = { value: string; label: string }
@@ -656,7 +676,9 @@ async function changeStatus(record: AdvancedRecordInfo, status: string) {
 }
 
 async function removeRecord(record: AdvancedRecordInfo) {
-  if (!window.confirm(`确定删除「${record.title}」吗？`)) return
+  const accepted = await requestConfirm({ title: '删除记录', message: `确定删除「${record.title}」吗？` })
+  confirmVisible.value = false
+  if (!accepted) return
   try {
     await deleteAdvancedRecord(props.token, record.id)
     emit('notice', '已删除')

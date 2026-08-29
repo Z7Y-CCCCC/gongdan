@@ -14,6 +14,8 @@ import {
 } from '../api'
 import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
+import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
+import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -28,6 +30,21 @@ const loadingNames = ref(false)
 const loadingKeys = ref(false)
 const loadingValue = ref(false)
 const loadingRecoveries = ref(false)
+const {
+  visible: confirmVisible,
+  title: confirmTitle,
+  message: confirmMessage,
+  loading: confirmLoading,
+  confirm: requestConfirm,
+  handleConfirm,
+  handleCancel
+} = useDeleteConfirm()
+
+async function confirmAction(title: string, message: string) {
+  const accepted = await requestConfirm({ title, message })
+  confirmVisible.value = false
+  return accepted
+}
 
 function formatDate(value?: string) {
   return value ? value.replace('T', ' ').slice(0, 19) : '-'
@@ -87,7 +104,7 @@ async function selectKey(key: string) {
 }
 
 async function clearName(item: MonitorCacheNameInfo) {
-  if (!window.confirm(`确定清理缓存「${item.cacheName}」吗？清理后可在恢复窗口内撤销。`)) return
+  if (!await confirmAction('清理缓存', `确定清理缓存「${item.cacheName}」吗？清理后可在恢复窗口内撤销。`)) return
   try {
     const result = await clearCacheName(props.token, item.cacheName)
     emit('notice', `已清理 ${result.affected} 个键，${result.recoveryWindowMinutes} 分钟内可恢复`)
@@ -104,7 +121,7 @@ async function clearName(item: MonitorCacheNameInfo) {
 
 async function clearKey(key: string) {
   if (!selectedCacheName.value) return
-  if (!window.confirm(`确定清理缓存键「${key}」吗？`)) return
+  if (!await confirmAction('清理缓存键', `确定清理缓存键「${key}」吗？`)) return
   try {
     const result = await clearCacheKey(props.token, selectedCacheName.value, key)
     emit('notice', `已清理缓存键，${result.recoveryWindowMinutes} 分钟内可恢复`)
@@ -115,7 +132,7 @@ async function clearKey(key: string) {
 }
 
 async function clearEverything() {
-  if (!window.confirm('确定清理当前工厂的全部监控缓存吗？清理后可在恢复窗口内撤销。')) return
+  if (!await confirmAction('清理全部缓存', '确定清理当前工厂的全部监控缓存吗？清理后可在恢复窗口内撤销。')) return
   try {
     const result = await clearAllCache(props.token)
     emit('notice', `已清理 ${result.affected} 个键，${result.recoveryWindowMinutes} 分钟内可恢复`)
@@ -130,7 +147,7 @@ async function clearEverything() {
 }
 
 async function restore(item: MonitorCacheRecoveryInfo) {
-  if (!window.confirm(`恢复「${item.cacheName}${item.cacheKey ? ` / ${item.cacheKey}` : ''}」吗？如果键已生成新值，系统会阻止覆盖。`)) return
+  if (!await confirmAction('恢复缓存', `恢复「${item.cacheName}${item.cacheKey ? ` / ${item.cacheKey}` : ''}」吗？如果键已生成新值，系统会阻止覆盖。`)) return
   try {
     const result = await restoreCacheRecovery(props.token, item.id)
     emit('notice', `已恢复 ${result.affected} 个缓存键`)
@@ -206,5 +223,14 @@ onMounted(loadNames)
         </div>
       </div>
     </section>
+
+    <DeleteConfirmDialog
+      v-model:visible="confirmVisible"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      :loading="confirmLoading"
+      @confirm="handleConfirm"
+      @update:visible="(value: boolean) => { if (!value) handleCancel() }"
+    />
   </section>
 </template>

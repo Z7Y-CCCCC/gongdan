@@ -49,6 +49,9 @@
   --scroll-track: #edf2f1;
   --scroll-thumb: #aab8b4;
   --overlay-bg: rgba(9, 14, 18, .48);
+  --modal-radius: 6px;
+  --modal-shadow: 0 24px 70px rgba(12, 28, 23, .22);
+  --modal-divider: #e2e8e6;
 }
 
 * {
@@ -5342,6 +5345,9 @@ button:active:not(:disabled),
   --scroll-track: #11171b;
   --scroll-thumb: #66747e;
   --overlay-bg: rgba(4, 9, 12, .67);
+  --modal-radius: 6px;
+  --modal-shadow: 0 24px 70px rgba(0, 0, 0, .46);
+  --modal-divider: #3a4852;
 }
 
 :root.dark body { background: var(--page-bg); }
@@ -6233,4 +6239,341 @@ button:active:not(:disabled),
   color: var(--text-primary);
   background: var(--surface-raised);
   border-color: var(--border-default);
+}
+
+/* Unified dialog contract: every application dialog follows the field-settings
+   rhythm while keeping page-specific widths and content layouts. */
+.modal-backdrop,
+.import-logs-overlay,
+.category-modal-backdrop,
+.plugin-modal-mask,
+.modal-overlay,
+.timezone-overlay {
+  display: grid !important;
+  place-items: center !important;
+  padding: 16px !important;
+  background: var(--overlay-bg) !important;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.delete-confirm-backdrop {
+  background: transparent !important;
+}
+
+.delete-confirm-backdrop__overlay {
+  background: var(--overlay-bg) !important;
+}
+
+.modal-backdrop > .modal,
+.modal-backdrop > section,
+.import-logs-modal,
+.category-modal,
+.plugin-modal,
+.modal-card,
+.timezone-dialog,
+.delete-confirm-dialog {
+  color: var(--text-primary) !important;
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: var(--modal-radius) !important;
+  box-shadow: var(--modal-shadow) !important;
+}
+
+.admin-shell .modal:not(.success-modal),
+.modal-card,
+.plugin-modal {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 !important;
+}
+
+.admin-shell .modal-header,
+.modal-card .modal-header,
+.import-logs-modal .modal-header,
+.category-modal-header,
+.plugin-modal-header,
+.timezone-dialog-header,
+.modal-header-bar {
+  min-height: 56px !important;
+  height: 56px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px;
+  padding: 0 18px !important;
+  margin: 0 !important;
+  color: var(--text-primary) !important;
+  background: var(--surface-raised) !important;
+  border-bottom: 1px solid var(--modal-divider) !important;
+}
+
+.admin-shell .modal-header h2,
+.admin-shell .modal-header h3,
+.modal-card .modal-title,
+.import-logs-modal .modal-header h3,
+.category-modal-header h3,
+.plugin-modal-header h3,
+.timezone-dialog-header h2,
+.modal-header-bar h2 {
+  margin: 0 !important;
+  color: var(--text-primary) !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  line-height: 1.4;
+}
+
+.admin-shell .modal > .modal-body,
+.admin-shell .modal > .create-form,
+.admin-shell .modal > .report-detail,
+.modal-card > .modal-body,
+.plugin-modal > .plugin-form-grid {
+  min-height: 0;
+  flex: 1 1 auto;
+  color: var(--text-primary);
+}
+
+.admin-shell .modal > .modal-body,
+.admin-shell .modal > .report-detail,
+.modal-card > .modal-body {
+  overflow: auto;
+}
+
+.admin-shell .modal-footer,
+.modal-card .modal-footer,
+.import-logs-modal .modal-footer,
+.category-modal-footer,
+.plugin-modal-footer,
+.timezone-dialog-footer,
+.delete-confirm-dialog__footer {
+  min-height: 58px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  margin: 0 !important;
+  padding: 12px 16px !important;
+  color: var(--text-primary) !important;
+  background: var(--surface-raised) !important;
+  border-top: 1px solid var(--modal-divider) !important;
+}
+
+.admin-shell .modal .close-btn,
+.modal-card .close-btn,
+.import-logs-modal .close-btn,
+.category-modal-header .close-btn,
+.plugin-modal .icon-btn,
+.timezone-close,
+.delete-confirm-dialog__header .close-btn {
+  width: 30px !important;
+  height: 30px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 30px;
+  padding: 0 !important;
+  color: var(--text-muted) !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 4px !important;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.admin-shell .modal .close-btn:hover,
+.modal-card .close-btn:hover,
+.import-logs-modal .close-btn:hover,
+.category-modal-header .close-btn:hover,
+.plugin-modal .icon-btn:hover,
+.timezone-close:hover,
+.delete-confirm-dialog__header .close-btn:hover {
+  color: var(--text-primary) !important;
+  background: var(--surface-hover) !important;
+}
+
+.admin-shell .modal .ghost-btn,
+.admin-shell .modal .secondary-btn,
+.admin-shell .modal .btn-cancel,
+.modal-card .btn-cancel,
+.plugin-modal .ghost-btn,
+.category-modal-footer .ghost-btn,
+.timezone-dialog-footer .ghost-btn,
+.delete-confirm-dialog .btn--ghost {
+  min-height: 34px !important;
+  padding: 0 14px !important;
+  color: var(--text-secondary) !important;
+  background: var(--control-bg) !important;
+  border: 1px solid var(--control-border) !important;
+  border-radius: 4px !important;
+}
+
+.admin-shell .modal .ghost-btn:hover,
+.admin-shell .modal .secondary-btn:hover,
+.admin-shell .modal .btn-cancel:hover,
+.modal-card .btn-cancel:hover,
+.plugin-modal .ghost-btn:hover,
+.category-modal-footer .ghost-btn:hover,
+.timezone-dialog-footer .ghost-btn:hover,
+.delete-confirm-dialog .btn--ghost:hover:not(:disabled) {
+  color: var(--accent-dark) !important;
+  background: var(--surface-hover) !important;
+  border-color: var(--accent) !important;
+}
+
+.admin-shell .modal .primary-btn,
+.modal-card .btn-save,
+.plugin-modal .primary-btn,
+.category-modal-footer .primary-btn,
+.timezone-dialog-footer .primary-btn {
+  min-height: 34px !important;
+  padding: 0 16px !important;
+  color: #fff !important;
+  background: var(--accent) !important;
+  border: 1px solid var(--accent) !important;
+  border-radius: 4px !important;
+}
+
+.admin-shell .modal .primary-btn:hover:not(:disabled),
+.modal-card .btn-save:hover:not(:disabled),
+.plugin-modal .primary-btn:hover:not(:disabled),
+.category-modal-footer .primary-btn:hover:not(:disabled),
+.timezone-dialog-footer .primary-btn:hover:not(:disabled) {
+  background: var(--accent-dark) !important;
+  border-color: var(--accent-dark) !important;
+}
+
+.delete-confirm-dialog {
+  width: min(440px, calc(100vw - 32px)) !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.delete-confirm-dialog__header {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 18px;
+  justify-content: initial;
+  border-bottom: 1px solid var(--modal-divider);
+}
+
+.delete-confirm-dialog__title,
+.delete-confirm-dialog__message { color: var(--text-primary) !important; }
+.delete-confirm-dialog__message {
+  margin: 0 !important;
+  padding: 20px 18px 8px;
+  color: var(--text-secondary) !important;
+  line-height: 1.6;
+}
+
+.delete-confirm-dialog .btn--danger {
+  min-height: 34px;
+  padding: 0 16px;
+  border-radius: 4px;
+}
+
+/* Field settings is the reference dialog: semantic colors keep it readable in
+   both themes, with the same row, control and footer geometry as other dialogs. */
+.column-settings-overlay {
+  background: var(--overlay-bg) !important;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.column-settings-panel {
+  color: var(--text-primary) !important;
+  background: var(--surface-raised) !important;
+  border-color: var(--border-default) !important;
+  border-radius: var(--modal-radius) !important;
+  box-shadow: var(--modal-shadow) !important;
+}
+
+.column-settings-header,
+.column-settings-footer {
+  color: var(--text-primary) !important;
+  background: var(--surface-raised) !important;
+  border-color: var(--modal-divider) !important;
+}
+
+.column-settings-header { min-height: 56px; height: 56px; padding: 0 18px; }
+.column-settings-header h2 { color: var(--text-primary); font-size: 16px; }
+.column-settings-close { color: var(--text-muted); }
+.column-settings-close:hover { color: var(--text-primary); background: var(--surface-hover); }
+
+.column-settings-row {
+  color: var(--text-primary) !important;
+  background: var(--surface-raised) !important;
+  border-color: var(--modal-divider) !important;
+}
+
+.column-settings-row:hover,
+.column-settings-row.dragging { background: var(--surface-hover) !important; }
+.column-settings-head { color: var(--text-secondary) !important; background: var(--table-head-bg) !important; }
+.column-title-cell,
+.column-settings-row > span { color: var(--text-primary); }
+.column-drag-handle { color: var(--text-muted); }
+.column-title-cell small { color: var(--text-muted); background: var(--surface-hover); }
+
+.column-width-cell > input,
+.column-stepper button,
+.column-fixed-group button {
+  color: var(--text-primary) !important;
+  background: var(--control-bg) !important;
+  border-color: var(--control-border) !important;
+}
+
+.column-stepper button:hover { color: var(--accent-dark) !important; background: var(--surface-hover) !important; }
+.column-fixed-group button.active { color: #fff !important; background: #1689ed !important; border-color: #1689ed !important; }
+.column-settings-count { color: var(--text-muted) !important; }
+.column-settings-secondary { color: var(--text-secondary) !important; background: var(--control-bg) !important; border-color: var(--control-border) !important; }
+.column-settings-secondary:hover { color: var(--accent-dark) !important; background: var(--surface-hover) !important; }
+.column-settings-primary { color: #fff !important; background: #1689ed !important; border-color: #1689ed !important; }
+
+.plugin-form-grid {
+  min-height: 0;
+  overflow: auto;
+  padding: 20px !important;
+}
+
+/* Compact button popovers share the same surface language without becoming
+   full-screen dialogs. */
+.admin-shell .dropdown-bubble,
+.admin-shell .column-config-dropdown,
+.admin-shell .search-dropdown-list,
+.admin-shell .user-dropdown,
+.admin-shell .chrome-quick-menu,
+.admin-shell .tab-context-menu {
+  color: var(--text-primary) !important;
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--border-default) !important;
+  border-radius: 6px !important;
+  box-shadow: var(--modal-shadow) !important;
+}
+
+.admin-shell .dropdown-header,
+.admin-shell .chrome-menu-title { color: var(--text-primary) !important; border-color: var(--modal-divider) !important; }
+.admin-shell .dropdown-item,
+.admin-shell .chrome-quick-menu button,
+.admin-shell .tab-context-menu button,
+.admin-shell .user-dropdown button { color: var(--text-secondary) !important; }
+.admin-shell .dropdown-item:hover,
+.admin-shell .chrome-quick-menu button:hover,
+.admin-shell .tab-context-menu button:hover,
+.admin-shell .user-dropdown button:hover { color: var(--accent-dark) !important; background: var(--surface-hover) !important; }
+
+@media (max-width: 640px) {
+  .modal-backdrop,
+  .import-logs-overlay,
+  .category-modal-backdrop,
+  .plugin-modal-mask,
+  .modal-overlay,
+  .timezone-overlay,
+  .column-settings-overlay { padding: 10px !important; }
+
+  .column-settings-panel { width: calc(100vw - 20px); }
+  .column-settings-row { grid-template-columns: 40px minmax(140px, 1fr) 116px 168px; }
 }

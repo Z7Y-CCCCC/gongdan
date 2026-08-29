@@ -865,19 +865,19 @@ onMounted(loadData)
     />
 
     <!-- 新增大分类 Modal 弹窗 -->
-    <div v-if="showCategoryModal" class="category-modal-backdrop" @click.self="showCategoryModal = false">
-      <div class="category-modal">
-        <div class="category-modal-header">
+    <div v-if="showCategoryModal" class="category-modal-backdrop modal-backdrop" @click.self="showCategoryModal = false">
+      <div class="category-modal modal">
+        <div class="category-modal-header modal-header">
           <h3>新增分类</h3>
           <button class="close-btn" type="button" @click="showCategoryModal = false">×</button>
         </div>
-        <div class="category-modal-body">
+        <div class="category-modal-body modal-body">
           <div class="category-input-group">
             <label>分类名称</label>
             <input v-model="newCategoryName" placeholder="请输入分类名称" @keyup.enter="handleSaveCategory" autofocus />
           </div>
         </div>
-        <div class="category-modal-footer">
+        <div class="category-modal-footer modal-footer">
           <button class="ghost-btn" type="button" @click="showCategoryModal = false">取消</button>
           <button class="primary-btn" type="button" @click="handleSaveCategory">确定</button>
         </div>

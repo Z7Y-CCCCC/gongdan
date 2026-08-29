@@ -78,10 +78,13 @@ function handleCancel() {
 
 <template>
   <teleport to="body">
-    <div v-if="visible" class="modal-overlay" @click.self="handleCancel">
-      <div class="modal-card" role="dialog" aria-labelledby="settings-modal-title">
+    <div v-if="visible" class="modal-overlay modal-backdrop" @click.self="handleCancel">
+      <div class="modal-card modal" role="dialog" aria-labelledby="settings-modal-title">
         <div class="modal-header">
           <h3 id="settings-modal-title" class="modal-title">工序任务卡片设置</h3>
+          <button class="close-btn" type="button" title="关闭" aria-label="关闭" @click="handleCancel">
+            <span aria-hidden="true">×</span>
+          </button>
         </div>
 
         <div class="modal-body">
