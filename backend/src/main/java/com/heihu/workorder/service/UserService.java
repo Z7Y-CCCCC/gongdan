@@ -16,6 +16,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,7 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "users.list", key = "#factoryId")
     public List<UserResponse> listUsers(Long factoryId) {
         return userRepository.findByFactoryIdOrderByCreatedAtAsc(factoryId)
                 .stream()
@@ -53,6 +56,7 @@ public class UserService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"users.list", "departments.list"}, allEntries = true)
     public UserResponse createUser(Long factoryId, CreateUserRequest request) {
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "工厂不存在"));
@@ -85,6 +89,7 @@ public class UserService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"users.list", "departments.list"}, allEntries = true)
     public UserResponse updateUser(Long factoryId, Long operatorUserId, Long userId, UpdateUserRequest request) {
         FactoryUser user = getFactoryUser(factoryId, userId);
         ensureEditableRole(operatorUserId, userId, request.getRole());
@@ -105,6 +110,7 @@ public class UserService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"users.list", "departments.list"}, allEntries = true)
     public ResetPasswordResponse resetPassword(Long factoryId, Long userId, String password) {
         FactoryUser user = getFactoryUser(factoryId, userId);
         String newPassword = StringUtils.hasText(password) ? password.trim() : generateRandomPassword();
@@ -118,6 +124,7 @@ public class UserService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"users.list", "departments.list"}, allEntries = true)
     public UserResponse unbindPhone(Long factoryId, Long userId) {
         FactoryUser user = getFactoryUser(factoryId, userId);
         user.setPhone(null);
@@ -126,6 +133,7 @@ public class UserService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"users.list", "departments.list"}, allEntries = true)
     public UserResponse updateStatus(Long factoryId, Long operatorUserId, Long userId, Boolean enabled) {
         if (operatorUserId.equals(userId) && !Boolean.TRUE.equals(enabled)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "不能停用当前登录账号");
@@ -137,6 +145,7 @@ public class UserService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"users.list", "departments.list"}, allEntries = true)
     public UserResponse updatePermission(Long factoryId, Long operatorUserId, Long userId, Role role) {
         ensureEditableRole(operatorUserId, userId, role);
         FactoryUser user = getFactoryUser(factoryId, userId);
@@ -208,6 +217,7 @@ public class UserService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"users.list", "departments.list"}, allEntries = true)
     public ImportResult importUsersCsv(Long factoryId, String csvContent) {
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "工厂不存在"));

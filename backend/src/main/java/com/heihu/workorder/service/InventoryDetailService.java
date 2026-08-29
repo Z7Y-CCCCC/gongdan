@@ -8,6 +8,7 @@ import com.heihu.workorder.model.OutboundReceiptItem;
 import com.heihu.workorder.model.Product;
 import com.heihu.workorder.repository.InboundReceiptRepository;
 import com.heihu.workorder.repository.OutboundReceiptRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +35,7 @@ public class InventoryDetailService {
         this.outboundReceiptRepository = outboundReceiptRepository;
     }
 
+    @Cacheable(cacheNames = "inventory.details", key = "#factoryId + ':' + #receiptCode + ':' + #receiptType + ':' + #sourceType + ':' + #remark + ':' + #productCode + ':' + #productName + ':' + #productSpec + ':' + #productAttribute + ':' + #startTime + ':' + #endTime")
     public long count(Long factoryId, String receiptCode, String receiptType,
                       String sourceType, String remark, String productCode,
                       String productName, String productSpec, String productAttribute,
@@ -43,6 +45,7 @@ public class InventoryDetailService {
                 .size();
     }
 
+    @Cacheable(cacheNames = "inventory.details", key = "#factoryId + ':' + #receiptCode + ':' + #receiptType + ':' + #sourceType + ':' + #remark + ':' + #productCode + ':' + #productName + ':' + #productSpec + ':' + #productAttribute + ':' + #startTime + ':' + #endTime + ':' + #page + ':' + #size")
     public List<InventoryDetailResponse> list(Long factoryId, String receiptCode, String receiptType,
                                                String sourceType, String remark, String productCode,
                                                String productName, String productSpec, String productAttribute,

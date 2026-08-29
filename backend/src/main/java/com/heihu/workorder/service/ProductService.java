@@ -22,6 +22,8 @@ import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -114,6 +116,7 @@ public class ProductService {
         return response;
     }
 
+    @Cacheable(cacheNames = "products.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #spec + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<ProductResponse> list(Long factoryId, String code, String name, String spec, Pageable pageable) {
         boolean hasCode = code != null && !code.trim().isEmpty();
         boolean hasName = name != null && !name.trim().isEmpty();
@@ -134,6 +137,7 @@ public class ProductService {
         return productOperationLogRepository.findByFactoryId(factoryId, pageable).map(this::toLogResponse);
     }
 
+    @CacheEvict(cacheNames = {"products.list", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public ProductResponse create(Long factoryId, Long userId, String operatorName, ProductRequest request) {
         Product product = new Product();
         Factory factory = factoryRepository.findById(factoryId)
@@ -149,6 +153,7 @@ public class ProductService {
         return toResponse(saved);
     }
 
+    @CacheEvict(cacheNames = {"products.list", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public ProductResponse update(Long factoryId, Long userId, String operatorName, Long id, ProductRequest request) {
         Product product = productRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -159,6 +164,7 @@ public class ProductService {
         return toResponse(saved);
     }
 
+    @CacheEvict(cacheNames = {"products.list", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public void delete(Long factoryId, String operatorName, Long id) {
         Product product = productRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))

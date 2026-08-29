@@ -14,6 +14,8 @@ import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.util.DateTimeParser;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,6 +49,7 @@ public class InboundReceiptService {
         this.userRepository = userRepository;
     }
 
+    @Cacheable(cacheNames = "inbound.receipts.list", key = "#factoryId + ':' + #code + ':' + #inboundType + ':' + #startTime + ':' + #endTime + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<InboundReceiptResponse> list(Long factoryId, String code, String inboundType,
                                               LocalDateTime startTime, LocalDateTime endTime,
                                               Pageable pageable) {
@@ -68,6 +71,7 @@ public class InboundReceiptService {
         ).map(this::toResponse);
     }
 
+    @Cacheable(cacheNames = "inbound.receipts.detail", key = "#factoryId + ':' + #id")
     public InboundReceiptResponse getById(Long factoryId, Long id) {
         InboundReceipt receipt = inboundReceiptRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))
@@ -75,6 +79,7 @@ public class InboundReceiptService {
         return toResponse(receipt);
     }
 
+    @CacheEvict(cacheNames = {"inbound.receipts.list", "inbound.receipts.detail", "products.list", "inventory.details"}, allEntries = true)
     public InboundReceiptResponse create(Long factoryId, Long userId, InboundReceiptRequest request) {
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("工厂不存在"));
@@ -139,6 +144,7 @@ public class InboundReceiptService {
         return toResponse(saved);
     }
 
+    @CacheEvict(cacheNames = {"inbound.receipts.list", "inbound.receipts.detail", "products.list", "inventory.details"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         InboundReceipt receipt = inboundReceiptRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))

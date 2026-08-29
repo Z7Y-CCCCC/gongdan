@@ -8,6 +8,8 @@ import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.SupplierRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -27,6 +29,7 @@ public class SupplierService {
         this.factoryRepository = factoryRepository;
     }
 
+    @Cacheable(cacheNames = "suppliers.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<SupplierResponse> list(Long factoryId, String code, String name, Pageable pageable) {
         Page<Supplier> page;
         if (StringUtils.hasText(code)) {
@@ -39,6 +42,7 @@ public class SupplierService {
         return page.map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = "suppliers.list", allEntries = true)
     public SupplierResponse create(Long factoryId, SupplierRequest request) {
         requireName(request);
         String code = normalizeCode(request.getCode());
@@ -61,6 +65,7 @@ public class SupplierService {
         return toResponse(supplierRepository.save(supplier));
     }
 
+    @CacheEvict(cacheNames = "suppliers.list", allEntries = true)
     public SupplierResponse update(Long factoryId, Long id, SupplierRequest request) {
         Supplier supplier = supplierRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -82,6 +87,7 @@ public class SupplierService {
         return toResponse(supplierRepository.save(supplier));
     }
 
+    @CacheEvict(cacheNames = "suppliers.list", allEntries = true)
     public void delete(Long factoryId, Long id) {
         Supplier supplier = supplierRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))

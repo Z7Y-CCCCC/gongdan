@@ -18,6 +18,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -93,6 +94,7 @@ public class MobileAuthService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"users.list", "departments.list"}, allEntries = true)
     public MobileAuthResponse bind(MobileBindRequest request) {
         String ticket = normalize(request.getOpenidTicket());
         LocalDateTime now = LocalDateTime.now();

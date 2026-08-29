@@ -30,6 +30,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -115,6 +117,7 @@ public class WorkOrderReportService {
         return new ReportImageDownload(image, reportImageStorage.load(image.getStoredFileName()));
     }
 
+    @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderReportResponse createReport(Long factoryId, Long userId, WorkOrderReportRequest request) {
         if (request == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "请填写报工信息");
@@ -173,6 +176,7 @@ public class WorkOrderReportService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "reports.admin.list", key = "#factoryId + ':' + #status + ':' + #workOrderCode + ':' + #reporterName + ':' + #period + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<WorkOrderReportResponse> listAdmin(
             Long factoryId,
             String status,
@@ -192,12 +196,14 @@ public class WorkOrderReportService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "reports.mobile.list", key = "#factoryId + ':' + #userId + ':' + #status + ':' + #period + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<WorkOrderReportResponse> listMobile(Long factoryId, Long userId, String status, String period, Pageable pageable) {
         return reportRepository.searchMobile(factoryId, userId, parseStatus(status), periodStart(period), pageable)
                 .map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "reports.detail", key = "#factoryId + ':' + #reportId")
     public WorkOrderReportResponse get(Long factoryId, Long reportId) {
         WorkOrderReport report = reportRepository.findById(reportId)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -205,6 +211,7 @@ public class WorkOrderReportService {
         return toResponse(report);
     }
 
+    @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderReportResponse approve(Long factoryId, Long approverId, Long reportId, WorkOrderReportApprovalRequest request) {
         WorkOrderReport report = requirePending(factoryId, reportId);
         FactoryUser approver = requireUser(factoryId, approverId);
@@ -219,6 +226,7 @@ public class WorkOrderReportService {
         return toResponse(reportRepository.save(report));
     }
 
+    @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail"}, allEntries = true)
     public WorkOrderReportResponse reject(Long factoryId, Long approverId, Long reportId, WorkOrderReportApprovalRequest request) {
         WorkOrderReport report = requirePending(factoryId, reportId);
         FactoryUser approver = requireUser(factoryId, approverId);

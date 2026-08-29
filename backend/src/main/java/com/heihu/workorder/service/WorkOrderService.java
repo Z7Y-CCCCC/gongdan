@@ -14,6 +14,8 @@ import com.heihu.workorder.repository.WorkOrderCategoryRepository;
 import com.heihu.workorder.repository.WorkOrderReportRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +50,7 @@ public class WorkOrderService {
         this.reportRepository = reportRepository;
     }
 
+    @Cacheable(cacheNames = "workorders.list", key = "#factoryId + ':' + #code + ':' + #productName + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<WorkOrderResponse> list(Long factoryId, String code, String productName, Pageable pageable) {
         boolean hasCode = code != null && !code.trim().isEmpty();
         boolean hasProductName = productName != null && !productName.trim().isEmpty();
@@ -63,6 +66,7 @@ public class WorkOrderService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "workorders.detail", key = "#factoryId + ':' + #id")
     public WorkOrderResponse get(Long factoryId, Long id) {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -71,12 +75,14 @@ public class WorkOrderService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "workorders.code", key = "#factoryId + ':' + #code")
     public WorkOrderResponse getByCode(Long factoryId, String code) {
         WorkOrder workOrder = workOrderRepository.findByFactoryIdAndCode(factoryId, code)
                 .orElseThrow(() -> new IllegalArgumentException("工单不存在：" + code));
         return toResponse(workOrder);
     }
 
+    @CacheEvict(cacheNames = {"workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderResponse create(Long factoryId, Long userId, WorkOrderRequest request) {
         WorkOrder workOrder = new WorkOrder();
         workOrder.setCreatedAt(LocalDateTime.now());
@@ -88,6 +94,7 @@ public class WorkOrderService {
         return toResponse(workOrderRepository.save(workOrder));
     }
 
+    @CacheEvict(cacheNames = {"workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderResponse update(Long factoryId, Long id, WorkOrderRequest request) {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -100,6 +107,7 @@ public class WorkOrderService {
         return toResponse(workOrderRepository.save(workOrder));
     }
 
+    @CacheEvict(cacheNames = {"workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))

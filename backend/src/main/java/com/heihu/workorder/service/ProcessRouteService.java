@@ -13,6 +13,8 @@ import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,6 +69,7 @@ public class ProcessRouteService {
         return resp;
     }
 
+    @Cacheable(cacheNames = "process.routes.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<ProcessRouteResponse> list(Long factoryId, String code, String name, Pageable pageable) {
         Page<ProcessRoute> page;
         boolean hasCode = code != null && !code.trim().isEmpty();
@@ -83,6 +86,7 @@ public class ProcessRouteService {
         return page.map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = {"process.routes.list", "products.list"}, allEntries = true)
     public ProcessRouteResponse create(Long factoryId, Long userId, ProcessRouteRequest req) {
         if (req.getName() == null || req.getName().trim().isEmpty()) {
             throw new IllegalArgumentException("工艺路线名称不能为空");
@@ -118,6 +122,7 @@ public class ProcessRouteService {
         return toResponse(routeRepository.save(route));
     }
 
+    @CacheEvict(cacheNames = {"process.routes.list", "products.list"}, allEntries = true)
     public ProcessRouteResponse update(Long factoryId, Long userId, Long id, ProcessRouteRequest req) {
         ProcessRoute route = routeRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))
@@ -142,6 +147,7 @@ public class ProcessRouteService {
         return toResponse(routeRepository.save(route));
     }
 
+    @CacheEvict(cacheNames = {"process.routes.list", "products.list"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         ProcessRoute route = routeRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))

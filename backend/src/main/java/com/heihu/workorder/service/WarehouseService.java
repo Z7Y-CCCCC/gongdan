@@ -8,6 +8,8 @@ import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.WarehouseRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -27,6 +29,7 @@ public class WarehouseService {
         this.factoryRepository = factoryRepository;
     }
 
+    @Cacheable(cacheNames = "warehouses.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<WarehouseResponse> list(Long factoryId, String code, String name, Pageable pageable) {
         Page<Warehouse> page;
         if (StringUtils.hasText(code)) {
@@ -39,6 +42,7 @@ public class WarehouseService {
         return page.map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = {"warehouses.list", "inbound.receipts.list", "outbound.receipts.list"}, allEntries = true)
     public WarehouseResponse create(Long factoryId, WarehouseRequest request) {
         requireName(request);
         String code = normalizeCode(request.getCode());
@@ -63,6 +67,7 @@ public class WarehouseService {
         return toResponse(warehouseRepository.save(warehouse));
     }
 
+    @CacheEvict(cacheNames = {"warehouses.list", "inbound.receipts.list", "outbound.receipts.list"}, allEntries = true)
     public WarehouseResponse update(Long factoryId, Long id, WarehouseRequest request) {
         Warehouse warehouse = warehouseRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -86,6 +91,7 @@ public class WarehouseService {
         return toResponse(warehouseRepository.save(warehouse));
     }
 
+    @CacheEvict(cacheNames = {"warehouses.list", "inbound.receipts.list", "outbound.receipts.list"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         Warehouse warehouse = warehouseRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))

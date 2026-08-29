@@ -14,6 +14,8 @@ import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.util.DateTimeParser;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +48,7 @@ public class OutboundReceiptService {
         this.userRepository = userRepository;
     }
 
+    @Cacheable(cacheNames = "outbound.receipts.list", key = "#factoryId + ':' + #code + ':' + #outboundType + ':' + #startTime + ':' + #endTime + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<OutboundReceiptResponse> list(Long factoryId, String code, String outboundType,
                                                LocalDateTime startTime, LocalDateTime endTime,
                                                Pageable pageable) {
@@ -67,6 +70,7 @@ public class OutboundReceiptService {
         ).map(this::toResponse);
     }
 
+    @Cacheable(cacheNames = "outbound.receipts.detail", key = "#factoryId + ':' + #id")
     public OutboundReceiptResponse getById(Long factoryId, Long id) {
         OutboundReceipt receipt = outboundReceiptRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))
@@ -74,6 +78,7 @@ public class OutboundReceiptService {
         return toResponse(receipt);
     }
 
+    @CacheEvict(cacheNames = {"outbound.receipts.list", "outbound.receipts.detail", "products.list", "inventory.details"}, allEntries = true)
     public OutboundReceiptResponse create(Long factoryId, Long userId, OutboundReceiptRequest request) {
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("工厂不存在"));
@@ -143,6 +148,7 @@ public class OutboundReceiptService {
         return toResponse(saved);
     }
 
+    @CacheEvict(cacheNames = {"outbound.receipts.list", "outbound.receipts.detail", "products.list", "inventory.details"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         OutboundReceipt receipt = outboundReceiptRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))

@@ -8,6 +8,8 @@ import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderCategoryRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +30,7 @@ public class WorkOrderCategoryService {
     private WorkOrderRepository workOrderRepository;
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "workorder.categories", key = "#factoryId")
     public List<WorkOrderCategoryResponse> getCategories(Long factoryId) {
         return categoryRepository.findByFactoryIdOrderByIdAsc(factoryId)
                 .stream()
@@ -36,6 +39,7 @@ public class WorkOrderCategoryService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"workorder.categories", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderCategoryResponse createCategory(Long factoryId, Long userId, WorkOrderCategoryRequest request) {
         FactoryUser user = userRepository.findByIdAndFactoryId(userId, factoryId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -55,6 +59,7 @@ public class WorkOrderCategoryService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"workorder.categories", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public void deleteCategory(Long factoryId, Long categoryId) {
         WorkOrderCategory category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new RuntimeException("Category not found"));

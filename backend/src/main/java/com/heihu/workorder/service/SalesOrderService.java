@@ -14,6 +14,8 @@ import com.heihu.workorder.repository.SalesOrderRepository;
 import com.heihu.workorder.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -52,6 +54,7 @@ public class SalesOrderService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "sales.orders.list", key = "#factoryId + ':' + #code + ':' + #customerName + ':' + #status + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<SalesOrderResponse> list(Long factoryId, String code, String customerName, String status, Pageable pageable) {
         return salesOrderRepository.search(
                 factoryId,
@@ -62,6 +65,7 @@ public class SalesOrderService {
         ).map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = {"sales.orders.list", "products.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public SalesOrderResponse create(Long factoryId, Long userId, SalesOrderRequest request) {
         requireValidRequest(request);
         Factory factory = factoryRepository.findById(factoryId)
@@ -85,6 +89,7 @@ public class SalesOrderService {
         return toResponse(salesOrderRepository.save(order));
     }
 
+    @CacheEvict(cacheNames = {"sales.orders.list", "products.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public SalesOrderResponse update(Long factoryId, Long id, SalesOrderRequest request) {
         requireValidRequest(request);
         SalesOrder order = salesOrderRepository.findById(id)
@@ -102,6 +107,7 @@ public class SalesOrderService {
         return toResponse(salesOrderRepository.save(order));
     }
 
+    @CacheEvict(cacheNames = {"sales.orders.list", "products.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         SalesOrder order = salesOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))

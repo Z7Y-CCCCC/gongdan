@@ -13,6 +13,8 @@ import com.heihu.workorder.repository.ProcessRepository;
 import com.heihu.workorder.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -98,6 +100,7 @@ public class ProcessService {
         return r;
     }
 
+    @Cacheable(cacheNames = "processes.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<ProcessResponse> list(Long factoryId, String code, String name, Pageable pageable) {
         Page<Process> page;
         boolean hasCode = code != null && !code.trim().isEmpty();
@@ -114,6 +117,7 @@ public class ProcessService {
         return page.map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = {"processes.list", "process.routes.list", "products.list"}, allEntries = true)
     public ProcessResponse create(Long factoryId, Long userId, ProcessRequest req) {
         if (req.getName() == null || req.getName().trim().isEmpty()) {
             throw new IllegalArgumentException("工序名称不能为空");
@@ -166,6 +170,7 @@ public class ProcessService {
         return toResponse(processRepository.save(p));
     }
 
+    @CacheEvict(cacheNames = {"processes.list", "process.routes.list", "products.list"}, allEntries = true)
     public ProcessResponse update(Long factoryId, Long userId, Long id, ProcessRequest req) {
         Process p = processRepository.findById(id)
                 .filter(x -> x.getFactory().getId().equals(factoryId))
@@ -205,6 +210,7 @@ public class ProcessService {
         return toResponse(processRepository.save(p));
     }
 
+    @CacheEvict(cacheNames = {"processes.list", "process.routes.list", "products.list"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         Process p = processRepository.findById(id)
                 .filter(x -> x.getFactory().getId().equals(factoryId))

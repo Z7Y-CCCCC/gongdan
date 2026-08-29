@@ -8,6 +8,8 @@ import com.heihu.workorder.repository.DefectItemRepository;
 import com.heihu.workorder.repository.FactoryRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -36,6 +38,7 @@ public class DefectItemService {
         return r;
     }
 
+    @Cacheable(cacheNames = "defect.items.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<DefectItemResponse> list(Long factoryId, String code, String name, Pageable pageable) {
         Page<DefectItem> page;
         boolean hasCode = code != null && !code.trim().isEmpty();
@@ -52,6 +55,7 @@ public class DefectItemService {
         return page.map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = {"defect.items.list", "processes.list"}, allEntries = true)
     public DefectItemResponse create(Long factoryId, DefectItemRequest req) {
         if (req.getName() == null || req.getName().trim().isEmpty()) {
             throw new IllegalArgumentException("不良品项名称不能为空");
@@ -72,6 +76,7 @@ public class DefectItemService {
         return toResponse(defectItemRepository.save(item));
     }
 
+    @CacheEvict(cacheNames = {"defect.items.list", "processes.list"}, allEntries = true)
     public DefectItemResponse update(Long factoryId, Long id, DefectItemRequest req) {
         DefectItem item = defectItemRepository.findById(id)
                 .filter(d -> d.getFactory().getId().equals(factoryId))
@@ -88,6 +93,7 @@ public class DefectItemService {
         return toResponse(defectItemRepository.save(item));
     }
 
+    @CacheEvict(cacheNames = {"defect.items.list", "processes.list"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         DefectItem item = defectItemRepository.findById(id)
                 .filter(d -> d.getFactory().getId().equals(factoryId))

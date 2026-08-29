@@ -8,6 +8,8 @@ import com.heihu.workorder.repository.CustomerRepository;
 import com.heihu.workorder.repository.FactoryRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -27,6 +29,7 @@ public class CustomerService {
         this.factoryRepository = factoryRepository;
     }
 
+    @Cacheable(cacheNames = "customers.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<CustomerResponse> list(Long factoryId, String code, String name, Pageable pageable) {
         Page<Customer> page;
         if (StringUtils.hasText(code)) {
@@ -39,6 +42,7 @@ public class CustomerService {
         return page.map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = "customers.list", allEntries = true)
     public CustomerResponse create(Long factoryId, CustomerRequest request) {
         requireName(request);
         String code = normalizeCode(request.getCode());
@@ -61,6 +65,7 @@ public class CustomerService {
         return toResponse(customerRepository.save(customer));
     }
 
+    @CacheEvict(cacheNames = "customers.list", allEntries = true)
     public CustomerResponse update(Long factoryId, Long id, CustomerRequest request) {
         Customer customer = customerRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -82,6 +87,7 @@ public class CustomerService {
         return toResponse(customerRepository.save(customer));
     }
 
+    @CacheEvict(cacheNames = "customers.list", allEntries = true)
     public void delete(Long factoryId, Long id) {
         Customer customer = customerRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))

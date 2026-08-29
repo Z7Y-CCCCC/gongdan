@@ -9,6 +9,8 @@ import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UnitRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -38,6 +40,7 @@ public class UnitService {
         return r;
     }
 
+    @Cacheable(cacheNames = "units.list", key = "#factoryId + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<UnitResponse> list(Long factoryId, String name, Pageable pageable) {
         Page<Unit> page;
         if (name != null && !name.trim().isEmpty()) {
@@ -48,6 +51,7 @@ public class UnitService {
         return page.map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = {"units.list", "products.list"}, allEntries = true)
     public UnitResponse create(Long factoryId, UnitRequest req) {
         if (req.getName() == null || req.getName().trim().isEmpty()) {
             throw new IllegalArgumentException("单位名称不能为空");
@@ -65,6 +69,7 @@ public class UnitService {
         return toResponse(unitRepository.save(unit));
     }
 
+    @CacheEvict(cacheNames = {"units.list", "products.list"}, allEntries = true)
     public UnitResponse update(Long factoryId, Long id, UnitRequest req) {
         Unit unit = unitRepository.findById(id)
                 .filter(u -> u.getFactory().getId().equals(factoryId))
@@ -81,6 +86,7 @@ public class UnitService {
         return toResponse(unitRepository.save(unit));
     }
 
+    @CacheEvict(cacheNames = {"units.list", "products.list"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         Unit unit = unitRepository.findById(id)
                 .filter(u -> u.getFactory().getId().equals(factoryId))

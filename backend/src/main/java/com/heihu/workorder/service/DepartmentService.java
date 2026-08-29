@@ -12,6 +12,8 @@ import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +37,7 @@ public class DepartmentService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "departments.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<DepartmentResponse> listDepartments(Long factoryId, String code, String name, Pageable pageable) {
         Page<Department> departments;
         boolean hasCode = StringUtils.hasText(code);
@@ -54,6 +57,7 @@ public class DepartmentService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"departments.list", "users.list"}, allEntries = true)
     public DepartmentResponse createDepartment(Long factoryId, String creatorName, CreateDepartmentRequest request) {
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "工厂不存在"));
@@ -91,6 +95,7 @@ public class DepartmentService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"departments.list", "users.list"}, allEntries = true)
     public DepartmentResponse updateDepartment(Long factoryId, Long id, UpdateDepartmentRequest request) {
         Department department = departmentRepository.findById(id)
                 .filter(d -> d.getFactory().getId().equals(factoryId))
@@ -121,6 +126,7 @@ public class DepartmentService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"departments.list", "users.list"}, allEntries = true)
     public void deleteDepartment(Long factoryId, Long id) {
         Department department = departmentRepository.findById(id)
                 .filter(d -> d.getFactory().getId().equals(factoryId))

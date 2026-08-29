@@ -13,6 +13,8 @@ import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.ProductRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -45,6 +47,7 @@ public class BomService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "boms.list", key = "#factoryId + ':' + #code + ':' + #productName + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<BomResponse> list(Long factoryId, String code, String productName, Pageable pageable) {
         return bomRepository.search(
                 factoryId,
@@ -54,6 +57,7 @@ public class BomService {
         ).map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = {"boms.list", "products.list"}, allEntries = true)
     public BomResponse create(Long factoryId, BomRequest request) {
         requireValidRequest(request);
         Factory factory = factoryRepository.findById(factoryId)
@@ -80,6 +84,7 @@ public class BomService {
         return toResponse(bomRepository.save(bom));
     }
 
+    @CacheEvict(cacheNames = {"boms.list", "products.list"}, allEntries = true)
     public BomResponse update(Long factoryId, Long id, BomRequest request) {
         requireValidRequest(request);
         BillOfMaterial bom = bomRepository.findById(id)
@@ -106,6 +111,7 @@ public class BomService {
         return toResponse(bomRepository.save(bom));
     }
 
+    @CacheEvict(cacheNames = {"boms.list", "products.list"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         BillOfMaterial bom = bomRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))

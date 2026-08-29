@@ -12,6 +12,7 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -58,6 +59,7 @@ public class FactoryBindingService {
      * @return 绑定响应，包含 token、用户信息和默认密码
      */
     @Transactional
+    @CacheEvict(cacheNames = {"users.list", "departments.list"}, allEntries = true)
     public BindingResponse bindFactory(String phone, String factoryCode, String authorizationCode) {
         // 1. 验证必填字段
         if (!StringUtils.hasText(phone) || !StringUtils.hasText(factoryCode) || !StringUtils.hasText(authorizationCode)) {
