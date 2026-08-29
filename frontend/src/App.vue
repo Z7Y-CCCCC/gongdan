@@ -305,8 +305,11 @@ function captureWorkspaceTab(): WorkspaceTab {
 function syncWorkspaceTab() {
   const next = captureWorkspaceTab()
   const existing = workspaceTabs.value.find(tab => tab.id === next.id)
-  if (existing) Object.assign(existing, next)
-  else workspaceTabs.value.push(next)
+  if (existing) {
+    const pinned = existing.id === 'home' || existing.pinned
+    Object.assign(existing, next)
+    existing.pinned = pinned
+  } else workspaceTabs.value.push(next)
   activeWorkspaceTabId.value = next.id
   tabContextMenu.show = false
 }
@@ -353,10 +356,15 @@ function closeWorkspaceTab(id: string) {
   closeTabContextMenu()
 }
 
+function toggleWorkspaceTabPinned(tab: WorkspaceTabItem) {
+  const target = workspaceTabs.value.find(item => item.id === tab.id)
+  if (!target || target.id === 'home') return
+  target.pinned = !target.pinned
+}
+
 function toggleTabPinned() {
   const tab = workspaceTabs.value.find(item => item.id === tabContextMenu.tabId)
-  if (!tab || tab.id === 'home') return
-  tab.pinned = !tab.pinned
+  if (tab) toggleWorkspaceTabPinned(tab)
   closeTabContextMenu()
 }
 
@@ -3349,6 +3357,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         :active-id="activeWorkspaceTabId"
         @select="activateWorkspaceTabFromEvent"
         @close="closeWorkspaceTab($event.id)"
+        @pin="toggleWorkspaceTabPinned"
         @contextmenu="openTabContextMenu"
         @add="openCurrentWorkspaceTab"
       />

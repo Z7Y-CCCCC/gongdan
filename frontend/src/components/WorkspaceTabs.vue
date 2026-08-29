@@ -16,6 +16,7 @@ defineProps<{
 const emit = defineEmits<{
   select: [tab: WorkspaceTabItem]
   close: [tab: WorkspaceTabItem]
+  pin: [tab: WorkspaceTabItem]
   contextmenu: [event: MouseEvent, tab: WorkspaceTabItem]
   add: []
 }>()
@@ -35,9 +36,20 @@ const emit = defineEmits<{
       @keydown.enter="emit('select', tab)"
       @contextmenu.prevent.stop="emit('contextmenu', $event, tab)"
     >
-      <UiIcon :name="tab.id === 'home' ? 'grid' : 'file'" :size="14" />
+      <button
+        class="workspace-tab-pin"
+        :class="{ 'is-pinned': tab.pinned, 'is-unpinned': !tab.pinned }"
+        type="button"
+        :title="tab.pinned ? '取消固定标签页' : '固定标签页'"
+        :aria-label="tab.pinned ? '取消固定标签页' : '固定标签页'"
+        :aria-pressed="tab.pinned"
+        :disabled="tab.id === 'home'"
+        @click.stop="emit('pin', tab)"
+      >
+        <UiIcon name="pin" :size="13" />
+      </button>
+      <UiIcon class="workspace-tab-page-icon" :name="tab.id === 'home' ? 'grid' : 'file'" :size="14" />
       <span class="workspace-tab-label">{{ tab.label }}</span>
-      <UiIcon v-if="tab.pinned" class="workspace-tab-pin" name="pin" :size="12" />
       <button
         v-if="tab.closable"
         class="workspace-tab-close"

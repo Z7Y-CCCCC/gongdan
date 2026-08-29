@@ -4242,16 +4242,34 @@ button:active:not(:disabled),
 }
 
 .workspace-tabs {
-  height: 42px;
+  height: 50px;
   display: flex;
   align-items: stretch;
   gap: 2px;
-  padding: 4px 8px 0;
+  padding: 4px 8px 7px;
   overflow-x: auto;
   overflow-y: hidden;
   background: #15191f;
   border-bottom: 1px solid #2c333d;
-  scrollbar-width: thin;
+  scrollbar-width: auto;
+  scrollbar-color: #66727e #11161c;
+}
+
+.workspace-tabs::-webkit-scrollbar {
+  height: 8px;
+}
+
+.workspace-tabs::-webkit-scrollbar-track {
+  background: #11161c;
+}
+
+.workspace-tabs::-webkit-scrollbar-thumb {
+  background: #66727e;
+  border-radius: 4px;
+}
+
+.workspace-tabs::-webkit-scrollbar-thumb:hover {
+  background: #8794a0;
 }
 
 .workspace-tab {
@@ -4283,11 +4301,11 @@ button:active:not(:disabled),
   border-bottom-color: #252c35;
 }
 
-.workspace-tab .ui-icon:first-child {
+.workspace-tab-page-icon {
   color: #aab5c0;
 }
 
-.workspace-tab.active .ui-icon:first-child {
+.workspace-tab.active .workspace-tab-page-icon {
   color: #42a5ff;
 }
 
@@ -4302,8 +4320,56 @@ button:active:not(:disabled),
 }
 
 .workspace-tab-pin {
+  width: 20px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 0;
+  color: #6f7d8a;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color .18s ease, background .18s ease, transform .18s ease;
+}
+
+.workspace-tab-pin .ui-icon {
+  transition: transform .18s ease, color .18s ease, opacity .18s ease;
+}
+
+.workspace-tab-pin.is-pinned {
   color: #f1b84b;
+}
+
+.workspace-tab-pin.is-pinned .ui-icon {
   transform: rotate(-26deg);
+}
+
+.workspace-tab-pin.is-unpinned .ui-icon {
+  transform: rotate(26deg);
+  opacity: .78;
+}
+
+.workspace-tab-pin.is-unpinned:hover {
+  color: #d6e0e8;
+  background: #39434f;
+}
+
+.workspace-tab-pin.is-unpinned:hover .ui-icon {
+  transform: rotate(-26deg) scale(1.08);
+  opacity: 1;
+}
+
+.workspace-tab-pin.is-pinned:hover {
+  color: #ffd36e;
+  background: #39434f;
+}
+
+.workspace-tab-pin:disabled {
+  cursor: default;
+  opacity: 1;
 }
 
 .workspace-tab-close,
