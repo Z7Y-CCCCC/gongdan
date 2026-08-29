@@ -3812,6 +3812,11 @@ button:active:not(:disabled),
     padding var(--motion-base) var(--motion-ease), transform var(--motion-base) var(--motion-ease);
 }
 
+/* Keep the sidebar toggle anchored while the shared button press state runs. */
+.collapse-toggle:active:not(:disabled) {
+  transform: translateY(-50%);
+}
+
 .sub-items-container {
   transform-origin: top;
   animation: sidebar-items-in var(--motion-base) var(--motion-ease) both;
