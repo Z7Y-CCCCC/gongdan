@@ -4242,7 +4242,7 @@ button:active:not(:disabled),
 }
 
 .workspace-tabs {
-  height: 50px;
+  height: 60px;
   display: flex;
   align-items: stretch;
   gap: 2px;
