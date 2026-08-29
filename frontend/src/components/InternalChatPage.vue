@@ -160,10 +160,7 @@ onBeforeUnmount(() => {
   <section class="internal-chat-page">
     <aside class="internal-chat-rail" aria-label="沟通导航">
       <div class="internal-chat-brand">工</div>
-      <button class="internal-chat-rail-btn active" type="button" title="消息"><UiIcon name="message" :size="19" /></button>
-      <button class="internal-chat-rail-btn" type="button" title="联系人"><UiIcon name="user" :size="19" /></button>
-      <span class="internal-chat-rail-spacer"></span>
-      <button class="internal-chat-rail-btn" type="button" title="设置"><UiIcon name="settings" :size="19" /></button>
+      <div class="internal-chat-rail-btn active" title="消息" aria-current="page"><UiIcon name="message" :size="19" /></div>
     </aside>
 
     <aside class="internal-chat-sidebar">
@@ -312,13 +309,10 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   color: #98a6a1;
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 
-.internal-chat-rail-btn:hover,
-.internal-chat-rail-btn.active { color: #fff; background: #2a3934; }
-.internal-chat-rail-btn.active { box-shadow: inset 2px 0 #1fd29d; }
-.internal-chat-rail-spacer { flex: 1; }
+.internal-chat-rail-btn.active { color: #fff; background: #2a3934; box-shadow: inset 2px 0 #1fd29d; }
 
 .internal-chat-sidebar {
   min-width: 0;
