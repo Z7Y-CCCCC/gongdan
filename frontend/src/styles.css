@@ -694,6 +694,23 @@ button {
   line-height: 18px;
 }
 
+.notification-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-text-action {
+  border: 0;
+  background: transparent;
+  color: #00a77d;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.notification-text-action:hover { color: #007c60; }
+
 .notification-refresh {
   width: 28px;
   height: 28px;
@@ -740,6 +757,10 @@ button {
 
 .notification-item:hover {
   background: #f6f8f7;
+}
+
+.notification-item.unread {
+  background: #f4fbf8;
 }
 
 .notification-item:last-child {
@@ -790,6 +811,23 @@ button {
   line-height: 18px;
   white-space: nowrap;
 }
+
+.notification-foot {
+  padding: 9px 14px;
+  border-top: 1px solid #eef2f0;
+  background: #fbfcfc;
+  text-align: center;
+}
+
+.notification-view-all {
+  border: 0;
+  background: transparent;
+  color: #00a77d;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.notification-view-all:hover { color: #007c60; }
 
 .topbar-divider {
   width: 1px;
@@ -5562,6 +5600,10 @@ button:active:not(:disabled),
 .admin-shell.dark-theme .notification-content strong { color: #e0e8ec; }
 .admin-shell.dark-theme .notification-content span { color: #9caab2; }
 .admin-shell.dark-theme .notification-item:hover { background: #242d35; }
+.admin-shell.dark-theme .notification-item.unread { background: #1c302c; }
+.admin-shell.dark-theme .notification-foot { border-color: #303a44; background: #171d23; }
+.admin-shell.dark-theme .notification-text-action,
+.admin-shell.dark-theme .notification-view-all { color: #6dd6b5; }
 
 .admin-shell.dark-theme .message-center-page {
   color: #d9e2e7;

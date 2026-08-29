@@ -236,6 +236,94 @@ export function markInternalChatRead(token: string, peerId: number) {
   })
 }
 
+export type NotificationScope = 'active' | 'all' | 'history'
+
+export interface NotificationInfo {
+  id: number
+  eventType: string
+  title: string
+  content: string
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' | string
+  sourceType?: string
+  sourceId?: number
+  targetMain?: string
+  targetSub?: string
+  targetParamsJson?: string
+  state: 'UNREAD' | 'READ' | 'HANDLED' | 'ARCHIVED' | string
+  unread: boolean
+  createdAt: string
+  readAt?: string
+  handledAt?: string
+  archivedAt?: string
+  snoozedUntil?: string
+  resolvedAt?: string
+}
+
+export interface NotificationListResponse {
+  items: NotificationInfo[]
+  total: number
+  unreadCount: number
+}
+
+export function fetchNotifications(
+  token: string,
+  params: {
+    scope?: NotificationScope
+    unreadOnly?: boolean
+    eventType?: string
+    priority?: string
+    keyword?: string
+    page?: number
+    size?: number
+  } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.scope) query.append('scope', params.scope)
+  if (params.unreadOnly) query.append('unreadOnly', 'true')
+  if (params.eventType) query.append('eventType', params.eventType)
+  if (params.priority) query.append('priority', params.priority)
+  if (params.keyword) query.append('keyword', params.keyword)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<NotificationListResponse>(`/notifications?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function fetchNotificationUnreadCount(token: string) {
+  return request<number>('/notifications/unread-count', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function markNotificationRead(token: string, id: number) {
+  return request<NotificationInfo>(`/notifications/${id}/read`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function markNotificationUnread(token: string, id: number) {
+  return request<NotificationInfo>(`/notifications/${id}/unread`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function archiveNotification(token: string, id: number) {
+  return request<NotificationInfo>(`/notifications/${id}/archive`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function markAllNotificationsRead(token: string) {
+  return request<{ updated: number }>('/notifications/read-all', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 export function createUser(token: string, payload: CreateUserPayload) {
   return request<UserInfo>('/users', {
     method: 'POST',

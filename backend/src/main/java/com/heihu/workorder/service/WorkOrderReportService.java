@@ -56,6 +56,7 @@ public class WorkOrderReportService {
     private final WorkOrderRepository workOrderRepository;
     private final UserRepository userRepository;
     private final ReportImageStorage reportImageStorage;
+    private final NotificationService notificationService;
 
     @Value("${app.upload.pending-image-ttl-hours:24}")
     private int pendingImageTtlHours;
@@ -65,13 +66,15 @@ public class WorkOrderReportService {
             WorkOrderReportImageRepository imageRepository,
             WorkOrderRepository workOrderRepository,
             UserRepository userRepository,
-            ReportImageStorage reportImageStorage
+            ReportImageStorage reportImageStorage,
+            NotificationService notificationService
     ) {
         this.reportRepository = reportRepository;
         this.imageRepository = imageRepository;
         this.workOrderRepository = workOrderRepository;
         this.userRepository = userRepository;
         this.reportImageStorage = reportImageStorage;
+        this.notificationService = notificationService;
     }
 
     public WorkOrderReportImageResponse uploadImage(Long factoryId, Long userId, MultipartFile file) {
@@ -172,6 +175,7 @@ public class WorkOrderReportService {
         report.setUpdatedAt(now);
         WorkOrderReport saved = reportRepository.save(report);
         attachImages(factoryId, userId, saved, request.getImageIds());
+        notificationService.publishReportSubmitted(saved);
         return toResponse(saved);
     }
 
@@ -223,7 +227,9 @@ public class WorkOrderReportService {
         report.setApprovalRemark(normalize(request == null ? null : request.getRemark()));
         report.setUpdatedAt(now);
         applyApprovedReport(report, now);
-        return toResponse(reportRepository.save(report));
+        WorkOrderReport saved = reportRepository.save(report);
+        notificationService.publishReportDecision(saved, true);
+        return toResponse(saved);
     }
 
     @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail"}, allEntries = true)
@@ -237,7 +243,9 @@ public class WorkOrderReportService {
         report.setApprovedAt(now);
         report.setApprovalRemark(normalize(request == null ? null : request.getRemark()));
         report.setUpdatedAt(now);
-        return toResponse(reportRepository.save(report));
+        WorkOrderReport saved = reportRepository.save(report);
+        notificationService.publishReportDecision(saved, false);
+        return toResponse(saved);
     }
 
     @Scheduled(cron = "${app.upload.pending-image-cleanup-cron:0 0 3 * * *}")

@@ -58,6 +58,11 @@ import {
   fetchReports,
   fetchSalesOrders,
   fetchPluginRuntimeManifest,
+  fetchNotifications,
+  fetchNotificationUnreadCount,
+  markNotificationRead,
+  markAllNotificationsRead,
+  type NotificationInfo,
   type PluginRuntimeManifestInfo
 } from './api'
 import DeleteConfirmDialog from './components/DeleteConfirmDialog.vue'
@@ -96,6 +101,7 @@ const OnlineUsersPage = defineAsyncComponent(() => import('./components/OnlineUs
 const CacheMonitorPage = defineAsyncComponent(() => import('./components/CacheMonitorPage.vue'))
 const CacheListPage = defineAsyncComponent(() => import('./components/CacheListPage.vue'))
 const InternalChatPage = defineAsyncComponent(() => import('./components/InternalChatPage.vue'))
+const NotificationCenterPage = defineAsyncComponent(() => import('./components/NotificationCenterPage.vue'))
 const PluginCenterPage = defineAsyncComponent(() => import('./components/PluginCenterPage.vue'))
 const PluginRuntimePage = defineAsyncComponent(() => import('./components/PluginRuntimePage.vue'))
 
@@ -719,17 +725,9 @@ const scrollMessages = ref<Array<{ time: string; text: string }>>([])
 
 const dashboardReports = ref<any[]>([])
 
-type NotificationItem = {
-  id: string
-  type: 'approval' | 'overdue' | 'report'
-  title: string
-  detail: string
-  time?: string
-  target: { main: string; sub: string }
-}
-
-const notificationItems = ref<NotificationItem[]>([])
-const notificationCount = computed(() => notificationItems.value.length)
+const notificationItems = ref<NotificationInfo[]>([])
+const notificationUnreadCount = ref(0)
+const notificationCount = computed(() => notificationUnreadCount.value)
 const notificationPreview = computed(() => notificationItems.value.slice(0, 8))
 
 function normalizeDate(value?: string) {
@@ -751,59 +749,33 @@ function normalizeDate(value?: string) {
   }
 }
 
+async function loadNotificationCount(): Promise<boolean> {
+  if (!token.value) {
+    notificationUnreadCount.value = 0
+    return true
+  }
+  try {
+    notificationUnreadCount.value = await fetchNotificationUnreadCount(token.value)
+    return true
+  } catch (error) {
+    notificationUnreadCount.value = 0
+    notificationError.value = error instanceof Error ? error.message : '通知数量加载失败'
+    return false
+  }
+}
+
 async function loadNotifications(): Promise<boolean> {
-  if (!token.value || (!isSuperAdmin.value && currentUser.value?.role !== 'ADMIN')) {
+  if (!token.value) {
     notificationItems.value = []
+    notificationUnreadCount.value = 0
     return true
   }
   notificationsLoading.value = true
   notificationError.value = ''
   try {
-    const [pendingReports, workOrders, todayReports] = await Promise.all([
-      fetchReports(token.value, { status: 'PENDING', page: 1, size: 50 }),
-      fetchWorkOrders(token.value, { page: 1, size: 100 }),
-      fetchReports(token.value, { period: 'today', page: 1, size: 50 })
-    ])
-    const now = Date.now()
-    const items: NotificationItem[] = []
-
-    ;(pendingReports.items || []).slice(0, 5).forEach(report => {
-      items.push({
-        id: `approval-${report.id}`,
-        type: 'approval',
-        title: '待审批报工',
-        detail: `${report.workOrderCode || '-'} / ${report.processName || '-'} / ${report.reporterName || '-'}`,
-        time: normalizeDate(report.createdAt),
-        target: { main: 'production', sub: 'workbench' }
-      })
-    })
-
-    ;(workOrders.items || [])
-      .filter(order => Boolean(order.planEnd) && !isClosedStatus(order.status) && new Date(order.planEnd as string).getTime() < now)
-      .slice(0, 5)
-      .forEach(order => {
-        items.push({
-          id: `overdue-${order.id}`,
-          type: 'overdue',
-          title: '逾期工单',
-          detail: `${order.code || '-'} / ${order.productName || '-'} / 计划完工 ${normalizeDate(order.planEnd) || '-'}`,
-          time: normalizeDate(order.planEnd),
-          target: { main: 'production', sub: 'workorder' }
-        })
-      })
-
-    ;(todayReports.items || []).slice(0, 4).forEach(report => {
-      items.push({
-        id: `report-${report.id}`,
-        type: 'report',
-        title: '今日报工',
-        detail: `${report.reporterName || '-'} 提交 ${report.goodQuantity || 0} 良品 / ${report.defectQuantity || 0} 不良`,
-        time: normalizeDate(report.createdAt),
-        target: { main: 'production', sub: 'reporting' }
-      })
-    })
-
-    notificationItems.value = items
+    const result = await fetchNotifications(token.value, { scope: 'active', page: 1, size: 8 })
+    notificationItems.value = result.items || []
+    notificationUnreadCount.value = result.unreadCount || 0
     return true
   } catch (error) {
     notificationItems.value = []
@@ -841,10 +813,40 @@ async function toggleNotifications() {
   }
 }
 
-function openNotification(item: NotificationItem) {
-  activeMainMenu.value = item.target.main
-  if (item.target.main === 'production') {
-    activeProductionMenu.value = item.target.sub
+async function markAllNotificationsAsRead() {
+  if (!token.value || notificationUnreadCount.value === 0) return
+  try {
+    await markAllNotificationsRead(token.value)
+    notificationItems.value.forEach(item => {
+      item.unread = false
+      if (item.state === 'UNREAD') item.state = 'READ'
+    })
+    notificationUnreadCount.value = 0
+  } catch (error) {
+    notificationError.value = error instanceof Error ? error.message : '全部已读失败'
+  }
+}
+
+function openNotificationCenter() {
+  activeMainMenu.value = 'notifications'
+  showNotificationDropdown.value = false
+  showUserDropdown.value = false
+}
+
+async function openNotification(item: NotificationInfo) {
+  if (item.unread && token.value) {
+    try {
+      await markNotificationRead(token.value, item.id)
+      item.unread = false
+      item.state = 'READ'
+      notificationUnreadCount.value = Math.max(0, notificationUnreadCount.value - 1)
+    } catch {
+      // Navigation remains available even when the read-state update is temporarily unavailable.
+    }
+  }
+  activeMainMenu.value = item.targetMain || 'home'
+  if (item.targetMain === 'production') {
+    activeProductionMenu.value = item.targetSub || 'workorder'
     expandedMenus.production = true
   }
   showNotificationDropdown.value = false
@@ -1978,8 +1980,8 @@ async function bootstrapWorkspace(): Promise<boolean> {
       return `已加载 ${routes.value.length} 条工艺路线`
     })
     await runWorkspaceLoadingStage(runId, 'load-notifications', async () => {
-      if (!await loadNotifications()) throw new Error(notificationError.value || '通知接口没有返回成功')
-      return hasAdminAccess.value ? `已同步 ${notificationItems.value.length} 条工作台通知` : '当前账号无需加载管理端通知'
+      if (!await loadNotificationCount()) throw new Error(notificationError.value || '通知数量接口没有返回成功')
+      return `已同步 ${notificationUnreadCount.value} 条未读通知`
     })
     await runWorkspaceLoadingStage(runId, 'load-plugin-manifest', async () => {
       await loadPluginRuntimeManifest()
@@ -2737,6 +2739,7 @@ function logout() {
   runtimePlugins.value = []
   activePluginKey.value = ''
   notificationItems.value = []
+  notificationUnreadCount.value = 0
   notificationError.value = ''
   showNotificationDropdown.value = false
   localStorage.removeItem('heihu_token')
@@ -3232,6 +3235,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <template v-else-if="activeMainMenu === 'plugin'">
             插件扩展 <span>></span> {{ selectedRuntimePlugin?.name || '插件' }}
           </template>
+          <template v-else-if="activeMainMenu === 'notifications'">
+            通知中心
+          </template>
           <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : activeConfigMenu === 'factory' ? '工厂' : activeConfigMenu === 'plugin-center' ? '插件中心' : '用户' }}</template>
         </div>
         <div class="top-actions">
@@ -3341,31 +3347,38 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 <div class="notification-head">
                   <div>
                     <strong>通知中心</strong>
-                    <span>工单与报工待办</span>
+                    <span>{{ notificationUnreadCount ? `${notificationUnreadCount} 条未读` : '暂无未读通知' }}</span>
                   </div>
-                  <button type="button" class="notification-refresh" title="刷新" @click.stop="loadNotifications">
-                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-                  </button>
+                  <div class="notification-head-actions">
+                    <button v-if="notificationUnreadCount" type="button" class="notification-text-action" @click.stop="markAllNotificationsAsRead">全部已读</button>
+                    <button type="button" class="notification-refresh" title="刷新通知" aria-label="刷新通知" @click.stop="loadNotifications">
+                      <UiIcon name="refresh" :size="15" />
+                    </button>
+                  </div>
                 </div>
                 <div v-if="notificationsLoading" class="notification-state">加载中...</div>
                 <div v-else-if="notificationError" class="notification-state error">{{ notificationError }}</div>
-                <div v-else-if="notificationPreview.length === 0" class="notification-state">暂无待办</div>
+                <div v-else-if="notificationPreview.length === 0" class="notification-state">暂无通知</div>
                 <template v-else>
                   <button
                     v-for="item in notificationPreview"
                     :key="item.id"
                     type="button"
                     class="notification-item"
+                    :class="{ unread: item.unread }"
                     @click.stop="openNotification(item)"
                   >
-                    <span class="notification-dot" :class="item.type"></span>
+                    <span class="notification-dot" :class="item.priority.toLowerCase()"></span>
                     <span class="notification-content">
                       <strong>{{ item.title }}</strong>
-                      <span>{{ item.detail }}</span>
+                      <span>{{ item.content }}</span>
                     </span>
-                    <time>{{ item.time || '-' }}</time>
+                    <time :title="normalizeDate(item.createdAt)">{{ normalizeDate(item.createdAt) || '-' }}</time>
                   </button>
                 </template>
+                <div class="notification-foot">
+                  <button type="button" class="notification-view-all" @click.stop="openNotificationCenter">查看全部通知</button>
+                </div>
               </div>
             </Transition>
           </div>
@@ -3441,8 +3454,15 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
       <div ref="pageMotionStage" class="page-motion-stage">
         <KeepAlive :max="32">
+          <NotificationCenterPage
+            v-if="activeMainMenu === 'notifications' && currentUser"
+            key="notifications"
+            :token="token"
+            @open="openNotification"
+            @notice="showAction"
+          />
           <HomeDashboardPage
-            v-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
+            v-else-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
             key="home"
             :token="token"
           />

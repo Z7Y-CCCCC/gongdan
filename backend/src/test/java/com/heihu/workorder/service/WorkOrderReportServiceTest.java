@@ -55,6 +55,9 @@ class WorkOrderReportServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private NotificationService notificationService;
+
     private WorkOrderReportService service;
 
     @BeforeEach
@@ -64,7 +67,8 @@ class WorkOrderReportServiceTest {
                 imageRepository,
                 workOrderRepository,
                 userRepository,
-                new LocalReportImageStorage(uploadDir.toString())
+                new LocalReportImageStorage(uploadDir.toString()),
+                notificationService
         );
     }
 
