@@ -3009,153 +3009,153 @@ function handleNavigate(menu: { main: string; sub: string }) {
       <div class="factory-name" v-show="!isSidebarCollapsed" :title="currentFactoryCode">{{ currentFactoryCode }}</div>
       <nav v-if="hasAdminAccess">
         <a v-if="currentUser && currentUser.role === 'ADMIN'" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'home' }" :title="isSidebarCollapsed ? '主页' : ''" @click="activeMainMenu = 'home'">
-          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <UiIcon name="home" :size="18" />
           <span v-show="!isSidebarCollapsed">主页</span>
         </a>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '生产管理' : ''" @click.stop="toggleMenu('production')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <UiIcon name="file" :size="18" />
             <span v-show="!isSidebarCollapsed">生产管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.production }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.production" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'">销售订单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'">工单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'">任务</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'">报工</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'">报工工作台</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'"><UiIcon name="file" :size="15" />销售订单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'"><UiIcon name="calendar" :size="15" />任务</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'"><UiIcon name="check" :size="15" />报工工作台</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '上下游管理' : ''" @click.stop="toggleMenu('upstream')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            <UiIcon name="share" :size="18" />
             <span v-show="!isSidebarCollapsed">上下游管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.upstream }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.upstream" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true">客户</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true">供应商</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true"><UiIcon name="user" :size="15" />客户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true"><UiIcon name="share" :size="15" />供应商</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '库存管理' : ''" @click.stop="toggleMenu('inventory')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            <UiIcon name="layers" :size="18" />
             <span v-show="!isSidebarCollapsed">库存管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.inventory }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.inventory" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'">入库单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'">出库单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'">库存收发明细</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'">库存余额</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'">进销存汇总</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'"><UiIcon name="download" :size="15" />入库单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'"><UiIcon name="upload" :size="15" />出库单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'"><UiIcon name="list" :size="15" />库存收发明细</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'"><UiIcon name="layers" :size="15" />库存余额</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'"><UiIcon name="activity" :size="15" />进销存汇总</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '基础数据' : ''" @click.stop="toggleMenu('basedata')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <UiIcon name="list" :size="18" />
             <span v-show="!isSidebarCollapsed">基础数据</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.basedata }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.basedata" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'">产品定义</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'">物料清单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'">单位</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'">不良品项</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'">工序</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'">工艺路线</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'">仓库</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'">供应商</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'">客户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'"><UiIcon name="package" :size="15" />产品定义</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'"><UiIcon name="table-columns" :size="15" />单位</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'"><UiIcon name="warning" :size="15" />不良品项</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'"><UiIcon name="settings" :size="15" />工序</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'"><UiIcon name="share" :size="15" />工艺路线</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'"><UiIcon name="home" :size="15" />仓库</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'"><UiIcon name="share" :size="15" />供应商</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '自定义配置' : ''" @click.stop="toggleMenu('custom')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            <UiIcon name="table-columns" :size="18" />
             <span v-show="!isSidebarCollapsed">自定义配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.custom }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.custom" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'">产品</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'">物料清单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'">工序</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'">工单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'">报工</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'">客户</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'">出入库单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'">出入库明细</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'"><UiIcon name="package" :size="15" />产品</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'"><UiIcon name="settings" :size="15" />工序</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'"><UiIcon name="archive" :size="15" />出入库单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'"><UiIcon name="list" :size="15" />出入库明细</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '高级运营' : ''" @click.stop="toggleMenu('advanced')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 19.5V4a2 2 0 0 1 2-2h8l6 6v11.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13h8M8 17h5"/></svg>
+            <UiIcon name="file" :size="18" />
             <span v-show="!isSidebarCollapsed">高级运营</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.advanced }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.advanced" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'">SOP / 推送 / 质检 / 设备</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'">排产 / 绩效 / 现场</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="settings" :size="15" />SOP / 推送 / 质检 / 设备</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="activity" :size="15" />排产 / 绩效 / 现场</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '报表' : ''" @click.stop="toggleMenu('report')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+            <UiIcon name="activity" :size="18" />
             <span v-show="!isSidebarCollapsed">报表</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.report }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'">生产报表</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'"><UiIcon name="activity" :size="15" />生产报表</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item expanded" :title="isSidebarCollapsed ? '系统配置' : ''" @click.stop="toggleMenu('sysconfig')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <UiIcon name="settings" :size="18" />
             <span v-show="!isSidebarCollapsed">系统配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.sysconfig }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
-              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
-              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
-              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'">工厂</a>
-              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'plugin-center'">插件中心</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'"><UiIcon name="share" :size="15" />部门</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'"><UiIcon name="user" :size="15" />用户</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'"><UiIcon name="home" :size="15" />工厂</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'plugin-center'"><UiIcon name="layers" :size="15" />插件中心</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item expanded" :title="isSidebarCollapsed ? '系统监控' : ''" @click.stop="toggleMenu('monitor')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 15h2l2-5 3 8 2-4h1"/></svg>
+            <UiIcon name="activity" :size="18" />
             <span v-show="!isSidebarCollapsed">系统监控</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.monitor }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.monitor" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'online' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'online'">在线用户</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cache'">缓存监控</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cacheList'">缓存列表</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'online' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'online'"><UiIcon name="user" :size="15" />在线用户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cache'"><UiIcon name="activity" :size="15" />缓存监控</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cacheList'"><UiIcon name="list" :size="15" />缓存列表</a>
             </div>
           </Transition>
         </div>
@@ -3174,28 +3174,28 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 class="sub-item"
                 :class="{ selected: activeMainMenu === 'plugin' && activePluginKey === plugin.pluginKey }"
                 @click="openRuntimePlugin(plugin.pluginKey)"
-              >{{ plugin.name }}</a>
+              ><UiIcon name="layers" :size="15" />{{ plugin.name }}</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'dashboard' }" :title="isSidebarCollapsed ? '车间看板' : ''" @click.stop="activeMainMenu = 'dashboard'">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            <UiIcon name="table-columns" :size="18" />
             <span v-show="!isSidebarCollapsed">车间看板</span>
           </a>
         </div>
 
         <div v-if="isSuperAdmin" class="nav-group">
           <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'super-admin' }" :title="isSidebarCollapsed ? '授权码管理' : ''" @click.stop="activeMainMenu = 'super-admin'">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <UiIcon name="lock" :size="18" />
             <span v-show="!isSidebarCollapsed">授权码管理</span>
           </a>
         </div>
       </nav>
       <nav v-else>
         <a class="nav-item active-parent" :title="isSidebarCollapsed ? '移动端' : ''">
-          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          <UiIcon name="smartphone" :size="18" />
           <span v-show="!isSidebarCollapsed">移动端作业</span>
         </a>
       </nav>
