@@ -2377,7 +2377,7 @@ onUnmounted(() => {
               :class="{ 'work-order-actions-column': column.key === 'actions' }"
               :style="workOrderColumnStyle(column, true)"
             >
-              <template v-if="column.key === 'actions'"><UiIcon name="settings" :size="14" /> {{ column.label }}</template>
+              <template v-if="column.key === 'actions'">{{ column.label }}</template>
               <template v-else>{{ column.label }}</template>
             </th>
           </tr>
