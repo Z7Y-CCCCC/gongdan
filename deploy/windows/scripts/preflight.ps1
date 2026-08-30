@@ -51,7 +51,7 @@ $config = Read-DotEnv $EnvFile
 $profile = (Get-Value $config "SPRING_PROFILES_ACTIVE" "demo").Trim().ToLowerInvariant()
 if ($Mode -eq "Auto") { $Mode = if ($profile -eq "prod") { "Commercial" } else { "Demo" } }
 
-foreach ($relativePath in @("server\app.jar", "www\index.html", "www\mobile\index.html", "scripts\start-backend.ps1", "scripts\backup-database.ps1", "scripts\test-restore.ps1")) {
+foreach ($relativePath in @("server\app.jar", "www\index.html", "www\mobile\index.html", "scripts\start-backend.ps1", "scripts\backup-database.ps1", "scripts\archive-binlogs.ps1", "scripts\sync-backup-remote.ps1", "scripts\test-restore.ps1", "scripts\test-pitr-restore.ps1")) {
     if (-not (Test-Path -LiteralPath (Join-Path $ReleaseRoot $relativePath))) {
         Add-Failure "Required release file is missing: $relativePath"
     }
@@ -82,8 +82,11 @@ if ($Mode -eq "Commercial") {
     if ((Get-Value $config "APP_WECHAT_MOCK_ENABLED" "false").Trim().ToLowerInvariant() -ne "false") {
         Add-Failure "APP_WECHAT_MOCK_ENABLED must be false"
     }
-    foreach ($name in @("APP_WECHAT_APP_ID", "APP_WECHAT_SECRET", "APP_SMS_HTTP_URL", "APP_CORS_ALLOWED_ORIGIN_PATTERNS")) {
+    foreach ($name in @("APP_WECHAT_APP_ID", "APP_WECHAT_SECRET", "APP_SMS_HTTP_URL", "APP_CORS_ALLOWED_ORIGIN_PATTERNS", "APP_PLUGIN_GATEWAY_SECRET", "APP_PLUGIN_ALLOWED_BACKEND_HOSTS", "APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS")) {
         if (Is-Placeholder (Get-Value $config $name "")) { Add-Failure "$name must be configured with a production value" }
+    }
+    if ((Get-Value $config "APP_PLUGIN_GATEWAY_SECRET" "").Length -lt 32) {
+        Add-Failure "APP_PLUGIN_GATEWAY_SECRET must be at least 32 characters"
     }
     if ((Get-Value $config "APP_SMS_SENDER" "http").Trim().ToLowerInvariant() -ne "http") {
         Add-Failure "APP_SMS_SENDER must be http"
@@ -98,6 +101,23 @@ if ($Mode -eq "Commercial") {
         if (-not $normalizedOrigin.StartsWith("https://") -or $normalizedOrigin.Contains("*")) {
             Add-Failure "Every production CORS origin must be an explicit HTTPS origin: $origin"
         }
+    }
+
+    foreach ($hostName in (Get-Value $config "APP_PLUGIN_ALLOWED_BACKEND_HOSTS" "").Split(',')) {
+        $normalizedHost = $hostName.Trim()
+        if (-not $normalizedHost -or $normalizedHost.Contains("*") -or $normalizedHost.Contains("://") -or $normalizedHost.Contains("/")) {
+            Add-Failure "Plugin backend allow-list entries must be explicit host names: $hostName"
+        }
+    }
+    foreach ($origin in (Get-Value $config "APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS" "").Split(',')) {
+        $normalizedOrigin = $origin.Trim().ToLowerInvariant()
+        if (-not $normalizedOrigin.StartsWith("https://") -or $normalizedOrigin.Contains("*")) {
+            Add-Failure "Every production plugin frontend origin must be explicit HTTPS: $origin"
+        }
+    }
+    $pluginRequestLimit = 0
+    if (-not [int]::TryParse((Get-Value $config "APP_PLUGIN_PROXY_MAX_REQUEST_BYTES" ""), [ref]$pluginRequestLimit) -or $pluginRequestLimit -lt 1024) {
+        Add-Failure "APP_PLUGIN_PROXY_MAX_REQUEST_BYTES must be an integer of at least 1024"
     }
 
     if ((Get-Value $config "SPRING_FLYWAY_ENABLED" "true").Trim().ToLowerInvariant() -ne "true") {
@@ -120,17 +140,60 @@ if ($Mode -eq "Commercial") {
 
     $backupDir = Get-Value $config "BACKUP_DIR" ""
     $secondaryDir = Get-Value $config "BACKUP_SECONDARY_DIR" ""
+    $remoteUri = Get-Value $config "BACKUP_REMOTE_URI" ""
     if (-not $backupDir) { Add-Failure "BACKUP_DIR must be configured" }
-    if (Is-Placeholder $secondaryDir) { Add-Failure "BACKUP_SECONDARY_DIR must point to another disk or NAS" }
+    if (Is-Placeholder $remoteUri) { Add-Failure "BACKUP_REMOTE_URI must point to an immutable bucket outside the production account or host" }
+    if ($secondaryDir -and (Is-Placeholder $secondaryDir)) { Add-Failure "Set BACKUP_SECONDARY_DIR to a real second disk/NAS path or leave it empty" }
     if ($backupDir -and $secondaryDir -and $backupDir.TrimEnd('/','\') -eq $secondaryDir.TrimEnd('/','\')) {
         Add-Failure "BACKUP_SECONDARY_DIR must differ from BACKUP_DIR"
     }
 
-    foreach ($retentionItem in @(@("BACKUP_RETENTION_DAYS", 7), @("LOG_RETENTION_DAYS", 7), @("APP_SYSTEM_LOG_RETENTION_DAYS", 30))) {
+    $backupUser = Get-Value $config "BACKUP_MYSQL_USER" ""
+    $backupPassword = Get-Value $config "BACKUP_MYSQL_PASSWORD" ""
+    if (Is-Placeholder $backupUser -or $backupUser.Trim().ToLowerInvariant() -eq "root") {
+        Add-Failure "BACKUP_MYSQL_USER must be a dedicated non-root backup account"
+    }
+    if (Is-Placeholder $backupPassword -or $backupPassword.Length -lt 16) {
+        Add-Failure "BACKUP_MYSQL_PASSWORD must be a non-placeholder value of at least 16 characters"
+    }
+    $restoreUser = Get-Value $config "RESTORE_MYSQL_USER" ""
+    $restorePassword = Get-Value $config "RESTORE_MYSQL_PASSWORD" ""
+    if (Is-Placeholder $restoreUser -or $restoreUser.Trim().ToLowerInvariant() -eq "root") {
+        Add-Failure "RESTORE_MYSQL_USER must be a dedicated non-root recovery account"
+    }
+    if (Is-Placeholder $restorePassword -or $restorePassword.Length -lt 16) {
+        Add-Failure "RESTORE_MYSQL_PASSWORD must be a non-placeholder value of at least 16 characters"
+    }
+
+    if (-not (Is-Placeholder $remoteUri)) {
+        if ($remoteUri -notmatch '^s3://(?<bucket>[^/]+)(/.*)?$') {
+            Add-Failure "BACKUP_REMOTE_URI must use s3://bucket/prefix syntax"
+        } else {
+            $backupBucket = $Matches["bucket"]
+            if ($storageType -eq "s3" -and $backupBucket -eq (Get-Value $config "APP_UPLOAD_S3_BUCKET" "")) {
+                Add-Failure "Backup bucket must differ from the live attachment bucket"
+            }
+        }
+        if ((Get-Value $config "BACKUP_REQUIRE_IMMUTABLE_REMOTE" "true").Trim().ToLowerInvariant() -ne "true") {
+            Add-Failure "BACKUP_REQUIRE_IMMUTABLE_REMOTE must be true for commercial deployments"
+        }
+        foreach ($name in @("BACKUP_REMOTE_ACCESS_KEY", "BACKUP_REMOTE_SECRET_KEY")) {
+            if (Is-Placeholder (Get-Value $config $name "")) { Add-Failure "$name is required for the backup-only storage identity" }
+        }
+    }
+
+    foreach ($retentionItem in @(@("BACKUP_RETENTION_DAYS", 7), @("BINLOG_ARCHIVE_RETENTION_DAYS", 7), @("LOG_RETENTION_DAYS", 7), @("APP_SYSTEM_LOG_RETENTION_DAYS", 30))) {
         $value = 0
         if (-not [int]::TryParse((Get-Value $config $retentionItem[0] "0"), [ref]$value) -or $value -lt $retentionItem[1]) {
             Add-Failure "$($retentionItem[0]) must be at least $($retentionItem[1])"
         }
+    }
+    $minimumRemoteRetention = 0
+    if (-not [int]::TryParse((Get-Value $config "BACKUP_REMOTE_MIN_RETENTION_DAYS" "35"), [ref]$minimumRemoteRetention) -or $minimumRemoteRetention -lt 1) {
+        Add-Failure "BACKUP_REMOTE_MIN_RETENTION_DAYS must be a positive integer"
+    }
+    if ((Get-Value $config "BACKUP_REMOTE_REQUIRED_LOCK_MODE" "COMPLIANCE").Trim().ToUpperInvariant() -notin @("COMPLIANCE", "GOVERNANCE")) {
+        Add-Failure "BACKUP_REMOTE_REQUIRED_LOCK_MODE must be COMPLIANCE or GOVERNANCE"
     }
 
     if (-not (Get-Value $config "NGINX_SERVICE_NAME" "") -and -not (Get-Value $config "NGINX_EXE" "")) {
@@ -154,6 +217,17 @@ if (-not $SkipRuntimeChecks) {
     $nginxExe = Get-Value $config "NGINX_EXE" ""
     if ($nginxExe -and -not (Test-Path -LiteralPath $nginxExe)) {
         Add-Failure "NGINX_EXE was not found: $nginxExe"
+    }
+
+    if ($Mode -eq "Commercial") {
+        $remoteUri = Get-Value $config "BACKUP_REMOTE_URI" ""
+        if (-not (Is-Placeholder $remoteUri)) {
+            try {
+                & (Join-Path $ReleaseRoot "scripts\sync-backup-remote.ps1") -ReleaseRoot $ReleaseRoot -EnvFile $EnvFile -VerifyOnly
+            } catch {
+                Add-Failure "Remote backup policy check failed: $($_.Exception.Message)"
+            }
+        }
     }
 }
 

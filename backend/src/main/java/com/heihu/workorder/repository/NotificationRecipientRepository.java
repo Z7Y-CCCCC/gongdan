@@ -4,6 +4,7 @@ import com.heihu.workorder.model.NotificationRecipient;
 import com.heihu.workorder.model.NotificationRecipientState;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -66,17 +67,14 @@ public interface NotificationRecipientRepository extends JpaRepository<Notificat
             @Param("now") LocalDateTime now
     );
 
-    @Modifying
-    @Query("update NotificationRecipient r set r.readAt = :now, " +
-            "r.state = :state, r.updatedAt = :now " +
+    @Query("select r from NotificationRecipient r join fetch r.event e " +
             "where r.user.id = :userId and r.archivedAt is null and r.readAt is null " +
-            "and r.event.factory.id = :factoryId and r.event.resolvedAt is null " +
-            "and (r.event.expiresAt is null or r.event.expiresAt > :now)")
-    int markAllRead(
+            "and e.factory.id = :factoryId and e.resolvedAt is null " +
+            "and (e.expiresAt is null or e.expiresAt > :now)")
+    List<NotificationRecipient> findActiveUnread(
             @Param("userId") Long userId,
             @Param("factoryId") Long factoryId,
-            @Param("now") LocalDateTime now,
-            @Param("state") NotificationRecipientState state
+            @Param("now") LocalDateTime now
     );
 
     @Modifying

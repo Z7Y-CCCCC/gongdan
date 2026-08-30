@@ -17,16 +17,19 @@ import com.heihu.workorder.repository.FactoryPluginRepository;
 import com.heihu.workorder.repository.PluginCatalogRepository;
 import com.heihu.workorder.repository.PluginVersionRepository;
 import java.net.URI;
+import java.net.HttpURLConnection;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
@@ -47,6 +50,11 @@ public class PluginControlService {
     private static final Logger log = LoggerFactory.getLogger(PluginControlService.class);
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Pattern KEY_PATTERN = Pattern.compile("^[a-z][a-z0-9-]{1,63}$");
+    private static final Pattern VERSION_PATTERN = Pattern.compile("^[0-9A-Za-z][0-9A-Za-z._+\\-]{0,63}$");
+    private static final Pattern SHA256_PATTERN = Pattern.compile("^[0-9a-fA-F]{64}$");
+    private static final Pattern CONFIG_KEY_PATTERN = Pattern.compile("^[A-Za-z][A-Za-z0-9_.-]{0,63}$");
+    private static final int MANIFEST_MAX_LENGTH = 20000;
+    private static final int CONFIG_MAX_LENGTH = 4000;
     private static final Set<String> RUNTIME_MODES = new HashSet<>();
 
     static {
@@ -60,6 +68,12 @@ public class PluginControlService {
     private final FactoryPluginRepository factoryPluginRepository;
     private final ObjectMapper objectMapper;
     private final SystemLogService systemLogService;
+
+    @Value("${app.plugin.allowed-backend-hosts:localhost,127.0.0.1,quality-plugin,inspection-plugin}")
+    private String allowedBackendHosts = "localhost,127.0.0.1,quality-plugin,inspection-plugin";
+
+    @Value("${app.plugin.allowed-frontend-origins:http://localhost:9101,http://127.0.0.1:9101,http://localhost:9102,http://127.0.0.1:9102}")
+    private String allowedFrontendOrigins = "http://localhost:9101,http://127.0.0.1:9101,http://localhost:9102,http://127.0.0.1:9102";
 
     public PluginControlService(
             PluginCatalogRepository catalogRepository,
@@ -94,7 +108,7 @@ public class PluginControlService {
     public List<PluginRuntimeManifestResponse> runtimeManifest(Long factoryId, String role, Long userId) {
         List<PluginRuntimeManifestResponse> result = new ArrayList<>();
         for (FactoryPlugin binding : factoryPluginRepository.findByFactoryId(factoryId)) {
-            if (!"ENABLED".equals(binding.getStatus()) || "DOWN".equals(binding.getHealthStatus())
+            if (!"ENABLED".equals(binding.getStatus())
                     || !StringUtils.hasText(binding.getEnabledVersion())) {
                 continue;
             }
@@ -104,6 +118,9 @@ public class PluginControlService {
             }
             PluginVersion version = versionRepository.findByPluginIdAndVersion(catalog.getId(), binding.getEnabledVersion()).orElse(null);
             if (version == null || !"READY".equals(version.getStatus())) {
+                continue;
+            }
+            if (!"BUILT_IN".equals(catalog.getRuntimeMode()) && !"UP".equals(binding.getHealthStatus())) {
                 continue;
             }
             JsonNode manifest = parseManifest(StringUtils.hasText(version.getManifestJson())
@@ -116,7 +133,10 @@ public class PluginControlService {
             item.setName(catalog.getName());
             item.setVersion(version.getVersion());
             item.setRuntimeMode(catalog.getRuntimeMode());
-            item.setManifest(manifest);
+            item.setManifest(publicManifest(manifest));
+            // Runtime configuration is delivered only through the gateway request.
+            // It must never be exposed to the browser or an iframe context.
+            item.setConfig(objectMapper.createObjectNode());
             result.add(item);
         }
         return result;
@@ -156,36 +176,28 @@ public class PluginControlService {
         if ("BUILT_IN".equals(catalog.getRuntimeMode())) {
             throw new ApiException(org.springframework.http.HttpStatus.CONFLICT, "内置插件不需要远程代理");
         }
-        String backendUrl = text(manifest, "backendUrl");
-        if (!StringUtils.hasText(backendUrl)) {
-            throw new ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "插件尚未配置 backendUrl");
-        }
-        try {
-            URI target = URI.create(trimTrailingSlash(backendUrl));
-            if (!("http".equalsIgnoreCase(target.getScheme()) || "https".equalsIgnoreCase(target.getScheme()))
-                    || !StringUtils.hasText(target.getHost())) {
-                throw new IllegalArgumentException("backendUrl 必须是带主机的 HTTP(S) 地址");
-            }
-        } catch (IllegalArgumentException ex) {
-            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件 backendUrl 配置不正确");
-        }
-        return new PluginTarget(catalog.getPluginKey(), version.getVersion(), trimTrailingSlash(backendUrl));
+        String backendUrl = requireAllowedBackendUrl(manifest);
+        String configJson = StringUtils.hasText(binding.getConfigJson()) ? binding.getConfigJson() : "{}";
+        return new PluginTarget(catalog.getPluginKey(), version.getVersion(), backendUrl, configJson);
     }
 
     public static final class PluginTarget {
         private final String pluginKey;
         private final String version;
         private final String backendUrl;
+        private final String configJson;
 
-        public PluginTarget(String pluginKey, String version, String backendUrl) {
+        public PluginTarget(String pluginKey, String version, String backendUrl, String configJson) {
             this.pluginKey = pluginKey;
             this.version = version;
             this.backendUrl = backendUrl;
+            this.configJson = configJson;
         }
 
         public String getPluginKey() { return pluginKey; }
         public String getVersion() { return version; }
         public String getBackendUrl() { return backendUrl; }
+        public String getConfigJson() { return configJson; }
     }
 
     @CacheEvict(cacheNames = {"platform.plugins.list", "platform.plugins.runtime"}, allEntries = true)
@@ -223,20 +235,24 @@ public class PluginControlService {
     public PluginCatalogResponse registerVersion(Long factoryId, String operator, String pluginKey, PluginVersionRequest request) {
         PluginCatalog catalog = findCatalog(pluginKey);
         String versionText = required(request.getVersion(), "插件版本不能为空");
-        if (versionText.length() > 64) {
-            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件版本不能超过 64 个字符");
+        if (!VERSION_PATTERN.matcher(versionText).matches()) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件版本格式不正确");
         }
         if (versionRepository.findByPluginIdAndVersion(catalog.getId(), versionText).isPresent()) {
             throw new ApiException(org.springframework.http.HttpStatus.CONFLICT, "插件版本已存在");
         }
         String manifest = StringUtils.hasText(request.getManifestJson())
                 ? validateManifest(request.getManifestJson()) : catalog.getManifestJson();
+        String checksum = normalize(request.getChecksum());
+        if (checksum != null && !SHA256_PATTERN.matcher(checksum).matches()) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "SHA-256 校验值必须是 64 位十六进制字符");
+        }
         PluginVersion item = new PluginVersion();
         item.setPluginId(catalog.getId());
         item.setVersion(versionText);
         item.setArtifactUrl(limit(normalize(request.getArtifactUrl()), 512));
         item.setImageName(limit(normalize(request.getImageName()), 255));
-        item.setChecksum(limit(normalize(request.getChecksum()), 128));
+        item.setChecksum(checksum == null ? null : checksum.toLowerCase());
         item.setStatus("READY");
         item.setReleaseNotes(limit(request.getReleaseNotes(), 20000));
         item.setManifestJson(manifest);
@@ -252,16 +268,41 @@ public class PluginControlService {
     }
 
     @CacheEvict(cacheNames = {"platform.plugins.list", "platform.plugins.runtime"}, allEntries = true)
+    public PluginCatalogResponse install(Long factoryId, String operator, String pluginKey) {
+        PluginCatalog catalog = findCatalog(pluginKey);
+        if (factoryPluginRepository.findByFactoryIdAndPluginId(factoryId, catalog.getId()).isPresent()) {
+            throw new ApiException(org.springframework.http.HttpStatus.CONFLICT, "当前工厂已经安装该插件");
+        }
+        FactoryPlugin binding = new FactoryPlugin();
+        binding.setFactoryId(factoryId);
+        binding.setPluginId(catalog.getId());
+        binding.setStatus("DISABLED");
+        binding.setRolloutPercent(100);
+        binding.setHealthStatus("UNKNOWN");
+        binding.setHealthMessage("插件已安装，等待启用");
+        binding.setUpdatedAt(LocalDateTime.now());
+        factoryPluginRepository.save(binding);
+        audit(factoryId, operator, "PLUGIN_INSTALL", catalog.getPluginKey(), null, "安装插件");
+        return toResponse(catalog, binding);
+    }
+
+    @CacheEvict(cacheNames = {"platform.plugins.list", "platform.plugins.runtime"}, allEntries = true)
+    public PluginCatalogResponse uninstall(Long factoryId, String operator, String pluginKey) {
+        PluginCatalog catalog = findCatalog(pluginKey);
+        FactoryPlugin binding = factoryPluginRepository.findByFactoryIdAndPluginId(factoryId, catalog.getId())
+                .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "当前工厂尚未安装该插件"));
+        String previousVersion = binding.getEnabledVersion();
+        factoryPluginRepository.delete(binding);
+        audit(factoryId, operator, "PLUGIN_UNINSTALL", catalog.getPluginKey(), previousVersion, "卸载插件并清理工厂配置");
+        return toResponse(catalog, null);
+    }
+
+    @CacheEvict(cacheNames = {"platform.plugins.list", "platform.plugins.runtime"}, allEntries = true)
     public PluginCatalogResponse enable(Long factoryId, String operator, String pluginKey, PluginActivationRequest request) {
         PluginCatalog catalog = findCatalog(pluginKey);
         String version = resolveVersion(catalog, request == null ? null : request.getVersion());
-        FactoryPlugin binding = factoryPluginRepository.findByFactoryIdAndPluginId(factoryId, catalog.getId()).orElseGet(() -> {
-            FactoryPlugin item = new FactoryPlugin();
-            item.setFactoryId(factoryId);
-            item.setPluginId(catalog.getId());
-            item.setHealthStatus("UNKNOWN");
-            return item;
-        });
+        FactoryPlugin binding = factoryPluginRepository.findByFactoryIdAndPluginId(factoryId, catalog.getId())
+                .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.CONFLICT, "请先在当前工厂安装插件"));
         binding.setEnabledVersion(version);
         binding.setStatus("ENABLED");
         binding.setRolloutPercent(normalizeRollout(request == null ? null : request.getRolloutPercent()));
@@ -270,6 +311,13 @@ public class PluginControlService {
         binding.setUpdatedAt(LocalDateTime.now());
         factoryPluginRepository.save(binding);
         audit(factoryId, operator, "PLUGIN_ENABLE", catalog.getPluginKey(), version, "启用插件");
+        if (!"BUILT_IN".equals(catalog.getRuntimeMode())) {
+            return refreshHealthInternal(factoryId, operator, pluginKey, false);
+        }
+        binding.setHealthStatus("UP");
+        binding.setHealthMessage("内置插件由核心进程托管");
+        binding.setLastHealthAt(LocalDateTime.now());
+        factoryPluginRepository.save(binding);
         return toResponse(catalog, binding);
     }
 
@@ -294,9 +342,6 @@ public class PluginControlService {
         if (!"READY".equals(selected.getStatus())) {
             throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "只有 READY 状态的版本可以上线");
         }
-        catalog.setCurrentStableVersion(selected.getVersion());
-        catalog.setUpdatedAt(LocalDateTime.now());
-        catalogRepository.save(catalog);
         FactoryPlugin binding = factoryPluginRepository.findByFactoryIdAndPluginId(factoryId, catalog.getId()).orElse(null);
         if (binding != null && "ENABLED".equals(binding.getStatus())) {
             binding.setEnabledVersion(selected.getVersion());
@@ -305,7 +350,7 @@ public class PluginControlService {
             binding.setUpdatedAt(LocalDateTime.now());
             factoryPluginRepository.save(binding);
         }
-        audit(factoryId, operator, "PLUGIN_VERSION_ACTIVATE", catalog.getPluginKey(), version, "切换插件版本");
+        audit(factoryId, operator, "PLUGIN_VERSION_ACTIVATE", catalog.getPluginKey(), version, "当前工厂切换插件版本");
         return toResponse(catalog, binding);
     }
 
@@ -316,8 +361,13 @@ public class PluginControlService {
                 .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.NOT_FOUND, "当前工厂尚未安装该插件"));
         List<PluginVersion> versions = versionRepository.findByPluginIdOrderByCreatedAtDesc(catalog.getId());
         PluginVersion previous = null;
+        boolean currentFound = false;
         for (PluginVersion version : versions) {
-            if ("READY".equals(version.getStatus()) && !version.getVersion().equals(binding.getEnabledVersion())) {
+            if (version.getVersion().equals(binding.getEnabledVersion())) {
+                currentFound = true;
+                continue;
+            }
+            if (currentFound && "READY".equals(version.getStatus())) {
                 previous = version;
                 break;
             }
@@ -331,9 +381,6 @@ public class PluginControlService {
         binding.setHealthMessage("已回滚，等待健康检查");
         binding.setUpdatedAt(LocalDateTime.now());
         factoryPluginRepository.save(binding);
-        catalog.setCurrentStableVersion(previous.getVersion());
-        catalog.setUpdatedAt(LocalDateTime.now());
-        catalogRepository.save(catalog);
         audit(factoryId, operator, "PLUGIN_ROLLBACK", catalog.getPluginKey(), previous.getVersion(), "回滚插件版本");
         return toResponse(catalog, binding);
     }
@@ -342,17 +389,11 @@ public class PluginControlService {
     public PluginCatalogResponse updateConfig(Long factoryId, String operator, String pluginKey, PluginConfigRequest request) {
         PluginCatalog catalog = findCatalog(pluginKey);
         String config = request == null ? null : request.getConfigJson();
+        FactoryPlugin binding = factoryPluginRepository.findByFactoryIdAndPluginId(factoryId, catalog.getId())
+                .orElseThrow(() -> new ApiException(org.springframework.http.HttpStatus.CONFLICT, "请先在当前工厂安装插件"));
         if (StringUtils.hasText(config)) {
-            validateManifest(config);
+            config = validateConfig(config, configManifest(catalog, binding));
         }
-        FactoryPlugin binding = factoryPluginRepository.findByFactoryIdAndPluginId(factoryId, catalog.getId()).orElseGet(() -> {
-            FactoryPlugin item = new FactoryPlugin();
-            item.setFactoryId(factoryId);
-            item.setPluginId(catalog.getId());
-            item.setStatus("DISABLED");
-            item.setHealthStatus("UNKNOWN");
-            return item;
-        });
         binding.setConfigJson(StringUtils.hasText(config) ? config : null);
         binding.setUpdatedAt(LocalDateTime.now());
         factoryPluginRepository.save(binding);
@@ -391,13 +432,14 @@ public class PluginControlService {
                 binding.setHealthMessage("未配置 backendUrl，尚未接入独立插件服务");
             } else {
                 try {
-                    SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+                    backendUrl = requireAllowedBackendUrl(manifest);
+                    String path = normalizeHealthPath(healthUrl);
+                    SimpleClientHttpRequestFactory requestFactory = noRedirectRequestFactory();
                     requestFactory.setConnectTimeout(2000);
                     requestFactory.setReadTimeout(3000);
                     RestTemplate restTemplate = new RestTemplate(requestFactory);
-                    String path = StringUtils.hasText(healthUrl) ? healthUrl : "/actuator/health";
                     ResponseEntity<String> response = restTemplate.exchange(
-                            URI.create(trimTrailingSlash(backendUrl) + (path.startsWith("/") ? path : "/" + path)),
+                            URI.create(backendUrl + path),
                             HttpMethod.GET,
                             HttpEntity.EMPTY,
                             String.class
@@ -520,19 +562,320 @@ public class PluginControlService {
         }
     }
 
+    private JsonNode publicManifest(JsonNode manifest) {
+        if (manifest == null || !manifest.isObject()) return objectMapper.createObjectNode();
+        com.fasterxml.jackson.databind.node.ObjectNode publicNode = manifest.deepCopy();
+        publicNode.remove("backendUrl");
+        publicNode.remove("healthUrl");
+        return publicNode;
+    }
+
     private String validateManifest(String raw) {
         if (!StringUtils.hasText(raw)) return "{}";
+        if (raw.length() > MANIFEST_MAX_LENGTH) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件清单不能超过 20000 个字符");
+        }
         try {
             JsonNode node = objectMapper.readTree(raw);
             if (node == null || !node.isObject()) {
                 throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件清单必须是 JSON 对象");
             }
+            validateManifestNode(node);
             return node.toString();
         } catch (ApiException ex) {
             throw ex;
         } catch (Exception ex) {
             throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件清单 JSON 格式不正确");
         }
+    }
+
+    private String validateConfig(String raw, JsonNode manifest) {
+        if (raw.length() > CONFIG_MAX_LENGTH) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置不能超过 4000 个字符");
+        }
+        try {
+            JsonNode node = objectMapper.readTree(raw);
+            if (node == null || !node.isObject()) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置必须是 JSON 对象");
+            }
+            validateConfigValues(node, manifest == null ? null : manifest.get("configSchema"));
+            return node.toString();
+        } catch (ApiException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置 JSON 格式不正确");
+        }
+    }
+
+    private void validateManifestNode(JsonNode node) {
+        String backendUrl = text(node, "backendUrl");
+        if (StringUtils.hasText(backendUrl)) requireAllowedBackendUrl(node);
+
+        String frontendEntry = text(node, "frontendEntry");
+        if (StringUtils.hasText(frontendEntry)) requireAllowedFrontendEntry(frontendEntry);
+
+        String healthUrl = text(node, "healthUrl");
+        if (StringUtils.hasText(healthUrl)) normalizeHealthPath(healthUrl);
+
+        JsonNode roles = node.get("requiredRoles");
+        if (roles != null) {
+            if (!roles.isArray()) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "requiredRoles 必须是数组");
+            }
+            for (JsonNode role : roles) {
+                String value = role.asText("").toUpperCase();
+                if (!("ADMIN".equals(value) || "PRODUCTION".equals(value))) {
+                    throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "requiredRoles 包含不支持的角色");
+                }
+            }
+        }
+
+        JsonNode permissions = node.get("permissions");
+        if (permissions != null) {
+            if (!permissions.isArray() || permissions.size() > 100) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "permissions 必须是最多 100 项的数组");
+            }
+            Set<String> seen = new HashSet<>();
+            for (JsonNode permission : permissions) {
+                String value = permission.asText("").trim();
+                if (!Pattern.matches("^[a-z][a-z0-9:_-]{1,63}$", value) || !seen.add(value)) {
+                    throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "permissions 包含不合法或重复的权限标识");
+                }
+            }
+        }
+
+        validateConfigSchema(node.get("configSchema"));
+
+        JsonNode menus = node.get("menus");
+        if (menus != null) {
+            if (!menus.isArray() || menus.size() > 20) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "menus 必须是最多 20 项的数组");
+            }
+            for (JsonNode menu : menus) {
+                if (!menu.isObject() || !StringUtils.hasText(text(menu, "label"))) {
+                    throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件菜单必须包含 label");
+                }
+                String path = text(menu, "path");
+                if (StringUtils.hasText(path) && !isSafeRelativePath(path)) {
+                    throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件菜单 path 不安全");
+                }
+            }
+        }
+    }
+
+    private void validateConfigSchema(JsonNode schema) {
+        if (schema == null || schema.isNull()) return;
+        JsonNode properties = schema.has("properties") ? schema.get("properties") : schema;
+        if (!properties.isObject() || properties.size() > 100) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "configSchema 必须是最多 100 项的对象");
+        }
+        Iterator<Map.Entry<String, JsonNode>> fields = properties.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            if (!CONFIG_KEY_PATTERN.matcher(field.getKey()).matches() || !field.getValue().isObject()) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "configSchema 字段定义不合法");
+            }
+            JsonNode definition = field.getValue();
+            String type = text(definition, "type");
+            if (StringUtils.hasText(type) && !isConfigType(type)) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "configSchema 包含不支持的字段类型");
+            }
+            validateNumber(definition, "minimum");
+            validateNumber(definition, "maximum");
+            validateNonNegativeInteger(definition, "maxLength");
+            validateNonNegativeInteger(definition, "maxItems");
+            JsonNode enumValues = definition.get("enum");
+            if (enumValues != null && (!enumValues.isArray() || enumValues.size() > 100)) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "configSchema enum 定义不合法");
+            }
+        }
+        JsonNode required = schema.get("required");
+        if (required != null && (!required.isArray() || required.size() > 100)) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "configSchema required 定义不合法");
+        }
+    }
+
+    private JsonNode configManifest(PluginCatalog catalog, FactoryPlugin binding) {
+        if (binding != null && StringUtils.hasText(binding.getEnabledVersion())) {
+            PluginVersion version = versionRepository.findByPluginIdAndVersion(catalog.getId(), binding.getEnabledVersion()).orElse(null);
+            if (version != null && StringUtils.hasText(version.getManifestJson())) {
+                return parseManifest(version.getManifestJson());
+            }
+        }
+        return parseManifest(catalog.getManifestJson());
+    }
+
+    private void validateConfigValues(JsonNode config, JsonNode schema) {
+        if (schema == null || schema.isNull()) return;
+        JsonNode properties = schema.has("properties") ? schema.get("properties") : schema;
+        if (!properties.isObject()) return;
+        Iterator<String> names = config.fieldNames();
+        while (names.hasNext()) {
+            String name = names.next();
+            JsonNode definition = properties.get(name);
+            if (definition == null || !definition.isObject()) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置包含未声明的字段：" + name);
+            }
+            validateConfigValue(name, config.get(name), definition);
+        }
+        JsonNode required = schema.get("required");
+        if (required != null && required.isArray()) {
+            for (JsonNode item : required) {
+                if (StringUtils.hasText(item.asText()) && !config.has(item.asText())) {
+                    throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置缺少必填字段：" + item.asText());
+                }
+            }
+        }
+        Iterator<Map.Entry<String, JsonNode>> definitions = properties.fields();
+        while (definitions.hasNext()) {
+            Map.Entry<String, JsonNode> definition = definitions.next();
+            if (definition.getValue().path("required").asBoolean(false) && !config.has(definition.getKey())) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置缺少必填字段：" + definition.getKey());
+            }
+        }
+    }
+
+    private void validateConfigValue(String name, JsonNode value, JsonNode definition) {
+        String type = text(definition, "type");
+        if (StringUtils.hasText(type) && !matchesConfigType(value, type)) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置字段类型不正确：" + name);
+        }
+        if (value != null && value.isNumber()) {
+            if (definition.has("minimum") && value.asDouble() < definition.get("minimum").asDouble()) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置字段小于最小值：" + name);
+            }
+            if (definition.has("maximum") && value.asDouble() > definition.get("maximum").asDouble()) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置字段超过最大值：" + name);
+            }
+        }
+        if (value != null && value.isTextual() && definition.has("maxLength")
+                && value.textValue().length() > definition.get("maxLength").asInt()) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置字段过长：" + name);
+        }
+        if (value != null && value.isArray() && definition.has("maxItems")
+                && value.size() > definition.get("maxItems").asInt()) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置数组过长：" + name);
+        }
+        JsonNode enumValues = definition.get("enum");
+        if (enumValues != null && enumValues.isArray()) {
+            boolean matched = false;
+            for (JsonNode enumValue : enumValues) {
+                if (enumValue.equals(value)) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件配置字段取值不允许：" + name);
+            }
+        }
+    }
+
+    private boolean isConfigType(String type) {
+        return "string".equals(type) || "integer".equals(type) || "number".equals(type)
+                || "boolean".equals(type) || "object".equals(type) || "array".equals(type);
+    }
+
+    private boolean matchesConfigType(JsonNode value, String type) {
+        if (value == null) return false;
+        if ("string".equals(type)) return value.isTextual();
+        if ("integer".equals(type)) return value.isIntegralNumber();
+        if ("number".equals(type)) return value.isNumber();
+        if ("boolean".equals(type)) return value.isBoolean();
+        if ("object".equals(type)) return value.isObject();
+        if ("array".equals(type)) return value.isArray();
+        return false;
+    }
+
+    private void validateNumber(JsonNode node, String field) {
+        if (node.has(field) && !node.get(field).isNumber()) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "configSchema " + field + " 定义不合法");
+        }
+    }
+
+    private void validateNonNegativeInteger(JsonNode node, String field) {
+        if (node.has(field) && (!node.get(field).isIntegralNumber() || node.get(field).asInt() < 0)) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "configSchema " + field + " 定义不合法");
+        }
+    }
+
+    private String requireAllowedBackendUrl(JsonNode manifest) {
+        String value = text(manifest, "backendUrl");
+        if (!StringUtils.hasText(value)) {
+            throw new ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "插件尚未配置 backendUrl");
+        }
+        URI uri = parseHttpUri(value, "backendUrl");
+        if (!hostAllowed(uri.getHost(), allowedBackendHosts)) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件 backendUrl 主机不在允许列表");
+        }
+        return trimTrailingSlash(uri.toString());
+    }
+
+    private void requireAllowedFrontendEntry(String value) {
+        URI uri = parseHttpUri(value, "frontendEntry");
+        String origin = uri.getScheme().toLowerCase() + "://" + uri.getHost().toLowerCase()
+                + (uri.getPort() < 0 ? "" : ":" + uri.getPort());
+        boolean allowed = false;
+        for (String candidate : allowedFrontendOrigins.split(",")) {
+            if (origin.equalsIgnoreCase(candidate.trim())) {
+                allowed = true;
+                break;
+            }
+        }
+        if (!allowed) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件 frontendEntry 来源不在允许列表");
+        }
+    }
+
+    private URI parseHttpUri(String value, String field) {
+        try {
+            URI uri = URI.create(value.trim());
+            if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    || !StringUtils.hasText(uri.getHost()) || uri.getRawUserInfo() != null
+                    || uri.getRawFragment() != null || uri.getPort() > 65535) {
+                throw new IllegalArgumentException("invalid URI");
+            }
+            return uri;
+        } catch (IllegalArgumentException ex) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件 " + field + " 配置不正确");
+        }
+    }
+
+    private boolean hostAllowed(String host, String allowList) {
+        if (!StringUtils.hasText(host)) return false;
+        String normalizedHost = host.toLowerCase();
+        for (String raw : allowList.split(",")) {
+            String candidate = raw.trim().toLowerCase();
+            if (candidate.equals(normalizedHost)) return true;
+            if (candidate.startsWith("*.") && normalizedHost.endsWith(candidate.substring(1))
+                    && normalizedHost.length() > candidate.length() - 1) return true;
+        }
+        return false;
+    }
+
+    private String normalizeHealthPath(String value) {
+        String path = StringUtils.hasText(value) ? value.trim() : "/actuator/health";
+        if (!isSafeRelativePath(path)) {
+            throw new ApiException(org.springframework.http.HttpStatus.BAD_REQUEST, "插件 healthUrl 必须是安全的相对路径");
+        }
+        return path;
+    }
+
+    private boolean isSafeRelativePath(String path) {
+        String lower = path.toLowerCase();
+        return path.startsWith("/") && !path.startsWith("//") && !path.contains("\\")
+                && !path.contains("..") && !lower.contains("%2e") && !lower.contains("%2f")
+                && !lower.contains("%5c") && !lower.contains("://");
+    }
+
+    private SimpleClientHttpRequestFactory noRedirectRequestFactory() {
+        return new SimpleClientHttpRequestFactory() {
+            @Override
+            protected void prepareConnection(HttpURLConnection connection, String httpMethod) throws java.io.IOException {
+                super.prepareConnection(connection, httpMethod);
+                connection.setInstanceFollowRedirects(false);
+            }
+        };
     }
 
     private void audit(Long factoryId, String operator, String action, String targetCode, String targetName, String detail) {

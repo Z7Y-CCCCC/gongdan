@@ -75,40 +75,77 @@ if ($mysqlServiceName) {
 $backupDirValue = Get-Value $config "BACKUP_DIR" (Join-Path $ReleaseRoot "data\backups")
 $backupDir = if ([System.IO.Path]::IsPathRooted($backupDirValue)) { [System.IO.Path]::GetFullPath($backupDirValue) } else { [System.IO.Path]::GetFullPath((Join-Path $ReleaseRoot $backupDirValue)) }
 $maxBackupAgeHours = [Math]::Max(1, [int](Get-Value $config "MONITOR_BACKUP_MAX_AGE_HOURS" "30"))
-$latestBackup = Get-ChildItem -LiteralPath $backupDir -Filter "mysql_*.sql" -File -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $latestBackup) {
-    $checks.Add([pscustomobject]@{ name = "database-backup"; status = "DOWN"; detail = "no backup found in $backupDir"; durationMs = 0 })
+$backupStatusPath = Join-Path $backupDir "backup-status.json"
+if (-not (Test-Path -LiteralPath $backupStatusPath)) {
+    $checks.Add([pscustomobject]@{ name = "database-backup"; status = "DOWN"; detail = "backup status missing: $backupStatusPath"; durationMs = 0 })
 } else {
-    $backupAgeHours = [Math]::Round(((Get-Date) - $latestBackup.LastWriteTime).TotalHours, 2)
-    $checksumStatus = "missing"
-    $sidecarPath = "$($latestBackup.FullName).sha256"
-    if (Test-Path -LiteralPath $sidecarPath) {
-        $expectedHash = ((Get-Content -LiteralPath $sidecarPath -Raw).Split(' ')[0]).Trim().ToLowerInvariant()
-        $actualHash = (Get-FileHash -LiteralPath $latestBackup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-        $checksumStatus = if ($expectedHash -eq $actualHash) { "ok" } else { "failed" }
+    try {
+        $statusExpectedHash = ((Get-Content -LiteralPath "$backupStatusPath.sha256" -Raw).Split(' ')[0]).Trim().ToLowerInvariant()
+        $statusActualHash = (Get-FileHash -LiteralPath $backupStatusPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($statusExpectedHash -ne $statusActualHash) { throw "status checksum failed" }
+        $backupStatus = Get-Content -LiteralPath $backupStatusPath -Raw | ConvertFrom-Json
+        $databasePath = Join-Path $backupDir ([string]$backupStatus.databaseFile)
+        if (-not (Test-Path -LiteralPath $databasePath)) { throw "database file missing: $databasePath" }
+        $expectedHash = ((Get-Content -LiteralPath "$databasePath.sha256" -Raw).Split(' ')[0]).Trim().ToLowerInvariant()
+        $actualHash = (Get-FileHash -LiteralPath $databasePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($expectedHash -ne $actualHash) { throw "database checksum failed" }
+        $backupAgeHours = [Math]::Round(((Get-Date) - [datetime]$backupStatus.lastSuccessAt).TotalHours, 2)
+        $checks.Add([pscustomobject]@{
+            name = "database-backup"
+            status = if ($backupAgeHours -le $maxBackupAgeHours) { "UP" } else { "DOWN" }
+            detail = "$($backupStatus.databaseFile); ageHours=$backupAgeHours; checksum=ok; secondary=$($backupStatus.secondaryConfigured); remote=$($backupStatus.remoteConfigured)"
+            durationMs = 0
+        })
+    } catch {
+        $checks.Add([pscustomobject]@{ name = "database-backup"; status = "DOWN"; detail = $_.Exception.Message; durationMs = 0 })
     }
-    $backupUp = $backupAgeHours -le $maxBackupAgeHours -and $checksumStatus -eq "ok"
-    $checks.Add([pscustomobject]@{
-        name = "database-backup"
-        status = if ($backupUp) { "UP" } else { "DOWN" }
-        detail = "$($latestBackup.Name); ageHours=$backupAgeHours; checksum=$checksumStatus"
-        durationMs = 0
-    })
+}
+
+if ((Get-Value $config "BACKUP_REQUIRE_PITR" "true").Trim().ToLowerInvariant() -eq "true") {
+    $binlogDirValue = Get-Value $config "BINLOG_ARCHIVE_DIR" (Join-Path $backupDir "binlogs")
+    $binlogDir = if ([System.IO.Path]::IsPathRooted($binlogDirValue)) { [System.IO.Path]::GetFullPath($binlogDirValue) } else { [System.IO.Path]::GetFullPath((Join-Path $ReleaseRoot $binlogDirValue)) }
+    $binlogStatusPath = Join-Path $binlogDir "binlog-archive-status.json"
+    $maxBinlogAgeMinutes = [Math]::Max(1, [int](Get-Value $config "BINLOG_ARCHIVE_MAX_AGE_MINUTES" "10"))
+    if (-not (Test-Path -LiteralPath $binlogStatusPath)) {
+        $checks.Add([pscustomobject]@{ name = "binlog-archive"; status = "DOWN"; detail = "binlog status missing: $binlogStatusPath"; durationMs = 0 })
+    } else {
+        try {
+            $expectedStatusHash = ((Get-Content -LiteralPath "$binlogStatusPath.sha256" -Raw).Split(' ')[0]).Trim().ToLowerInvariant()
+            $actualStatusHash = (Get-FileHash -LiteralPath $binlogStatusPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($expectedStatusHash -ne $actualStatusHash) { throw "binlog status checksum failed" }
+            $binlogStatus = Get-Content -LiteralPath $binlogStatusPath -Raw | ConvertFrom-Json
+            $latestBinlogPath = Join-Path $binlogDir ([string]$binlogStatus.latestArchivedFile)
+            if (-not (Test-Path -LiteralPath $latestBinlogPath)) { throw "latest binlog missing: $latestBinlogPath" }
+            $binlogExpectedHash = ((Get-Content -LiteralPath "$latestBinlogPath.sha256" -Raw).Split(' ')[0]).Trim().ToLowerInvariant()
+            $binlogActualHash = (Get-FileHash -LiteralPath $latestBinlogPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($binlogExpectedHash -ne $binlogActualHash) { throw "latest binlog checksum failed" }
+            $binlogAgeMinutes = [Math]::Round(((Get-Date) - [datetime]$binlogStatus.archivedAt).TotalMinutes, 2)
+            $checks.Add([pscustomobject]@{
+                name = "binlog-archive"
+                status = if ($binlogAgeMinutes -le $maxBinlogAgeMinutes) { "UP" } else { "DOWN" }
+                detail = "$($binlogStatus.latestArchivedFile); ageMinutes=$binlogAgeMinutes; checksum=ok"
+                durationMs = 0
+            })
+        } catch {
+            $checks.Add([pscustomobject]@{ name = "binlog-archive"; status = "DOWN"; detail = $_.Exception.Message; durationMs = 0 })
+        }
+    }
 }
 
 $root = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($ReleaseRoot))
 $minFreeGb = [Math]::Max(1, [int](Get-Value $config "MONITOR_MIN_FREE_GB" "5"))
-$driveInfo = New-Object System.IO.DriveInfo($root)
-if ($driveInfo.IsReady) {
-    # DriveInfo also works for SYSTEM scheduled tasks where PowerShell PSDrive mappings differ.
-    $freeGb = [Math]::Round($driveInfo.AvailableFreeSpace / 1073741824, 2)
-    $checks.Add([pscustomobject]@{
-        name = "disk-space"
-        status = if ($freeGb -ge $minFreeGb) { "UP" } else { "DOWN" }
-        detail = "drive=$root; freeGb=$freeGb; minimumGb=$minFreeGb"
-        durationMs = 0
-    })
+foreach ($diskItem in @(@("disk-space", $root), @("backup-disk-space", [System.IO.Path]::GetPathRoot($backupDir)))) {
+    $driveInfo = New-Object System.IO.DriveInfo($diskItem[1])
+    if ($driveInfo.IsReady) {
+        # DriveInfo also works for SYSTEM scheduled tasks where PowerShell PSDrive mappings differ.
+        $freeGb = [Math]::Round($driveInfo.AvailableFreeSpace / 1073741824, 2)
+        $checks.Add([pscustomobject]@{
+            name = $diskItem[0]
+            status = if ($freeGb -ge $minFreeGb) { "UP" } else { "DOWN" }
+            detail = "drive=$($diskItem[1]); freeGb=$freeGb; minimumGb=$minFreeGb"
+            durationMs = 0
+        })
+    }
 }
 
 $failedChecks = @($checks | Where-Object { $_.status -ne "UP" })

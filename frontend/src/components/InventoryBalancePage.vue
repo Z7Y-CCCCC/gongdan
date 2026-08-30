@@ -36,7 +36,7 @@ const allColumns: ColumnSetting[] = [
   { key: 'code', label: '产品编号', visible: true, width: 150, fixed: 'none' },
   { key: 'spec', label: '产品规格', visible: true, width: 150, fixed: 'none' },
   { key: 'routeName', label: '工艺路线', visible: true, width: 150, fixed: 'none' },
-  { key: 'actions', label: '操作', visible: true, width: 160, fixed: 'right', locked: true }
+  { key: 'actions', label: '操作', visible: true, width: 160, fixed: 'right' }
 ]
 const columns = ref<ColumnSetting[]>(allColumns.map(column => ({ ...column })))
 const defaultColumnSettings = allColumns.map(column => ({ ...column }))
@@ -113,14 +113,17 @@ async function loadPreferences() {
         const visibleKeys = new Set(saved)
         columns.value = allColumns.map(column => ({
           ...column,
-          visible: column.locked ? true : visibleKeys.has(column.key)
+          visible: column.key === 'actions' ? true : visibleKeys.has(column.key),
+          locked: false
         }))
       } else if (Array.isArray(saved)) {
         const savedByKey = new Map(saved.map((column: ColumnSetting) => [column.key, column]))
         columns.value = allColumns.map(column => {
           const stored = savedByKey.get(column.key)
-          if (column.locked) return { ...column, ...(stored || {}), visible: true, fixed: 'right', locked: true }
-          return { ...column, ...(stored || {}) }
+          const fixed = stored?.fixed === 'left' || stored?.fixed === 'right' || stored?.fixed === 'none'
+            ? stored.fixed
+            : column.fixed
+          return { ...column, ...(stored || {}), fixed, locked: false }
         })
       }
     }

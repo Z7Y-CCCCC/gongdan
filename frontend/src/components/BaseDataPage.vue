@@ -84,7 +84,7 @@ const unitColumnDefaults: ColumnSetting[] = [
   { key: 'index', label: '序号', visible: true, width: 60, fixed: 'left' },
   { key: 'name', label: '单位名称', visible: true, width: 150, fixed: 'none' },
   { key: 'remark', label: '备注', visible: true, width: 220, fixed: 'none' },
-  { key: 'action', label: '操作', visible: true, width: 140, fixed: 'right', locked: true }
+  { key: 'action', label: '操作', visible: true, width: 140, fixed: 'right' }
 ]
 const unitColumns = ref<ColumnSetting[]>(unitColumnDefaults.map(column => ({ ...column })))
 const showUnitColumnConfig = ref(false)
@@ -361,7 +361,7 @@ const defectColumnDefaults: ColumnSetting[] = [
   { key: 'index', label: '序号', visible: true, width: 60, fixed: 'left' },
   { key: 'code', label: '不良品项编号', visible: true, width: 180, fixed: 'none' },
   { key: 'name', label: '不良品项名称', visible: true, width: 180, fixed: 'none' },
-  { key: 'action', label: '操作', visible: true, width: 140, fixed: 'right', locked: true }
+  { key: 'action', label: '操作', visible: true, width: 140, fixed: 'right' }
 ]
 const defectColumns = ref<ColumnSetting[]>(defectColumnDefaults.map(column => ({ ...column })))
 const showDefectColumnConfig = ref(false)
@@ -660,7 +660,7 @@ const processColumnDefaults: ColumnSetting[] = [
   { key: 'reportPermission', label: '报工权限', visible: true, width: 200, fixed: 'none' },
   { key: 'reportRatio', label: '报工数配比', visible: true, width: 120, fixed: 'none' },
   { key: 'taskPunchIn', label: '任务打卡', visible: true, width: 100, fixed: 'none' },
-  { key: 'action', label: '操作', visible: true, width: 260, fixed: 'right', locked: true }
+  { key: 'action', label: '操作', visible: true, width: 260, fixed: 'right' }
 ]
 const processColumns = ref<ColumnSetting[]>(processColumnDefaults.map(column => ({ ...column })))
 const showProcessColumnConfig = ref(false)
@@ -998,7 +998,7 @@ const routeColumnDefaults: ColumnSetting[] = [
   { key: 'steps', label: '工序/工艺路线列表', visible: true, width: 240, fixed: 'none' },
   { key: 'creator', label: '创建人', visible: true, width: 120, fixed: 'none' },
   { key: 'createdAt', label: '创建时间', visible: true, width: 180, fixed: 'none' },
-  { key: 'action', label: '操作', visible: true, width: 180, fixed: 'right', locked: true }
+  { key: 'action', label: '操作', visible: true, width: 180, fixed: 'right' }
 ]
 const routeColumns = ref<ColumnSetting[]>(routeColumnDefaults.map(column => ({ ...column })))
 function saveRouteColumnSettings(settings: ColumnSetting[]) {

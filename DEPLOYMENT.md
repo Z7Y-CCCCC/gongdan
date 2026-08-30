@@ -199,6 +199,33 @@ The script exits non-zero on frontend or backend readiness failure and posts a s
 
 Backend runtime logs roll by size and date. API writes, failures, and slow requests include an `X-Request-ID`, status, duration, and client address without recording authorization headers, request bodies, passwords, or query strings. Database import/operation logs are retained for `APP_SYSTEM_LOG_RETENTION_DAYS` (default 365) and cleaned by the scheduled backend job configured with `APP_SYSTEM_LOG_CLEANUP_CRON`.
 
+## MCP Diagnostics Gateway
+
+The repository includes a separate read-only MCP gateway under `ops/mcp`. It
+uses Streamable HTTP and the official MCP TypeScript SDK, then calls the
+existing backend APIs through a fixed GET-only allowlist. It is suitable for
+AI Agents to perform health checks, interface diagnosis, bounded smoke tests,
+log lookup, online-session inspection, and cache inspection. It does not have
+database, shell, arbitrary URL, or business-write access.
+
+The Compose service is opt-in:
+
+```bash
+docker compose --profile mcp up --build -d mcp
+```
+
+Before enabling it, set `MCP_API_KEY` and configure a dedicated enabled admin
+account with `MCP_BACKEND_FACTORY_CODE`, `MCP_BACKEND_USERNAME`, and
+`MCP_BACKEND_PASSWORD` in the secret store. Do not reuse the human admin
+account because a backend login invalidates older sessions for that account.
+For a pre-issued backend credential, use `MCP_BACKEND_TOKEN` instead of the
+username/password pair. Keep the service on a private network or behind a TLS
+reverse proxy and set `MCP_ALLOWED_HOSTS` for the public host name.
+
+The endpoint is `https://<private-mcp-host>/mcp`; liveness is `/healthz`. See
+`ops/mcp/README.md` for client configuration, tool semantics, rate limits,
+redaction behavior, and the local protocol test.
+
 On Windows, `start-stack.ps1` waits for the configured MySQL service, starts the backend, optionally starts nginx, and records the result in `runtime\last-startup.json`. MySQL InnoDB crash recovery handles normal abrupt power loss; the startup task does not overwrite a healthy database with an old backup.
 
 ## CI/CD

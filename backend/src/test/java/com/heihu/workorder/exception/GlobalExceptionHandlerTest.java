@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.multipart.MultipartException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -33,5 +35,27 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getMessage()).isEqualTo("服务器内部错误，请稍后再试");
         assertThat(response.getBody().getMessage()).doesNotContain("prod-db");
+    }
+
+    @Test
+    void missingRequestParameterReturnsBadRequest() {
+        ResponseEntity<ErrorResponse> response = handler.handleMalformedRequest(
+                new MissingServletRequestParameterException("module", "String")
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getMessage()).isEqualTo("请求参数不完整或格式不正确");
+    }
+
+    @Test
+    void invalidMultipartRequestReturnsBadRequest() {
+        ResponseEntity<ErrorResponse> response = handler.handleMalformedRequest(
+                new MultipartException("Current request is not a multipart request")
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getMessage()).isEqualTo("请求参数不完整或格式不正确");
     }
 }

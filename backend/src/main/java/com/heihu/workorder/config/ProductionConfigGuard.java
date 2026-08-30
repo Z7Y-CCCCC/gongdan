@@ -70,6 +70,9 @@ public class ProductionConfigGuard {
     @Value("${app.cors.allowed-origin-patterns:}")
     private String corsAllowedOriginPatterns;
 
+    @Value("${app.plugin.gateway-secret:}")
+    private String pluginGatewaySecret;
+
     @Value("${app.upload.storage-type:local}")
     private String uploadStorageType;
 
@@ -107,6 +110,7 @@ public class ProductionConfigGuard {
         rejectPlaceholderIfPresent(smsAuthHeaderValue, "app.sms.http.auth-header-value");
         requireHttpsUrl(smsHttpUrl, "app.sms.http.url");
         requireRestrictedCorsOrigins();
+        requireStrongSecret(pluginGatewaySecret, "app.plugin.gateway-secret");
         requireMigrationSafety();
         requireSupportedUploadStorage();
     }

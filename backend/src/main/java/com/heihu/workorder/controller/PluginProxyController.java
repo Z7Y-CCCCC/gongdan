@@ -6,10 +6,18 @@ import com.heihu.workorder.service.PluginCircuitBreaker;
 import com.heihu.workorder.service.PluginControlService;
 import com.heihu.workorder.service.PluginControlService.PluginTarget;
 import com.heihu.workorder.service.TokenService;
+import com.heihu.workorder.exception.ApiException;
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.URI;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -44,14 +52,33 @@ public class PluginProxyController {
     private final ObjectMapper objectMapper;
     private final int connectTimeoutMs;
     private final int readTimeoutMs;
+    private final int maxRequestBytes;
+    private final String gatewaySecret;
 
+    /** Kept for lightweight unit tests; production uses the Spring-injected constructor below. */
     public PluginProxyController(
             PluginControlService pluginControlService,
             TokenService tokenService,
             PluginCircuitBreaker circuitBreaker,
             ObjectMapper objectMapper,
             @Value("${app.plugin.proxy.connect-timeout-ms:2000}") int connectTimeoutMs,
-            @Value("${app.plugin.proxy.read-timeout-ms:5000}") int readTimeoutMs
+            @Value("${app.plugin.proxy.read-timeout-ms:5000}") int readTimeoutMs,
+            @Value("${app.plugin.proxy.max-request-bytes:1048576}") int maxRequestBytes
+    ) {
+        this(pluginControlService, tokenService, circuitBreaker, objectMapper,
+                connectTimeoutMs, readTimeoutMs, maxRequestBytes, "");
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PluginProxyController(
+            PluginControlService pluginControlService,
+            TokenService tokenService,
+            PluginCircuitBreaker circuitBreaker,
+            ObjectMapper objectMapper,
+            @Value("${app.plugin.proxy.connect-timeout-ms:2000}") int connectTimeoutMs,
+            @Value("${app.plugin.proxy.read-timeout-ms:5000}") int readTimeoutMs,
+            @Value("${app.plugin.proxy.max-request-bytes:1048576}") int maxRequestBytes,
+            @Value("${app.plugin.gateway-secret:}") String gatewaySecret
     ) {
         this.pluginControlService = pluginControlService;
         this.tokenService = tokenService;
@@ -59,6 +86,8 @@ public class PluginProxyController {
         this.objectMapper = objectMapper;
         this.connectTimeoutMs = connectTimeoutMs;
         this.readTimeoutMs = readTimeoutMs;
+        this.maxRequestBytes = maxRequestBytes;
+        this.gatewaySecret = gatewaySecret == null ? "" : gatewaySecret.trim();
     }
 
     @RequestMapping(value = "/{pluginKey}/**", method = {
@@ -74,6 +103,9 @@ public class PluginProxyController {
         if (HttpMethod.OPTIONS.matches(request.getMethod())) {
             return ResponseEntity.noContent().build();
         }
+        if (body != null && body.length > maxRequestBytes) {
+            return errorResponse(HttpStatus.PAYLOAD_TOO_LARGE, "插件请求内容过大");
+        }
         AuthenticatedUser currentUser = tokenService.requireUser(authorization);
         PluginTarget target = pluginControlService.resolveBackendTarget(
                 currentUser.getFactoryId(), currentUser.getUserId(), currentUser.getRole().name(), pluginKey);
@@ -87,11 +119,25 @@ public class PluginProxyController {
         headers.set("X-Plugin-Factory-Id", String.valueOf(currentUser.getFactoryId()));
         headers.set("X-Plugin-User-Id", String.valueOf(currentUser.getUserId()));
         headers.set("X-Plugin-Role", currentUser.getRole().name());
+        headers.set("X-Plugin-Config-Base64", Base64.getEncoder().encodeToString(
+                target.getConfigJson().getBytes(StandardCharsets.UTF_8)));
+        if (!gatewaySecret.isEmpty()) {
+            String timestamp = String.valueOf(System.currentTimeMillis() / 1000L);
+            String bodyHash = sha256(body == null ? new byte[0] : body);
+            headers.set("X-Plugin-Body-SHA256", bodyHash);
+            headers.set("X-Plugin-Gateway-Timestamp", timestamp);
+            headers.set("X-Plugin-Gateway-Signature", sign(
+                    gatewaySecret, request, targetUri, target, currentUser, timestamp, bodyHash));
+        }
         HttpEntity<byte[]> entity = new HttpEntity<>(body == null ? new byte[0] : body, headers);
 
         try {
             ResponseEntity<byte[]> upstream = createRestTemplate().exchange(
                     targetUri, HttpMethod.valueOf(request.getMethod()), entity, byte[].class);
+            if (upstream.getStatusCode().is3xxRedirection()) {
+                circuitBreaker.recordFailure(breakerKey);
+                return errorResponse(HttpStatus.BAD_GATEWAY, "插件服务不允许返回重定向");
+            }
             if (upstream.getStatusCode().is5xxServerError()) {
                 circuitBreaker.recordFailure(breakerKey);
             } else {
@@ -106,7 +152,13 @@ public class PluginProxyController {
     }
 
     private RestTemplate createRestTemplate() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+            @Override
+            protected void prepareConnection(HttpURLConnection connection, String httpMethod) throws IOException {
+                super.prepareConnection(connection, httpMethod);
+                connection.setInstanceFollowRedirects(false);
+            }
+        };
         factory.setConnectTimeout(connectTimeoutMs);
         factory.setReadTimeout(readTimeoutMs);
         RestTemplate restTemplate = new RestTemplate(factory);
@@ -124,6 +176,15 @@ public class PluginProxyController {
         String requestUri = request.getRequestURI();
         String suffix = requestUri.startsWith(prefix) ? requestUri.substring(prefix.length()) : "/";
         if (suffix.isEmpty()) suffix = "/";
+        String allowedPrefix = "/api/plugin/" + pluginKey;
+        String lowerSuffix = suffix.toLowerCase();
+        if (!(suffix.equals(allowedPrefix) || suffix.startsWith(allowedPrefix + "/"))) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "插件接口路径不存在");
+        }
+        if (suffix.contains("\\") || suffix.contains("..") || suffix.startsWith("//")
+                || lowerSuffix.contains("%2e") || lowerSuffix.contains("%2f") || lowerSuffix.contains("%5c")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "插件接口路径不安全");
+        }
         UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(backendUrl).path(suffix);
         if (request.getQueryString() != null) {
             builder.query(request.getQueryString());
@@ -137,8 +198,7 @@ public class PluginProxyController {
         if (names == null) return headers;
         while (names.hasMoreElements()) {
             String name = names.nextElement();
-            if (isHopByHopHeader(name) || "host".equalsIgnoreCase(name)
-                    || "content-length".equalsIgnoreCase(name)) continue;
+            if (isHopByHopHeader(name) || isSensitiveRequestHeader(name)) continue;
             Enumeration<String> values = request.getHeaders(name);
             while (values.hasMoreElements()) headers.add(name, values.nextElement());
         }
@@ -148,7 +208,7 @@ public class PluginProxyController {
     private HttpHeaders copyResponseHeaders(HttpHeaders source) {
         HttpHeaders headers = new HttpHeaders();
         source.forEach((name, values) -> {
-            if (!isHopByHopHeader(name)) headers.put(name, values);
+            if (!isHopByHopHeader(name) && !isSensitiveResponseHeader(name)) headers.put(name, values);
         });
         return headers;
     }
@@ -164,10 +224,54 @@ public class PluginProxyController {
                 || "upgrade".equalsIgnoreCase(name);
     }
 
+    private boolean isSensitiveRequestHeader(String name) {
+        String lower = name.toLowerCase();
+        return "host".equals(lower) || "content-length".equals(lower)
+                || "authorization".equals(lower) || "cookie".equals(lower)
+                || "origin".equals(lower) || "referer".equals(lower)
+                || lower.startsWith("x-plugin-") || lower.startsWith("x-forwarded-");
+    }
+
+    private boolean isSensitiveResponseHeader(String name) {
+        String lower = name.toLowerCase();
+        return "set-cookie".equals(lower) || "location".equals(lower)
+                || lower.startsWith("access-control-");
+    }
+
     private ResponseEntity<byte[]> errorResponse(HttpStatus status, String message) throws IOException {
         byte[] body = objectMapper.writeValueAsBytes(Collections.singletonMap("message", message));
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         return new ResponseEntity<>(body, headers, status);
+    }
+
+    private String sign(String secret, HttpServletRequest request, URI targetUri, PluginTarget target,
+                        AuthenticatedUser currentUser, String timestamp, String bodyHash) {
+        String query = targetUri.getRawQuery();
+        String path = targetUri.getRawPath() + (query == null ? "" : "?" + query);
+        String canonical = String.join("\n", request.getMethod(), path, target.getPluginKey(),
+                target.getVersion(), String.valueOf(currentUser.getFactoryId()),
+                String.valueOf(currentUser.getUserId()), currentUser.getRole().name(), timestamp, bodyHash);
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] digest = mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte value : digest) hex.append(String.format("%02x", value));
+            return hex.toString();
+        } catch (GeneralSecurityException ex) {
+            throw new IllegalStateException("插件网关签名不可用", ex);
+        }
+    }
+
+    private String sha256(byte[] body) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(body);
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte value : digest) hex.append(String.format("%02x", value));
+            return hex.toString();
+        } catch (GeneralSecurityException ex) {
+            throw new IllegalStateException("SHA-256 digest is not available", ex);
+        }
     }
 }

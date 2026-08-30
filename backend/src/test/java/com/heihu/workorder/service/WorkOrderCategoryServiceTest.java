@@ -2,6 +2,7 @@ package com.heihu.workorder.service;
 
 import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.WorkOrderCategory;
+import com.heihu.workorder.exception.ApiException;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderCategoryRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
@@ -62,6 +63,15 @@ class WorkOrderCategoryServiceTest {
         service.deleteCategory(1L, 30L);
 
         verify(categoryRepository).delete(category);
+    }
+
+    @Test
+    void deleteMissingCategoryReturnsNotFound() {
+        when(categoryRepository.findById(30L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.deleteCategory(1L, 30L))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("工单分类不存在");
     }
 
     private WorkOrderCategory category() {

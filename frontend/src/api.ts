@@ -1900,6 +1900,7 @@ export interface PluginRuntimeManifestInfo {
   version: string
   runtimeMode: PluginRuntimeMode
   manifest: Record<string, unknown>
+  config: Record<string, unknown>
 }
 
 export function fetchPlugins(token: string) {
@@ -1929,6 +1930,20 @@ export function enablePlugin(token: string, pluginKey: string, version?: string,
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify({ version, rolloutPercent })
+  })
+}
+
+export function installPlugin(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/install`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function uninstallPlugin(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/install`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
   })
 }
 
@@ -1971,6 +1986,20 @@ export function updatePluginConfig(token: string, pluginKey: string, configJson:
 export function fetchPluginRuntimeManifest(token: string) {
   return request<PluginRuntimeManifestInfo[]>('/platform/plugins/runtime-manifest', {
     headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function proxyPluginRequest<T>(
+  token: string,
+  pluginKey: string,
+  path: string,
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  body?: unknown
+) {
+  return request<T>(`/plugins/${encodeURIComponent(pluginKey)}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}` },
+    body: body == null || method === 'GET' ? undefined : JSON.stringify(body)
   })
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch, type CSSProperties } from 'vue'
 import {
   createCustomField,
   deleteCustomField,
@@ -14,6 +14,8 @@ import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
+import ColumnSettingsPanel, { type ColumnSetting } from '@/components/ColumnSettingsPanel.vue'
+import TableConfigButton from '@/components/TableConfigButton.vue'
 
 const props = defineProps<{ token: string; scope: string; scopeLabel: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -27,17 +29,41 @@ const showBatch = ref(false)
 const batchText = ref('')
 
 // Column config
-const allColumns = [
-  { key: 'index', label: '序号', visible: true },
-  { key: 'name', label: '字段名称', visible: true },
-  { key: 'fieldType', label: '字段类型', visible: true },
-  { key: 'createdAt', label: '创建时间', visible: true },
-  { key: 'creator', label: '创建人', visible: true },
-  { key: 'updatedAt', label: '最后更新时间', visible: true },
-  { key: 'actions', label: '操作', visible: true }
+const allColumns: ColumnSetting[] = [
+  { key: 'index', label: '序号', visible: true, width: 80, fixed: 'none' },
+  { key: 'name', label: '字段名称', visible: true, width: 160, fixed: 'none' },
+  { key: 'fieldType', label: '字段类型', visible: true, width: 140, fixed: 'none' },
+  { key: 'createdAt', label: '创建时间', visible: true, width: 160, fixed: 'none' },
+  { key: 'creator', label: '创建人', visible: true, width: 120, fixed: 'none' },
+  { key: 'updatedAt', label: '最后更新时间', visible: true, width: 160, fixed: 'none' },
+  { key: 'actions', label: '操作', visible: true, width: 140, fixed: 'right' }
 ]
-const columns = ref(allColumns.map(c => ({ ...c })))
+const columns = ref<ColumnSetting[]>(allColumns.map(c => ({ ...c })))
+const defaultColumnSettings = allColumns.map(c => ({ ...c }))
 const showColumnConfig = ref(false)
+
+const visibleColumns = computed(() => columns.value.filter(column => column.visible))
+
+function customFieldColumnStyle(column: ColumnSetting, header = false): CSSProperties {
+  const visible = visibleColumns.value
+  const currentIndex = visible.findIndex(item => item.key === column.key)
+  const left = visible.slice(0, currentIndex).filter(item => item.fixed === 'left').reduce((sum, item) => sum + item.width, 0)
+  const right = visible.slice(currentIndex + 1).filter(item => item.fixed === 'right').reduce((sum, item) => sum + item.width, 0)
+  const style: CSSProperties = { width: `${column.width}px`, minWidth: `${column.width}px` }
+  if (column.fixed !== 'none') {
+    style.position = 'sticky'
+    style.zIndex = header ? 12 : 3
+    style.background = header ? 'var(--table-head-bg)' : 'var(--table-row-bg)'
+    if (column.fixed === 'left') style.left = `${left}px`
+    if (column.fixed === 'right') style.right = `${right}px`
+  }
+  return style
+}
+
+function saveColumnSettings(settings: ColumnSetting[]) {
+  columns.value = settings.map(column => ({ ...column }))
+  showColumnConfig.value = false
+}
 
 // 导入导出与日志
 const fieldFileInput = ref<HTMLInputElement | null>(null)
@@ -559,30 +585,33 @@ onMounted(async () => {
         <table class="data-table">
           <thead>
             <tr>
-              <th v-if="columns[0].visible" style="width:80px">序号</th>
-              <th v-if="columns[1].visible">字段名称</th>
-              <th v-if="columns[2].visible">字段类型</th>
-              <th v-if="columns[3].visible">创建时间</th>
-              <th v-if="columns[4].visible">创建人</th>
-              <th v-if="columns[5].visible">最近更新时间</th>
-              <th v-if="columns[6].visible" style="width:140px">操作</th>
+              <th v-for="column in visibleColumns" :key="column.key" :style="customFieldColumnStyle(column, true)">
+                {{ column.label }}
+              </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(item, index) in sortedFields" :key="item.id">
-              <td v-if="columns[0].visible">{{ index + 1 }}</td>
-              <td v-if="columns[1].visible">{{ item.name }}</td>
-              <td v-if="columns[2].visible">{{ fieldTypeLabel(item.fieldType) }}</td>
-              <td v-if="columns[3].visible">{{ item.createdAt || '-' }}</td>
-              <td v-if="columns[4].visible">{{ item.creator || '-' }}</td>
-              <td v-if="columns[5].visible">{{ item.updatedAt || '-' }}</td>
-              <td v-if="columns[6].visible" class="action-cell">
-                <a class="link-btn" style="font-size:12px;cursor:pointer;margin-right:12px;color:#00b889" @click="openEdit(item)">编辑</a>
-                <a class="link-btn" style="font-size:12px;cursor:pointer;color:#ff5a5a" @click="removeField(item)">删除</a>
+              <td
+                v-for="column in visibleColumns"
+                :key="column.key"
+                :class="{ 'action-cell': column.key === 'actions' }"
+                :style="customFieldColumnStyle(column)"
+              >
+                <template v-if="column.key === 'index'">{{ index + 1 }}</template>
+                <template v-else-if="column.key === 'name'">{{ item.name }}</template>
+                <template v-else-if="column.key === 'fieldType'">{{ fieldTypeLabel(item.fieldType) }}</template>
+                <template v-else-if="column.key === 'createdAt'">{{ item.createdAt || '-' }}</template>
+                <template v-else-if="column.key === 'creator'">{{ item.creator || '-' }}</template>
+                <template v-else-if="column.key === 'updatedAt'">{{ item.updatedAt || '-' }}</template>
+                <template v-else-if="column.key === 'actions'">
+                  <a class="link-btn" style="font-size:12px;cursor:pointer;margin-right:12px;color:#00b889" @click="openEdit(item)">编辑</a>
+                  <a class="link-btn" style="font-size:12px;cursor:pointer;color:#ff5a5a" @click="removeField(item)">删除</a>
+                </template>
               </td>
             </tr>
             <tr v-if="sortedFields.length === 0">
-              <td :colspan="columns.filter(c => c.visible).length" style="text-align: center; color: #8a9693; padding: 32px 0;">
+              <td :colspan="visibleColumns.length" style="text-align: center; color: #8a9693; padding: 32px 0;">
                 暂无自定义字段
               </td>
             </tr>
@@ -720,8 +749,9 @@ onMounted(async () => {
             <span style="font-weight:600; font-size:14px">设置可选项</span>
             <button class="toolbar-btn" type="button" @click="addOption" style="margin-left:16px"><UiIcon name="plus" />新增可选项</button>
             <button class="toolbar-btn" type="button" @click="openBatch"><UiIcon name="edit" />批量编辑</button>
+            <TableConfigButton :table-id="`custom-receipt-options-${scope}`" />
           </div>
-          <table class="data-table">
+          <table :id="`custom-receipt-options-${scope}`" class="data-table">
             <thead>
               <tr>
                 <th>可选项</th>
@@ -764,26 +794,14 @@ onMounted(async () => {
       </div>
     </template>
 
-    <!-- Column Config Modal -->
-    <div v-if="showColumnConfig" class="modal-backdrop">
-      <div class="modal workorder-modal" style="width: 480px;">
-        <div class="modal-header">
-          <h2>字段显示配置</h2>
-          <button class="close-btn" type="button" @click="showColumnConfig = false">×</button>
-        </div>
-        <div style="padding: 24px;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <label v-for="col in columns" :key="col.key" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" v-model="col.visible" style="accent-color: #00b889; width: 16px; height: 16px;" :disabled="col.key === 'name' || col.key === 'actions'" />
-              <span style="font-size: 14px; color: #1e2724;">{{ col.label }}</span>
-            </label>
-          </div>
-          <div style="text-align: right; margin-top: 24px;">
-            <button class="primary-btn" @click="showColumnConfig = false">确定</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ColumnSettingsPanel
+      v-if="showColumnConfig"
+      v-model="columns"
+      :defaults="defaultColumnSettings"
+      title="字段配置"
+      @confirm="saveColumnSettings"
+      @cancel="showColumnConfig = false"
+    />
 
     <!-- Batch Edit Modal -->
     <div v-if="showBatch" class="modal-backdrop">

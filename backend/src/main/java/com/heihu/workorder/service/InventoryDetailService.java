@@ -59,7 +59,7 @@ public class InventoryDetailService {
         int safeSize = Math.max(size, 1);
         int fromIndex = Math.min((safePage - 1) * safeSize, details.size());
         int toIndex = Math.min(fromIndex + safeSize, details.size());
-        return details.subList(fromIndex, toIndex);
+        return new ArrayList<>(details.subList(fromIndex, toIndex));
     }
 
     private List<InventoryDetailResponse> filteredDetails(

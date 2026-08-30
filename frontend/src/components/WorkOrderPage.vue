@@ -109,7 +109,7 @@ const columnDefinitions: ColumnSetting[] = [
   { key: 'status', label: '状态', visible: true, width: 100, fixed: 'none' },
   { key: 'priority', label: '优先级', visible: true, width: 100, fixed: 'none' },
   { key: 'routeName', label: '工单进度条', visible: true, width: 360, fixed: 'none' },
-  { key: 'actions', label: '操作', visible: true, width: 130, fixed: 'right', locked: true }
+  { key: 'actions', label: '操作', visible: true, width: 130, fixed: 'right' }
 ]
 const defaultColumnSettings = columnDefinitions.map(column => ({ ...column }))
 const workOrderColumns = ref<ColumnSetting[]>(columnDefinitions.map(column => ({ ...column })))
@@ -145,10 +145,18 @@ function workOrderColumnStyle(column: ColumnSetting, header = false): CSSPropert
   return style
 }
 
-function restoreWorkOrderColumnSettings(savedKeys?: string[]) {
+function restoreWorkOrderColumnSettings(savedPreference?: Array<string | ColumnSetting>) {
   const actionKey = 'actions'
-  const saved = savedKeys && savedKeys.length > 0 ? new Set([...savedKeys, actionKey]) : null
-  const order = savedKeys && savedKeys.length > 0
+  const savedList = Array.isArray(savedPreference) ? savedPreference : []
+  const detailed = savedList.some(item => typeof item === 'object' && item !== null)
+  const savedKeys = savedList
+    .map(item => typeof item === 'string' ? item : item.key)
+    .filter(Boolean)
+  const saved = savedKeys.length > 0 ? new Set([...savedKeys, actionKey]) : null
+  const savedByKey = detailed
+    ? new Map(savedList.filter((item): item is ColumnSetting => typeof item === 'object' && item !== null).map(item => [item.key, item]))
+    : new Map<string, ColumnSetting>()
+  const order = savedKeys.length > 0
     ? [
         ...savedKeys.filter(key => key !== actionKey),
         ...columnDefinitions.map(column => column.key).filter(key => key !== actionKey && !savedKeys.includes(key)),
@@ -158,10 +166,19 @@ function restoreWorkOrderColumnSettings(savedKeys?: string[]) {
   workOrderColumns.value = order
     .map(key => columnDefinitions.find(column => column.key === key))
     .filter((column): column is ColumnSetting => Boolean(column))
-    .map(column => ({
-      ...column,
-      visible: column.key === actionKey ? true : saved ? saved.has(column.key) : true
-    }))
+    .map(column => {
+      const stored = savedByKey.get(column.key)
+      const fixed = stored?.fixed === 'left' || stored?.fixed === 'right' || stored?.fixed === 'none'
+        ? stored.fixed
+        : column.fixed
+      return {
+        ...column,
+        ...(stored || {}),
+        visible: detailed ? stored?.visible ?? column.visible : column.key === actionKey ? true : saved ? saved.has(column.key) : true,
+        fixed,
+        locked: false
+      }
+    })
   syncVisibleWorkOrderColumns()
 }
 
@@ -524,13 +541,18 @@ async function removeCategory(item: any, event: Event) {
 
 async function handleSaveColumns(settings = workOrderColumns.value) {
   try {
-    const actionColumn = columnDefinitions.find(column => column.key === 'actions')!
+    const normalized = settings.map(column => {
+      const base = columnDefinitions.find(item => item.key === column.key)
+      return { ...(base || column), ...column, locked: false }
+    })
+    const actionColumn = normalized.find(column => column.key === 'actions')
+      || { ...columnDefinitions.find(column => column.key === 'actions')!, locked: false }
     workOrderColumns.value = [
-      ...settings.filter(column => column.key !== 'actions').map(column => ({ ...column })),
+      ...normalized.filter(column => column.key !== 'actions'),
       { ...actionColumn }
     ]
     syncVisibleWorkOrderColumns()
-    await setUserPreference(props.token, 'WORK_ORDER_COLUMNS', JSON.stringify(workOrderColumns.value.filter(column => column.visible).map(column => column.key)))
+    await setUserPreference(props.token, 'WORK_ORDER_COLUMNS', JSON.stringify(workOrderColumns.value))
     showColumnModal.value = false
     emit('notice', '列配置已保存')
   } catch (e) {
@@ -2374,7 +2396,6 @@ onUnmounted(() => {
             <th
               v-for="column in visibleWorkOrderColumns"
               :key="column.key"
-              :class="{ 'work-order-actions-column': column.key === 'actions' }"
               :style="workOrderColumnStyle(column, true)"
             >
               <template v-if="column.key === 'actions'">{{ column.label }}</template>
@@ -2388,7 +2409,7 @@ onUnmounted(() => {
             <td
               v-for="column in visibleWorkOrderColumns"
               :key="column.key"
-              :class="{ 'action-cell work-order-actions-column': column.key === 'actions' }"
+              :class="{ 'action-cell': column.key === 'actions' }"
               :style="workOrderColumnStyle(column)"
             >
               <template v-if="column.key === 'actions'">
@@ -2669,10 +2690,11 @@ onUnmounted(() => {
                 </button>
               </div>
             </template>
+            <TableConfigButton table-id="work-order-form-tasks-table" />
           </div>
 
           <div class="table-container" style="flex:1; border: 1px solid #dce3e0; border-radius: 4px; overflow: hidden; background: #fff;">
-            <table class="data-table" style="border: none;">
+            <table id="work-order-form-tasks-table" class="data-table" style="border: none;">
               <thead>
                 <tr>
                   <th style="width: 48px; text-align: center;"><input type="checkbox" :checked="allTasksSelected" @change="toggleTaskAll(($event.target as HTMLInputElement).checked)" /></th>
@@ -2718,13 +2740,14 @@ onUnmounted(() => {
             <div class="toolbar-left">
               <button class="primary-btn" type="button" @click="addMaterial"><UiIcon name="plus" />添加物料</button>
               <button class="ghost-btn" type="button" :disabled="!selectedProductBom" @click="applyBomMaterials"><UiIcon name="layers" />按BOM带入</button>
+              <TableConfigButton table-id="work-order-form-materials-table" />
               <span v-if="selectedProductBom" class="muted">已匹配 BOM：{{ selectedProductBom.code }}</span>
               <span v-else class="muted">当前产品暂无启用 BOM，可手工添加</span>
             </div>
           </div>
 
           <div class="table-container" style="flex:1; border: 1px solid #dce3e0; border-radius: 4px; overflow: hidden; background: #fff;">
-            <table class="data-table" style="border: none;">
+            <table id="work-order-form-materials-table" class="data-table" style="border: none;">
               <thead>
                 <tr>
                   <th style="width: 22%">物料编号</th>

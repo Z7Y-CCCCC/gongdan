@@ -3664,6 +3664,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center'"
             key="sysconfig-plugin-center"
             :token="token"
+            :is-super-admin="isSuperAdmin"
             @error="msg => errorMessage = msg"
             @notice="msg => actionMessage = msg"
             @plugins-changed="loadPluginRuntimeManifest"

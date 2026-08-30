@@ -37,9 +37,9 @@
 <main>
   <header>
     <div><h1>质量管理</h1><div class="muted">独立插件示例 · 版本 1.0.0</div></div>
-    <div id="health" class="health down">等待平台授权</div>
+    <div id="health" class="health down">等待平台连接</div>
   </header>
-  <div id="notice" class="notice">正在等待主系统授权。请从“插件扩展”菜单进入此页面。</div>
+  <div id="notice" class="notice">正在等待主系统建立安全消息桥。</div>
   <div class="grid">
     <section><h2>质量问题记录</h2><div id="records"><div class="muted">暂无数据</div></div></section>
     <section>
@@ -48,15 +48,16 @@
         <label>问题描述<input name="issue" required maxlength="200" placeholder="例如：首件尺寸偏差"></label>
         <label>状态<select name="status"><option>待处理</option><option>处理中</option><option>已关闭</option></select></label>
         <label>备注<textarea name="remark" maxlength="500" placeholder="补充处理说明"></textarea></label>
-        <button id="submit" type="submit" disabled>等待授权</button>
+        <button id="submit" type="submit" disabled>等待平台连接</button>
       </form>
     </section>
   </div>
 </main>
 <script>
   const pluginKey = 'quality-management';
-  let token = '';
-  let coreOrigin = '';
+  const pending = new Map();
+  let parentOrigin = '';
+  let requestSequence = 0;
   const $ = (id) => document.getElementById(id);
 
   function setNotice(message, isError) {
@@ -65,14 +66,24 @@
     $('notice').style.color = isError ? '#ff9d9d' : '#f0c77a';
   }
 
-  function apiUrl(path) { return coreOrigin + '/api/plugins/' + pluginKey + path; }
-
-  async function request(path, options) {
-    const headers = Object.assign({ Authorization: 'Bearer ' + token }, (options && options.headers) || {});
-    const response = await fetch(apiUrl(path), Object.assign({}, options || {}, { headers }));
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.message || '插件接口请求失败');
-    return body;
+  function request(path, options) {
+    if (!parentOrigin) return Promise.reject(new Error('平台连接尚未建立'));
+    const requestId = pluginKey + '-' + Date.now() + '-' + (++requestSequence);
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        pending.delete(requestId);
+        reject(new Error('插件请求超时'));
+      }, 8000);
+      pending.set(requestId, { resolve, reject, timeout });
+      window.parent.postMessage({
+        type: 'plugin-api-request',
+        pluginKey,
+        requestId,
+        path,
+        method: (options && options.method) || 'GET',
+        body: (options && options.body) || null
+      }, parentOrigin);
+    });
   }
 
   async function loadRecords() {
@@ -83,14 +94,14 @@
     ).join('') : '<div class="muted">暂无数据</div>';
   }
 
-  async function authorize() {
+  async function connect() {
     try {
       const ping = await request('/api/plugin/quality-management/ping');
       $('health').textContent = '服务正常 · ' + ping.version;
       $('health').className = 'health';
       $('submit').disabled = false;
       $('submit').textContent = '保存问题';
-      setNotice('插件已通过平台授权，接口请求经过主系统代理。', false);
+      setNotice('插件已通过主系统安全代理连接。', false);
       await loadRecords();
     } catch (error) {
       $('health').textContent = '服务不可用';
@@ -102,10 +113,21 @@
   function escapeHtml(value) { return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 
   window.addEventListener('message', (event) => {
-    if (!event.data || event.data.type !== 'platform-auth' || !event.data.token) return;
-    token = event.data.token;
-    coreOrigin = event.origin && event.origin !== 'null' ? event.origin : new URL(document.referrer).origin;
-    authorize();
+    const data = event.data || {};
+    if (data.pluginKey !== pluginKey) return;
+    if (data.type === 'platform-context') {
+      parentOrigin = event.origin;
+      document.documentElement.style.colorScheme = data.theme === 'dark' ? 'dark' : 'light';
+      connect();
+      return;
+    }
+    if (data.type !== 'plugin-api-response' || event.origin !== parentOrigin) return;
+    const item = pending.get(data.requestId);
+    if (!item) return;
+    pending.delete(data.requestId);
+    clearTimeout(item.timeout);
+    if (data.ok) item.resolve(data.body);
+    else item.reject(new Error((data.body && data.body.message) || '插件请求失败'));
   });
 
   $('form').addEventListener('submit', async (event) => {
@@ -114,7 +136,7 @@
     button.disabled = true;
     try {
       const data = Object.fromEntries(new FormData(event.target).entries());
-      await request('/api/plugin/quality-management/records', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      await request('/api/plugin/quality-management/records', { method: 'POST', body: data });
       event.target.reset();
       await loadRecords();
       setNotice('质量问题已保存。', false);

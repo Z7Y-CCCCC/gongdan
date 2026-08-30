@@ -5,6 +5,7 @@ import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.Role;
 import com.heihu.workorder.model.UserSession;
 import com.heihu.workorder.repository.UserSessionRepository;
+import com.heihu.workorder.repository.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -27,29 +28,36 @@ public class TokenService {
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
     private final Duration ttl;
     private final UserSessionRepository sessionRepository;
+    private final UserRepository userRepository;
 
     public TokenService() {
-        this(Duration.ofMinutes(720L), null);
+        this(Duration.ofMinutes(720L), null, null);
     }
 
     @Autowired
     public TokenService(
             @Value("${app.session.ttl-minutes:720}") long ttlMinutes,
-            UserSessionRepository sessionRepository
+            UserSessionRepository sessionRepository,
+            UserRepository userRepository
     ) {
-        this(Duration.ofMinutes(ttlMinutes), sessionRepository);
+        this(Duration.ofMinutes(ttlMinutes), sessionRepository, userRepository);
     }
 
     TokenService(Duration ttl) {
-        this(ttl, null);
+        this(ttl, null, null);
     }
 
     TokenService(Duration ttl, UserSessionRepository sessionRepository) {
+        this(ttl, sessionRepository, null);
+    }
+
+    TokenService(Duration ttl, UserSessionRepository sessionRepository, UserRepository userRepository) {
         if (ttl == null || ttl.isZero() || ttl.isNegative()) {
             throw new IllegalArgumentException("session ttl must be greater than 0");
         }
         this.ttl = ttl;
         this.sessionRepository = sessionRepository;
+        this.userRepository = userRepository;
     }
 
     public String issue(FactoryUser user) {
@@ -60,11 +68,12 @@ public class TokenService {
         cleanupExpiredSessions();
         String token = UUID.randomUUID().toString().replace("-", "");
         if (sessionRepository != null) {
+            if (userRepository != null && user.getId() != null) {
+                user = userRepository.findByIdForUpdate(user.getId())
+                        .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "用户不存在或已被删除"));
+            }
             if (user.getId() != null) {
-                for (UserSession existing : sessionRepository.findByUserIdAndKickedFalse(user.getId())) {
-                    existing.setKicked(true);
-                    sessionRepository.save(existing);
-                }
+                sessionRepository.kickActiveSessions(user.getId());
             }
             UserSession session = new UserSession();
             session.setTokenHash(hashToken(token));
@@ -105,7 +114,7 @@ public class TokenService {
 
     public AuthenticatedUser requireSuperAdmin(String authorization) {
         AuthenticatedUser user = requireUser(authorization);
-        if (!"ADMIN".equalsIgnoreCase(user.getFactoryCode())) {
+        if (user.getRole() != Role.ADMIN || !"ADMIN".equalsIgnoreCase(user.getFactoryCode())) {
             throw new ApiException(HttpStatus.FORBIDDEN, "\u9700\u8981\u8d85\u7ea7\u7ba1\u7406\u5458\u6743\u9650");
         }
         return user;

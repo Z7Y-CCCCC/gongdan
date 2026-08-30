@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.util.List;
+import javax.validation.Valid;
 
 @RestController
 @RequestMapping("/api/work-orders/categories")
@@ -27,7 +28,7 @@ public class WorkOrderCategoryController {
     }
 
     @PostMapping
-    public ResponseEntity<WorkOrderCategoryResponse> createCategory(@RequestHeader(value = "Authorization", required = false) String authorization, @RequestBody WorkOrderCategoryRequest request) {
+    public ResponseEntity<WorkOrderCategoryResponse> createCategory(@RequestHeader(value = "Authorization", required = false) String authorization, @Valid @RequestBody WorkOrderCategoryRequest request) {
         com.heihu.workorder.service.AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(categoryService.createCategory(currentUser.getFactoryId(), currentUser.getUserId(), request));
     }

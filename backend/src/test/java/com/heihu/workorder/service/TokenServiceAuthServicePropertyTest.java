@@ -96,27 +96,35 @@ class TokenServiceAuthServicePropertyTest {
     }
 
     @Example
-    @Label("Feature: authentication, database session kicks existing user sessions")
-    void databaseSessionKicksExistingUserSessions() {
+    @Label("Feature: authentication, database session rotation invalidates existing sessions atomically")
+    void databaseSessionRotationInvalidatesExistingSessionsAtomically() {
         UserSessionRepository sessionRepository = mock(UserSessionRepository.class);
         TokenService tokenService = new TokenService(Duration.ofMinutes(10), sessionRepository);
         FactoryUser user = buildUser("HHGD");
-        UserSession existing = new UserSession();
-        existing.setTokenHash("old-token-hash");
-        existing.setUserId(user.getId());
-        existing.setFactoryId(user.getFactory().getId());
-        existing.setFactoryCode(user.getFactory().getCode());
-        existing.setRole(user.getRole());
-        existing.setDisplayName(user.getName());
-        existing.setExpiresAt(Instant.now().plusSeconds(60));
-        existing.setCreatedAt(LocalDateTime.now());
-        when(sessionRepository.findByUserIdAndKickedFalse(user.getId())).thenReturn(Collections.singletonList(existing));
+        when(sessionRepository.kickActiveSessions(user.getId())).thenReturn(1);
         when(sessionRepository.save(any(UserSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         tokenService.issue(user);
 
-        assertThat(existing.isKicked()).isTrue();
-        verify(sessionRepository, times(2)).save(any(UserSession.class));
+        verify(sessionRepository).kickActiveSessions(user.getId());
+        verify(sessionRepository).save(any(UserSession.class));
+    }
+
+    @Example
+    @Label("Feature: authentication, persistent session rotation locks the user row")
+    void databaseSessionLocksUserBeforeRotatingSessions() {
+        UserSessionRepository sessionRepository = mock(UserSessionRepository.class);
+        UserRepository userRepository = mock(UserRepository.class);
+        FactoryUser user = buildUser("HHGD");
+        when(userRepository.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
+        when(sessionRepository.kickActiveSessions(user.getId())).thenReturn(0);
+        when(sessionRepository.save(any(UserSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        TokenService tokenService = new TokenService(Duration.ofMinutes(10), sessionRepository, userRepository);
+
+        tokenService.issue(user);
+
+        verify(userRepository).findByIdForUpdate(user.getId());
+        verify(sessionRepository).kickActiveSessions(user.getId());
     }
 
     // ─── Property 2 ──────────────────────────────────────────────────────────────

@@ -6,18 +6,21 @@ import {
   disablePlugin,
   enablePlugin,
   fetchPlugins,
+  installPlugin,
   refreshPluginHealth,
   registerPluginVersion,
   rollbackPlugin,
+  uninstallPlugin,
   updatePluginConfig,
   type PluginCatalogInfo,
   type PluginRuntimeMode
 } from '../api'
 import UiIcon from './UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 
-const props = defineProps<{ token: string }>()
+const props = defineProps<{ token: string; isSuperAdmin?: boolean }>()
 const emit = defineEmits<{
   (e: 'notice', message: string): void
   (e: 'error', message: string): void
@@ -156,6 +159,12 @@ function enableSelected() {
   void runAction(() => enablePlugin(props.token, plugin.pluginKey, version), '插件已启用')
 }
 
+function installSelected() {
+  const plugin = selectedPlugin.value
+  if (!plugin) return
+  void runAction(() => installPlugin(props.token, plugin.pluginKey), '插件已安装，可继续配置并启用')
+}
+
 async function disableSelected() {
   const plugin = selectedPlugin.value
   if (!plugin) return
@@ -172,6 +181,18 @@ async function rollbackSelected() {
   confirmVisible.value = false
   if (!accepted) return
   void runAction(() => rollbackPlugin(props.token, plugin.pluginKey), '插件已回滚')
+}
+
+async function uninstallSelected() {
+  const plugin = selectedPlugin.value
+  if (!plugin) return
+  const accepted = await requestConfirm({
+    title: '卸载插件',
+    message: `确定从当前工厂卸载插件「${plugin.name}」吗？工厂级配置和启用状态会被清除。`
+  })
+  confirmVisible.value = false
+  if (!accepted) return
+  void runAction(() => uninstallPlugin(props.token, plugin.pluginKey), '插件已从当前工厂卸载')
 }
 
 function refreshHealthSelected() {
@@ -217,7 +238,7 @@ onMounted(() => { void loadPlugins(false) })
       </div>
       <div class="plugin-header-actions">
         <button class="ghost-btn" type="button" :disabled="loading" @click="loadPlugins(false)"><UiIcon name="refresh" />刷新</button>
-        <button class="primary-btn" type="button" @click="showCreateForm = true"><UiIcon name="plus" />登记插件</button>
+         <button v-if="props.isSuperAdmin" class="primary-btn" type="button" @click="showCreateForm = true"><UiIcon name="plus" />登记插件</button>
       </div>
     </div>
 
@@ -247,10 +268,12 @@ onMounted(() => { void loadPlugins(false) })
             <p>{{ selectedPlugin.description || '暂无插件描述' }}</p>
           </div>
           <div class="plugin-actions">
-            <button class="ghost-btn" type="button" :disabled="saving" @click="refreshHealthSelected"><UiIcon name="activity" />健康检查</button>
+            <button class="ghost-btn" type="button" :disabled="saving || selectedPlugin.factoryStatus === 'NOT_INSTALLED'" @click="refreshHealthSelected"><UiIcon name="activity" />健康检查</button>
             <button v-if="selectedPlugin.factoryStatus === 'ENABLED'" class="danger-btn" type="button" :disabled="saving" @click="disableSelected"><UiIcon name="close" />下线</button>
+            <button v-else-if="selectedPlugin.factoryStatus === 'NOT_INSTALLED'" class="primary-btn" type="button" :disabled="saving" @click="installSelected"><UiIcon name="download" />安装</button>
             <button v-else class="primary-btn" type="button" :disabled="saving || selectedPlugin.versions.length === 0" @click="enableSelected"><UiIcon name="play" />启用</button>
             <button class="secondary-btn" type="button" :disabled="saving || selectedPlugin.factoryStatus !== 'ENABLED'" @click="rollbackSelected"><UiIcon name="rework" />回滚</button>
+            <button v-if="selectedPlugin.factoryStatus !== 'NOT_INSTALLED'" class="danger-btn" type="button" :disabled="saving" @click="uninstallSelected"><UiIcon name="delete" />卸载</button>
           </div>
         </div>
 
@@ -262,9 +285,9 @@ onMounted(() => { void loadPlugins(false) })
         </div>
 
         <div class="plugin-section">
-          <div class="plugin-section-heading"><h4>版本管理</h4><button class="ghost-btn" type="button" @click="showVersionForm = true"><UiIcon name="plus" />登记版本</button></div>
+            <div class="plugin-section-heading"><h4>版本管理</h4><div class="plugin-section-heading-actions"><TableConfigButton table-id="plugin-versions-table" /><button v-if="props.isSuperAdmin" class="ghost-btn" type="button" @click="showVersionForm = true"><UiIcon name="plus" />登记版本</button></div></div>
           <div class="plugin-version-table-wrap">
-            <table class="data-table plugin-version-table">
+            <table id="plugin-versions-table" class="data-table plugin-version-table">
               <thead><tr><th>版本</th><th>状态</th><th>登记时间</th><th>说明</th><th>操作</th></tr></thead>
               <tbody>
                 <tr v-for="version in selectedPlugin.versions" :key="version.id">
@@ -282,8 +305,8 @@ onMounted(() => { void loadPlugins(false) })
 
         <div class="plugin-config-grid">
           <div class="plugin-section">
-            <div class="plugin-section-heading"><h4>插件配置</h4><button class="ghost-btn" type="button" :disabled="saving" @click="saveConfig"><UiIcon name="save" />保存</button></div>
-            <textarea v-model="configJson" class="plugin-json-editor" spellcheck="false" placeholder="请输入当前工厂的 JSON 配置"></textarea>
+            <div class="plugin-section-heading"><h4>插件配置</h4><button class="ghost-btn" type="button" :disabled="saving || selectedPlugin.factoryStatus === 'NOT_INSTALLED'" @click="saveConfig"><UiIcon name="save" />保存</button></div>
+            <textarea v-model="configJson" class="plugin-json-editor" :disabled="selectedPlugin.factoryStatus === 'NOT_INSTALLED'" spellcheck="false" placeholder="安装插件后填写当前工厂的 JSON 配置"></textarea>
           </div>
           <div class="plugin-section">
             <div class="plugin-section-heading"><h4>运行清单</h4><span class="plugin-section-hint">版本发布时固定</span></div>
@@ -338,6 +361,7 @@ onMounted(() => { void loadPlugins(false) })
 <style scoped>
 .plugin-center-page { display: flex; flex-direction: column; gap: 16px; }
 .plugin-page-header, .plugin-detail-header, .plugin-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.plugin-section-heading-actions { display: flex; align-items: center; gap: 8px; }
 .plugin-page-header h2, .plugin-detail-header h3, .plugin-section-heading h4 { margin: 0; color: #20302c; }
 .plugin-page-header h2 { font-size: 20px; }
 .plugin-page-header p, .plugin-detail-header p { margin: 6px 0 0; color: #71807a; font-size: 13px; }

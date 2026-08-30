@@ -779,7 +779,9 @@ button {
   height: 8px;
   margin-top: 6px;
   border-radius: 50%;
-  background: #00b889;
+  box-sizing: border-box;
+  border: 1.5px solid #a8b4b0;
+  background: transparent;
 }
 
 .notification-dot.overdue {
@@ -1644,23 +1646,6 @@ th {
   top: 0;
   background: var(--table-head-bg);
   z-index: 10;
-}
-
-/* Sticky Operation Column */
-.data-table th:last-child,
-.data-table td:last-child {
-  position: sticky;
-  right: 0;
-  background: var(--table-row-bg);
-}
-.data-table th:last-child {
-  background: var(--table-head-bg);
-  z-index: 11;
-  box-shadow: -6px 0 12px var(--table-fixed-shadow);
-}
-.data-table td:last-child {
-  z-index: 9;
-  box-shadow: -6px 0 12px var(--table-fixed-shadow);
 }
 
 .category-tabs {
@@ -5028,10 +5013,6 @@ button:active:not(:disabled),
   top: 0 !important;
 }
 
-.inbound-receipt-data-table th:last-child {
-  right: 0 !important;
-}
-
 .work-order-data-table th,
 .work-order-data-table td {
   white-space: nowrap;
@@ -5044,16 +5025,6 @@ button:active:not(:disabled),
   width: 48px;
   min-width: 48px;
   background: #fff;
-}
-
-.work-order-actions-column {
-  position: sticky;
-  right: 0;
-  z-index: 4;
-  width: 130px;
-  min-width: 130px;
-  background: #fff;
-  box-shadow: -5px 0 10px rgba(31, 39, 37, .06);
 }
 
 @media (max-width: 780px) {
@@ -5593,8 +5564,7 @@ button:active:not(:disabled),
 .admin-shell.dark-theme .compact-table tbody tr:hover td { background: #202a32; }
 .admin-shell.dark-theme .cache-value-form label { color: #9aa8af; }
 
-.admin-shell.dark-theme .work-order-select-column,
-.admin-shell.dark-theme .work-order-actions-column { background: #171c22; }
+.admin-shell.dark-theme .work-order-select-column { background: #171c22; }
 
 .admin-shell.dark-theme .notification-dropdown {
   color: #dce5e9;
@@ -5609,6 +5579,7 @@ button:active:not(:disabled),
 .admin-shell.dark-theme .notification-content span { color: #9caab2; }
 .admin-shell.dark-theme .notification-item:hover { background: #242d35; }
 .admin-shell.dark-theme .notification-item.unread { background: #1c302c; }
+.admin-shell.dark-theme .notification-dot { border-color: #71817d; }
 .admin-shell.dark-theme .notification-foot { border-color: #303a44; background: #171d23; }
 .admin-shell.dark-theme .notification-text-action,
 .admin-shell.dark-theme .notification-view-all { color: #6dd6b5; }
@@ -6230,17 +6201,6 @@ button:active:not(:disabled),
   border-color: var(--table-line);
 }
 .admin-shell table tbody tr:hover td { background: var(--table-row-hover); }
-.admin-shell table th:last-child {
-  background: var(--table-head-bg) !important;
-  box-shadow: -6px 0 12px var(--table-fixed-shadow);
-}
-.admin-shell table td:last-child {
-  background: var(--table-row-bg) !important;
-  box-shadow: -6px 0 12px var(--table-fixed-shadow);
-}
-.admin-shell table tbody tr:hover td:last-child {
-  background: var(--table-row-hover) !important;
-}
 .admin-shell .th-icon-wrapper { color: var(--text-muted) !important; }
 .admin-shell .th-container { border-color: var(--table-line) !important; }
 .admin-shell .empty-cell,

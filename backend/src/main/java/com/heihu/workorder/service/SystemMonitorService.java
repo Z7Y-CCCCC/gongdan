@@ -35,6 +35,7 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 管理端系统监控服务。业务缓存由 Spring Cache 写入 Redis，本服务维护一个按工厂隔离的
@@ -82,13 +83,24 @@ public class SystemMonitorService {
         this.recoveryTtl = Duration.ofMinutes(Math.max(1, recoveryTtlMinutes));
     }
 
+    @Transactional
     public List<MonitorOnlineUserResponse> listOnlineUsers(Long factoryId, String ipAddress, String loginName) {
         count("online.list");
         Instant now = Instant.now();
         sessionRepository.deleteByExpiresAtBefore(now);
-        return sessionRepository.findByFactoryIdAndKickedFalseAndExpiresAtAfterOrderByCreatedAtDesc(factoryId, now)
+        List<UserSession> sessions = sessionRepository.findByFactoryIdAndKickedFalseAndExpiresAtAfterOrderByCreatedAtDesc(factoryId, now);
+        Map<Long, String> departments = userRepository.findByIdIn(sessions.stream()
+                        .map(UserSession::getUserId)
+                        .distinct()
+                        .collect(Collectors.toList()))
                 .stream()
-                .map(this::toOnlineResponse)
+                .collect(Collectors.toMap(
+                        user -> user.getId(),
+                        user -> user.getDepartment() == null ? "未分配部门" : user.getDepartment().getName()
+                ));
+        return sessions
+                .stream()
+                .map(session -> toOnlineResponse(session, departments.getOrDefault(session.getUserId(), "未分配部门")))
                 .filter(item -> !hasText(ipAddress) || contains(item.getIpAddress(), ipAddress))
                 .filter(item -> !hasText(loginName) || contains(item.getLoginName(), loginName))
                 .collect(Collectors.toList());
@@ -457,12 +469,12 @@ public class SystemMonitorService {
         snapshots.add(0, snapshot);
     }
 
-    private MonitorOnlineUserResponse toOnlineResponse(UserSession session) {
+    private MonitorOnlineUserResponse toOnlineResponse(UserSession session, String departmentName) {
         MonitorOnlineUserResponse response = new MonitorOnlineUserResponse();
         response.setId(session.getId());
         response.setSessionId("session-" + session.getId());
         response.setLoginName(session.getDisplayName());
-        response.setDepartmentName(userRepository.findById(session.getUserId()).map(user -> user.getDepartment() == null ? "未分配部门" : user.getDepartment().getName()).orElse("未分配部门"));
+        response.setDepartmentName(departmentName);
         response.setIpAddress(defaultValue(session.getIpAddress(), "-"));
         response.setLoginLocation(defaultValue(session.getLoginLocation(), "内网IP"));
         response.setOperatingSystem(defaultValue(session.getOperatingSystem(), "未知系统"));

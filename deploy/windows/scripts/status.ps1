@@ -56,20 +56,35 @@ $backupDir = if ([System.IO.Path]::IsPathRooted($backupDirValue)) {
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $ReleaseRoot $backupDirValue))
 }
-$latestBackup = Get-ChildItem -LiteralPath $backupDir -Filter "mysql_*.sql" -File -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $backupState = "none"
-if ($latestBackup) {
-    $verification = "checksum missing"
-    $sidecarPath = "$($latestBackup.FullName).sha256"
-    if (Test-Path -LiteralPath $sidecarPath) {
-        $expectedHash = ((Get-Content -LiteralPath $sidecarPath -Raw).Split(' ')[0]).Trim().ToLowerInvariant()
-        $actualHash = (Get-FileHash -LiteralPath $latestBackup.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+$backupStatusPath = Join-Path $backupDir "backup-status.json"
+if (Test-Path -LiteralPath $backupStatusPath) {
+    try {
+        $backupStatus = Get-Content -LiteralPath $backupStatusPath -Raw | ConvertFrom-Json
+        $databasePath = Join-Path $backupDir ([string]$backupStatus.databaseFile)
+        $expectedHash = ((Get-Content -LiteralPath "$databasePath.sha256" -Raw).Split(' ')[0]).Trim().ToLowerInvariant()
+        $actualHash = (Get-FileHash -LiteralPath $databasePath -Algorithm SHA256).Hash.ToLowerInvariant()
         $verification = if ($expectedHash -eq $actualHash) { "checksum OK" } else { "CHECKSUM FAILED" }
+        $backupState = "$($backupStatus.databaseFile) at $($backupStatus.lastSuccessAt) ($verification; remote=$($backupStatus.remoteConfigured))"
+    } catch {
+        $backupState = "status unreadable: $($_.Exception.Message)"
     }
-    $backupState = "$($latestBackup.Name) at $($latestBackup.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')) ($verification)"
 }
 Write-Host "Backup:  $backupState"
+
+$binlogDirValue = if ($config.ContainsKey("BINLOG_ARCHIVE_DIR") -and $config["BINLOG_ARCHIVE_DIR"]) { $config["BINLOG_ARCHIVE_DIR"] } else { Join-Path $backupDir "binlogs" }
+$binlogDir = if ([System.IO.Path]::IsPathRooted($binlogDirValue)) { [System.IO.Path]::GetFullPath($binlogDirValue) } else { [System.IO.Path]::GetFullPath((Join-Path $ReleaseRoot $binlogDirValue)) }
+$binlogState = "none"
+$binlogStatusPath = Join-Path $binlogDir "binlog-archive-status.json"
+if (Test-Path -LiteralPath $binlogStatusPath) {
+    try {
+        $binlogStatus = Get-Content -LiteralPath $binlogStatusPath -Raw | ConvertFrom-Json
+        $binlogState = "$($binlogStatus.latestArchivedFile) at $($binlogStatus.archivedAt)"
+    } catch {
+        $binlogState = "status unreadable"
+    }
+}
+Write-Host "PITR:    $binlogState"
 
 $startupStatePath = Join-Path $ReleaseRoot "runtime\last-startup.json"
 if (Test-Path -LiteralPath $startupStatePath) {

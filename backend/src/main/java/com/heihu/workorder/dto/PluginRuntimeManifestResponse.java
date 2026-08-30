@@ -8,6 +8,7 @@ public class PluginRuntimeManifestResponse {
     private String version;
     private String runtimeMode;
     private JsonNode manifest;
+    private JsonNode config;
 
     public String getPluginKey() { return pluginKey; }
     public void setPluginKey(String pluginKey) { this.pluginKey = pluginKey; }
@@ -19,4 +20,6 @@ public class PluginRuntimeManifestResponse {
     public void setRuntimeMode(String runtimeMode) { this.runtimeMode = runtimeMode; }
     public JsonNode getManifest() { return manifest; }
     public void setManifest(JsonNode manifest) { this.manifest = manifest; }
+    public JsonNode getConfig() { return config; }
+    public void setConfig(JsonNode config) { this.config = config; }
 }

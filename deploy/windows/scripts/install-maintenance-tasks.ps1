@@ -3,6 +3,9 @@ param(
     [string]$EnvFile = "",
     [string]$StartupTaskName = "Gongdan Startup Recovery",
     [string]$BackupTaskName = "Gongdan Database Backup",
+    [string]$BinlogTaskName = "Gongdan Binlog Archive",
+    [string]$RestoreDrillTaskName = "Gongdan Restore Drill",
+    [string]$PitrDrillTaskName = "Gongdan PITR Drill",
     [string]$CleanupTaskName = "Gongdan Log Cleanup",
     [string]$MonitorTaskName = "Gongdan Health Monitor",
     [switch]$WhatIf
@@ -58,9 +61,12 @@ function Register-GongdanTask([string]$Name, $Trigger, $Action) {
 $config = Read-DotEnv $EnvFile
 $startupScript = Join-Path $ReleaseRoot "scripts\start-stack.ps1"
 $backupScript = Join-Path $ReleaseRoot "scripts\backup-database.ps1"
+$binlogScript = Join-Path $ReleaseRoot "scripts\archive-binlogs.ps1"
+$restoreDrillScript = Join-Path $ReleaseRoot "scripts\test-restore.ps1"
+$pitrDrillScript = Join-Path $ReleaseRoot "scripts\test-pitr-restore.ps1"
 $cleanupScript = Join-Path $ReleaseRoot "scripts\cleanup-logs.ps1"
 $monitorScript = Join-Path $ReleaseRoot "scripts\monitor.ps1"
-foreach ($scriptPath in @($startupScript, $backupScript, $cleanupScript, $monitorScript)) {
+foreach ($scriptPath in @($startupScript, $backupScript, $binlogScript, $restoreDrillScript, $pitrDrillScript, $cleanupScript, $monitorScript)) {
     if (-not (Test-Path -LiteralPath $scriptPath)) { throw "Required maintenance script was not found: $scriptPath" }
 }
 
@@ -92,17 +98,24 @@ if ($nginxServiceName) {
 
 $startupTrigger = New-ScheduledTaskTrigger -AtStartup
 $backupTrigger = New-ScheduledTaskTrigger -Daily -At (Get-Date -Hour 2 -Minute 0 -Second 0)
+$binlogTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
+$restoreDrillTrigger = New-ScheduledTaskTrigger -Weekly -WeeksInterval 1 -DaysOfWeek Sunday -At (Get-Date -Hour 3 -Minute 0 -Second 0)
+$pitrDrillTrigger = New-ScheduledTaskTrigger -Weekly -WeeksInterval 1 -DaysOfWeek Sunday -At (Get-Date -Hour 3 -Minute 30 -Second 0)
 $cleanupTrigger = New-ScheduledTaskTrigger -Daily -At (Get-Date -Hour 4 -Minute 0 -Second 0)
 $monitorTrigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
     -RepetitionInterval (New-TimeSpan -Minutes 5) -RepetitionDuration (New-TimeSpan -Days 3650)
 
 Register-GongdanTask $StartupTaskName $startupTrigger (New-ScriptTaskAction $startupScript)
 Register-GongdanTask $BackupTaskName $backupTrigger (New-ScriptTaskAction $backupScript)
+Register-GongdanTask $BinlogTaskName $binlogTrigger (New-ScriptTaskAction $binlogScript)
+Register-GongdanTask $RestoreDrillTaskName $restoreDrillTrigger (New-ScriptTaskAction $restoreDrillScript)
+Register-GongdanTask $PitrDrillTaskName $pitrDrillTrigger (New-ScriptTaskAction $pitrDrillScript)
 Register-GongdanTask $CleanupTaskName $cleanupTrigger (New-ScriptTaskAction $cleanupScript)
 Register-GongdanTask $MonitorTaskName $monitorTrigger (New-ScriptTaskAction $monitorScript)
 
 if ($WhatIf) {
     Write-Host "Maintenance task preview completed; no system changes were made." -ForegroundColor Cyan
 } else {
-    Write-Host "Startup recovery, daily database backup, daily log cleanup, and five-minute monitoring are installed." -ForegroundColor Green
+    Write-Host "Startup recovery, daily backup, five-minute binlog archive, weekly restore/PITR drills, cleanup, and monitoring are installed." -ForegroundColor Green
 }

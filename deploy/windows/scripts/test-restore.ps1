@@ -36,6 +36,11 @@ function Get-ConfigValue([hashtable]$Config, [string]$Name, [string]$Default = "
     return $Default
 }
 
+function ConvertTo-MySqlOptionValue([string]$Value) {
+    $escaped = $Value.Replace('\', '\\').Replace('"', '\"').Replace("`r", '\r').Replace("`n", '\n')
+    return '"' + $escaped + '"'
+}
+
 function Find-MySqlClient([string]$ConfiguredPath) {
     if ($ConfiguredPath) {
         if (-not (Test-Path -LiteralPath $ConfiguredPath)) { throw "Configured mysql.exe was not found: $ConfiguredPath" }
@@ -75,13 +80,16 @@ $jdbcMatch = [regex]::Match($jdbcUrl, '^jdbc:mysql://(?<host>[^:/?]+)(:(?<port>\
 if (-not $jdbcMatch.Success) { throw "SPRING_DATASOURCE_URL is not a supported MySQL JDBC URL: $jdbcUrl" }
 $dbHost = $jdbcMatch.Groups["host"].Value
 $dbPort = if ($jdbcMatch.Groups["port"].Success) { $jdbcMatch.Groups["port"].Value } else { "3306" }
-$dbUser = Get-ConfigValue $config "SPRING_DATASOURCE_USERNAME" (Get-ConfigValue $config "MYSQL_USER" "")
-$dbPassword = Get-ConfigValue $config "SPRING_DATASOURCE_PASSWORD" (Get-ConfigValue $config "MYSQL_PASSWORD" "")
-if (-not $dbUser) { throw "Database username is required." }
+$dbUser = Get-ConfigValue $config "RESTORE_MYSQL_USER" ""
+$dbPassword = Get-ConfigValue $config "RESTORE_MYSQL_PASSWORD" ""
+if (-not $dbUser -or -not $dbPassword) { throw "RESTORE_MYSQL_USER and RESTORE_MYSQL_PASSWORD are required." }
 
 $configuredMysql = if ($MysqlExe) { $MysqlExe } else {
-    $dumpPath = Get-ConfigValue $config "BACKUP_MYSQL_EXE" ""
-    if ($dumpPath) { Join-Path (Split-Path -Parent $dumpPath) "mysql.exe" } else { "" }
+    $clientPath = Get-ConfigValue $config "BACKUP_MYSQL_CLIENT_EXE" ""
+    if ($clientPath) { $clientPath } else {
+        $dumpPath = Get-ConfigValue $config "BACKUP_MYSQL_EXE" ""
+        if ($dumpPath) { Join-Path (Split-Path -Parent $dumpPath) "mysql.exe" } else { "" }
+    }
 }
 $mysqlClient = Find-MySqlClient $configuredMysql
 $tempDatabase = "gongdan_restore_drill_{0}" -f (Get-Date -Format "yyyyMMddHHmmss")
@@ -90,7 +98,7 @@ $errorPath = Join-Path ([System.IO.Path]::GetTempPath()) "gongdan-restore-$([gui
 $created = $false
 
 try {
-    $optionContent = "[client]`r`nprotocol=tcp`r`nhost=$dbHost`r`nport=$dbPort`r`nuser=$dbUser`r`npassword=$dbPassword`r`n"
+    $optionContent = "[client]`r`nprotocol=tcp`r`nhost=$dbHost`r`nport=$dbPort`r`nuser=$(ConvertTo-MySqlOptionValue $dbUser)`r`npassword=$(ConvertTo-MySqlOptionValue $dbPassword)`r`n"
     [System.IO.File]::WriteAllText($optionPath, $optionContent, (New-Object System.Text.UTF8Encoding($false)))
     $baseArguments = @("--defaults-extra-file=$optionPath", "--batch", "--skip-column-names")
 

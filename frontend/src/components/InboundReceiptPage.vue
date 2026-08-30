@@ -81,7 +81,7 @@ const allColumns = [
   { key: 'remark', label: '备注', visible: true, width: 180, fixed: 'none' as const },
   { key: 'createdAt', label: '创建时间', visible: true, width: 160, fixed: 'none' as const },
   { key: 'creator', label: '创建人', visible: true, width: 120, fixed: 'none' as const },
-  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' as const, locked: true }
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' as const }
 ]
 const columns = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
 const defaultColumnSettings = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
@@ -100,7 +100,7 @@ const detailColumns = [
   { key: 'safetyStock', label: '安全库存', visible: true, width: 110, fixed: 'none' as const },
   { key: 'inventoryQty', label: '当前库存数量', visible: true, width: 140, fixed: 'none' as const },
   { key: 'quantity', label: '入库数量', visible: true, width: 120, fixed: 'none' as const },
-  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' as const, locked: true }
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' as const }
 ]
 const itemColumns = ref<ReceiptTableColumn[]>(detailColumns.map(c => ({ ...c })))
 const showItemColumnConfig = ref(false)
@@ -164,8 +164,10 @@ function restoreInboundColumnSettings() {
         const base = defaultColumnSettings.value.find(column => column.key === key)
         const stored = savedByKey.get(key)
         if (!base) return null
-        if (base.locked) return { ...base, ...(stored || {}), visible: true, fixed: 'right', locked: true }
-        return { ...base, ...(stored || {}) }
+        const fixed = stored?.fixed === 'left' || stored?.fixed === 'right' || stored?.fixed === 'none'
+          ? stored.fixed
+          : base.fixed
+        return { ...base, ...(stored || {}), fixed, locked: false }
       })
       .filter((column): column is ReceiptTableColumn => Boolean(column))
   } catch {

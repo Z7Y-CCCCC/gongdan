@@ -48,7 +48,7 @@ const emit = defineEmits<{
         <UiIcon name="pin" :size="13" />
       </button>
       <UiIcon class="workspace-tab-page-icon" :name="tab.id === 'home' ? 'grid' : 'file'" :size="14" />
-      <span class="workspace-tab-label">{{ tab.label }}</span>
+      <span class="workspace-tab-label" :title="tab.label">{{ tab.label }}</span>
       <button
         v-if="tab.closable"
         class="workspace-tab-close"

@@ -17,6 +17,14 @@ dist/
 *.iml
 .vscode/
 
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
+
 # OS
 .DS_Store
 Thumbs.db

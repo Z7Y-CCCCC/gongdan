@@ -151,12 +151,19 @@ public class NotificationService {
 
     @Transactional
     public int markAllRead(AuthenticatedUser currentUser) {
-        return recipientRepository.markAllRead(
+        LocalDateTime now = LocalDateTime.now();
+        List<NotificationRecipient> recipients = recipientRepository.findActiveUnread(
                 currentUser.getUserId(),
                 currentUser.getFactoryId(),
-                LocalDateTime.now(),
-                NotificationRecipientState.READ
+                now
         );
+        for (NotificationRecipient recipient : recipients) {
+            recipient.setReadAt(now);
+            recipient.setState(NotificationRecipientState.READ);
+            recipient.setUpdatedAt(now);
+        }
+        recipientRepository.saveAll(recipients);
+        return recipients.size();
     }
 
     /**

@@ -148,6 +148,7 @@ class ProductionConfigGuardTest {
         ReflectionTestUtils.setField(guard, "seedSuperAdminPassword", "SuperPw_9x8y7z");
         ReflectionTestUtils.setField(guard, "wechatAppId", "wx1234567890abcdef");
         ReflectionTestUtils.setField(guard, "wechatSecret", "WechatSecret_9x8y7z");
+        ReflectionTestUtils.setField(guard, "pluginGatewaySecret", "test-plugin-gateway-secret-32-characters-long");
         ReflectionTestUtils.setField(guard, "smsAuthHeaderValue", "Bearer real-token-9x8y7z");
         ReflectionTestUtils.setField(guard, "smsHttpUrl", "https://sms.example.net/send");
         ReflectionTestUtils.setField(guard, "corsAllowedOriginPatterns", "https://workorder.example.com,https://admin.example.com");

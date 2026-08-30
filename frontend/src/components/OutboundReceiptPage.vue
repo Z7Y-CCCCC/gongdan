@@ -83,7 +83,7 @@ const allColumns: ReceiptTableColumn[] = [
   { key: 'remark', label: '备注', visible: true, width: 180, fixed: 'none' },
   { key: 'createdAt', label: '创建时间', visible: true, width: 160, fixed: 'none' },
   { key: 'creator', label: '创建人', visible: true, width: 120, fixed: 'none' },
-  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right', locked: true }
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' }
 ]
 const columns = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
 const defaultColumnSettings = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
@@ -102,7 +102,7 @@ const detailColumns: ReceiptTableColumn[] = [
   { key: 'safetyStock', label: '安全库存', visible: true, width: 110, fixed: 'none' },
   { key: 'inventoryQty', label: '当前库存数量', visible: true, width: 140, fixed: 'none' },
   { key: 'quantity', label: '出库数量', visible: true, width: 120, fixed: 'none' },
-  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right', locked: true }
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' }
 ]
 const itemColumns = ref<ReceiptTableColumn[]>(detailColumns.map(c => ({ ...c })))
 const defaultItemColumnSettings = ref<ReceiptTableColumn[]>(detailColumns.map(c => ({ ...c })))

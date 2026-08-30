@@ -47,6 +47,11 @@ function Get-ConfigValue([hashtable]$Config, [string]$Name, [string]$Default = "
     return $Default
 }
 
+function ConvertTo-MySqlOptionValue([string]$Value) {
+    $escaped = $Value.Replace('\', '\\').Replace('"', '\"').Replace("`r", '\r').Replace("`n", '\n')
+    return '"' + $escaped + '"'
+}
+
 function Get-AbsolutePath([string]$Path) {
     return [System.IO.Path]::GetFullPath($Path)
 }
@@ -129,9 +134,13 @@ try {
     $database = Get-ConfigValue $config "MYSQL_DATABASE" $jdbcMatch.Groups["database"].Value
     $dbUser = Get-ConfigValue $config "SPRING_DATASOURCE_USERNAME" (Get-ConfigValue $config "MYSQL_USER" "")
     $dbPassword = Get-ConfigValue $config "SPRING_DATASOURCE_PASSWORD" (Get-ConfigValue $config "MYSQL_PASSWORD" "")
+    $backupUser = Get-ConfigValue $config "BACKUP_MYSQL_USER" $dbUser
+    $backupPassword = Get-ConfigValue $config "BACKUP_MYSQL_PASSWORD" $dbPassword
     if (-not $dbUser) { throw "SPRING_DATASOURCE_USERNAME or MYSQL_USER is required." }
     if ($null -eq $dbPassword) { throw "SPRING_DATASOURCE_PASSWORD or MYSQL_PASSWORD is required." }
-    if ($dbPassword.Contains("`n") -or $dbPassword.Contains("`r")) { throw "Database password must not contain a line break." }
+    if (-not $backupUser) { throw "BACKUP_MYSQL_USER is required." }
+    if ($null -eq $backupPassword) { throw "BACKUP_MYSQL_PASSWORD is required." }
+    if ($backupPassword.Contains("`n") -or $backupPassword.Contains("`r")) { throw "Backup database password must not contain a line break." }
 
     $configuredDumpExe = if ($MysqlDumpExe) { $MysqlDumpExe } else { Get-ConfigValue $config "BACKUP_MYSQL_EXE" "" }
     $dumpExe = Find-Mysqldump $configuredDumpExe
@@ -144,13 +153,15 @@ try {
     $files = @()
 
     try {
-        $optionContent = "[client]`r`nprotocol=tcp`r`nhost=$dbHost`r`nport=$dbPort`r`nuser=$dbUser`r`npassword=$dbPassword`r`n"
+        $optionContent = "[client]`r`nprotocol=tcp`r`nhost=$dbHost`r`nport=$dbPort`r`nuser=$(ConvertTo-MySqlOptionValue $backupUser)`r`npassword=$(ConvertTo-MySqlOptionValue $backupPassword)`r`n"
         [System.IO.File]::WriteAllText($optionPath, $optionContent, (New-Object System.Text.UTF8Encoding($false)))
         $dumpArguments = @(
             "--defaults-extra-file=$optionPath",
             "--single-transaction",
+            "--source-data=2",
             "--routines",
             "--triggers",
+            "--events",
             "--hex-blob",
             "--set-gtid-purged=OFF",
             "--result-file=$sqlTempPath",
@@ -234,10 +245,47 @@ try {
         }
     }
 
+    $remoteUri = Get-ConfigValue $config "BACKUP_REMOTE_URI" ""
+    if ($remoteUri) {
+        $remoteScript = Join-Path $PSScriptRoot "sync-backup-remote.ps1"
+        if (-not (Test-Path -LiteralPath $remoteScript)) { throw "Remote backup helper was not found: $remoteScript" }
+        $remotePrefix = "full/{0}" -f (Get-Date -Format "yyyy/MM/dd")
+        & $remoteScript -ReleaseRoot $ReleaseRoot -EnvFile $EnvFile -Paths $createdPaths -RelativePrefix $remotePrefix
+    }
+
+    $statusPath = Join-Path $backupPath "backup-status.json"
+    $status = [pscustomobject]@{
+        lastSuccessAt = (Get-Date).ToString("o")
+        lastSuccessEpoch = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        databaseFile = Split-Path -Leaf $sqlPath
+        manifestFile = Split-Path -Leaf $manifestPath
+        secondaryConfigured = [bool]$secondary
+        remoteConfigured = [bool]$remoteUri
+    }
+    $status | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $statusPath -Encoding UTF8
+    $statusHash = (Get-FileHash -LiteralPath $statusPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$statusHash *$(Split-Path -Leaf $statusPath)" | Set-Content -LiteralPath "$statusPath.sha256" -Encoding ascii
+    if ($secondary) {
+        foreach ($sourcePath in @($statusPath, "$statusPath.sha256")) {
+            $destinationPath = Join-Path $secondary (Split-Path -Leaf $sourcePath)
+            $temporaryDestination = "$destinationPath.tmp"
+            try {
+                Copy-Item -LiteralPath $sourcePath -Destination $temporaryDestination -Force
+                Move-Item -LiteralPath $temporaryDestination -Destination $destinationPath -Force
+            } finally {
+                Remove-Item -LiteralPath $temporaryDestination -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    if ($remoteUri) {
+        & $remoteScript -ReleaseRoot $ReleaseRoot -EnvFile $EnvFile -Paths @($statusPath, "$statusPath.sha256") -RelativePrefix "status"
+    }
+
     Write-MaintenanceLog $maintenanceLog "Database backup succeeded: database=$database, files=$($files.Count), expiredRemoved=$removed"
     Write-Host "Database backup completed: $sqlPath" -ForegroundColor Green
     Write-Host "SHA-256: $sqlHash" -ForegroundColor Green
     if ($secondary) { Write-Host "Copied backup to: $secondary" -ForegroundColor Cyan }
+    if ($remoteUri) { Write-Host "Uploaded immutable backup to: $remoteUri" -ForegroundColor Cyan }
 } catch {
     if (-not $localBackupCommitted) {
         foreach ($createdPath in $createdPaths) {

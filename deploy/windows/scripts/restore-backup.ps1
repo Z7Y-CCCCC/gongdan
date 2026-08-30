@@ -37,6 +37,11 @@ function Get-Value([hashtable]$Config, [string]$Name, [string]$Default = "") {
     return $Default
 }
 
+function ConvertTo-MySqlOptionValue([string]$Value) {
+    $escaped = $Value.Replace('\', '\\').Replace('"', '\"').Replace("`r", '\r').Replace("`n", '\n')
+    return '"' + $escaped + '"'
+}
+
 function Find-MySqlClient([string]$ConfiguredPath) {
     if ($ConfiguredPath) {
         if (-not (Test-Path -LiteralPath $ConfiguredPath)) { throw "Configured mysql.exe was not found: $ConfiguredPath" }
@@ -73,7 +78,10 @@ function New-MySqlOptions([hashtable]$Config) {
         throw "Destructive restore requires -ConfirmDatabase $database"
     }
     $optionPath = Join-Path ([System.IO.Path]::GetTempPath()) "gongdan-restore-$([guid]::NewGuid().ToString('N')).cnf"
-    $content = "[client]`r`nprotocol=tcp`r`nhost=$($match.Groups['host'].Value)`r`nport=$(if ($match.Groups['port'].Success) { $match.Groups['port'].Value } else { '3306' })`r`nuser=$(Get-Value $Config 'SPRING_DATASOURCE_USERNAME' (Get-Value $Config 'MYSQL_USER' ''))`r`npassword=$(Get-Value $Config 'SPRING_DATASOURCE_PASSWORD' (Get-Value $Config 'MYSQL_PASSWORD' ''))`r`n"
+    $restoreUser = Get-Value $Config "RESTORE_MYSQL_USER" ""
+    $restorePassword = Get-Value $Config "RESTORE_MYSQL_PASSWORD" ""
+    if (-not $restoreUser -or -not $restorePassword) { throw "RESTORE_MYSQL_USER and RESTORE_MYSQL_PASSWORD are required" }
+    $content = "[client]`r`nprotocol=tcp`r`nhost=$($match.Groups['host'].Value)`r`nport=$(if ($match.Groups['port'].Success) { $match.Groups['port'].Value } else { '3306' })`r`nuser=$(ConvertTo-MySqlOptionValue $restoreUser)`r`npassword=$(ConvertTo-MySqlOptionValue $restorePassword)`r`n"
     [System.IO.File]::WriteAllText($optionPath, $content, (New-Object System.Text.UTF8Encoding($false)))
     return [pscustomobject]@{ path = $optionPath; database = $database }
 }
@@ -88,9 +96,20 @@ if (-not $BackupPath) {
 }
 $BackupPath = [System.IO.Path]::GetFullPath($BackupPath)
 Verify-Checksum $BackupPath
+$storageType = (Get-Value $config "APP_UPLOAD_STORAGE_TYPE" "local").Trim().ToLowerInvariant()
+if ($storageType -eq "local" -and -not $SkipUploads -and -not $UploadBackupPath) {
+    throw "Local attachment storage requires -UploadBackupPath or explicit -SkipUploads"
+}
 if (-not $SkipUploads -and $UploadBackupPath) { Verify-Checksum $UploadBackupPath }
 
-$mysqlClient = Find-MySqlClient (if ($MysqlExe) { $MysqlExe } else { Get-Value $config "BACKUP_MYSQL_EXE" "" })
+$configuredMysql = if ($MysqlExe) { $MysqlExe } else {
+    $clientPath = Get-Value $config "BACKUP_MYSQL_CLIENT_EXE" ""
+    if ($clientPath) { $clientPath } else {
+        $dumpPath = Get-Value $config "BACKUP_MYSQL_EXE" ""
+        if ($dumpPath) { Join-Path (Split-Path -Parent $dumpPath) "mysql.exe" } else { "" }
+    }
+}
+$mysqlClient = Find-MySqlClient $configuredMysql
 $mysqlOptions = New-MySqlOptions $config
 $stopScript = Join-Path $ReleaseRoot "scripts\stop-backend.ps1"
 $startScript = Join-Path $ReleaseRoot "scripts\start-stack.ps1"
@@ -122,7 +141,9 @@ try {
         Remove-Item -LiteralPath $importError -Force -ErrorAction SilentlyContinue
     }
 
-    if (-not $SkipUploads -and $UploadBackupPath) {
+    if ($storageType -eq "s3") {
+        Write-Warning "Restore and reconcile the object storage bucket before opening production traffic."
+    } elseif (-not $SkipUploads -and $UploadBackupPath) {
         $uploadRootValue = Get-Value $config "APP_UPLOAD_REPORT_IMAGE_DIR" (Join-Path $ReleaseRoot "data\uploads")
         $uploadRoot = if ([System.IO.Path]::IsPathRooted($uploadRootValue)) { [System.IO.Path]::GetFullPath($uploadRootValue) } else { [System.IO.Path]::GetFullPath((Join-Path $ReleaseRoot $uploadRootValue)) }
         $releasePrefix = ([System.IO.Path]::GetFullPath($ReleaseRoot)).TrimEnd('\') + '\'
@@ -137,6 +158,8 @@ try {
     }
 
     if (Test-Path -LiteralPath $startScript) { & $startScript -ReleaseRoot $ReleaseRoot -EnvFile $EnvFile; if ($LASTEXITCODE -ne 0) { throw "Application did not recover after restore." } }
+    $binlogScript = Join-Path $ReleaseRoot "scripts\archive-binlogs.ps1"
+    if (Test-Path -LiteralPath $binlogScript) { & $binlogScript -ReleaseRoot $ReleaseRoot -EnvFile $EnvFile; if ($LASTEXITCODE -ne 0) { throw "Application recovered but the PITR chain did not resume." } }
     Add-Content -LiteralPath $restoreLog -Value ("{0} Restore succeeded: database={1}; backup={2}; safetyBackup={3}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $mysqlOptions.database, $BackupPath, $safetyBackup) -Encoding UTF8
     Write-Host "Restore completed and application recovery passed." -ForegroundColor Green
 } catch {

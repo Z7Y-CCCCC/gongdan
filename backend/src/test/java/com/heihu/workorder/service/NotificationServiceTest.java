@@ -17,6 +17,7 @@ import com.heihu.workorder.repository.WorkOrderRepository;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Optional;
+import java.util.Arrays;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -102,14 +103,20 @@ class NotificationServiceTest {
 
     @Test
     void markAllReadUsesOnlyActiveUnreadRows() {
-        when(recipientRepository.markAllRead(
-                eq(7L), eq(1L), any(LocalDateTime.class), eq(NotificationRecipientState.READ)
-        )).thenReturn(3);
+        java.util.List<NotificationRecipient> recipients = Arrays.asList(recipient(), recipient(), recipient());
+        when(recipientRepository.findActiveUnread(
+                eq(7L), eq(1L), any(LocalDateTime.class)
+        )).thenReturn(recipients);
 
         assertThat(service.markAllRead(currentUser())).isEqualTo(3);
-        verify(recipientRepository).markAllRead(
-                eq(7L), eq(1L), any(LocalDateTime.class), eq(NotificationRecipientState.READ)
+        verify(recipientRepository).findActiveUnread(
+                eq(7L), eq(1L), any(LocalDateTime.class)
         );
+        verify(recipientRepository).saveAll(recipients);
+        assertThat(recipients).allSatisfy(recipient -> {
+            assertThat(recipient.getState()).isEqualTo(NotificationRecipientState.READ);
+            assertThat(recipient.getReadAt()).isNotNull();
+        });
     }
 
     @Test
