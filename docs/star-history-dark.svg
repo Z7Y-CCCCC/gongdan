@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 900 520" width="900" height="520">
+  <title id="title">Star History for Z7Y-CCCCC/gongdan</title>
+  <desc id="desc">Current stars: 0 · No stars recorded yet</desc>
+  <rect width="900" height="520" rx="10" fill="#0d1117" />
+  <rect x="18" y="18" width="864" height="484" rx="8" fill="#161b22" stroke="#30363d" />
+  <text x="78" y="45" fill="#f0f6fc" font-size="22" font-weight="600">Star History</text>
+  <text x="78" y="66" fill="#8b949e" font-size="13">Current stars: 0 · No stars recorded yet</text>
+  <line x1="78" y1="448.00" x2="866" y2="448.00" stroke="#30363d" stroke-width="1" />
+      <text x="64" y="453" text-anchor="end" fill="#8b949e" font-size="13">0</text>
+<line x1="78" y1="374.80" x2="866" y2="374.80" stroke="#30363d" stroke-width="1" />
+      <text x="64" y="379.8" text-anchor="end" fill="#8b949e" font-size="13">1</text>
+<line x1="78" y1="301.60" x2="866" y2="301.60" stroke="#30363d" stroke-width="1" />
+      <text x="64" y="306.6" text-anchor="end" fill="#8b949e" font-size="13">2</text>
+<line x1="78" y1="228.40" x2="866" y2="228.40" stroke="#30363d" stroke-width="1" />
+      <text x="64" y="233.4" text-anchor="end" fill="#8b949e" font-size="13">3</text>
+<line x1="78" y1="155.20" x2="866" y2="155.20" stroke="#30363d" stroke-width="1" />
+      <text x="64" y="160.2" text-anchor="end" fill="#8b949e" font-size="13">4</text>
+<line x1="78" y1="82.00" x2="866" y2="82.00" stroke="#30363d" stroke-width="1" />
+      <text x="64" y="87" text-anchor="end" fill="#8b949e" font-size="13">5</text>
+  <text x="78.00" y="486" text-anchor="middle" fill="#8b949e" font-size="13">2020-01</text>
+<text x="275.00" y="486" text-anchor="middle" fill="#8b949e" font-size="13">2020-01</text>
+<text x="472.00" y="486" text-anchor="middle" fill="#8b949e" font-size="13">2020-01</text>
+<text x="669.00" y="486" text-anchor="middle" fill="#8b949e" font-size="13">2020-02</text>
+<text x="866.00" y="486" text-anchor="middle" fill="#8b949e" font-size="13">2020-03</text>
+  <path d="M 78.00,448.00 L 78.00,448.00 L 78.00,448.00 L 78.00,448.00 Z" fill="#1f6feb" fill-opacity="0.16" />
+  <path d="M 78.00,448.00 L 78.00,448.00" fill="none" stroke="#58a6ff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="450" y="271" text-anchor="middle" fill="#8b949e" font-size="18">No stars recorded yet</text>
+  <text x="78" y="508" fill="#8b949e" font-size="12">Stars</text>
+</svg>
