@@ -19,6 +19,7 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
@@ -33,6 +34,7 @@ public class SuperAdminService {
     private static final Pattern SUPER_ADMIN_USERNAME_PATTERN = Pattern.compile("^[A-Za-z0-9]{3,32}$");
     private static final String RESERVED_CODE = "ADMIN";
     private static final String ADMIN_FACTORY_CODE = "ADMIN";
+    private static final String LEGACY_ADMIN_FACTORY_CODE = "admin";
     private static final int SUPER_ADMIN_PASSWORD_MIN_LENGTH = 6;
     private static final int SUPER_ADMIN_PASSWORD_MAX_LENGTH = 64;
     private static final String PASSWORD_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -275,7 +277,7 @@ public class SuperAdminService {
         }
 
         // 3. 查找admin工厂
-        Factory adminFactory = factoryRepository.findByCode(ADMIN_FACTORY_CODE)
+        Factory adminFactory = findAdminFactory()
                 .orElseThrow(() -> new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "系统错误：admin工厂不存在"));
 
         // 4. 检查用户名在admin工厂内唯一性
@@ -371,13 +373,13 @@ public class SuperAdminService {
     @Transactional(readOnly = true)
     public ManagementListResponse getManagementList() {
         // 获取工厂列表（排除admin工厂），按创建时间降序
-        List<FactoryListItem> factories = factoryRepository.findByCodeNotOrderByCreatedAtDesc(ADMIN_FACTORY_CODE)
+        List<FactoryListItem> factories = findFactoriesExcludingAdmin()
                 .stream()
                 .map(f -> new FactoryListItem(f.getCode(), f.getName(), f.isEnabled(), f.getCreatedAt()))
                 .collect(Collectors.toList());
 
         // 获取admin工厂以排除其用户
-        Factory adminFactory = factoryRepository.findByCode(ADMIN_FACTORY_CODE).orElse(null);
+        Factory adminFactory = findAdminFactory().orElse(null);
         Long adminFactoryId = adminFactory != null ? adminFactory.getId() : -1L;
 
         // 获取工厂管理员列表（role=ADMIN, virtualUser=false, 不属于admin工厂），按创建时间降序
@@ -460,7 +462,7 @@ public class SuperAdminService {
      */
     @Transactional(readOnly = true)
     public List<FactoryAdminListItem> listSuperAdmins() {
-        Factory adminFactory = factoryRepository.findByCode(ADMIN_FACTORY_CODE)
+        Factory adminFactory = findAdminFactory()
                 .orElse(null);
         if (adminFactory == null) return Collections.emptyList();
 
@@ -484,7 +486,7 @@ public class SuperAdminService {
     public void deleteFactoryAdmin(Long userId) {
         FactoryUser user = userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "资源不存在"));
-        if (ADMIN_FACTORY_CODE.equals(user.getFactory().getCode())) {
+        if (ADMIN_FACTORY_CODE.equalsIgnoreCase(user.getFactory().getCode())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "不能通过此接口删除超级管理员账号");
         }
         userRepository.delete(user);
@@ -508,7 +510,7 @@ public class SuperAdminService {
         FactoryUser user = userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "资源不存在"));
         
-        if (!ADMIN_FACTORY_CODE.equals(user.getFactory().getCode())) {
+        if (!ADMIN_FACTORY_CODE.equalsIgnoreCase(user.getFactory().getCode())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "该用户不是超级管理员");
         }
         
@@ -521,5 +523,21 @@ public class SuperAdminService {
         }
         
         userRepository.delete(user);
+    }
+
+    private Optional<Factory> findAdminFactory() {
+        Optional<Factory> factory = factoryRepository.findByCode(ADMIN_FACTORY_CODE);
+        if (factory.isPresent()) {
+            return factory;
+        }
+        return factoryRepository.findByCode(LEGACY_ADMIN_FACTORY_CODE);
+    }
+
+    private List<Factory> findFactoriesExcludingAdmin() {
+        List<Factory> factories = factoryRepository.findByCodeNotOrderByCreatedAtDesc(ADMIN_FACTORY_CODE);
+        if (!factories.isEmpty()) {
+            return factories;
+        }
+        return factoryRepository.findByCodeNotOrderByCreatedAtDesc(LEGACY_ADMIN_FACTORY_CODE);
     }
 }

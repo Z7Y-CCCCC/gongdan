@@ -1,0 +1,189 @@
+services:
+  db:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-heihu_workorder}
+      MYSQL_USER: ${MYSQL_USER:?set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+08:00
+      - --server-id=${MYSQL_SERVER_ID:-1}
+      - --log-bin=binlog
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --binlog-expire-logs-seconds=${MYSQL_BINLOG_EXPIRE_LOGS_SECONDS:-3024000}
+    volumes:
+      - db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/${MYSQL_DATABASE:-heihu_workorder}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:?set MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      APP_SEED_FACTORY_CODE: ${APP_SEED_FACTORY_CODE:-HHGD}
+      APP_SEED_FACTORY_NAME: ${APP_SEED_FACTORY_NAME:?set APP_SEED_FACTORY_NAME}
+      APP_SEED_ADMIN_USERNAME: ${APP_SEED_ADMIN_USERNAME:-admin}
+      APP_SEED_ADMIN_PASSWORD: ${APP_SEED_ADMIN_PASSWORD:?set APP_SEED_ADMIN_PASSWORD}
+      APP_SEED_ADMIN_NAME: ${APP_SEED_ADMIN_NAME:-System Admin}
+      APP_SEED_SUPER_ADMIN_USERNAME: ${APP_SEED_SUPER_ADMIN_USERNAME:-admin}
+      APP_SEED_SUPER_ADMIN_PASSWORD: ${APP_SEED_SUPER_ADMIN_PASSWORD:?set APP_SEED_SUPER_ADMIN_PASSWORD}
+      APP_WECHAT_APP_ID: ${APP_WECHAT_APP_ID:?set APP_WECHAT_APP_ID}
+      APP_WECHAT_SECRET: ${APP_WECHAT_SECRET:?set APP_WECHAT_SECRET}
+      APP_SMS_SENDER: ${APP_SMS_SENDER:-http}
+      APP_SMS_HTTP_URL: ${APP_SMS_HTTP_URL:?set APP_SMS_HTTP_URL}
+      APP_SMS_HTTP_AUTH_HEADER_NAME: ${APP_SMS_HTTP_AUTH_HEADER_NAME:-}
+      APP_SMS_HTTP_AUTH_HEADER_VALUE: ${APP_SMS_HTTP_AUTH_HEADER_VALUE:-}
+      APP_SMS_HTTP_TEMPLATE: ${APP_SMS_HTTP_TEMPLATE:-login_code}
+      APP_SMS_HTTP_CONNECT_TIMEOUT_MS: ${APP_SMS_HTTP_CONNECT_TIMEOUT_MS:-3000}
+      APP_SMS_HTTP_READ_TIMEOUT_MS: ${APP_SMS_HTTP_READ_TIMEOUT_MS:-5000}
+      APP_CORS_ALLOWED_ORIGIN_PATTERNS: ${APP_CORS_ALLOWED_ORIGIN_PATTERNS:-http://localhost:8080,http://127.0.0.1:8080}
+      APP_SESSION_TTL_MINUTES: ${APP_SESSION_TTL_MINUTES:-720}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      SPRING_REDIS_PASSWORD: ${SPRING_REDIS_PASSWORD:-}
+      SPRING_CACHE_REDIS_TTL: ${SPRING_CACHE_REDIS_TTL:-10m}
+      APP_BINDING_DEFAULT_PASSWORD_LENGTH: ${APP_BINDING_DEFAULT_PASSWORD_LENGTH:-12}
+      APP_UPLOAD_STORAGE_TYPE: ${APP_UPLOAD_STORAGE_TYPE:-local}
+      APP_UPLOAD_REPORT_IMAGE_DIR: ${APP_UPLOAD_REPORT_IMAGE_DIR:-/var/lib/heihu-workorder/report-images}
+      APP_UPLOAD_S3_ENDPOINT: ${APP_UPLOAD_S3_ENDPOINT:-}
+      APP_UPLOAD_S3_REGION: ${APP_UPLOAD_S3_REGION:-us-east-1}
+      APP_UPLOAD_S3_BUCKET: ${APP_UPLOAD_S3_BUCKET:-}
+      APP_UPLOAD_S3_ACCESS_KEY: ${APP_UPLOAD_S3_ACCESS_KEY:-}
+      APP_UPLOAD_S3_SECRET_KEY: ${APP_UPLOAD_S3_SECRET_KEY:-}
+      APP_UPLOAD_S3_PATH_STYLE_ACCESS: ${APP_UPLOAD_S3_PATH_STYLE_ACCESS:-true}
+      APP_UPLOAD_S3_KEY_PREFIX: ${APP_UPLOAD_S3_KEY_PREFIX:-report-images}
+      APP_UPLOAD_PENDING_IMAGE_TTL_HOURS: ${APP_UPLOAD_PENDING_IMAGE_TTL_HOURS:-24}
+      APP_UPLOAD_PENDING_IMAGE_CLEANUP_CRON: ${APP_UPLOAD_PENDING_IMAGE_CLEANUP_CRON:-0 0 3 * * *}
+      APP_PLUGIN_PROXY_CONNECT_TIMEOUT_MS: ${APP_PLUGIN_PROXY_CONNECT_TIMEOUT_MS:-2000}
+      APP_PLUGIN_PROXY_READ_TIMEOUT_MS: ${APP_PLUGIN_PROXY_READ_TIMEOUT_MS:-5000}
+      APP_PLUGIN_PROXY_MAX_REQUEST_BYTES: ${APP_PLUGIN_PROXY_MAX_REQUEST_BYTES:-1048576}
+      APP_PLUGIN_GATEWAY_SECRET: ${APP_PLUGIN_GATEWAY_SECRET:?set APP_PLUGIN_GATEWAY_SECRET}
+      APP_PLUGIN_ALLOWED_BACKEND_HOSTS: ${APP_PLUGIN_ALLOWED_BACKEND_HOSTS:-quality-plugin,inspection-plugin}
+      APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS: ${APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS:-http://localhost:9101,http://localhost:9102}
+      APP_SYSTEM_LOG_RETENTION_DAYS: ${APP_SYSTEM_LOG_RETENTION_DAYS:-365}
+      APP_SYSTEM_LOG_CLEANUP_CRON: ${APP_SYSTEM_LOG_CLEANUP_CRON:-0 30 3 * * *}
+      APP_SLOW_REQUEST_THRESHOLD_MS: ${APP_SLOW_REQUEST_THRESHOLD_MS:-1000}
+      APP_LOG_FILE: ${APP_LOG_FILE:-/var/log/heihu-workorder/backend.log}
+      APP_LOG_MAX_FILE_SIZE: ${APP_LOG_MAX_FILE_SIZE:-20MB}
+      APP_LOG_MAX_HISTORY: ${APP_LOG_MAX_HISTORY:-30}
+      APP_LOG_TOTAL_SIZE_CAP: ${APP_LOG_TOTAL_SIZE_CAP:-500MB}
+      APP_LOG_CLEAN_HISTORY_ON_START: ${APP_LOG_CLEAN_HISTORY_ON_START:-true}
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-10MB}
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:-90MB}
+    volumes:
+      - report-images:/var/lib/heihu-workorder/report-images
+      - app-logs:/var/log/heihu-workorder
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health/readiness | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+
+  mcp:
+    profiles: ["mcp"]
+    build:
+      context: ./ops/mcp
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 9300
+      MCP_API_KEY: ${MCP_API_KEY:-}
+      MCP_RATE_LIMIT_PER_MINUTE: ${MCP_RATE_LIMIT_PER_MINUTE:-60}
+      MCP_BACKEND_TIMEOUT_MS: ${MCP_BACKEND_TIMEOUT_MS:-10000}
+      MCP_BACKEND_URL: http://backend:8080
+      MCP_BACKEND_FACTORY_CODE: ${MCP_BACKEND_FACTORY_CODE:-HHGD}
+      MCP_BACKEND_USERNAME: ${MCP_BACKEND_USERNAME:-mcp-diagnostics}
+      MCP_BACKEND_PASSWORD: ${MCP_BACKEND_PASSWORD:-}
+      MCP_BACKEND_TOKEN: ${MCP_BACKEND_TOKEN:-}
+      MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:-}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
+    ports:
+      - "127.0.0.1:${MCP_PORT:-9300}:9300"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9300/healthz | grep -q '\"ok\":true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  quality-plugin:
+    profiles: ["plugins"]
+    build:
+      context: ./plugins/quality-management
+    restart: unless-stopped
+    environment:
+      PLUGIN_GATEWAY_SECRET: ${APP_PLUGIN_GATEWAY_SECRET:?set APP_PLUGIN_GATEWAY_SECRET}
+    ports:
+      - "127.0.0.1:${QUALITY_PLUGIN_PORT:-9101}:9101"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9101/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  inspection-plugin:
+    profiles: ["plugins"]
+    build:
+      context: ./plugins/equipment-inspection
+    restart: unless-stopped
+    environment:
+      PLUGIN_GATEWAY_SECRET: ${APP_PLUGIN_GATEWAY_SECRET:?set APP_PLUGIN_GATEWAY_SECRET}
+    ports:
+      - "127.0.0.1:${INSPECTION_PLUGIN_PORT:-9102}:9102"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9102/actuator/health | grep -q '\"status\":\"UP\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  db-data:
+  redis-data:
+  report-images:
+  app-logs:

@@ -43,7 +43,7 @@ public class HomeDashboardService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
     private final WorkOrderRepository workOrderRepository;
     private final WorkOrderReportRepository workOrderReportRepository;

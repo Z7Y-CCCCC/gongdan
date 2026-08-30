@@ -78,7 +78,7 @@ onUnmounted(() => {
         :aria-labelledby="titleId"
       >
         <div class="delete-confirm-backdrop__overlay" @click="handleDismiss" />
-        <section class="delete-confirm-dialog" @click.stop>
+        <section class="delete-confirm-dialog modal" @click.stop>
           <div class="delete-confirm-dialog__header">
             <div class="delete-confirm-dialog__icon">
               <svg
@@ -99,6 +99,9 @@ onUnmounted(() => {
               </svg>
             </div>
             <h2 :id="titleId" class="delete-confirm-dialog__title">{{ title }}</h2>
+            <button class="close-btn" type="button" title="关闭" aria-label="关闭" :disabled="loading" @click="handleDismiss">
+              <span aria-hidden="true">×</span>
+            </button>
           </div>
           <p class="delete-confirm-dialog__message">{{ message }}</p>
           <footer class="delete-confirm-dialog__footer">

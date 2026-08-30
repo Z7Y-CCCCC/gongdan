@@ -24,7 +24,9 @@ public class UserPreferenceController {
         com.heihu.workorder.service.AuthenticatedUser currentUser = tokenService.requireUser(authorization);
         UserPreferenceResponse res = preferenceService.getPreference(currentUser.getUserId(), key);
         if (res == null) {
-            return ResponseEntity.notFound().build();
+            UserPreferenceResponse empty = new UserPreferenceResponse();
+            empty.setKey(key);
+            return ResponseEntity.ok(empty);
         }
         return ResponseEntity.ok(res);
     }

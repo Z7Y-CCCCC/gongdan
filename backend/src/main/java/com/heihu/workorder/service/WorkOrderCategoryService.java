@@ -2,12 +2,17 @@ package com.heihu.workorder.service;
 
 import com.heihu.workorder.dto.WorkOrderCategoryRequest;
 import com.heihu.workorder.dto.WorkOrderCategoryResponse;
+import com.heihu.workorder.exception.ApiException;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.WorkOrderCategory;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderCategoryRepository;
+import com.heihu.workorder.repository.WorkOrderRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -23,7 +28,11 @@ public class WorkOrderCategoryService {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private WorkOrderRepository workOrderRepository;
+
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "workorder.categories", key = "#factoryId")
     public List<WorkOrderCategoryResponse> getCategories(Long factoryId) {
         return categoryRepository.findByFactoryIdOrderByIdAsc(factoryId)
                 .stream()
@@ -32,12 +41,13 @@ public class WorkOrderCategoryService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"workorder.categories", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderCategoryResponse createCategory(Long factoryId, Long userId, WorkOrderCategoryRequest request) {
         FactoryUser user = userRepository.findByIdAndFactoryId(userId, factoryId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "用户不存在"));
 
         if (categoryRepository.findByFactoryIdAndName(factoryId, request.getName()).isPresent()) {
-            throw new RuntimeException("Category already exists");
+            throw new ApiException(HttpStatus.CONFLICT, "工单分类已存在");
         }
 
         WorkOrderCategory category = new WorkOrderCategory();
@@ -51,11 +61,15 @@ public class WorkOrderCategoryService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"workorder.categories", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public void deleteCategory(Long factoryId, Long categoryId) {
         WorkOrderCategory category = categoryRepository.findById(categoryId)
-                .orElseThrow(() -> new RuntimeException("Category not found"));
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "工单分类不存在"));
         if (!category.getFactory().getId().equals(factoryId)) {
-            throw new RuntimeException("Forbidden");
+            throw new ApiException(HttpStatus.NOT_FOUND, "工单分类不存在");
+        }
+        if (workOrderRepository.existsByFactoryIdAndCategoryId(factoryId, categoryId)) {
+            throw new IllegalArgumentException("工单分类已被工单引用，不能删除");
         }
         categoryRepository.delete(category);
     }

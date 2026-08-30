@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, type CSSProperties } from 'vue'
 import {
   createInboundReceipt,
   deleteInboundReceipt,
   fetchInboundReceipts,
   fetchProducts,
   fetchCustomFields,
+  fetchCustomFieldAttachmentBlob,
+  fetchReportImageBlob,
   type InboundReceiptInfo,
   type InboundReceiptItemPayload,
   type ProductInfo
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
+import UiIcon from '@/components/UiIcon.vue'
+import ColumnSettingsPanel, { type ColumnSetting } from '@/components/ColumnSettingsPanel.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -62,54 +66,121 @@ const addProductForm = reactive({
   quantity: 1
 })
 
-// Import modal
-const showImportModal = ref(false)
-
 // Column config
-interface ReceiptTableColumn {
-  key: string
-  label: string
-  visible: boolean
+interface ReceiptTableColumn extends ColumnSetting {
   isCustom?: boolean
   fieldId?: number
   field?: any
 }
 
 const allColumns = [
-  { key: 'index', label: '序号', visible: true },
-  { key: 'code', label: '入库单号', visible: true },
-  { key: 'inboundType', label: '入库类型', visible: true },
-  { key: 'inboundTime', label: '入库时间', visible: true },
-  { key: 'remark', label: '备注', visible: true },
-  { key: 'createdAt', label: '创建时间', visible: true },
-  { key: 'creator', label: '创建人', visible: true },
-  { key: 'actions', label: '操作', visible: true }
+  { key: 'index', label: '序号', visible: true, width: 70, fixed: 'left' as const },
+  { key: 'code', label: '入库单号', visible: true, width: 180, fixed: 'none' as const },
+  { key: 'inboundType', label: '入库类型', visible: true, width: 140, fixed: 'none' as const },
+  { key: 'inboundTime', label: '入库时间', visible: true, width: 160, fixed: 'none' as const },
+  { key: 'remark', label: '备注', visible: true, width: 180, fixed: 'none' as const },
+  { key: 'createdAt', label: '创建时间', visible: true, width: 160, fixed: 'none' as const },
+  { key: 'creator', label: '创建人', visible: true, width: 120, fixed: 'none' as const },
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' as const }
 ]
 const columns = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
+const defaultColumnSettings = ref<ReceiptTableColumn[]>(allColumns.map(c => ({ ...c })))
 const showColumnConfig = ref(false)
 
 // Detail columns
 const detailColumns = [
-  { key: 'index', label: '序号', visible: true },
-  { key: 'productCode', label: '产品编号', visible: true },
-  { key: 'productName', label: '产品名称', visible: true },
-  { key: 'productSpec', label: '产品规格', visible: true },
-  { key: 'productAttribute', label: '产品属性', visible: true },
-  { key: 'unitName', label: '库存单位', visible: true },
-  { key: 'minStock', label: '最小库存', visible: true },
-  { key: 'maxStock', label: '最大库存', visible: true },
-  { key: 'safetyStock', label: '安全库存', visible: true },
-  { key: 'inventoryQty', label: '当前库存数量', visible: true },
-  { key: 'quantity', label: '入库数量', visible: true },
-  { key: 'actions', label: '操作', visible: true }
+  { key: 'index', label: '序号', visible: true, width: 70, fixed: 'left' as const },
+  { key: 'productCode', label: '产品编号', visible: true, width: 140, fixed: 'none' as const },
+  { key: 'productName', label: '产品名称', visible: true, width: 150, fixed: 'none' as const },
+  { key: 'productSpec', label: '产品规格', visible: true, width: 150, fixed: 'none' as const },
+  { key: 'productAttribute', label: '产品属性', visible: true, width: 140, fixed: 'none' as const },
+  { key: 'unitName', label: '库存单位', visible: true, width: 100, fixed: 'none' as const },
+  { key: 'minStock', label: '最小库存', visible: true, width: 110, fixed: 'none' as const },
+  { key: 'maxStock', label: '最大库存', visible: true, width: 110, fixed: 'none' as const },
+  { key: 'safetyStock', label: '安全库存', visible: true, width: 110, fixed: 'none' as const },
+  { key: 'inventoryQty', label: '当前库存数量', visible: true, width: 140, fixed: 'none' as const },
+  { key: 'quantity', label: '入库数量', visible: true, width: 120, fixed: 'none' as const },
+  { key: 'actions', label: '操作', visible: true, width: 120, fixed: 'right' as const }
 ]
 const itemColumns = ref<ReceiptTableColumn[]>(detailColumns.map(c => ({ ...c })))
 const showItemColumnConfig = ref(false)
+
+const showPrintTemplateModal = ref(false)
+const inboundPrintFields = [
+  { key: 'code', label: '入库单号' },
+  { key: 'inboundType', label: '入库类型' },
+  { key: 'inboundTime', label: '入库时间' },
+  { key: 'remark', label: '备注' },
+  { key: 'creator', label: '创建人' },
+  { key: 'items', label: '入库明细' }
+]
+const inboundPrintTemplate = reactive({
+  name: '默认入库单模板',
+  title: '入库单',
+  showFields: ['code', 'inboundType', 'inboundTime', 'items'] as string[],
+  footerText: '请核对入库产品、数量与库存单位'
+})
 
 // ===== Computed =====
 const visibleColumns = computed(() => columns.value.filter(c => c.visible))
 const visibleItemColumns = computed(() => itemColumns.value.filter(c => c.visible))
 const totalPages = computed(() => Math.ceil(totalReceipts.value / pageSize.value))
+
+function inboundColumnStyle(column: ReceiptTableColumn, header = false): CSSProperties {
+  const currentIndex = visibleColumns.value.findIndex(item => item.key === column.key)
+  const left = visibleColumns.value
+    .slice(0, currentIndex)
+    .filter(item => item.fixed === 'left')
+    .reduce((sum, item) => sum + item.width, 0)
+  const right = visibleColumns.value
+    .slice(currentIndex + 1)
+    .filter(item => item.fixed === 'right')
+    .reduce((sum, item) => sum + item.width, 0)
+  const style: CSSProperties = {
+    width: `${column.width}px`,
+    minWidth: `${column.width}px`,
+  }
+  if (column.fixed !== 'none') {
+    style.position = 'sticky'
+    style.zIndex = 3
+    style.background = header ? 'var(--table-head-bg)' : 'var(--table-row-bg)'
+    if (column.fixed === 'left') style.left = `${left}px`
+    else style.right = `${right}px`
+  }
+  return style
+}
+
+function restoreInboundColumnSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('inbound_receipt_columns') || 'null')
+    if (!Array.isArray(saved) || saved.length === 0) return
+    const savedByKey = new Map(saved.map((column: any) => [column.key, column]))
+    const orderedKeys = [
+      ...saved.map((column: any) => column.key),
+      ...defaultColumnSettings.value.map(column => column.key).filter(key => !savedByKey.has(key))
+    ]
+    columns.value = orderedKeys
+      .map(key => {
+        const base = defaultColumnSettings.value.find(column => column.key === key)
+        const stored = savedByKey.get(key)
+        if (!base) return null
+        const fixed = stored?.fixed === 'left' || stored?.fixed === 'right' || stored?.fixed === 'none'
+          ? stored.fixed
+          : base.fixed
+        return { ...base, ...(stored || {}), fixed, locked: false }
+      })
+      .filter((column): column is ReceiptTableColumn => Boolean(column))
+  } catch {
+    // Ignore an invalid local column preference and keep defaults.
+  }
+}
+
+function saveInboundColumnSettings(settings: ReceiptTableColumn[]) {
+  columns.value = settings.map(column => ({ ...column }))
+  localStorage.setItem('inbound_receipt_columns', JSON.stringify(columns.value))
+  showColumnConfig.value = false
+  emit('notice', '列配置已保存')
+}
 
 const selectedProduct = computed(() => {
   if (!addProductForm.productId) return null
@@ -142,6 +213,8 @@ async function loadCustomFieldConfigs() {
       fieldId: f.id,
       label: f.name,
       visible: true,
+      width: 140,
+      fixed: 'none' as const,
       isCustom: true,
       field: f
     }))
@@ -152,6 +225,8 @@ async function loadCustomFieldConfigs() {
       baseCols.push(...customCols)
     }
     columns.value = baseCols
+    defaultColumnSettings.value = baseCols.map(c => ({ ...c }))
+    restoreInboundColumnSettings()
 
     // 合并明细自定义字段到 itemColumns
     const baseItemCols = detailColumns.map(c => ({ ...c }))
@@ -160,6 +235,8 @@ async function loadCustomFieldConfigs() {
       fieldId: f.id,
       label: f.name,
       visible: true,
+      width: 140,
+      fixed: 'none' as const,
       isCustom: true,
       field: f
     }))
@@ -392,6 +469,45 @@ function goPage(p: number) {
   loadReceipts()
 }
 
+function loadInboundPrintTemplate() {
+  try {
+    const raw = localStorage.getItem('inbound_print_template')
+    if (!raw) return
+    const saved = JSON.parse(raw)
+    inboundPrintTemplate.name = saved.name || inboundPrintTemplate.name
+    inboundPrintTemplate.title = saved.title || inboundPrintTemplate.title
+    inboundPrintTemplate.showFields = Array.isArray(saved.showFields) && saved.showFields.length > 0
+      ? saved.showFields
+      : inboundPrintTemplate.showFields
+    inboundPrintTemplate.footerText = saved.footerText || inboundPrintTemplate.footerText
+  } catch (e) {
+    console.error('读取入库打印模板失败:', e)
+  }
+}
+
+function openPrintTemplateModal() {
+  loadInboundPrintTemplate()
+  showPrintTemplateModal.value = true
+}
+
+function saveInboundPrintTemplate() {
+  if (!inboundPrintTemplate.name.trim()) {
+    emit('notice', '请输入模板名称')
+    return
+  }
+  if (!inboundPrintTemplate.title.trim()) {
+    emit('notice', '请输入打印标题')
+    return
+  }
+  if (inboundPrintTemplate.showFields.length === 0) {
+    emit('notice', '请至少选择一个打印字段')
+    return
+  }
+  localStorage.setItem('inbound_print_template', JSON.stringify(inboundPrintTemplate))
+  showPrintTemplateModal.value = false
+  emit('notice', '入库打印模板已保存')
+}
+
 function handleTimeRangeChange() {
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -413,6 +529,9 @@ function handleTimeRangeChange() {
 }
 
 const uploadingFieldId = ref<number | null>(null)
+const customFieldPreviewUrls = ref<Record<string, string>>({})
+const loadingCustomFieldPreviews = new Set<string>()
+const failedCustomFieldPreviews = new Set<string>()
 
 async function handleCustomFieldUpload(field: any, event: Event, customValueObj: any) {
   const target = event.target as HTMLInputElement
@@ -423,8 +542,11 @@ async function handleCustomFieldUpload(field: any, event: Event, customValueObj:
   try {
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('scope', 'receipt')
+    formData.append('fieldId', String(field.id))
+    formData.append('fieldType', field.fieldType)
     
-    const response = await fetch('/api/mobile/reports/images', {
+    const response = await fetch('/api/custom-field-attachments', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${props.token}`
@@ -444,6 +566,7 @@ async function handleCustomFieldUpload(field: any, event: Event, customValueObj:
     const data = await response.json()
     const currentVal = String(customValueObj.value || '')
     const newPath = data.accessPath
+    customFieldPreviewUrls.value[newPath] = URL.createObjectURL(file)
     const updatedVal = currentVal ? `${currentVal},${newPath}` : newPath
     customValueObj.value = updatedVal
     emit('notice', '文件上传成功')
@@ -458,13 +581,67 @@ async function handleCustomFieldUpload(field: any, event: Event, customValueObj:
 function removeReceiptCustomFieldPath(customValueObj: any, index: number) {
   const currentVal = String(customValueObj.value || '')
   const paths = currentVal.split(',').filter(Boolean)
+  const removed = paths[index]
+  if (removed && customFieldPreviewUrls.value[removed]) {
+    URL.revokeObjectURL(customFieldPreviewUrls.value[removed])
+    delete customFieldPreviewUrls.value[removed]
+  }
   paths.splice(index, 1)
   customValueObj.value = paths.join(',')
 }
 
+function customFieldPreview(path: string) {
+  if (customFieldPreviewUrls.value[path]) return customFieldPreviewUrls.value[path]
+  if (isProtectedCustomFieldPath(path)) {
+    void loadProtectedCustomFieldPreview(path)
+    return ''
+  }
+  return path
+}
+
+function isProtectedCustomFieldPath(path: string) {
+  return customFieldAttachmentId(path) !== null || reportImageId(path) !== null
+}
+
+function customFieldAttachmentId(path: string) {
+  const match = path.match(/^\/api\/custom-field-attachments\/(\d+)\/file$/)
+  return match ? Number(match[1]) : null
+}
+
+function reportImageId(path: string) {
+  const match = path.match(/^\/api\/(?:mobile\/)?reports\/images\/(\d+)\/file$/)
+  return match ? Number(match[1]) : null
+}
+
+async function loadProtectedCustomFieldPreview(path: string) {
+  if (customFieldPreviewUrls.value[path] || loadingCustomFieldPreviews.has(path) || failedCustomFieldPreviews.has(path)) {
+    return
+  }
+  loadingCustomFieldPreviews.add(path)
+  try {
+    const attachmentId = customFieldAttachmentId(path)
+    const blob = attachmentId !== null
+      ? await fetchCustomFieldAttachmentBlob(props.token, attachmentId)
+      : await fetchReportImageBlob(props.token, reportImageId(path) as number)
+    customFieldPreviewUrls.value = {
+      ...customFieldPreviewUrls.value,
+      [path]: URL.createObjectURL(blob)
+    }
+  } catch (e) {
+    failedCustomFieldPreviews.add(path)
+  } finally {
+    loadingCustomFieldPreviews.delete(path)
+  }
+}
+
 onMounted(() => {
+  loadInboundPrintTemplate()
   loadCustomFieldConfigs()
   loadReceipts()
+})
+
+onBeforeUnmount(() => {
+  Object.values(customFieldPreviewUrls.value).forEach(url => URL.revokeObjectURL(url))
 })
 </script>
 
@@ -540,32 +717,32 @@ onMounted(() => {
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
             批量操作
           </button>
-          <button class="link-btn" type="button">
+          <button class="link-btn" type="button" @click="openPrintTemplateModal">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             编辑打印模板
           </button>
         </div>
         <div style="margin-left:auto;display:flex;gap:12px;align-items:center">
-          <button class="text-btn" type="button" style="color: #586360;" @click="showColumnConfig = !showColumnConfig">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-            列配置
+          <button class="table-config-trigger" type="button" title="列设置" @click="showColumnConfig = true">
+            <UiIcon name="table-columns" :size="16" />
           </button>
         </div>
       </div>
 
-      <!-- Column config dropdown -->
-      <div v-if="showColumnConfig" class="column-config-dropdown" style="position:absolute;right:20px;top:180px;background:#fff;border:1px solid #e4e9e7;border-radius:6px;padding:12px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
-        <label v-for="col in columns" :key="col.key" style="display:flex;align-items:center;gap:6px;padding:4px 0;cursor:pointer">
-          <input type="checkbox" v-model="col.visible" :disabled="col.key === 'actions'" />
-          <span style="font-size:13px">{{ col.label }}</span>
-        </label>
-      </div>
+      <ColumnSettingsPanel
+        v-if="showColumnConfig"
+        v-model="columns"
+        :defaults="defaultColumnSettings"
+        title="列设置"
+        @confirm="saveInboundColumnSettings"
+        @cancel="showColumnConfig = false"
+      />
 
       <div class="table-container">
-        <table class="data-table">
+        <table class="data-table inbound-receipt-data-table">
           <thead>
             <tr>
-              <th v-for="col in visibleColumns" :key="col.key">{{ col.label }}</th>
+              <th v-for="col in visibleColumns" :key="col.key" :style="inboundColumnStyle(col, true)">{{ col.label }}</th>
             </tr>
           </thead>
           <tbody>
@@ -579,17 +756,17 @@ onMounted(() => {
             </tr>
             <tr v-for="(receipt, idx) in receipts" :key="receipt.id">
               <template v-for="col in visibleColumns" :key="col.key">
-                <td v-if="col.key === 'index'">{{ (currentPage - 1) * pageSize + idx + 1 }}</td>
-                <td v-else-if="col.key === 'code'">{{ receipt.code }}</td>
-                <td v-else-if="col.key === 'inboundType'">{{ receipt.inboundType }}</td>
-                <td v-else-if="col.key === 'inboundTime'">{{ receipt.inboundTime }}</td>
-                <td v-else-if="col.key === 'remark'">{{ receipt.remark || '-' }}</td>
-                <td v-else-if="col.key === 'createdAt'">{{ receipt.createdAt }}</td>
-                <td v-else-if="col.key === 'creator'">{{ receipt.creator || '-' }}</td>
-                <td v-else-if="col.key === 'actions'">
+                <td v-if="col.key === 'index'" :style="inboundColumnStyle(col)">{{ (currentPage - 1) * pageSize + idx + 1 }}</td>
+                <td v-else-if="col.key === 'code'" :style="inboundColumnStyle(col)">{{ receipt.code }}</td>
+                <td v-else-if="col.key === 'inboundType'" :style="inboundColumnStyle(col)">{{ receipt.inboundType }}</td>
+                <td v-else-if="col.key === 'inboundTime'" :style="inboundColumnStyle(col)">{{ receipt.inboundTime }}</td>
+                <td v-else-if="col.key === 'remark'" :style="inboundColumnStyle(col)">{{ receipt.remark || '-' }}</td>
+                <td v-else-if="col.key === 'createdAt'" :style="inboundColumnStyle(col)">{{ receipt.createdAt }}</td>
+                <td v-else-if="col.key === 'creator'" :style="inboundColumnStyle(col)">{{ receipt.creator || '-' }}</td>
+                <td v-else-if="col.key === 'actions'" :style="inboundColumnStyle(col)">
                   <a class="link-btn" style="font-size:12px;cursor:pointer" @click="handleDelete(receipt)">删除</a>
                 </td>
-                <td v-else-if="col.isCustom">
+                <td v-else-if="col.isCustom" :style="inboundColumnStyle(col)">
                   {{ getReceiptCustomValue(receipt, col.fieldId) }}
                 </td>
               </template>
@@ -606,6 +783,44 @@ onMounted(() => {
           <button :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">&gt;</button>
         </div>
         <span class="page-size-label">{{ pageSize }} 条/页</span>
+      </div>
+
+      <div v-if="showPrintTemplateModal" class="modal-backdrop">
+        <div class="modal workorder-modal inbound-print-template-modal">
+          <div class="modal-header">
+            <h2>编辑打印模板</h2>
+            <button class="close-btn" type="button" @click="showPrintTemplateModal = false">×</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-grid one-col">
+              <label>
+                <span>模板名称</span>
+                <input v-model.trim="inboundPrintTemplate.name" placeholder="请输入模板名称" />
+              </label>
+              <label>
+                <span>打印标题</span>
+                <input v-model.trim="inboundPrintTemplate.title" placeholder="请输入打印标题" />
+              </label>
+              <label>
+                <span>页脚说明</span>
+                <textarea v-model.trim="inboundPrintTemplate.footerText" rows="2" placeholder="请输入页脚说明"></textarea>
+              </label>
+            </div>
+            <div class="print-field-panel">
+              <div class="print-field-title">打印字段</div>
+              <div class="print-field-grid">
+                <label v-for="field in inboundPrintFields" :key="field.key" class="print-field-option">
+                  <input v-model="inboundPrintTemplate.showFields" type="checkbox" :value="field.key" />
+                  <span>{{ field.label }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="ghost-btn wide" type="button" @click="showPrintTemplateModal = false">取消</button>
+            <button class="primary-btn wide" type="button" @click="saveInboundPrintTemplate">保存</button>
+          </div>
+        </div>
       </div>
     </template>
 
@@ -677,6 +892,7 @@ onMounted(() => {
                 @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                 style="height:34px; margin:0;"
               >
+                <UiIcon name="upload" />
                 {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
               </button>
               <input type="file" accept="image/*" style="display:none;" @change="handleCustomFieldUpload(field, $event, createForm.customValues[fIdx])" />
@@ -688,7 +904,8 @@ onMounted(() => {
                 style="position:relative; display:inline-block; width: fit-content;"
               >
                 <img 
-                  :src="path" 
+                  v-if="customFieldPreview(path)"
+                  :src="customFieldPreview(path)"
                   alt="预览" 
                   style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
                   @error="($event.target as HTMLElement).style.display='none'" 
@@ -714,6 +931,7 @@ onMounted(() => {
                 @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                 style="height:34px; margin:0;"
               >
+                <UiIcon name="upload" />
                 {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
               </button>
               <input type="file" style="display:none;" @change="handleCustomFieldUpload(field, $event, createForm.customValues[fIdx])" />
@@ -725,7 +943,8 @@ onMounted(() => {
                 style="position:relative; display:inline-block; width: fit-content;"
               >
                 <img 
-                  :src="path" 
+                  v-if="customFieldPreview(path)"
+                  :src="customFieldPreview(path)"
                   alt="预览" 
                   style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
                   @error="($event.target as HTMLElement).style.display='none'" 
@@ -763,15 +982,10 @@ onMounted(() => {
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
               按BOM添加
             </button>
-            <button class="toolbar-btn" type="button" @click="showImportModal = true">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              导入数据
-            </button>
           </div>
           <div style="margin-left:auto; position: relative;">
-            <button class="text-btn" type="button" style="color: #586360;" @click="showItemColumnConfig = !showItemColumnConfig">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-              列配置
+            <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showItemColumnConfig = !showItemColumnConfig">
+              <UiIcon name="table-columns" :size="16" />
             </button>
             <div v-if="showItemColumnConfig" class="column-config-dropdown" style="position:absolute;right:0;top:32px;background:#fff;border:1px solid #e4e9e7;border-radius:6px;padding:12px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,0.1); width: 150px;">
               <label v-for="col in itemColumns" :key="col.key" style="display:flex;align-items:center;gap:6px;padding:4px 0;cursor:pointer">
@@ -879,11 +1093,11 @@ onMounted(() => {
     </template>
 
     <!-- Add Product Modal -->
-    <div v-if="showAddProduct" class="modal-overlay" @click.self="showAddProduct = false">
-      <div class="modal" style="width:520px">
+    <div v-if="showAddProduct" class="modal-backdrop" @click.self="showAddProduct = false">
+      <div class="modal workorder-modal inbound-add-product-modal">
         <div class="modal-header">
-          <span>添加产品</span>
-          <button class="modal-close" @click="showAddProduct = false">&times;</button>
+          <h2>添加产品</h2>
+          <button class="close-btn" type="button" @click="showAddProduct = false">×</button>
         </div>
         <div class="modal-body" style="padding:24px">
           <div class="form-row">
@@ -916,35 +1130,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Import Modal -->
-    <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
-      <div class="modal" style="width:560px">
-        <div class="modal-header">
-          <span>导入产品明细</span>
-          <button class="modal-close" @click="showImportModal = false">&times;</button>
-        </div>
-        <div class="modal-body" style="padding:24px">
-          <div style="margin-bottom:16px">
-            <p style="margin:0 0 8px;font-weight:500">操作步骤:</p>
-            <p style="margin:4px 0;font-size:13px">1.下载 <a href="#" style="color:var(--accent)" @click.prevent="emit('notice', '模板下载功能开发中...')">《导入产品明细模板》</a></p>
-            <p style="margin:4px 0;font-size:13px">2.打开下载表，将对应信息填入或粘贴进本表。为保证导入成功，请使用纯文本或数字。</p>
-            <p style="margin:4px 0;font-size:13px">3.信息输入完毕并保存后，点击下方&lt;上传文件&gt;按钮选择已保存的excel文档。</p>
-            <p style="margin:4px 0;font-size:13px">4.点击&lt;开始导入&gt;</p>
-          </div>
-          <div style="display:flex;align-items:center;gap:12px;margin-top:20px">
-            <button class="toolbar-btn" type="button" @click="emit('notice', '上传功能开发中...')">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              上传文件
-            </button>
-            <span style="font-size:12px;color:#999">附件支持类型: XLSX，最大不能超过10M</span>
-          </div>
-          <div style="margin-top:16px">
-            <button class="toolbar-btn" type="button" disabled>开始导入</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- Delete Confirm Dialog -->
     <DeleteConfirmDialog
       :visible="deleteVisible"
@@ -958,6 +1143,57 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.inbound-add-product-modal {
+  width: min(520px, calc(100vw - 40px));
+  overflow: visible;
+}
+
+.inbound-print-template-modal {
+  width: min(620px, calc(100vw - 40px));
+  overflow: hidden;
+}
+
+.inbound-print-template-modal .modal-footer {
+  padding: 0 24px 24px;
+}
+
+.print-field-panel {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid #e1e9e6;
+  border-radius: 6px;
+  background: #f8fbfa;
+}
+
+.print-field-title {
+  margin-bottom: 12px;
+  color: #26332f;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.print-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.print-field-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #485652;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.print-field-option input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
 .form-section {
   max-width: 480px;
 }

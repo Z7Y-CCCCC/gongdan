@@ -1,10 +1,15 @@
-import type { ListResponse, MobileAuthResult, ReportImage, ReportStatus, WorkOrderInfo, WorkOrderReport } from '../types/api'
+import type { FieldEventPayload, FieldEventRecord, ListResponse, MobileAuthResult, ReportImage, ReportStatus, WorkOrderInfo, WorkOrderReport } from '../types/api'
 
-// H5 模式下用相对路径（走 Vite proxy），小程序模式下用绝对路径
-const isH5 = typeof window !== 'undefined' && !!(window as any).__UNI_FEATURE_WXS__  === false
-export const API_BASE = (typeof window !== 'undefined' && window.location && window.location.protocol === 'http:')
-  ? '/api'
-  : 'http://localhost:8080/api'
+// H5 can use /api through a reverse proxy. Local static demos use the backend port directly.
+// Mini Program builds should set VITE_API_BASE_URL to HTTPS.
+const configuredApiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+function defaultApiBase() {
+  if (typeof window !== 'undefined' && window.location && ['127.0.0.1', 'localhost'].includes(window.location.hostname)) {
+    return 'http://127.0.0.1:8080/api'
+  }
+  return '/api'
+}
+export const API_BASE = configuredApiBase || defaultApiBase()
 
 function token() {
   return uni.getStorageSync('token') || ''
@@ -70,7 +75,8 @@ export function request<T>(path: string, options: { method?: 'GET' | 'POST' | 'P
       url: `${API_BASE}${path}`,
       method: options.method || 'GET',
       data: options.data,
-      timeout: 10000,
+      // 免费内网穿透的首次 TLS/隧道握手可能超过 10 秒，给移动端留出完整登录时间。
+      timeout: 30000,
       header: {
         'Content-Type': 'application/json',
         ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
@@ -184,4 +190,15 @@ export function fetchReports(status?: string, period = '') {
   if (period) params.set('period', period)
   params.set('size', '500')
   return request<ListResponse<WorkOrderReport>>(`/mobile/reports?${params.toString()}`)
+}
+
+export function fetchFieldEvents() {
+  return request<ListResponse<FieldEventRecord>>('/mobile/field-events?size=50')
+}
+
+export function createFieldEvent(payload: FieldEventPayload) {
+  return request<FieldEventRecord>('/mobile/field-events', {
+    method: 'POST',
+    data: payload
+  })
 }

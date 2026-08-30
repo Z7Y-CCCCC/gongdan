@@ -39,7 +39,7 @@ let pollingTimer: ReturnType<typeof setInterval> | null = null
  * Simply trim the last 3 characters (":ss")
  */
 function formatTime(createdAt: string): string {
-  return createdAt.substring(0, 16)
+  return createdAt.substring(0, 16).replace('T', ' ')
 }
 
 /**
@@ -75,8 +75,10 @@ async function pollNewReports() {
   try {
     const result = await fetchHomeRecentReports(props.token, { since })
     if (result.items.length > 0) {
-      // Prepend new reports to the list, keep only newest 20
-      reports.value = [...result.items, ...reports.value].slice(0, MAX_ITEMS)
+      // Protect the list from duplicate rows if a server cursor is ever rounded.
+      const knownIds = new Set(reports.value.map(item => item.id))
+      const newItems = result.items.filter(item => !knownIds.has(item.id))
+      reports.value = [...newItems, ...reports.value].slice(0, MAX_ITEMS)
     }
   } catch (error) {
     if (!handleApiError(error)) {

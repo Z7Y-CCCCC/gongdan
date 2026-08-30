@@ -45,8 +45,8 @@ function onAvatarError() {
 function handleViewWorkOrder(workOrderId: number) {
   // Navigate to work order detail page
   // In the current architecture, this would switch activeMainMenu to 'production'
-  // and open the work order detail. For now, log the intent.
-  console.log('View work order:', workOrderId)
+  // and open the work order detail.
+  void workOrderId
 }
 </script>
 

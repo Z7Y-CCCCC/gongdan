@@ -6,6 +6,7 @@ export interface UserInfo {
   name: string
   role: 'ADMIN' | 'PRODUCTION'
   roleLabel: string
+  departmentName?: string
 }
 
 export interface MobileAuthResult {
@@ -25,6 +26,7 @@ export interface WorkOrderTask {
   approvedQuantity?: number
   lastReportTime?: string
   reportPermission?: string
+  assignee?: string
   enabled?: boolean
 }
 
@@ -54,12 +56,33 @@ export interface ListResponse<T> {
   total: number
 }
 
+export interface FieldEventRecord {
+  id: number
+  moduleName: 'FIELD_EVENT'
+  businessKey?: string
+  title: string
+  status: string
+  payloadJson?: string
+  createdByName?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface FieldEventPayload {
+  moduleName?: 'FIELD_EVENT'
+  businessKey?: string
+  title: string
+  status?: string
+  payloadJson?: string
+}
+
 export interface ReportImage {
   id: number
   originalFileName: string
   accessPath: string
   fileSize: number
   contentType: string
+  previewPath?: string
 }
 
 export interface WorkOrderReport {

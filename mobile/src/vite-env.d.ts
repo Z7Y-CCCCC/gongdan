@@ -1,0 +1,11 @@
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_API_BASE_URL?: string
+  readonly VITE_WECHAT_MOCK_ENABLED?: string
+  readonly VITE_PUBLIC_BASE_URL?: string
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}

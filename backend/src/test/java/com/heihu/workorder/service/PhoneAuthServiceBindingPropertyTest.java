@@ -117,6 +117,7 @@ class PhoneAuthServiceBindingPropertyTest {
         TokenService tokenService = mock(TokenService.class);
         SmsService smsService = mock(SmsService.class);
 
+        when(smsService.verifyCode(phone, code, false)).thenReturn(true);
         when(smsService.verifyCode(phone, code)).thenReturn(true);
         when(userRepository.findAllByPhone(phone)).thenReturn(Collections.emptyList());
 
@@ -147,7 +148,7 @@ class PhoneAuthServiceBindingPropertyTest {
         TokenService tokenService = mock(TokenService.class);
         SmsService smsService = mock(SmsService.class);
 
-        when(smsService.verifyCode(phone, code)).thenReturn(false);
+        when(smsService.verifyCode(phone, code, false)).thenReturn(false);
 
         PhoneAuthService service = new PhoneAuthService(userRepository, passwordEncoder, tokenService, smsService);
 

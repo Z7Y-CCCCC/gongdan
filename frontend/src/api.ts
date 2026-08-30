@@ -31,6 +31,18 @@ export interface DepartmentListResponse {
   total: number
 }
 
+export interface CurrentFactoryInfo {
+  id: number
+  code: string
+  name: string
+  enabled: boolean
+  createdAt?: string
+}
+
+export interface UpdateCurrentFactoryPayload {
+  name: string
+}
+
 export interface CreateDepartmentPayload {
   code: string
   name: string
@@ -155,6 +167,163 @@ export function fetchUsers(token: string) {
   })
 }
 
+export interface InternalChatContactInfo {
+  id: number
+  username: string
+  name: string
+  roleLabel: string
+  departmentName?: string
+  lastMessage?: string
+  lastMessageAt?: string
+  unreadCount: number
+  online?: boolean
+  onlineDeviceCount?: number
+  onlineDevices?: InternalChatDeviceInfo[]
+  lastSeenAt?: string
+  lastLoginAt?: string
+}
+
+export interface InternalChatDeviceInfo {
+  sessionId: number
+  deviceLabel: string
+  operatingSystem: string
+  browser: string
+  ipAddress: string
+  loginLocation: string
+  loginAt?: string
+  lastActiveAt?: string
+}
+
+export interface InternalChatMessageInfo {
+  id: number
+  senderId: number
+  senderName: string
+  receiverId: number
+  content: string
+  read: boolean
+  createdAt: string
+}
+
+export interface SendInternalChatMessagePayload {
+  receiverId: number
+  content: string
+}
+
+export function fetchInternalChatContacts(token: string) {
+  return request<InternalChatContactInfo[]>('/internal-chat/contacts', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function fetchInternalChatMessages(token: string, peerId: number) {
+  return request<InternalChatMessageInfo[]>(`/internal-chat/conversations/${peerId}/messages`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function sendInternalChatMessage(token: string, payload: SendInternalChatMessagePayload) {
+  return request<InternalChatMessageInfo>('/internal-chat/messages', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function markInternalChatRead(token: string, peerId: number) {
+  return request<void>(`/internal-chat/conversations/${peerId}/read`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export type NotificationScope = 'active' | 'all' | 'history'
+
+export interface NotificationInfo {
+  id: number
+  eventType: string
+  title: string
+  content: string
+  priority: 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT' | string
+  sourceType?: string
+  sourceId?: number
+  targetMain?: string
+  targetSub?: string
+  targetParamsJson?: string
+  state: 'UNREAD' | 'READ' | 'HANDLED' | 'ARCHIVED' | string
+  unread: boolean
+  createdAt: string
+  readAt?: string
+  handledAt?: string
+  archivedAt?: string
+  snoozedUntil?: string
+  resolvedAt?: string
+}
+
+export interface NotificationListResponse {
+  items: NotificationInfo[]
+  total: number
+  unreadCount: number
+}
+
+export function fetchNotifications(
+  token: string,
+  params: {
+    scope?: NotificationScope
+    unreadOnly?: boolean
+    eventType?: string
+    priority?: string
+    keyword?: string
+    page?: number
+    size?: number
+  } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.scope) query.append('scope', params.scope)
+  if (params.unreadOnly) query.append('unreadOnly', 'true')
+  if (params.eventType) query.append('eventType', params.eventType)
+  if (params.priority) query.append('priority', params.priority)
+  if (params.keyword) query.append('keyword', params.keyword)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<NotificationListResponse>(`/notifications?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function fetchNotificationUnreadCount(token: string) {
+  return request<number>('/notifications/unread-count', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function markNotificationRead(token: string, id: number) {
+  return request<NotificationInfo>(`/notifications/${id}/read`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function markNotificationUnread(token: string, id: number) {
+  return request<NotificationInfo>(`/notifications/${id}/unread`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function archiveNotification(token: string, id: number) {
+  return request<NotificationInfo>(`/notifications/${id}/archive`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function markAllNotificationsRead(token: string) {
+  return request<{ updated: number }>('/notifications/read-all', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 export function createUser(token: string, payload: CreateUserPayload) {
   return request<UserInfo>('/users', {
     method: 'POST',
@@ -179,7 +348,8 @@ export function resetUserPassword(token: string, id: number, password?: string) 
   const options: RequestInit = {
     method: 'PATCH',
     headers: {
-      Authorization: `Bearer ${token}`
+      Authorization: `Bearer ${token}`,
+      ...(password ? { 'Content-Type': 'application/json' } : {})
     }
   }
   if (password) {
@@ -194,6 +364,24 @@ export function unbindUserPhone(token: string, id: number) {
     headers: {
       Authorization: `Bearer ${token}`
     }
+  })
+}
+
+export function fetchCurrentFactory(token: string) {
+  return request<CurrentFactoryInfo>('/factory', {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  })
+}
+
+export function updateCurrentFactory(token: string, payload: UpdateCurrentFactoryPayload) {
+  return request<CurrentFactoryInfo>('/factory', {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
   })
 }
 
@@ -363,7 +551,186 @@ export async function deleteUnit(token: string, id: number) {
   })
 }
 
+// ---- 仓库 ----
+export interface WarehouseInfo {
+  id: number
+  code: string
+  name: string
+  location?: string
+  remark?: string
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+export interface WarehouseListResponse {
+  items: WarehouseInfo[]
+  total: number
+}
+export interface WarehousePayload {
+  code?: string
+  name: string
+  location?: string
+  remark?: string
+  enabled?: boolean
+}
+
+export async function fetchWarehouses(token: string, params: { code?: string; name?: string; page?: number; size?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.name) query.append('name', params.name)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<WarehouseListResponse>(`/warehouses?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createWarehouse(token: string, payload: WarehousePayload) {
+  return request<WarehouseInfo>('/warehouses', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateWarehouse(token: string, id: number, payload: WarehousePayload) {
+  return request<WarehouseInfo>(`/warehouses/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteWarehouse(token: string, id: number) {
+  return request<void>(`/warehouses/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ---- 供应商 ----
+export interface SupplierInfo {
+  id: number
+  code: string
+  name: string
+  contactName?: string
+  phone?: string
+  address?: string
+  remark?: string
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+export interface SupplierListResponse {
+  items: SupplierInfo[]
+  total: number
+}
+export interface SupplierPayload {
+  code?: string
+  name: string
+  contactName?: string
+  phone?: string
+  address?: string
+  remark?: string
+  enabled?: boolean
+}
+
+export async function fetchSuppliers(token: string, params: { code?: string; name?: string; page?: number; size?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.name) query.append('name', params.name)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<SupplierListResponse>(`/suppliers?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createSupplier(token: string, payload: SupplierPayload) {
+  return request<SupplierInfo>('/suppliers', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateSupplier(token: string, id: number, payload: SupplierPayload) {
+  return request<SupplierInfo>(`/suppliers/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteSupplier(token: string, id: number) {
+  return request<void>(`/suppliers/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 // ---- 不良品项 ----
+// ---- 客户 ----
+export interface CustomerInfo {
+  id: number
+  code: string
+  name: string
+  contactName?: string
+  phone?: string
+  address?: string
+  remark?: string
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+export interface CustomerListResponse {
+  items: CustomerInfo[]
+  total: number
+}
+export interface CustomerPayload {
+  code?: string
+  name: string
+  contactName?: string
+  phone?: string
+  address?: string
+  remark?: string
+  enabled?: boolean
+}
+
+export async function fetchCustomers(token: string, params: { code?: string; name?: string; page?: number; size?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.name) query.append('name', params.name)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<CustomerListResponse>(`/customers?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createCustomer(token: string, payload: CustomerPayload) {
+  return request<CustomerInfo>('/customers', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateCustomer(token: string, id: number, payload: CustomerPayload) {
+  return request<CustomerInfo>(`/customers/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteCustomer(token: string, id: number) {
+  return request<void>(`/customers/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 export interface DefectInfo {
   id: number
   code: string
@@ -681,6 +1048,90 @@ export async function deleteProduct(token: string, id: number) {
   })
 }
 
+// ===== 物料清单 API =====
+export interface BomItemPayload {
+  productId: number
+  quantity: number
+  scrapRate?: number
+  remark?: string
+}
+
+export interface BomPayload {
+  code?: string
+  productId: number
+  outputQuantity?: number
+  remark?: string
+  enabled?: boolean
+  items: BomItemPayload[]
+}
+
+export interface BomItemInfo {
+  id: number
+  productId: number
+  productCode: string
+  productName: string
+  productSpec?: string
+  unitName?: string
+  quantity: number
+  scrapRate: number
+  remark?: string
+}
+
+export interface BomInfo {
+  id: number
+  code: string
+  productId: number
+  productCode: string
+  productName: string
+  productSpec?: string
+  unitName?: string
+  outputQuantity: number
+  remark?: string
+  enabled: boolean
+  createdAt?: string
+  updatedAt?: string
+  items: BomItemInfo[]
+}
+
+export interface BomListResponse {
+  items: BomInfo[]
+  total: number
+}
+
+export async function fetchBoms(token: string, params: { code?: string; productName?: string; page?: number; size?: number } = {}) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.productName) query.append('productName', params.productName)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<BomListResponse>(`/boms?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createBom(token: string, payload: BomPayload) {
+  return request<BomInfo>('/boms', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateBom(token: string, id: number, payload: BomPayload) {
+  return request<BomInfo>(`/boms/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteBom(token: string, id: number) {
+  return request<void>(`/boms/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 // ===== 自定义字段 API =====
 export interface CustomFieldOption {
   label: string
@@ -884,6 +1335,95 @@ export async function deleteWorkOrder(token: string, id: number) {
   })
 }
 
+// ===== 销售订单 API =====
+export type SalesOrderStatus = 'DRAFT' | 'CONFIRMED' | 'FINISHED' | 'CANCELLED'
+
+export interface SalesOrderItemPayload {
+  productId: number
+  quantity: number
+  remark?: string
+}
+
+export interface SalesOrderPayload {
+  code?: string
+  customerName: string
+  orderDate?: string
+  deliveryDate?: string
+  status?: SalesOrderStatus
+  remark?: string
+  items: SalesOrderItemPayload[]
+}
+
+export interface SalesOrderItemInfo {
+  id: number
+  productId: number
+  productCode: string
+  productName: string
+  productSpec?: string
+  unitName?: string
+  quantity: number
+  remark?: string
+}
+
+export interface SalesOrderInfo {
+  id: number
+  code: string
+  customerName: string
+  orderDate?: string
+  deliveryDate?: string
+  status: SalesOrderStatus
+  statusLabel: string
+  remark?: string
+  creator?: string
+  createdAt?: string
+  updatedAt?: string
+  totalQuantity: number
+  items: SalesOrderItemInfo[]
+}
+
+export interface SalesOrderListResponse {
+  items: SalesOrderInfo[]
+  total: number
+}
+
+export async function fetchSalesOrders(
+  token: string,
+  params: { code?: string; customerName?: string; status?: SalesOrderStatus | ''; page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.code) query.append('code', params.code)
+  if (params.customerName) query.append('customerName', params.customerName)
+  if (params.status) query.append('status', params.status)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<SalesOrderListResponse>(`/sales-orders?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createSalesOrder(token: string, payload: SalesOrderPayload) {
+  return request<SalesOrderInfo>('/sales-orders', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateSalesOrder(token: string, id: number, payload: SalesOrderPayload) {
+  return request<SalesOrderInfo>(`/sales-orders/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteSalesOrder(token: string, id: number) {
+  return request<void>(`/sales-orders/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 // ===== 工单分类 API =====
 export interface WorkOrderCategoryInfo {
   id: number
@@ -947,8 +1487,8 @@ export async function deleteProductCategory(token: string, id: number) {
 // ===== 用户偏好 API =====
 export interface UserPreferenceInfo {
   key: string
-  value: string
-  updatedAt: string
+  value: string | null
+  updatedAt: string | null
 }
 
 export async function fetchUserPreference(token: string, key: string) {
@@ -1034,6 +1574,42 @@ export async function fetchReport(token: string, id: number) {
   })
 }
 
+export async function fetchReportImageBlob(token: string, imageId: number) {
+  const response = await fetch(`${API_BASE}/reports/images/${imageId}/file`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (response.status === 401) {
+    handleKickedOut()
+  }
+  if (!response.ok) {
+    let message = '图片加载失败'
+    try {
+      const data = await response.json()
+      message = data.message || message
+    } catch {}
+    throw new ApiError(message, response.status)
+  }
+  return response.blob()
+}
+
+export async function fetchCustomFieldAttachmentBlob(token: string, attachmentId: number) {
+  const response = await fetch(`${API_BASE}/custom-field-attachments/${attachmentId}/file`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  if (response.status === 401) {
+    handleKickedOut()
+  }
+  if (!response.ok) {
+    let message = '附件加载失败'
+    try {
+      const data = await response.json()
+      message = data.message || message
+    } catch {}
+    throw new ApiError(message, response.status)
+  }
+  return response.blob()
+}
+
 export async function approveReport(token: string, id: number, remark = '') {
   return request<WorkOrderReportInfo>(`/reports/${id}/approve`, {
     method: 'POST',
@@ -1050,7 +1626,383 @@ export async function rejectReport(token: string, id: number, remark = '') {
   })
 }
 
+// ===== 系统监控 API =====
+export interface MonitorOnlineUserInfo {
+  id: number
+  sessionId: string
+  loginName: string
+  departmentName: string
+  ipAddress: string
+  loginLocation: string
+  operatingSystem: string
+  browser: string
+  loginTime: string
+}
+
+export interface MonitorOnlineListResponse {
+  items: MonitorOnlineUserInfo[]
+  total: number
+}
+
+export interface MonitorCacheNameInfo {
+  cacheName: string
+  remark: string
+  keyCount: number
+}
+
+export interface MonitorCacheEntryInfo {
+  cacheName: string
+  cacheKey: string
+  cacheValue: string
+}
+
+export interface MonitorCommandStatInfo {
+  name: string
+  count: number
+}
+
+export interface MonitorCacheMetricsInfo {
+  basicInfo: Record<string, string>
+  commandStats: MonitorCommandStatInfo[]
+  memoryInfo: {
+    usedBytes: number
+    maxBytes: number
+    usedPercent: number
+    usedHuman: string
+    maxHuman: string
+    heap?: { used: number; committed: number; max: number }
+  }
+}
+
+export interface MonitorCacheRecoveryInfo {
+  id: number
+  scope: string
+  cacheName: string
+  cacheKey?: string
+  entryCount: number
+  deletedAt: string
+  expiresAt: string
+}
+
+export async function fetchOnlineUsers(
+  token: string,
+  params: { ipAddress?: string; loginName?: string; page?: number; size?: number } = {}
+) {
+  const query = new URLSearchParams()
+  if (params.ipAddress) query.append('ipAddress', params.ipAddress)
+  if (params.loginName) query.append('loginName', params.loginName)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<MonitorOnlineListResponse>(`/monitor/online?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function forceLogoutOnlineUser(token: string, id: number) {
+  return request<void>(`/monitor/online/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheMetrics(token: string) {
+  return request<MonitorCacheMetricsInfo>('/monitor/cache', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheNames(token: string) {
+  return request<MonitorCacheNameInfo[]>('/monitor/cache/names', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheKeys(token: string, cacheName: string) {
+  const query = new URLSearchParams({ cacheName })
+  return request<string[]>(`/monitor/cache/keys?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheValue(token: string, cacheName: string, cacheKey: string) {
+  const query = new URLSearchParams({ cacheName, cacheKey })
+  return request<MonitorCacheEntryInfo>(`/monitor/cache/value?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function clearCacheName(token: string, cacheName: string) {
+  const query = new URLSearchParams({ cacheName })
+  return request<{ affected: number; recoveryWindowMinutes: number }>(`/monitor/cache/name?${query.toString()}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function clearCacheKey(token: string, cacheName: string, cacheKey: string) {
+  const query = new URLSearchParams({ cacheName, cacheKey })
+  return request<{ affected: number; recoveryWindowMinutes: number }>(`/monitor/cache/key?${query.toString()}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function clearAllCache(token: string) {
+  return request<{ affected: number; recoveryWindowMinutes: number }>('/monitor/cache/all', {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function fetchCacheRecoveries(token: string) {
+  return request<MonitorCacheRecoveryInfo[]>('/monitor/cache/recovery', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function restoreCacheRecovery(token: string, id: number) {
+  return request<{ affected: number; recoveryWindowMinutes: number }>(`/monitor/cache/recovery/${id}/restore`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
 // ===== 手机端 API 共用类型 =====
+export type AdvancedRecordModule =
+  | 'SOP'
+  | 'EQUIPMENT'
+  | 'QUALITY'
+  | 'MESSAGE'
+  | 'PAYROLL_RULE'
+  | 'FIELD_EVENT'
+
+export interface AdvancedRecordInfo {
+  id: number
+  moduleName: AdvancedRecordModule
+  businessKey?: string
+  title: string
+  status: string
+  payloadJson?: string
+  createdById?: number
+  createdByName?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface AdvancedRecordPayload {
+  moduleName: AdvancedRecordModule
+  businessKey?: string
+  title: string
+  status?: string
+  payloadJson?: string
+}
+
+export interface AdvancedRecordListResponse {
+  items: AdvancedRecordInfo[]
+  total: number
+}
+
+export async function fetchAdvancedRecords(
+  token: string,
+  params: { moduleName: AdvancedRecordModule; status?: string; page?: number; size?: number }
+) {
+  const query = new URLSearchParams()
+  query.append('moduleName', params.moduleName)
+  if (params.status) query.append('status', params.status)
+  if (params.page) query.append('page', String(params.page))
+  if (params.size) query.append('size', String(params.size))
+  return request<AdvancedRecordListResponse>(`/advanced-records?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export async function createAdvancedRecord(token: string, payload: AdvancedRecordPayload) {
+  return request<AdvancedRecordInfo>('/advanced-records', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function updateAdvancedRecord(token: string, id: number, payload: AdvancedRecordPayload) {
+  return request<AdvancedRecordInfo>(`/advanced-records/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function deleteAdvancedRecord(token: string, id: number) {
+  return request<void>(`/advanced-records/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// ===== 插件平台 API =====
+export type PluginRuntimeMode = 'BUILT_IN' | 'REMOTE_SERVICE' | 'IFRAME'
+
+export interface PluginVersionInfo {
+  id: number
+  version: string
+  artifactUrl?: string
+  imageName?: string
+  checksum?: string
+  status: string
+  releaseNotes?: string
+  manifestJson?: string
+  createdAt?: string
+}
+
+export interface PluginCatalogInfo {
+  id: number
+  pluginKey: string
+  name: string
+  description?: string
+  pluginType: string
+  runtimeMode: PluginRuntimeMode
+  status: string
+  currentStableVersion?: string
+  minCoreVersion?: string
+  manifestJson?: string
+  factoryStatus: 'NOT_INSTALLED' | 'ENABLED' | 'DISABLED' | string
+  enabledVersion?: string
+  rolloutPercent: number
+  healthStatus: 'UP' | 'DOWN' | 'UNKNOWN' | string
+  healthMessage?: string
+  lastHealthAt?: string
+  configJson?: string
+  versions: PluginVersionInfo[]
+}
+
+export interface PluginCreatePayload {
+  pluginKey: string
+  name: string
+  description?: string
+  pluginType?: string
+  runtimeMode?: PluginRuntimeMode
+  minCoreVersion?: string
+  manifestJson?: string
+}
+
+export interface PluginVersionPayload {
+  version: string
+  artifactUrl?: string
+  imageName?: string
+  checksum?: string
+  releaseNotes?: string
+  manifestJson?: string
+}
+
+export interface PluginRuntimeManifestInfo {
+  pluginKey: string
+  name: string
+  version: string
+  runtimeMode: PluginRuntimeMode
+  manifest: Record<string, unknown>
+  config: Record<string, unknown>
+}
+
+export function fetchPlugins(token: string) {
+  return request<PluginCatalogInfo[]>('/platform/plugins', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function createPlugin(token: string, payload: PluginCreatePayload) {
+  return request<PluginCatalogInfo>('/platform/plugins', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function registerPluginVersion(token: string, pluginKey: string, payload: PluginVersionPayload) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/versions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  })
+}
+
+export function enablePlugin(token: string, pluginKey: string, version?: string, rolloutPercent = 100) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/enable`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ version, rolloutPercent })
+  })
+}
+
+export function installPlugin(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/install`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function uninstallPlugin(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/install`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function disablePlugin(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/disable`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function activatePluginVersion(token: string, pluginKey: string, version: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/versions/${encodeURIComponent(version)}/activate`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function rollbackPlugin(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/rollback`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function refreshPluginHealth(token: string, pluginKey: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/health/refresh`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function updatePluginConfig(token: string, pluginKey: string, configJson: string) {
+  return request<PluginCatalogInfo>(`/platform/plugins/${encodeURIComponent(pluginKey)}/config`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ configJson })
+  })
+}
+
+export function fetchPluginRuntimeManifest(token: string) {
+  return request<PluginRuntimeManifestInfo[]>('/platform/plugins/runtime-manifest', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function proxyPluginRequest<T>(
+  token: string,
+  pluginKey: string,
+  path: string,
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+  body?: unknown
+) {
+  return request<T>(`/plugins/${encodeURIComponent(pluginKey)}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}` },
+    body: body == null || method === 'GET' ? undefined : JSON.stringify(body)
+  })
+}
+
 export interface MobileAuthResult {
   bindRequired: boolean
   openidTicket?: string

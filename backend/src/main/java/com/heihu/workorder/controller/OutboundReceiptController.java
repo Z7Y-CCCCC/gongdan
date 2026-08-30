@@ -5,6 +5,7 @@ import com.heihu.workorder.dto.OutboundReceiptResponse;
 import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.OutboundReceiptService;
 import com.heihu.workorder.service.TokenService;
+import com.heihu.workorder.util.DateTimeParser;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -12,16 +13,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/outbound-receipts")
-@CrossOrigin(origins = "*")
 public class OutboundReceiptController {
-
-    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final OutboundReceiptService outboundReceiptService;
     private final TokenService tokenService;
@@ -41,16 +38,16 @@ public class OutboundReceiptController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
 
         LocalDateTime start = null;
         LocalDateTime end = null;
         if (startTime != null && !startTime.trim().isEmpty()) {
-            start = LocalDateTime.parse(startTime.trim(), FMT);
+            start = DateTimeParser.parse(startTime);
         }
         if (endTime != null && !endTime.trim().isEmpty()) {
-            end = LocalDateTime.parse(endTime.trim(), FMT);
+            end = DateTimeParser.parse(endTime);
         }
 
         Page<OutboundReceiptResponse> result = outboundReceiptService.list(
@@ -67,7 +64,7 @@ public class OutboundReceiptController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(outboundReceiptService.getById(currentUser.getFactoryId(), id));
     }
 
@@ -76,7 +73,7 @@ public class OutboundReceiptController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody OutboundReceiptRequest request
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(outboundReceiptService.create(
                 currentUser.getFactoryId(),
                 currentUser.getUserId(),
@@ -89,7 +86,7 @@ public class OutboundReceiptController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         outboundReceiptService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

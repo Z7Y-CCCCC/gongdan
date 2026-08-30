@@ -11,17 +11,17 @@
       <text class="order-code">{{ order.code || '' }}</text>
       <view class="info-list">
         <view class="info-item">
-          <text class="info-icon">📅</text>
+          <uni-icons class="info-icon" type="calendar" size="14" color="#8a9693" />
           <text class="info-label">计划时间：</text>
           <text class="info-val">{{ formatDate(order.planStart) }} ~ {{ formatDate(order.planEnd) }}</text>
         </view>
         <view class="info-item">
-          <text class="info-icon">📦</text>
+          <uni-icons class="info-icon" type="shop" size="14" color="#8a9693" />
           <text class="info-label">产品信息：</text>
           <text class="info-val green-link">{{ order.productCode }} | {{ order.productName }}</text>
         </view>
         <view class="info-item">
-          <text class="info-icon">📊</text>
+          <uni-icons class="info-icon" type="bars" size="14" color="#8a9693" />
           <text class="info-label">工单进度：</text>
           <text class="info-val">{{ order.goodQuantity || 0 }}/{{ order.plannedQuantity || 0 }}{{ productUnit }}</text>
         </view>
@@ -37,15 +37,15 @@
 
     <!-- 页签切换 -->
     <view class="tabs">
-      <view class="tab-item" :class="{ active: activeTab === 'progress' }" @tap="activeTab = 'progress'">
+      <view class="tab-item" :class="{ active: activeTab === 'progress' }" @click="activeTab = 'progress'">
         生产进度
         <view v-if="activeTab === 'progress'" class="line"></view>
       </view>
-      <view class="tab-item" :class="{ active: activeTab === 'material' }" @tap="activeTab = 'material'">
+      <view class="tab-item" :class="{ active: activeTab === 'material' }" @click="activeTab = 'material'">
         用料明细
         <view v-if="activeTab === 'material'" class="line"></view>
       </view>
-      <view class="tab-item" :class="{ active: activeTab === 'history' }" @tap="activeTab = 'history'">
+      <view class="tab-item" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
         生产履历
         <view v-if="activeTab === 'history'" class="line"></view>
       </view>
@@ -53,10 +53,6 @@
 
     <!-- 工序列表 (生产进度 tab) -->
     <scroll-view v-if="activeTab === 'progress'" scroll-y class="process-list">
-      <view class="filter-bar">
-        <text class="filter-text">筛选</text>
-      </view>
-
       <view v-if="!order.tasks || order.tasks.length === 0" class="empty-hint">
         <text>暂无工序数据</text>
       </view>
@@ -95,18 +91,18 @@
 
         <view class="card-extra">
           <view class="extra-row">
-            <text class="extra-icon">📋</text>
+            <uni-icons class="extra-icon" type="compose" size="14" color="#8a9693" />
             <text class="extra-label">工单编号：</text>
             <text class="extra-val">{{ order.code }}</text>
           </view>
         </view>
 
         <view class="card-btns">
-          <view class="btn ghost" @tap="viewStepDetail(step)">详情</view>
+          <view class="btn ghost" @click="viewStepDetail(step)">详情</view>
           <view
             class="btn"
             :class="hasReportPermission(step) ? 'primary' : 'disabled'"
-            @tap="hasReportPermission(step) ? handleReport(step) : handleNoPermission()"
+            @click="hasReportPermission(step) ? handleReport(step) : handleNoPermission()"
           >报工</view>
         </view>
       </view>
@@ -114,22 +110,47 @@
 
     <!-- 用料明细 tab -->
     <scroll-view v-if="activeTab === 'material'" scroll-y class="process-list">
-      <view class="empty-hint"><text>暂无用料明细</text></view>
+      <view v-if="materialReports.length === 0" class="empty-hint"><text>暂无已审批用料记录</text></view>
+      <view v-for="item in materialReports" :key="item.id" class="history-card">
+        <view class="history-head">
+          <text class="history-title">{{ item.materialName }}</text>
+          <text class="history-status report-status-approved">已领料</text>
+        </view>
+        <view class="history-meta">
+          <text>{{ item.processName || '-' }}</text>
+          <text>{{ item.reporterName || '-' }}</text>
+        </view>
+        <view class="material-time">{{ formatDate(item.createdAt) }}</view>
+      </view>
     </scroll-view>
 
     <!-- 生产履历 tab -->
     <scroll-view v-if="activeTab === 'history'" scroll-y class="process-list">
-      <view class="empty-hint"><text>暂无生产履历</text></view>
+      <view v-if="reports.length === 0" class="empty-hint"><text>暂无生产履历</text></view>
+      <view v-for="item in reports" :key="item.id" class="history-card">
+        <view class="history-head">
+          <text class="history-title">{{ item.processName || '工序' }}</text>
+          <text class="history-status" :class="reportStatusClass(item.status)">{{ reportStatusLabel(item.status) }}</text>
+        </view>
+        <view class="history-meta">
+          <text>{{ item.reporterName || '-' }}</text>
+          <text>{{ formatDate(item.createdAt) }}</text>
+        </view>
+        <view class="history-qty">
+          <text>总数 {{ item.reportQuantity || 0 }}</text>
+          <text class="green">良品 {{ item.goodQuantity || 0 }}</text>
+          <text class="red">不良 {{ item.defectQuantity || 0 }}</text>
+        </view>
+        <view v-if="item.defectItemName || item.remark" class="history-note">
+          <text>{{ item.defectItemName || item.remark }}</text>
+        </view>
+      </view>
     </scroll-view>
 
     <!-- 底部操作栏 -->
     <view class="footer">
-      <view class="f-btn" @tap="showMore">更多</view>
-      <view class="f-btn" @tap="showPriority">优先级</view>
-      <view class="f-btn finish" @tap="handleFinish">
-        <text class="finish-icon">⊘</text>
-        结束
-      </view>
+      <view class="f-btn" @click="showMore">更多</view>
+      <view class="f-btn" @click="showPriority">优先级</view>
     </view>
 
     <!-- 加载中 -->
@@ -142,8 +163,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { fetchWorkOrder, fetchWorkOrderByCode, ensureLogin } from '../../services/api'
-import type { WorkOrderInfo } from '../../types/api'
+import { fetchReports, fetchWorkOrder, fetchWorkOrderByCode, ensureLogin } from '../../services/api'
+import type { WorkOrderInfo, WorkOrderReport } from '../../types/api'
 
 const order = ref<WorkOrderInfo>({
   id: 0,
@@ -163,13 +184,14 @@ const order = ref<WorkOrderInfo>({
 const loading = ref(true)
 const activeTab = ref('progress')
 const productUnit = ref('个')
+const reports = ref<WorkOrderReport[]>([])
+const materialReports = computed(() => reports.value.filter(item => item.status === 'APPROVED' && item.materialName))
 
 // 从 URL 参数中获取 id 或 code
 let orderId = ''
 let orderCode = ''
 
 onLoad((options) => {
-  console.log('[work-order-detail] onLoad options:', options)
   if (options?.id) {
     orderId = options.id
   }
@@ -179,7 +201,6 @@ onLoad((options) => {
 })
 
 onMounted(async () => {
-  console.log('[work-order-detail] onMounted, orderId:', orderId, 'orderCode:', orderCode)
 
   // 设置 5 秒的加载安全网，防止网络挂起时永久白屏
   const safetyTimer = setTimeout(() => {
@@ -196,7 +217,6 @@ onMounted(async () => {
     if (idMatch) orderId = idMatch[1]
     const codeMatch = hash.match(/[?&]code=([^&]+)/)
     if (codeMatch) orderCode = decodeURIComponent(codeMatch[1])
-    console.log('[work-order-detail] parsed from hash, orderId:', orderId, 'orderCode:', orderCode)
   }
 
   if (!ensureLogin()) {
@@ -231,10 +251,24 @@ const loadData = async () => {
       return
     }
     order.value = res
+    await loadReports()
   } catch (e: any) {
     uni.showToast({ title: e.message || '加载失败', icon: 'none' })
   } finally {
     loading.value = false
+  }
+}
+
+const loadReports = async () => {
+  if (!order.value.id && !order.value.code) return
+  try {
+    const res = await fetchReports()
+    const items = res.items || []
+    reports.value = items
+      .filter(item => item.workOrderId === order.value.id || item.workOrderCode === order.value.code)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+  } catch (e) {
+    reports.value = []
   }
 }
 
@@ -269,7 +303,7 @@ function statusClass(status: string) {
 
 function stepStatusText(step: any) {
   const planned = step.plannedQuantity || order.value.plannedQuantity || 0
-  const completed = step.completedQuantity || 0
+  const completed = (step.completedQuantity || 0) + (step.defectQuantity || 0)
   if (completed === 0) return '未开始'
   if (completed >= planned) return '已完成'
   return '执行中'
@@ -285,7 +319,7 @@ function stepStatusClass(step: any) {
 const calculatePercent = (step: any) => {
   const planned = step.plannedQuantity || order.value.plannedQuantity || 0
   if (!planned) return 0
-  return Math.min(100, Math.round(((step.completedQuantity || 0) / planned) * 100))
+  return Math.min(100, Math.round((((step.completedQuantity || 0) + (step.defectQuantity || 0)) / planned) * 100))
 }
 
 function circleBorderStyle(step: any) {
@@ -302,9 +336,27 @@ function formatDate(dateStr?: string) {
   return d
 }
 
+function reportStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    PENDING: '待审核',
+    APPROVED: '已通过',
+    REJECTED: '已驳回'
+  }
+  return map[status] || status || '未知'
+}
+
+function reportStatusClass(status: string) {
+  const map: Record<string, string> = {
+    PENDING: 'report-status-pending',
+    APPROVED: 'report-status-approved',
+    REJECTED: 'report-status-rejected'
+  }
+  return map[status] || 'report-status-pending'
+}
+
 const hasReportPermission = (step: any) => {
-  const perm = step.reportPermission
-  if (!perm || perm === '所有人' || perm === 'ALL') {
+  const perm = String(step.reportPermission || '').trim()
+  if (!perm || perm === '所有人' || perm.toUpperCase() === 'ALL') {
     return true
   }
   const user = uni.getStorageSync('user')
@@ -317,7 +369,11 @@ const hasReportPermission = (step: any) => {
   return allowedList.includes(user.name) ||
          allowedList.includes(user.username) ||
          allowedList.includes(String(user.id)) ||
-         allowedList.includes(user.roleLabel)
+         allowedList.includes(user.role) ||
+         allowedList.includes(user.roleLabel) ||
+         allowedList.includes(user.departmentName) ||
+         step.assignee === user.name ||
+         step.assignee === user.username
 }
 
 const handleNoPermission = () => {
@@ -326,33 +382,48 @@ const handleNoPermission = () => {
 
 const handleReport = (step: any) => {
   if (!ensureLogin()) return
+  const url = `/pages/report-form/index?orderId=${order.value.id}&processNo=${step.sequenceNo || 1}&processName=${encodeURIComponent(step.processName || '')}&plannedQty=${step.plannedQuantity || order.value.plannedQuantity || 0}&completedQty=${step.completedQuantity || 0}&defectQty=${step.defectQuantity || 0}&reportPermission=${encodeURIComponent(step.reportPermission || '')}`
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = `#${url}`
+    return
+  }
   uni.navigateTo({
-    url: `/pages/report-form/index?orderId=${order.value.id}&processNo=${step.sequenceNo || 1}&processName=${encodeURIComponent(step.processName || '')}&plannedQty=${step.plannedQuantity || order.value.plannedQuantity || 0}&completedQty=${step.completedQuantity || 0}&defectQty=${step.defectQuantity || 0}&reportPermission=${encodeURIComponent(step.reportPermission || '')}`
+    url
   })
 }
 
 const viewStepDetail = (step: any) => {
-  uni.showToast({ title: '详情功能开发中', icon: 'none' })
+  uni.showModal({
+    title: step.processName || '工序详情',
+    content: `计划数：${step.plannedQuantity || order.value.plannedQuantity || 0}\n良品数：${step.completedQuantity || 0}\n不良数：${step.defectQuantity || 0}\n报工权限：${step.reportPermission || '所有人'}`,
+    showCancel: false
+  })
 }
 
 const showMore = () => {
-  uni.showToast({ title: '更多功能开发中', icon: 'none' })
+  uni.showModal({
+    title: '工单备注',
+    content: order.value.remark || '暂无备注',
+    showCancel: false
+  })
 }
 
 const showPriority = () => {
-  uni.showToast({ title: '优先级功能开发中', icon: 'none' })
+  uni.showModal({
+    title: '优先级',
+    content: priorityLabel(order.value.priority),
+    showCancel: false
+  })
 }
 
-const handleFinish = () => {
-  uni.showModal({
-    title: '确认结束',
-    content: '确定要结束此工单吗？',
-    success: (res) => {
-      if (res.confirm) {
-        uni.showToast({ title: '工单已结束', icon: 'success' })
-      }
-    }
-  })
+function priorityLabel(priority?: string) {
+  const map: Record<string, string> = {
+    URGENT: '紧急',
+    HIGH: '高',
+    NORMAL: '普通',
+    LOW: '低'
+  }
+  return map[priority || ''] || priority || '未设置'
 }
 </script>
 
@@ -416,7 +487,7 @@ const handleFinish = () => {
   margin-bottom: 10rpx;
 }
 
-.info-icon { font-size: 24rpx; margin-right: 6rpx; }
+.info-icon { margin-right: 6rpx; flex-shrink: 0; }
 .info-label { font-size: 24rpx; color: #999; }
 .info-val { font-size: 24rpx; color: #666; }
 .green-link { color: #00b889; }
@@ -486,17 +557,6 @@ const handleFinish = () => {
   padding: 20rpx;
   box-sizing: border-box;
 }
-
-.filter-bar {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  font-size: 24rpx;
-  color: #999;
-  margin-bottom: 10rpx;
-}
-
-.filter-text { margin-left: 8rpx; }
 
 .empty-hint {
   text-align: center;
@@ -585,7 +645,7 @@ const handleFinish = () => {
   margin-bottom: 8rpx;
 }
 
-.extra-icon { font-size: 22rpx; margin-right: 8rpx; }
+.extra-icon { margin-right: 8rpx; flex-shrink: 0; }
 .extra-label { font-size: 22rpx; color: #999; }
 .extra-val { font-size: 22rpx; color: #666; }
 
@@ -609,6 +669,70 @@ const handleFinish = () => {
 .btn.primary { border: 1px solid #00b889; color: #00b889; }
 .btn.disabled { border: 1px solid #eee; background: #fafafa; color: #ccc; cursor: not-allowed; }
 
+.history-card {
+  background: white;
+  border-radius: 16rpx;
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+}
+
+.history-head,
+.history-meta,
+.history-qty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.history-head {
+  margin-bottom: 14rpx;
+}
+
+.history-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #222;
+}
+
+.history-status {
+  font-size: 22rpx;
+  padding: 6rpx 14rpx;
+  border-radius: 999rpx;
+}
+
+.report-status-pending { background: #fff7e6; color: #fa8c16; }
+.report-status-approved { background: #e6f7f3; color: #00a870; }
+.report-status-rejected { background: #fff1f0; color: #ff4d4f; }
+
+.history-meta {
+  font-size: 24rpx;
+  color: #999;
+  margin-bottom: 18rpx;
+}
+
+.history-qty {
+  font-size: 26rpx;
+  color: #555;
+}
+
+.history-qty .green { color: #00b889; }
+.history-qty .red { color: #ff4d4f; }
+
+.history-note {
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1px solid #f2f2f2;
+  font-size: 24rpx;
+  color: #777;
+}
+
+.material-time {
+  padding-top: 16rpx;
+  border-top: 1px solid #f2f2f2;
+  font-size: 24rpx;
+  color: #8a9693;
+}
+
 .footer {
   height: 110rpx;
   background: white;
@@ -628,15 +752,6 @@ const handleFinish = () => {
   background: #f8f9f9;
   margin: 10rpx;
   border-radius: 10rpx;
-}
-
-.f-btn.finish {
-  background: #ff4d4f;
-  color: white;
-}
-
-.finish-icon {
-  margin-right: 6rpx;
 }
 
 .loading-mask {

@@ -5,6 +5,7 @@ import {
   fetchUsers,
   type DepartmentInfo, type CreateDepartmentPayload, type UpdateDepartmentPayload, type UserInfo
 } from '../api'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{
   token: string
@@ -192,10 +193,11 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             新建部门
           </button>
+          <TableConfigButton table-id="department-list-table" />
         </div>
 
         <div class="table-container">
-          <table class="data-table">
+          <table id="department-list-table" class="data-table">
             <thead>
               <tr>
                 <th>部门名称</th>

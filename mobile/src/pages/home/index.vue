@@ -3,13 +3,13 @@
     <view class="welcome-section">
       <view class="user-info">
         <text class="greeting">您好，</text>
-        <text class="username">{{ userInfo.nickname || userInfo.username || '工友' }}</text>
+        <text class="username">{{ userInfo.name || userInfo.nickname || userInfo.username || '工友' }}</text>
       </view>
       <text class="date">{{ currentDate }}</text>
     </view>
 
     <view class="action-grid">
-      <view class="action-card scan" @tap="handleScan">
+      <view class="action-card scan" @click="handleScan">
         <view class="icon-wrapper">
           <uni-icons type="scan" size="30" color="#fff"></uni-icons>
         </view>
@@ -18,30 +18,40 @@
       </view>
 
       <view class="menu-list">
-        <view class="menu-item" @tap="navigateTo('/pages/work-orders/index')">
+        <view class="menu-item" @click="navigateTo('/pages/work-orders/index')">
           <view class="menu-left">
             <view class="menu-icon bg-green">
-              <uni-icons type="list" size="20" color="#fff"></uni-icons>
+              <uni-icons type="list" size="20" color="#00a982"></uni-icons>
             </view>
             <text class="menu-text">我的工单</text>
           </view>
           <uni-icons type="right" size="16" color="#ccc"></uni-icons>
         </view>
 
-        <view class="menu-item" @tap="navigateTo('/pages/report-list/index')">
+        <view class="menu-item" @click="navigateTo('/pages/report-list/index')">
           <view class="menu-left">
             <view class="menu-icon bg-blue">
-              <uni-icons type="paperplane" size="20" color="#fff"></uni-icons>
+              <uni-icons type="paperplane" size="20" color="#4080ff"></uni-icons>
             </view>
             <text class="menu-text">报工历史</text>
           </view>
           <uni-icons type="right" size="16" color="#ccc"></uni-icons>
         </view>
 
-        <view class="menu-item" @tap="navigateTo('/pages/board/index')">
+        <view class="menu-item" @click="navigateTo('/pages/field-events/index')">
+          <view class="menu-left">
+            <view class="menu-icon bg-purple">
+              <uni-icons type="sound" size="20" color="#7c3aed"></uni-icons>
+            </view>
+            <text class="menu-text">现场事件</text>
+          </view>
+          <uni-icons type="right" size="16" color="#ccc"></uni-icons>
+        </view>
+
+        <view class="menu-item" @click="navigateTo('/pages/board/index')">
           <view class="menu-left">
             <view class="menu-icon bg-orange">
-              <uni-icons type="bars" size="20" color="#fff"></uni-icons>
+              <uni-icons type="bars" size="20" color="#d97706"></uni-icons>
             </view>
             <text class="menu-text">车间看板</text>
           </view>
@@ -54,30 +64,52 @@
       <text class="section-title">今日报工统计</text>
       <view class="stats-grid">
         <view class="stat-box">
-          <text class="stat-value">0</text>
+          <text class="stat-value">{{ todayGood }}</text>
           <text class="stat-label">完成件数</text>
         </view>
         <view class="stat-box">
-          <text class="stat-value">0</text>
+          <text class="stat-value">{{ todayPending }}</text>
           <text class="stat-label">待审记录</text>
         </view>
         <view class="stat-box">
-          <text class="stat-value">0%</text>
+          <text class="stat-value">{{ todayPassRate }}%</text>
           <text class="stat-label">合格率</text>
         </view>
       </view>
     </view>
 
-    <button class="logout-link" @tap="handleLogout">退出登录</button>
+    <button class="logout-link" @click="handleLogout">退出登录</button>
+    <!-- #ifdef H5 -->
+    <MobileTabBar current="home" />
+    <!-- #endif -->
   </view>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { clearSession, ensureLogin } from '../../services/api'
+import { computed, ref, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
+import { clearSession, ensureLogin, fetchReports } from '../../services/api'
+import type { WorkOrderReport } from '../../types/api'
+import MobileTabBar from '../../components/MobileTabBar.vue'
 
 const userInfo = ref<any>({})
 const currentDate = ref('')
+const reports = ref<WorkOrderReport[]>([])
+
+const todayKey = computed(() => {
+  const now = new Date()
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+})
+const todayReports = computed(() => reports.value.filter(item => (item.createdAt || '').startsWith(todayKey.value)))
+const todayApproved = computed(() => todayReports.value.filter(item => item.status === 'APPROVED'))
+const todayGood = computed(() => todayApproved.value.reduce((sum, item) => sum + (item.goodQuantity || 0), 0))
+const todayDefect = computed(() => todayApproved.value.reduce((sum, item) => sum + (item.defectQuantity || 0), 0))
+const todayPending = computed(() => todayReports.value.filter(item => item.status === 'PENDING').length)
+const todayPassRate = computed(() => {
+  const total = todayGood.value + todayDefect.value
+  return total > 0 ? Math.round(todayGood.value / total * 100) : 0
+})
 
 onMounted(() => {
   if (!ensureLogin()) return
@@ -87,7 +119,21 @@ onMounted(() => {
   
   const now = new Date()
   currentDate.value = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`
+  loadStats()
 })
+
+onShow(() => {
+  if (uni.getStorageSync('token')) loadStats()
+})
+
+async function loadStats() {
+  try {
+    const result = await fetchReports('', 'today')
+    reports.value = result.items || []
+  } catch {
+    reports.value = []
+  }
+}
 
 const handleScan = () => {
   if (typeof window !== 'undefined' && window.location) {
@@ -101,7 +147,6 @@ const handleScan = () => {
   }
   uni.scanCode({
     success: (res) => {
-      console.log('扫码结果：', res.result)
       if (res.result) {
         const url = res.result
         const idMatch = url.match(/[?&]id=(\d+)/)
@@ -121,11 +166,11 @@ const handleScan = () => {
 }
 
 const navigateTo = (url: string) => {
-  if (url.includes('work-orders') || url.includes('report-list') || url.includes('board')) {
-    uni.switchTab({ url })
-  } else {
-    uni.navigateTo({ url })
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = `#${url}`
+    return
   }
+  uni.navigateTo({ url })
 }
 
 const handleLogout = () => {
@@ -147,6 +192,7 @@ const handleLogout = () => {
   padding: 30rpx;
   background-color: #f3f5f5;
   min-height: 100vh;
+  padding-bottom: 150rpx;
 }
 
 .welcome-section {
@@ -177,14 +223,14 @@ const handleLogout = () => {
 }
 
 .action-card.scan {
-  background: linear-gradient(135deg, #00b889, #00d4a0);
-  padding: 60rpx 40rpx;
-  border-radius: 24rpx;
+  background: #00b889;
+  padding: 44rpx 36rpx;
+  border-radius: 16rpx;
   color: white;
   margin-bottom: 30rpx;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 10rpx 30rpx rgba(0, 184, 137, 0.2);
+  box-shadow: 0 8rpx 20rpx rgba(0, 169, 130, 0.16);
 }
 
 .icon-wrapper {
@@ -204,7 +250,7 @@ const handleLogout = () => {
 
 .menu-list {
   background: white;
-  border-radius: 24rpx;
+  border-radius: 16rpx;
   padding: 0 30rpx;
   margin-bottom: 40rpx;
 }
@@ -239,6 +285,7 @@ const handleLogout = () => {
 .bg-green { background-color: #e6f7f3; color: #00b889; }
 .bg-blue { background-color: #eef3fe; color: #4080ff; }
 .bg-orange { background-color: #fff4e6; color: #ff9900; }
+.bg-purple { background-color: #f0edff; color: #7c3aed; }
 
 .menu-text {
   font-size: 30rpx;
@@ -267,7 +314,7 @@ const handleLogout = () => {
 .stat-box {
   background: white;
   padding: 30rpx 20rpx;
-  border-radius: 16rpx;
+  border-radius: 12rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -286,9 +333,9 @@ const handleLogout = () => {
 }
 
 .logout-link {
-  margin-top: 60rpx;
-  font-size: 28rpx;
-  color: #ff4d4f;
+  margin-top: 40rpx;
+  font-size: 26rpx;
+  color: #586360;
   background: none;
   border: none;
 }

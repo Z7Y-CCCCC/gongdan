@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>设备点检</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, "Microsoft YaHei", sans-serif;
+      background: #f4f7f8;
+      color: #172326;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #f4f7f8; }
+    main { width: min(1040px, 100%); margin: 0 auto; padding: 24px; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 16px; border-bottom: 1px solid #dce5e7; }
+    h1 { margin: 0; font-size: 20px; font-weight: 650; }
+    h2 { margin: 0; font-size: 14px; }
+    .subtitle, .muted { color: #718086; font-size: 12px; }
+    .subtitle { margin-top: 5px; }
+    .health { display: inline-flex; align-items: center; gap: 7px; color: #a34545; font-size: 12px; }
+    .health::before { width: 8px; height: 8px; border-radius: 50%; background: #d75757; content: ""; }
+    .health.up { color: #087f61; }
+    .health.up::before { background: #0ca87e; }
+    .context { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin: 18px 0; overflow: hidden; border: 1px solid #dce5e7; border-radius: 6px; background: #dce5e7; }
+    .context div { min-width: 0; padding: 11px 13px; background: #fff; }
+    .context span { display: block; margin-bottom: 4px; color: #879399; font-size: 10px; }
+    .context strong { display: block; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .notice { min-height: 40px; display: flex; align-items: center; margin-bottom: 16px; padding: 9px 12px; border: 1px solid #d9e5e1; border-radius: 5px; color: #426158; background: #edf7f3; font-size: 12px; }
+    .notice.error { border-color: #efd1d1; color: #a23f45; background: #fff1f1; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 16px; }
+    section { min-width: 0; padding: 17px; border: 1px solid #dce5e7; border-radius: 7px; background: #fff; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .record { display: grid; grid-template-columns: minmax(90px, .7fr) minmax(80px, .45fr) minmax(140px, 1.5fr) 145px; gap: 12px; align-items: center; min-height: 48px; padding: 9px 0; border-top: 1px solid #edf1f2; font-size: 12px; }
+    .record:first-child { border-top: 0; }
+    .record strong, .record span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tag { width: fit-content; padding: 2px 7px; border-radius: 4px; color: #087f61; background: #e7f7f1; }
+    .tag.bad { color: #b6464c; background: #ffeded; }
+    form { display: grid; gap: 11px; }
+    label { display: grid; gap: 6px; color: #56656a; font-size: 12px; }
+    input, select, textarea { width: 100%; min-height: 36px; padding: 8px 9px; border: 1px solid #cfdadd; border-radius: 5px; color: inherit; background: #fff; font: inherit; }
+    textarea { min-height: 82px; resize: vertical; }
+    button { min-height: 36px; border: 0; border-radius: 5px; color: #fff; background: #078f6b; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    body.dark { color: #dbe5e9; background: #10161a; }
+    body.dark main { background: #10161a; }
+    body.dark header, body.dark section, body.dark .context { border-color: #334047; }
+    body.dark section, body.dark .context div { background: #171e23; }
+    body.dark .context { background: #334047; }
+    body.dark .subtitle, body.dark .muted, body.dark label { color: #93a2aa; }
+    body.dark .record { border-color: #2b373d; }
+    body.dark input, body.dark select, body.dark textarea { border-color: #3b4951; color: #dbe5e9; background: #10161a; }
+    body.dark .notice { border-color: #285548; color: #9ddbc8; background: #173029; }
+    body.dark .notice.error { border-color: #623c3f; color: #ffb7bb; background: #321f22; }
+    @media (max-width: 760px) {
+      main { padding: 16px; }
+      header { align-items: flex-start; flex-direction: column; }
+      .context { grid-template-columns: 1fr; }
+      .layout { grid-template-columns: 1fr; }
+      .record { grid-template-columns: 1fr auto; }
+      .record .remark, .record time { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div><h1>设备点检</h1><div class="subtitle">独立测试插件 · v1.0.0</div></div>
+    <div id="health" class="health">等待平台连接</div>
+  </header>
+
+  <div class="context">
+    <div><span>当前工厂</span><strong id="factory">-</strong></div>
+    <div><span>当前角色</span><strong id="role">-</strong></div>
+    <div><span>点检周期</span><strong id="interval">-</strong></div>
+  </div>
+  <div id="notice" class="notice">正在等待主系统建立安全消息桥。</div>
+
+  <div class="layout">
+    <section>
+      <div class="section-head"><h2>最近点检</h2><span id="count" class="muted">0 条</span></div>
+      <div id="records"><div class="muted">暂无点检记录</div></div>
+    </section>
+    <section>
+      <div class="section-head"><h2>登记点检</h2></div>
+      <form id="form">
+        <label>设备编号<input name="equipmentCode" maxlength="64" required placeholder="例如 EQ-001"></label>
+        <label>点检结果<select name="result"><option>正常</option><option>需维护</option><option>停机</option></select></label>
+        <label>备注<textarea name="remark" maxlength="500" placeholder="记录温度、振动或异常说明"></textarea></label>
+        <button id="submit" type="submit" disabled>等待平台连接</button>
+      </form>
+    </section>
+  </div>
+</main>
+<script>
+  const pluginKey = 'equipment-inspection';
+  const pending = new Map();
+  let parentOrigin = '';
+  let context = {};
+  let requestSequence = 0;
+  const $ = id => document.getElementById(id);
+
+  function setNotice(message, error = false) {
+    $('notice').textContent = message;
+    $('notice').className = error ? 'notice error' : 'notice';
+  }
+
+  function api(path, options = {}) {
+    if (!parentOrigin) return Promise.reject(new Error('平台连接尚未建立'));
+    const requestId = pluginKey + '-' + Date.now() + '-' + (++requestSequence);
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        pending.delete(requestId);
+        reject(new Error('插件请求超时'));
+      }, 8000);
+      pending.set(requestId, { resolve, reject, timeout });
+      window.parent.postMessage({
+        type: 'plugin-api-request',
+        pluginKey,
+        requestId,
+        path,
+        method: options.method || 'GET',
+        body: options.body || null
+      }, parentOrigin);
+    });
+  }
+
+  async function loadRecords() {
+    const records = await api('/api/plugin/equipment-inspection/inspections');
+    $('count').textContent = records.length + ' 条';
+    $('records').innerHTML = records.length ? records.map(item => {
+      const bad = item.result !== '正常' ? ' bad' : '';
+      return '<div class="record"><strong>' + escapeHtml(item.equipmentCode) + '</strong>' +
+        '<span class="tag' + bad + '">' + escapeHtml(item.result) + '</span>' +
+        '<span class="remark muted">' + escapeHtml(item.remark || '无备注') + '</span>' +
+        '<time class="muted">' + escapeHtml(item.createdAt) + '</time></div>';
+    }).join('') : '<div class="muted">暂无点检记录</div>';
+  }
+
+  async function connect() {
+    try {
+      const ping = await api('/api/plugin/equipment-inspection/ping');
+      $('health').textContent = '服务正常 · ' + ping.version;
+      $('health').className = 'health up';
+      $('factory').textContent = String(ping.factoryId);
+      $('role').textContent = ping.role;
+      const interval = ping.config && ping.config.inspectionIntervalDays;
+      $('interval').textContent = interval ? interval + ' 天' : '未配置';
+      $('submit').disabled = false;
+      $('submit').textContent = '保存点检';
+      setNotice((ping.config && ping.config.reminderText) || '插件已通过主系统安全代理连接。');
+      await loadRecords();
+    } catch (error) {
+      $('health').textContent = '服务不可用';
+      $('health').className = 'health';
+      setNotice(error.message || '插件连接失败', true);
+    }
+  }
+
+  window.addEventListener('message', event => {
+    const data = event.data || {};
+    if (data.pluginKey !== pluginKey) return;
+    if (data.type === 'platform-context') {
+      parentOrigin = event.origin;
+      context = data.context || {};
+      document.body.classList.toggle('dark', data.theme === 'dark');
+      connect();
+      return;
+    }
+    if (data.type !== 'plugin-api-response' || event.origin !== parentOrigin) return;
+    const item = pending.get(data.requestId);
+    if (!item) return;
+    pending.delete(data.requestId);
+    clearTimeout(item.timeout);
+    if (data.ok) item.resolve(data.body);
+    else item.reject(new Error((data.body && data.body.message) || '插件请求失败'));
+  });
+
+  $('form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = $('submit');
+    button.disabled = true;
+    try {
+      const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+      await api('/api/plugin/equipment-inspection/inspections', { method: 'POST', body: payload });
+      event.currentTarget.reset();
+      await loadRecords();
+      setNotice('点检记录已保存。');
+    } catch (error) {
+      setNotice(error.message || '保存失败', true);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  }
+
+  window.parent.postMessage({ type: 'plugin-ready', pluginKey }, '*');
+</script>
+</body>
+</html>

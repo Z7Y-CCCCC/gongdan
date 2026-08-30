@@ -1,0 +1,17 @@
+{
+  "pluginKey": "equipment-inspection",
+  "name": "设备点检",
+  "runtimeMode": "IFRAME",
+  "frontendEntry": "http://127.0.0.1:9102/",
+  "backendUrl": "http://127.0.0.1:9102",
+  "healthUrl": "/actuator/health",
+  "requiredRoles": ["ADMIN", "PRODUCTION"],
+  "permissions": ["inspection:read", "inspection:write"],
+  "menus": [
+    { "label": "设备点检", "icon": "clipboard", "path": "/" }
+  ],
+  "configSchema": {
+    "inspectionIntervalDays": { "type": "integer", "minimum": 1, "maximum": 365 },
+    "reminderText": { "type": "string", "maxLength": 100 }
+  }
+}

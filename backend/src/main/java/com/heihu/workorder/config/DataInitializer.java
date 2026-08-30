@@ -20,6 +20,7 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -53,6 +54,21 @@ public class DataInitializer implements ApplicationRunner {
     @Value("${app.seed.admin-name}")
     private String adminName;
 
+    @Value("${app.seed.super-admin-factory-code:ADMIN}")
+    private String superAdminFactoryCode;
+
+    @Value("${app.seed.super-admin-factory-name:超级管理员}")
+    private String superAdminFactoryName;
+
+    @Value("${app.seed.super-admin-username:admin}")
+    private String superAdminUsername;
+
+    @Value("${app.seed.super-admin-password}")
+    private String superAdminPassword;
+
+    @Value("${app.seed.super-admin-name:超级管理员}")
+    private String superAdminName;
+
     public DataInitializer(
             FactoryRepository factoryRepository,
             UserRepository userRepository,
@@ -72,6 +88,7 @@ public class DataInitializer implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        validateSeedConfig();
         // 初始化超级管理员工厂
         seedSuperAdminFactory();
 
@@ -84,11 +101,6 @@ public class DataInitializer implements ApplicationRunner {
                     return factoryRepository.save(item);
                 });
 
-        if (!factoryName.equals(factory.getName())) {
-            factory.setName(factoryName);
-            factory = factoryRepository.save(factory);
-        }
-
         seedDefaultUnits(factory);
         Factory targetFactory = factory;
 
@@ -100,15 +112,14 @@ public class DataInitializer implements ApplicationRunner {
     }
 
     private void seedSuperAdminFactory() {
-        String superAdminFactoryCode = "ADMIN";
-        String superAdminUsername = "admin";
-        String superAdminPassword = "admin123";
+        String factoryCode = superAdminFactoryCode.trim().toUpperCase();
+        String username = superAdminUsername.trim();
 
-        Factory adminFactory = factoryRepository.findByCode(superAdminFactoryCode)
+        Factory adminFactory = factoryRepository.findByCode(factoryCode)
                 .orElseGet(() -> {
                     Factory item = new Factory();
-                    item.setCode(superAdminFactoryCode);
-                    item.setName("超级管理员");
+                    item.setCode(factoryCode);
+                    item.setName(superAdminFactoryName.trim());
                     item.setEnabled(true);
                     item.setCreatedAt(LocalDateTime.now());
                     return factoryRepository.save(item);
@@ -119,12 +130,12 @@ public class DataInitializer implements ApplicationRunner {
             factoryRepository.save(adminFactory);
         }
 
-        userRepository.findByFactoryIdAndUsername(adminFactory.getId(), superAdminUsername)
+        userRepository.findByFactoryIdAndUsername(adminFactory.getId(), username)
                 .orElseGet(() -> {
                     FactoryUser user = new FactoryUser();
                     user.setFactory(adminFactory);
-                    user.setUsername(superAdminUsername);
-                    user.setName("超级管理员");
+                    user.setUsername(username);
+                    user.setName(superAdminName.trim());
                     user.setPasswordHash(passwordEncoder.encode(superAdminPassword));
                     user.setRole(Role.ADMIN);
                     user.setEnabled(true);
@@ -133,6 +144,32 @@ public class DataInitializer implements ApplicationRunner {
                     user.setUpdatedAt(LocalDateTime.now());
                     return userRepository.save(user);
                 });
+    }
+
+    private void validateSeedConfig() {
+        requireText(factoryCode, "app.seed.factory-code");
+        requireText(factoryName, "app.seed.factory-name");
+        requireText(adminUsername, "app.seed.admin-username");
+        requirePassword(adminPassword, "app.seed.admin-password");
+        requireText(adminName, "app.seed.admin-name");
+        requireText(superAdminFactoryCode, "app.seed.super-admin-factory-code");
+        requireText(superAdminFactoryName, "app.seed.super-admin-factory-name");
+        requireText(superAdminUsername, "app.seed.super-admin-username");
+        requirePassword(superAdminPassword, "app.seed.super-admin-password");
+        requireText(superAdminName, "app.seed.super-admin-name");
+    }
+
+    private void requireText(String value, String propertyName) {
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalStateException(propertyName + " must not be empty");
+        }
+    }
+
+    private void requirePassword(String value, String propertyName) {
+        requireText(value, propertyName);
+        if (value.trim().length() < 6) {
+            throw new IllegalStateException(propertyName + " must be at least 6 characters");
+        }
     }
 
     private FactoryUser createDefaultAdmin(Factory factory) {

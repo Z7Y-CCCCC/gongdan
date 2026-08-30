@@ -13,6 +13,8 @@ import com.heihu.workorder.repository.ProcessRepository;
 import com.heihu.workorder.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -60,7 +62,13 @@ public class ProcessService {
 
         // reportPermission: 逗号分隔 → List
         if (p.getReportPermission() != null && !p.getReportPermission().isEmpty()) {
-            r.setReportPermission(Arrays.asList(p.getReportPermission().split(",")));
+            List<String> permissions = Arrays.stream(p.getReportPermission().split(","))
+                    .map(this::canonicalPermission)
+                    .filter(value -> !value.isEmpty())
+                    .collect(Collectors.toList());
+            r.setReportPermission(permissions.isEmpty() || permissions.contains("所有人")
+                    ? Collections.singletonList("所有人")
+                    : permissions);
         } else {
             r.setReportPermission(Collections.singletonList("所有人"));
         }
@@ -92,6 +100,7 @@ public class ProcessService {
         return r;
     }
 
+    @Cacheable(cacheNames = "processes.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<ProcessResponse> list(Long factoryId, String code, String name, Pageable pageable) {
         Page<Process> page;
         boolean hasCode = code != null && !code.trim().isEmpty();
@@ -108,6 +117,7 @@ public class ProcessService {
         return page.map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = {"processes.list", "process.routes.list", "products.list"}, allEntries = true)
     public ProcessResponse create(Long factoryId, Long userId, ProcessRequest req) {
         if (req.getName() == null || req.getName().trim().isEmpty()) {
             throw new IllegalArgumentException("工序名称不能为空");
@@ -136,11 +146,7 @@ public class ProcessService {
         p.setCreatedAt(LocalDateTime.now());
 
         // reportPermission
-        if (req.getReportPermission() != null && !req.getReportPermission().isEmpty()) {
-            p.setReportPermission(String.join(",", req.getReportPermission()));
-        } else {
-            p.setReportPermission("所有人");
-        }
+        p.setReportPermission(normalizePermissions(req.getReportPermission()));
 
         // defectItemIds
         if (req.getDefectItemIds() != null && !req.getDefectItemIds().isEmpty()) {
@@ -164,6 +170,7 @@ public class ProcessService {
         return toResponse(processRepository.save(p));
     }
 
+    @CacheEvict(cacheNames = {"processes.list", "process.routes.list", "products.list"}, allEntries = true)
     public ProcessResponse update(Long factoryId, Long userId, Long id, ProcessRequest req) {
         Process p = processRepository.findById(id)
                 .filter(x -> x.getFactory().getId().equals(factoryId))
@@ -187,7 +194,7 @@ public class ProcessService {
         if (req.getRequirements() != null) p.setRequirements(req.getRequirements());
 
         if (req.getReportPermission() != null) {
-            p.setReportPermission(String.join(",", req.getReportPermission()));
+            p.setReportPermission(normalizePermissions(req.getReportPermission()));
         }
         if (req.getDefectItemIds() != null) {
             p.setDefectItemIds(req.getDefectItemIds().stream()
@@ -203,10 +210,27 @@ public class ProcessService {
         return toResponse(processRepository.save(p));
     }
 
+    @CacheEvict(cacheNames = {"processes.list", "process.routes.list", "products.list"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         Process p = processRepository.findById(id)
                 .filter(x -> x.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("工序不存在"));
         processRepository.delete(p);
+    }
+
+    private String normalizePermissions(List<String> permissions) {
+        if (permissions == null || permissions.isEmpty()) return "所有人";
+        List<String> normalized = permissions.stream()
+                .map(this::canonicalPermission)
+                .filter(value -> !value.isEmpty())
+                .collect(Collectors.toList());
+        if (normalized.isEmpty() || normalized.contains("所有人")) return "所有人";
+        return String.join(",", normalized);
+    }
+
+    private String canonicalPermission(String value) {
+        if (value == null) return "";
+        String normalized = value.trim();
+        return "all".equalsIgnoreCase(normalized) ? "所有人" : normalized;
     }
 }

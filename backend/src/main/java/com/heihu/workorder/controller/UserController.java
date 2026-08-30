@@ -2,6 +2,7 @@ package com.heihu.workorder.controller;
 
 import com.heihu.workorder.dto.CreateUserRequest;
 import com.heihu.workorder.dto.ResetPasswordResponse;
+import com.heihu.workorder.dto.ResetPasswordRequest;
 import com.heihu.workorder.dto.UpdatePermissionRequest;
 import com.heihu.workorder.dto.UpdateStatusRequest;
 import com.heihu.workorder.dto.UpdateUserRequest;
@@ -66,10 +67,12 @@ public class UserController {
     @PatchMapping("/{id}/password/reset")
     public ResetPasswordResponse resetPassword(
             @RequestHeader(value = "Authorization", required = false) String authorization,
-            @PathVariable Long id
+            @PathVariable Long id,
+            @Valid @RequestBody(required = false) ResetPasswordRequest request
     ) {
         AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
-        return userService.resetPassword(currentUser.getFactoryId(), id);
+        String password = request == null ? null : request.getPassword();
+        return userService.resetPassword(currentUser.getFactoryId(), id, password);
     }
 
     @PatchMapping("/{id}/phone/unbind")

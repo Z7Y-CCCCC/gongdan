@@ -1,12 +1,13 @@
 {
   "name": "heihu-workorder-mobile",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:mp-weixin": "uni build -p mp-weixin",
     "dev:h5": "uni -p h5",
-    "build:h5": "uni build -p h5",
+    "build": "npm run typecheck && npm run build:h5",
+    "build:h5": "uni build -p h5 && node scripts/copy-public-assets.mjs",
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
@@ -27,6 +28,7 @@
     "@dcloudio/types": "^3.4.14",
     "@dcloudio/vite-plugin-uni": "3.0.0-4020920240930001",
     "@vitejs/plugin-vue": "^5.0.4",
+    "sass": "^1.101.3",
     "typescript": "~5.7.2",
     "vite": "^5.2.8",
     "vue-tsc": "^2.2.0"

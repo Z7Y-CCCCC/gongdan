@@ -61,7 +61,7 @@ class SuperAdminIntegrationTest {
 
     private static final AtomicInteger counter = new AtomicInteger(0);
     private static final String ADMIN_FACTORY_CODE = "ADMIN";
-    private static final String ADMIN_PASSWORD = "admin123";
+    private static final String ADMIN_PASSWORD = "test-super-admin-pass";
 
     @BeforeEach
     void ensureAdminFactoryExists() {

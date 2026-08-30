@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch, type CSSProperties } from 'vue'
 import QRCode from 'qrcode'
-import ExcelJS from 'exceljs'
-import { saveAs } from 'file-saver'
 import {
   createWorkOrder,
   deleteWorkOrder,
@@ -28,11 +26,18 @@ import {
   fetchSystemImportLogs,
   createSystemImportLog,
   fetchSystemOperationLogs,
-  createSystemOperationLog
+  createSystemOperationLog,
+  fetchCustomFieldAttachmentBlob,
+  fetchReportImageBlob,
+  fetchBoms,
+  type BomInfo,
+  type WorkOrderMaterialPayload
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import SystemLogsDialog from './SystemLogsDialog.vue'
+import UiIcon from './UiIcon.vue'
+import ColumnSettingsPanel, { type ColumnSetting } from './ColumnSettingsPanel.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -42,6 +47,7 @@ const { visible: deleteVisible, title: deleteTitle, message: deleteMessage, load
 const workOrders = ref<WorkOrderInfo[]>([])
 const categories = ref<WorkOrderCategoryInfo[]>([])
 const products = ref<ProductInfo[]>([])
+const boms = ref<BomInfo[]>([])
 const selectedProduct = computed(() => {
   if (!form.productId) return null
   return products.value.find(p => p.id === form.productId) || null
@@ -81,17 +87,100 @@ function hideTaskTooltip() {
   taskTooltip.visible = false
 }
 
-const columnDefinitions = [
-  { key: 'code', label: '工单编号' },
-  { key: 'productCode', label: '产品编号' },
-  { key: 'productName', label: '产品名称' },
-  { key: 'productSpec', label: '产品规格' },
-  { key: 'plannedQuantity', label: '计划数' },
-  { key: 'status', label: '状态' },
-  { key: 'priority', label: '优先级' },
-  { key: 'routeName', label: '工单进度条' }
+function taskProgressPercent(task: any) {
+  const planned = Math.max(1, Number(task?.plannedQuantity || 0))
+  return Math.round(Number(task?.completedQuantity || 0) / planned * 100)
+}
+
+function taskProgressState(task: any) {
+  const planned = Number(task?.plannedQuantity || 0)
+  const completed = Number(task?.completedQuantity || 0)
+  if (planned > 0 && completed === planned) return 'complete'
+  if (planned > 0 && completed > planned) return 'over'
+  return 'pending'
+}
+
+const columnDefinitions: ColumnSetting[] = [
+  { key: 'code', label: '工单编号', visible: true, width: 150, fixed: 'left' },
+  { key: 'productCode', label: '产品编号', visible: true, width: 130, fixed: 'none' },
+  { key: 'productName', label: '产品名称', visible: true, width: 150, fixed: 'none' },
+  { key: 'productSpec', label: '产品规格', visible: true, width: 150, fixed: 'none' },
+  { key: 'plannedQuantity', label: '计划数', visible: true, width: 100, fixed: 'none' },
+  { key: 'status', label: '状态', visible: true, width: 100, fixed: 'none' },
+  { key: 'priority', label: '优先级', visible: true, width: 100, fixed: 'none' },
+  { key: 'routeName', label: '工单进度条', visible: true, width: 360, fixed: 'none' },
+  { key: 'actions', label: '操作', visible: true, width: 130, fixed: 'right' }
 ]
+const defaultColumnSettings = columnDefinitions.map(column => ({ ...column }))
+const workOrderColumns = ref<ColumnSetting[]>(columnDefinitions.map(column => ({ ...column })))
 const visibleColumns = ref<string[]>(columnDefinitions.map(c => c.key))
+const visibleWorkOrderColumns = computed(() => workOrderColumns.value.filter(column => column.visible))
+
+function syncVisibleWorkOrderColumns() {
+  visibleColumns.value = workOrderColumns.value.filter(column => column.visible).map(column => column.key)
+}
+
+function workOrderColumnStyle(column: ColumnSetting, header = false): CSSProperties {
+  const currentIndex = visibleWorkOrderColumns.value.findIndex(item => item.key === column.key)
+  const leftWidth = visibleWorkOrderColumns.value
+    .slice(0, currentIndex)
+    .filter(item => item.fixed === 'left')
+    .reduce((sum, item) => sum + item.width, 48)
+  const rightWidth = visibleWorkOrderColumns.value
+    .slice(currentIndex + 1)
+    .filter(item => item.fixed === 'right')
+    .reduce((sum, item) => sum + item.width, 0)
+  const fixed = column.fixed !== 'none'
+  const style: CSSProperties = {
+    width: `${column.width}px`,
+    minWidth: `${column.width}px`,
+  }
+  if (fixed) {
+    style.position = 'sticky'
+    style.zIndex = header ? 12 : 3
+    style.background = header ? 'var(--table-head-bg)' : 'var(--table-row-bg)'
+    if (column.fixed === 'left') style.left = `${leftWidth}px`
+    else style.right = `${rightWidth}px`
+  }
+  return style
+}
+
+function restoreWorkOrderColumnSettings(savedPreference?: Array<string | ColumnSetting>) {
+  const actionKey = 'actions'
+  const savedList = Array.isArray(savedPreference) ? savedPreference : []
+  const detailed = savedList.some(item => typeof item === 'object' && item !== null)
+  const savedKeys = savedList
+    .map(item => typeof item === 'string' ? item : item.key)
+    .filter(Boolean)
+  const saved = savedKeys.length > 0 ? new Set([...savedKeys, actionKey]) : null
+  const savedByKey = detailed
+    ? new Map(savedList.filter((item): item is ColumnSetting => typeof item === 'object' && item !== null).map(item => [item.key, item]))
+    : new Map<string, ColumnSetting>()
+  const order = savedKeys.length > 0
+    ? [
+        ...savedKeys.filter(key => key !== actionKey),
+        ...columnDefinitions.map(column => column.key).filter(key => key !== actionKey && !savedKeys.includes(key)),
+        actionKey
+      ]
+    : [...columnDefinitions.map(column => column.key).filter(key => key !== actionKey), actionKey]
+  workOrderColumns.value = order
+    .map(key => columnDefinitions.find(column => column.key === key))
+    .filter((column): column is ColumnSetting => Boolean(column))
+    .map(column => {
+      const stored = savedByKey.get(column.key)
+      const fixed = stored?.fixed === 'left' || stored?.fixed === 'right' || stored?.fixed === 'none'
+        ? stored.fixed
+        : column.fixed
+      return {
+        ...column,
+        ...(stored || {}),
+        visible: detailed ? stored?.visible ?? column.visible : column.key === actionKey ? true : saved ? saved.has(column.key) : true,
+        fixed,
+        locked: false
+      }
+    })
+  syncVisibleWorkOrderColumns()
+}
 
 // 筛选、行高、导入日志、操作记录
 const showFilterPanel = ref(false)
@@ -204,8 +293,13 @@ const form = reactive({
   categoryId: '' as number | '',
   customValues: [] as WorkOrderCustomValue[],
   tasks: [] as WorkOrderTaskPayload[],
-  materials: [] as any[],
+  materials: [] as WorkOrderMaterialPayload[],
   version: 0
+})
+
+const selectedProductBom = computed(() => {
+  if (!form.productId) return null
+  return boms.value.find(item => item.productId === Number(form.productId) && item.enabled) || null
 })
 
 function isToday(item: WorkOrderInfo) {
@@ -357,18 +451,20 @@ function resetForm() {
     defectRate: '',
     customValues: [],
     tasks: [],
+    materials: [],
     version: 0
   })
 }
 
 async function loadData() {
-  const [orderRes, productRes, processRes, routeRes, fieldRes, categoryRes] = await Promise.all([
+  const [orderRes, productRes, processRes, routeRes, fieldRes, categoryRes, bomRes] = await Promise.all([
     fetchWorkOrders(props.token, { size: 500 }),
     fetchProducts(props.token, { size: 500 }),
     fetchProcesses(props.token, { size: 500 }),
     fetchProcessRoutes(props.token, { size: 500 }),
     fetchCustomFields(props.token, 'workorder'),
-    fetchWorkOrderCategories(props.token)
+    fetchWorkOrderCategories(props.token),
+    fetchBoms(props.token, { size: 500 })
   ])
   workOrders.value = orderRes.items
   products.value = productRes.items
@@ -376,14 +472,18 @@ async function loadData() {
   routes.value = routeRes.items
   customFields.value = fieldRes.items
   categories.value = categoryRes
+  boms.value = bomRes.items
   
   try {
     const pref = await fetchUserPreference(props.token, 'WORK_ORDER_COLUMNS')
     if (pref && pref.value) {
-      visibleColumns.value = JSON.parse(pref.value)
+      const savedColumns = JSON.parse(pref.value)
+      restoreWorkOrderColumnSettings(Array.isArray(savedColumns) ? savedColumns : undefined)
+    } else {
+      restoreWorkOrderColumnSettings()
     }
   } catch (e) {
-    // ignore
+    restoreWorkOrderColumnSettings()
   }
 
   try {
@@ -439,9 +539,20 @@ async function removeCategory(item: any, event: Event) {
   }
 }
 
-async function handleSaveColumns() {
+async function handleSaveColumns(settings = workOrderColumns.value) {
   try {
-    await setUserPreference(props.token, 'WORK_ORDER_COLUMNS', JSON.stringify(visibleColumns.value))
+    const normalized = settings.map(column => {
+      const base = columnDefinitions.find(item => item.key === column.key)
+      return { ...(base || column), ...column, locked: false }
+    })
+    const actionColumn = normalized.find(column => column.key === 'actions')
+      || { ...columnDefinitions.find(column => column.key === 'actions')!, locked: false }
+    workOrderColumns.value = [
+      ...normalized.filter(column => column.key !== 'actions'),
+      { ...actionColumn }
+    ]
+    syncVisibleWorkOrderColumns()
+    await setUserPreference(props.token, 'WORK_ORDER_COLUMNS', JSON.stringify(workOrderColumns.value))
     showColumnModal.value = false
     emit('notice', '列配置已保存')
   } catch (e) {
@@ -475,6 +586,7 @@ function openEdit(item: WorkOrderInfo) {
     categoryId: item.categoryId || '',
     customValues: JSON.parse(JSON.stringify(item.customValues || [])),
     tasks: JSON.parse(JSON.stringify(item.tasks || [])),
+    materials: JSON.parse(JSON.stringify(item.materials || [])),
     version: item.version
   })
   syncCustomValues()
@@ -534,6 +646,9 @@ function toggleMultipleSelectValue(field: CustomFieldInfo, optValue: string, che
 }
 
 const uploadingFieldId = ref<number | null>(null)
+const customFieldPreviewUrls = ref<Record<string, string>>({})
+const loadingCustomFieldPreviews = new Set<string>()
+const failedCustomFieldPreviews = new Set<string>()
 
 async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
   const target = event.target as HTMLInputElement
@@ -544,8 +659,11 @@ async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
   try {
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('scope', 'workorder')
+    formData.append('fieldId', String(field.id))
+    formData.append('fieldType', field.fieldType)
     
-    const response = await fetch('/api/mobile/reports/images', {
+    const response = await fetch('/api/custom-field-attachments', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${props.token}`
@@ -565,6 +683,7 @@ async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
     const data = await response.json()
     const currentVal = String(getCustomValue(field) || '')
     const newPath = data.accessPath
+    customFieldPreviewUrls.value[newPath] = URL.createObjectURL(file)
     const updatedVal = currentVal ? `${currentVal},${newPath}` : newPath
     setCustomValue(field, updatedVal)
     emit('notice', '文件上传成功')
@@ -579,9 +698,62 @@ async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
 function removeCustomFieldPath(field: CustomFieldInfo, index: number) {
   const currentVal = String(getCustomValue(field) || '')
   const paths = currentVal.split(',').filter(Boolean)
+  const removed = paths[index]
+  if (removed && customFieldPreviewUrls.value[removed]) {
+    URL.revokeObjectURL(customFieldPreviewUrls.value[removed])
+    delete customFieldPreviewUrls.value[removed]
+  }
   paths.splice(index, 1)
   setCustomValue(field, paths.join(','))
 }
+
+function customFieldPreview(path: string) {
+  if (customFieldPreviewUrls.value[path]) return customFieldPreviewUrls.value[path]
+  if (isProtectedCustomFieldPath(path)) {
+    void loadProtectedCustomFieldPreview(path)
+    return ''
+  }
+  return path
+}
+
+function isProtectedCustomFieldPath(path: string) {
+  return customFieldAttachmentId(path) !== null || reportImageId(path) !== null
+}
+
+function customFieldAttachmentId(path: string) {
+  const match = path.match(/^\/api\/custom-field-attachments\/(\d+)\/file$/)
+  return match ? Number(match[1]) : null
+}
+
+function reportImageId(path: string) {
+  const match = path.match(/^\/api\/(?:mobile\/)?reports\/images\/(\d+)\/file$/)
+  return match ? Number(match[1]) : null
+}
+
+async function loadProtectedCustomFieldPreview(path: string) {
+  if (customFieldPreviewUrls.value[path] || loadingCustomFieldPreviews.has(path) || failedCustomFieldPreviews.has(path)) {
+    return
+  }
+  loadingCustomFieldPreviews.add(path)
+  try {
+    const attachmentId = customFieldAttachmentId(path)
+    const blob = attachmentId !== null
+      ? await fetchCustomFieldAttachmentBlob(props.token, attachmentId)
+      : await fetchReportImageBlob(props.token, reportImageId(path) as number)
+    customFieldPreviewUrls.value = {
+      ...customFieldPreviewUrls.value,
+      [path]: URL.createObjectURL(blob)
+    }
+  } catch (e) {
+    failedCustomFieldPreviews.add(path)
+  } finally {
+    loadingCustomFieldPreviews.delete(path)
+  }
+}
+
+onBeforeUnmount(() => {
+  Object.values(customFieldPreviewUrls.value).forEach(url => URL.revokeObjectURL(url))
+})
 
 function toInputTime(value?: string) {
   return value ? value.replace(' ', 'T').slice(0, 16) : ''
@@ -858,6 +1030,47 @@ function onTaskDragEnd() {
   taskDraggingIdx.value = -1
 }
 
+function addMaterial() {
+  form.materials.push({
+    materialCode: '',
+    materialName: '',
+    materialSpec: '',
+    quantity: Math.max(1, Number(form.plannedQuantity || 1))
+  })
+}
+
+function removeMaterial(index: number) {
+  form.materials.splice(index, 1)
+}
+
+function applyBomMaterials() {
+  const bom = selectedProductBom.value
+  if (!bom) {
+    emit('notice', '当前产品没有启用的物料清单')
+    return
+  }
+  const plannedQty = Math.max(1, Number(form.plannedQuantity || 1))
+  const outputQty = Math.max(1, Number(bom.outputQuantity || 1))
+  form.materials = bom.items.map(item => ({
+    materialCode: item.productCode || '',
+    materialName: item.productName || '',
+    materialSpec: item.productSpec || '',
+    quantity: Math.max(1, Math.ceil(Number(item.quantity || 0) * plannedQty / outputQty))
+  }))
+  emit('notice', `已按 BOM「${bom.code}」带入 ${form.materials.length} 条用料`)
+}
+
+function normalizedMaterials() {
+  return form.materials
+    .map(item => ({
+      materialCode: (item.materialCode || '').trim(),
+      materialName: (item.materialName || '').trim(),
+      materialSpec: (item.materialSpec || '').trim(),
+      quantity: Math.max(0, Math.floor(Number(item.quantity || 0)))
+    }))
+    .filter(item => item.materialName && item.quantity > 0)
+}
+
 async function saveOrder() {
   if (!form.productId) {
     emit('notice', '请选择产品')
@@ -885,7 +1098,7 @@ async function saveOrder() {
     categoryId: form.categoryId ? Number(form.categoryId) : undefined,
     customValues: form.customValues,
     tasks: form.tasks,
-    materials: [],
+    materials: normalizedMaterials(),
     version: editing.value ? form.version : undefined
   }
   try {
@@ -1490,6 +1703,17 @@ const customTemplates = ref({
   }
 })
 
+function getQr8060RowLabel(row: number): string {
+  const template = customTemplates.value.qr_80_60 as Record<string, string | string[]>
+  const value = template[`row${row}Label`]
+  return typeof value === 'string' ? value : ''
+}
+
+function getQr8060RowFields(row: number): string[] {
+  const template = customTemplates.value.qr_80_60 as Record<string, string | string[]>
+  return ensureFieldArray(template[`row${row}Field`], [])
+}
+
 function loadCustomTemplates() {
   try {
     const saved = localStorage.getItem('print_templates_data')
@@ -1569,6 +1793,14 @@ function getMultiFieldValues(order: any, fields: any): string[] {
 
 const qrDataUrls = ref<Record<number, string>>({})
 
+function getMobileBaseUrl() {
+  const configuredBase = (import.meta.env.VITE_MOBILE_BASE_URL || '').trim()
+  if (configuredBase) {
+    return new URL(configuredBase.replace(/\/?$/, '/'), window.location.origin).toString().replace(/\/$/, '')
+  }
+  return `${window.location.protocol}//${window.location.hostname}:5174`
+}
+
 async function generateAllQrs() {
   loadCustomTemplates()
   const newUrls: Record<number, string> = {}
@@ -1579,9 +1811,7 @@ async function generateAllQrs() {
     const source = currentTpl.qrSource
     let qrText = ''
     if (source === '工单外链') {
-      // 使用与当前页面相同的 hostname（局域网 IP），但端口改为移动端 H5 的 5174
-      const hostname = window.location.hostname
-      const mobileBase = `http://${hostname}:5174`
+      const mobileBase = getMobileBaseUrl()
       qrText = `${mobileBase}/#/pages/work-order-detail/index?id=${order.id}&code=${encodeURIComponent(order.code || '')}`
     } else {
       qrText = getFieldValue(order, source) || order.code || String(id)
@@ -1629,6 +1859,10 @@ async function doExcelPrint(action: 'wps' | 'download') {
     return
   }
 
+  const [{ default: ExcelJS }, { saveAs }] = await Promise.all([
+    import('exceljs'),
+    import('file-saver')
+  ])
   const tplType = selectedExcelTpl.value
   const wb = new ExcelJS.Workbook()
   wb.creator = '小工单管理系统'
@@ -1907,9 +2141,20 @@ function closeDropdowns(e: Event) {
   }
 }
 
+let hasLoadedOnce = false
+
 onMounted(() => {
-  loadData()
+  loadData().finally(() => {
+    hasLoadedOnce = true
+  })
   window.addEventListener('click', closeDropdowns)
+})
+
+// 工单页被 KeepAlive 暂存后重新进入时，刷新产品、工序和工艺路线，避免基础数据停留在旧快照。
+onActivated(() => {
+  if (hasLoadedOnce) {
+    void loadData()
+  }
 })
 
 onUnmounted(() => {
@@ -2008,9 +2253,8 @@ onUnmounted(() => {
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         导入
       </button>
-      <button class="text-btn" type="button" style="color: #586360; margin-left: 8px;" @click="showColumnModal = true">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"></line><line x1="4" y1="10" x2="4" y2="3"></line><line x1="12" y1="21" x2="12" y2="12"></line><line x1="12" y1="8" x2="12" y2="3"></line><line x1="20" y1="21" x2="20" y2="16"></line><line x1="20" y1="12" x2="20" y2="3"></line><line x1="1" y1="14" x2="7" y2="14"></line><line x1="9" y1="8" x2="15" y2="8"></line><line x1="17" y1="16" x2="23" y2="16"></line></svg>
-        字段配置
+      <button class="table-config-trigger" type="button" style="margin-left: 8px;" title="字段配置" @click="showColumnModal = true">
+        <UiIcon name="table-columns" :size="16" />
       </button>
       <button class="text-btn" type="button" style="color: #586360; margin-left: 8px;" @click="toggleSort">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="13" y2="6"></line><line x1="4" y1="12" x2="11" y2="12"></line><line x1="4" y1="18" x2="11" y2="18"></line><polyline points="15 16 18 19 21 16"></polyline><line x1="18" y1="5" x2="18" y2="19"></line></svg>
@@ -2085,21 +2329,9 @@ onUnmounted(() => {
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
         打印
       </button>
-      <button class="toolbar-btn" type="button" @click="$emit('notice', '维护工艺正在开发中...')">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>
-        维护工艺
-      </button>
-      <button class="toolbar-btn" type="button" @click="$emit('notice', '优先级修改正在开发中...')">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-        优先级
-      </button>
       <button class="toolbar-btn" type="button" @click="handleEditSelected">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
         修改
-      </button>
-      <button class="toolbar-btn" type="button" @click="$emit('notice', '报工功能正在开发中...')">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-        报工
       </button>
       <button class="toolbar-btn" type="button" @click="handleDeleteSelected" style="color: #e74c3c;">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
@@ -2151,112 +2383,67 @@ onUnmounted(() => {
         <input type="datetime-local" v-model="filterParams.planEndMax" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s;" />
       </label>
       <div class="filter-actions">
-        <button class="ghost-btn query-btn" type="button" @click="resetFilters" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;">重置</button>
-        <button class="primary-btn query-btn" type="button" @click="showFilterPanel = false" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;">收起</button>
+        <button class="ghost-btn query-btn" type="button" @click="resetFilters" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;"><UiIcon name="reset" />重置</button>
+        <button class="primary-btn query-btn" type="button" @click="showFilterPanel = false" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;"><UiIcon name="chevronUp" />收起</button>
       </div>
     </div>
 
     <div class="table-container">
-      <table class="data-table" :class="`row-height-${rowHeight}`">
+      <table class="data-table work-order-data-table" :class="`row-height-${rowHeight}`">
         <thead>
           <tr>
-            <th style="width:48px"><input type="checkbox" :checked="allSelected" @change="toggleAll(($event.target as HTMLInputElement).checked)" /></th>
-            <th v-if="visibleColumns.includes('code')">工单编号</th>
-            <th v-if="visibleColumns.includes('productCode')">产品编号</th>
-            <th v-if="visibleColumns.includes('productName')">产品名称</th>
-            <th v-if="visibleColumns.includes('productSpec')">产品规格</th>
-            <th v-if="visibleColumns.includes('plannedQuantity')">计划数</th>
-            <th v-if="visibleColumns.includes('status')">状态</th>
-            <th v-if="visibleColumns.includes('priority')">优先级</th>
-            <th v-if="visibleColumns.includes('routeName')">工单进度条</th>
-            <th style="width:130px">操作</th>
+            <th class="work-order-select-column"><input type="checkbox" :checked="allSelected" @change="toggleAll(($event.target as HTMLInputElement).checked)" /></th>
+            <th
+              v-for="column in visibleWorkOrderColumns"
+              :key="column.key"
+              :style="workOrderColumnStyle(column, true)"
+            >
+              <template v-if="column.key === 'actions'">{{ column.label }}</template>
+              <template v-else>{{ column.label }}</template>
+            </th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="item in filteredOrders" :key="item.id">
-            <td><input type="checkbox" :checked="selectedIds.includes(item.id)" @change="toggleOne(item.id, ($event.target as HTMLInputElement).checked)" /></td>
-            <td v-if="visibleColumns.includes('code')">{{ item.code }}</td>
-            <td v-if="visibleColumns.includes('productCode')">{{ item.productCode }}</td>
-            <td v-if="visibleColumns.includes('productName')">{{ item.productName }}</td>
-            <td v-if="visibleColumns.includes('productSpec')">{{ item.productSpec || '-' }}</td>
-            <td v-if="visibleColumns.includes('plannedQuantity')">{{ item.plannedQuantity }}</td>
-            <td v-if="visibleColumns.includes('status')" class="green-link">{{ statusLabel(item.status) }}</td>
-            <td v-if="visibleColumns.includes('priority')">{{ priorityLabel(item.priority) }}</td>
-            <td v-if="visibleColumns.includes('routeName')">
-              <div style="display: flex; align-items: center; flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 6px 0; gap: 4px; max-width: 320px;" class="scroll-thin">
-                <div v-for="(task, i) in item.tasks" :key="i" style="display: flex; align-items: center; position: relative;">
-                  <!-- 工序步骤节点 -->
-                  <div 
-                    style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 68px; flex-shrink: 0; cursor: pointer; position: relative; z-index: 2;"
-                    @mouseenter="showTaskTooltip($event, task)"
-                    @mouseleave="hideTaskTooltip"
-                  >
-                    <!-- 进度圆环 -->
-                    <div 
-                      :style="{
-                        width: '48px',
-                        height: '48px',
-                        borderRadius: '50%',
-                        background: '#ffffff',
-                        border: '2.5px solid',
-                        borderColor: (task.completedQuantity || 0) >= (task.plannedQuantity || 1) ? '#0066cc' : (task.completedQuantity || 0) > 0 ? '#fa8c16' : '#d9d9d9',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '12.5px',
-                        fontWeight: 'bold',
-                        color: (task.completedQuantity || 0) >= (task.plannedQuantity || 1) ? '#0066cc' : (task.completedQuantity || 0) > 0 ? '#fa8c16' : '#8a9693',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.05)',
-                        transition: 'all 0.2s'
-                      }"
-                    >
-                      {{ Math.round(((task.completedQuantity || 0) / (task.plannedQuantity || 1)) * 100) }}%
+            <td class="work-order-select-column"><input type="checkbox" :checked="selectedIds.includes(item.id)" @change="toggleOne(item.id, ($event.target as HTMLInputElement).checked)" /></td>
+            <td
+              v-for="column in visibleWorkOrderColumns"
+              :key="column.key"
+              :class="{ 'action-cell': column.key === 'actions' }"
+              :style="workOrderColumnStyle(column)"
+            >
+              <template v-if="column.key === 'actions'">
+                <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
+                <button class="action-link danger" type="button" @click="removeOrder(item)">删除</button>
+              </template>
+              <template v-else-if="column.key === 'code'">{{ item.code }}</template>
+              <template v-else-if="column.key === 'productCode'">{{ item.productCode }}</template>
+              <template v-else-if="column.key === 'productName'">{{ item.productName }}</template>
+              <template v-else-if="column.key === 'productSpec'">{{ item.productSpec || '-' }}</template>
+              <template v-else-if="column.key === 'plannedQuantity'">{{ item.plannedQuantity }}</template>
+              <template v-else-if="column.key === 'status'"><span class="green-link">{{ statusLabel(item.status) }}</span></template>
+              <template v-else-if="column.key === 'priority'">{{ priorityLabel(item.priority) }}</template>
+              <template v-else-if="column.key === 'routeName'">
+                <div style="display: flex; align-items: center; flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 6px 0; gap: 4px; max-width: 360px;" class="scroll-thin">
+                  <div v-for="(task, i) in item.tasks" :key="i" style="display: flex; align-items: center; position: relative;">
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 68px; flex-shrink: 0; cursor: pointer; position: relative; z-index: 2;" @mouseenter="showTaskTooltip($event, task)" @mouseleave="hideTaskTooltip">
+                      <div :style="{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--surface-raised)', border: '2.5px solid', borderColor: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : 'var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12.5px', fontWeight: 'bold', color: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : '#1677ff', boxShadow: '0 2px 6px rgba(0,0,0,0.05)', transition: 'all 0.2s' }">
+                        <template v-if="taskProgressState(task) === 'complete'"><UiIcon name="check" :size="16" /></template>
+                        <template v-else>{{ taskProgressPercent(task) }}%</template>
+                      </div>
+                      <span :style="{ fontSize: '13px', color: taskProgressState(task) === 'complete' ? '#0e1816' : '#8a9693', fontWeight: taskProgressState(task) === 'complete' ? '600' : 'normal', marginTop: '4px', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', maxWidth: '68px' }" :title="task.processName">{{ task.processName }}</span>
                     </div>
-                    <!-- 工序名称 -->
-                    <span 
-                      :style="{
-                        fontSize: '13px',
-                        color: (task.completedQuantity || 0) >= (task.plannedQuantity || 1) ? '#0e1816' : '#8a9693',
-                        fontWeight: (task.completedQuantity || 0) >= (task.plannedQuantity || 1) ? '600' : 'normal',
-                        marginTop: '4px',
-                        whiteSpace: 'nowrap',
-                        textOverflow: 'ellipsis',
-                        overflow: 'hidden',
-                        maxWidth: '68px'
-                      }"
-                      :title="task.processName"
-                    >
-                      {{ task.processName }}
-                    </span>
+                    <div v-if="i < item.tasks.length - 1" :style="{ width: '28px', height: '2px', background: taskProgressState(task) === 'complete' && Number(item.tasks[i+1]?.completedQuantity || 0) > 0 ? '#16a36b' : '#e5ebe9', marginTop: '-24px', flexShrink: 0, position: 'relative', zIndex: 1 }"></div>
                   </div>
-                  
-                  <!-- 连接线 -->
-                  <div 
-                    v-if="i < item.tasks.length - 1" 
-                    :style="{
-                      width: '28px',
-                      height: '2px',
-                      background: (task.completedQuantity || 0) >= (task.plannedQuantity || 1) && (item.tasks[i+1]?.completedQuantity || 0) > 0 ? '#0066cc' : '#e5ebe9',
-                      marginTop: '-24px',
-                      flexShrink: 0,
-                      position: 'relative',
-                      zIndex: 1
-                    }"
-                  ></div>
+                  <div v-if="!item.tasks || item.tasks.length === 0" style="color: #cbd6d3; font-size: 13px; padding-left: 8px;">-</div>
                 </div>
-                <!-- 暂无工序 -->
-                <div v-if="!item.tasks || item.tasks.length === 0" style="color: #cbd6d3; font-size: 13px; padding-left: 8px;">-</div>
-              </div>
-            </td>
-            <td class="action-cell">
-              <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
-              <button class="action-link danger" type="button" @click="removeOrder(item)">删除</button>
+              </template>
             </td>
           </tr>
         </tbody>
         <tfoot>
           <tr>
-            <td :colspan="visibleColumns.length + 2" style="font-size: 13px; color: #586360; background: #fdfdfd; position: sticky; bottom: 0; text-align: left; font-weight: 500;">
+            <td :colspan="visibleWorkOrderColumns.length + 1" style="font-size: 13px; color: var(--text-secondary); background: var(--surface-subtle); position: sticky; bottom: 0; text-align: left; font-weight: 500;">
               当前页合计计划数: <span style="color: #00b889;">{{ totalPlannedQuantity }}</span>
             </td>
           </tr>
@@ -2376,6 +2563,7 @@ onUnmounted(() => {
                     @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                     style="height:34px; margin:0; white-space:nowrap;"
                   >
+                    <UiIcon name="upload" />
                     {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
                   </button>
                   <input 
@@ -2392,7 +2580,8 @@ onUnmounted(() => {
                     style="position:relative; display:inline-block; width: fit-content;"
                   >
                     <img 
-                      :src="path" 
+                      v-if="customFieldPreview(path)"
+                      :src="customFieldPreview(path)"
                       alt="预览" 
                       style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
                       @error="($event.target as HTMLElement).style.display='none'"
@@ -2428,6 +2617,7 @@ onUnmounted(() => {
                     @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                     style="height:34px; margin:0; white-space:nowrap;"
                   >
+                    <UiIcon name="upload" />
                     {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
                   </button>
                   <input 
@@ -2443,7 +2633,8 @@ onUnmounted(() => {
                     style="position:relative; display:inline-block; width: fit-content;"
                   >
                     <img 
-                      :src="path" 
+                      v-if="customFieldPreview(path)"
+                      :src="customFieldPreview(path)"
                       alt="预览" 
                       style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
                       @error="($event.target as HTMLElement).style.display='none'"
@@ -2479,7 +2670,7 @@ onUnmounted(() => {
           <div class="toolbar" style="margin-bottom: 12px; padding: 0; border: none; background: transparent;">
             <template v-if="selectedTaskIndexes.length === 0">
               <div style="position: relative;" class="add-task-wrap">
-                <button class="primary-btn" type="button" @click.stop="showTaskSelector = !showTaskSelector">添加生产任务</button>
+                <button class="primary-btn" type="button" @click.stop="showTaskSelector = !showTaskSelector"><UiIcon name="plus" />添加生产任务</button>
               </div>
             </template>
             <template v-else>
@@ -2499,10 +2690,11 @@ onUnmounted(() => {
                 </button>
               </div>
             </template>
+            <TableConfigButton table-id="work-order-form-tasks-table" />
           </div>
 
           <div class="table-container" style="flex:1; border: 1px solid #dce3e0; border-radius: 4px; overflow: hidden; background: #fff;">
-            <table class="data-table" style="border: none;">
+            <table id="work-order-form-tasks-table" class="data-table" style="border: none;">
               <thead>
                 <tr>
                   <th style="width: 48px; text-align: center;"><input type="checkbox" :checked="allTasksSelected" @change="toggleTaskAll(($event.target as HTMLInputElement).checked)" /></th>
@@ -2543,7 +2735,54 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <div v-else style="padding:28px;color:#8a9693">用料清单先保留入口，后续按物料清单继续补。</div>
+        <div v-else-if="activeTab === 'material'" style="padding:18px; display:flex; flex-direction:column; min-height: 300px;">
+          <div class="toolbar" style="margin-bottom: 12px; padding: 0; border: none; background: transparent;">
+            <div class="toolbar-left">
+              <button class="primary-btn" type="button" @click="addMaterial"><UiIcon name="plus" />添加物料</button>
+              <button class="ghost-btn" type="button" :disabled="!selectedProductBom" @click="applyBomMaterials"><UiIcon name="layers" />按BOM带入</button>
+              <TableConfigButton table-id="work-order-form-materials-table" />
+              <span v-if="selectedProductBom" class="muted">已匹配 BOM：{{ selectedProductBom.code }}</span>
+              <span v-else class="muted">当前产品暂无启用 BOM，可手工添加</span>
+            </div>
+          </div>
+
+          <div class="table-container" style="flex:1; border: 1px solid #dce3e0; border-radius: 4px; overflow: hidden; background: #fff;">
+            <table id="work-order-form-materials-table" class="data-table" style="border: none;">
+              <thead>
+                <tr>
+                  <th style="width: 22%">物料编号</th>
+                  <th style="width: 28%">物料名称</th>
+                  <th style="width: 24%">物料规格</th>
+                  <th style="width: 16%">需求数量</th>
+                  <th style="width: 96px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(material, index) in form.materials" :key="index">
+                  <td><input v-model.trim="material.materialCode" class="table-input-sm" placeholder="请输入编号" /></td>
+                  <td><input v-model.trim="material.materialName" class="table-input-sm" placeholder="请输入名称" /></td>
+                  <td><input v-model.trim="material.materialSpec" class="table-input-sm" placeholder="请输入规格" /></td>
+                  <td>
+                    <input
+                      v-model.number="material.quantity"
+                      class="table-input-sm"
+                      type="number"
+                      min="1"
+                      step="1"
+                      style="width: 96px; text-align: center;"
+                    />
+                  </td>
+                  <td class="action-cell">
+                    <button class="action-link danger" type="button" @click="removeMaterial(index)">删除</button>
+                  </td>
+                </tr>
+                <tr v-if="form.materials.length === 0">
+                  <td colspan="5" style="text-align: center; padding: 40px; color: #8a9693;">暂无用料，请添加物料或按 BOM 带入</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
@@ -2609,27 +2848,14 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 字段配置弹窗 -->
-    <div v-if="showColumnModal" class="modal-backdrop">
-      <div class="modal workorder-modal" style="width: 520px;">
-        <div class="modal-header">
-          <h2>字段配置</h2>
-          <button class="close-btn" type="button" @click="showColumnModal = false">×</button>
-        </div>
-        <div style="padding: 24px; max-height: 480px; overflow-y: auto;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-            <label v-for="col in columnDefinitions" :key="col.key" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" :value="col.key" v-model="visibleColumns" style="accent-color: #00b889; width: 16px; height: 16px;" />
-              <span style="font-size: 14px; color: #1e2724;">{{ col.label }}</span>
-            </label>
-          </div>
-          <div style="text-align: right; margin-top: 24px;">
-            <button class="ghost-btn" style="margin-right: 12px;" @click="showColumnModal = false">取消</button>
-            <button class="primary-btn" @click="handleSaveColumns">保存配置</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ColumnSettingsPanel
+      v-if="showColumnModal"
+      v-model="workOrderColumns"
+      :defaults="defaultColumnSettings"
+      title="字段配置"
+      @confirm="handleSaveColumns"
+      @cancel="showColumnModal = false"
+    />
 
     <div v-if="showPrintModal" class="modal-backdrop">
       <div class="modal workorder-modal" style="width: 760px;">
@@ -2664,7 +2890,7 @@ onUnmounted(() => {
               </label>
             </div>
             <div style="text-align: center; margin-top: 32px;">
-              <button class="primary-btn" type="button" @click="doPrint" style="padding: 0 32px;">直接打印</button>
+              <button class="primary-btn" type="button" @click="doPrint" style="padding: 0 32px;"><UiIcon name="print" />直接打印</button>
             </div>
           </div>
           <!-- Excel 模板打印 -->
@@ -2701,8 +2927,8 @@ onUnmounted(() => {
               </label>
             </div>
             <div style="text-align: center; margin-top: 32px; display: flex; justify-content: center; gap: 16px;">
-              <button class="primary-btn" type="button" @click="doExcelPrint('wps')" style="padding: 0 24px; background: #00b889;">WPS打印</button>
-              <button class="ghost-btn" type="button" @click="doExcelPrint('download')" style="padding: 0 24px; color: #00b889; border-color: #00b889;">下载打印</button>
+              <button class="primary-btn" type="button" @click="doExcelPrint('wps')" style="padding: 0 24px; background: #00b889;"><UiIcon name="print" />WPS打印</button>
+              <button class="ghost-btn" type="button" @click="doExcelPrint('download')" style="padding: 0 24px; color: #00b889; border-color: #00b889;"><UiIcon name="download" />下载打印</button>
             </div>
           </div>
         </div>
@@ -2756,9 +2982,9 @@ onUnmounted(() => {
             <div class="qr-80-60-body">
               <div class="qr-80-60-left">
                 <div v-for="i in 5" :key="'print-row-'+i" class="qr-80-60-info-row">
-                  <div class="qr-80-60-lbl">{{ customTemplates.qr_80_60[`row${i}Label`] }}</div>
+                  <div class="qr-80-60-lbl">{{ getQr8060RowLabel(i) }}</div>
                   <div class="qr-80-60-val">
-                    <div v-for="(v, vi) in getMultiFieldValues(getWorkOrder(id), customTemplates.qr_80_60[`row${i}Field`])" :key="vi">{{ v }}</div>
+                    <div v-for="(v, vi) in getMultiFieldValues(getWorkOrder(id), getQr8060RowFields(i))" :key="vi">{{ v }}</div>
                   </div>
                 </div>
                 <div class="qr-80-60-info-row qr-80-60-remark-row">
@@ -3030,7 +3256,7 @@ onUnmounted(() => {
           </span>
         </div>
         <div style="display: flex; gap: 12px;">
-          <button class="ghost-btn" type="button" @click="showTaskSelector = false" style="padding: 8px 20px; font-size: 13px;">取消</button>
+          <button class="ghost-btn" type="button" @click="showTaskSelector = false" style="padding: 8px 20px; font-size: 13px;"><UiIcon name="close" />取消</button>
           <button 
             class="primary-btn" 
             type="button" 
@@ -3043,6 +3269,7 @@ onUnmounted(() => {
               cursor: (taskSelectorActiveTab === 'process' ? taskSelectorSelectedProcesses.length === 0 : taskSelectorSelectedRoutes.length === 0) ? 'not-allowed' : 'pointer'
             }"
           >
+            <UiIcon name="plus" />
             确认添加
             <span v-if="taskSelectorActiveTab === 'process' && taskSelectorSelectedProcesses.length > 0">({{ taskSelectorSelectedProcesses.length }})</span>
             <span v-else-if="taskSelectorActiveTab === 'route' && taskSelectorSelectedRoutes.length > 0">({{ taskSelectorSelectedRoutes.length }})</span>
@@ -3096,6 +3323,25 @@ onUnmounted(() => {
 
 .scroll-thin::-webkit-scrollbar-thumb:hover {
   background-color: #0066cc !important;
+}
+
+.table-input-sm {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #d5dedb;
+  border-radius: 4px;
+  padding: 0 8px;
+  color: #1e2724;
+  background: #fff;
+  font-size: 13px;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.table-input-sm:focus {
+  border-color: #00b889;
+  box-shadow: 0 0 0 2px rgba(0, 184, 137, 0.12);
 }
 
 .row-height-compact th, .row-height-compact td {

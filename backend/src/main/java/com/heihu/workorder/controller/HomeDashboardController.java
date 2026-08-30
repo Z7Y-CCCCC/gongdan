@@ -9,15 +9,14 @@ import com.heihu.workorder.enums.WorkOrderStatusTab;
 import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.HomeDashboardService;
 import com.heihu.workorder.service.TokenService;
+import com.heihu.workorder.util.DateTimeParser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeParseException;
 
 @RestController
 @RequestMapping("/api/home-dashboard")
-@CrossOrigin(origins = "*")
 public class HomeDashboardController {
 
     private final HomeDashboardService homeDashboardService;
@@ -107,14 +106,7 @@ public class HomeDashboardController {
         }
 
         // 解析 since 参数
-        LocalDateTime sinceDateTime = null;
-        if (since != null && !since.trim().isEmpty()) {
-            try {
-                sinceDateTime = LocalDateTime.parse(since);
-            } catch (DateTimeParseException e) {
-                throw new IllegalArgumentException("Invalid 'since' parameter: " + since);
-            }
-        }
+        LocalDateTime sinceDateTime = DateTimeParser.parse(since);
 
         RecentReportListResponse response = homeDashboardService.listRecentReports(
                 currentUser.getFactoryId(), sinceDateTime, limit);

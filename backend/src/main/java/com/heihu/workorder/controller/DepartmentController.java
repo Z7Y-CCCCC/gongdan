@@ -3,7 +3,9 @@ package com.heihu.workorder.controller;
 import com.heihu.workorder.dto.CreateDepartmentRequest;
 import com.heihu.workorder.dto.DepartmentResponse;
 import com.heihu.workorder.dto.UpdateDepartmentRequest;
+import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.DepartmentService;
+import com.heihu.workorder.service.TokenService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -26,37 +28,28 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/departments")
-@CrossOrigin(origins = "*")
 public class DepartmentController {
 
     private final DepartmentService departmentService;
+    private final TokenService tokenService;
 
-    public DepartmentController(DepartmentService departmentService) {
+    public DepartmentController(DepartmentService departmentService, TokenService tokenService) {
         this.departmentService = departmentService;
-    }
-
-    private Long extractFactoryId(String token) {
-        if (token != null && token.startsWith("Bearer ")) {
-            String idStr = token.substring(7);
-            try {
-                return Long.parseLong(idStr);
-            } catch (NumberFormatException ignored) {}
-        }
-        return 1L; // Fallback to 1L for simplicity if token is invalid
+        this.tokenService = tokenService;
     }
 
     @GetMapping
     public ResponseEntity<Map<String, Object>> listDepartments(
-            @RequestHeader(value = "Authorization", required = false) String token,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam(required = false) String code,
             @RequestParam(required = false) String name,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        Long factoryId = extractFactoryId(token);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         // Page index starts from 0 in Spring Data
         PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<DepartmentResponse> departments = departmentService.listDepartments(factoryId, code, name, pageRequest);
+        Page<DepartmentResponse> departments = departmentService.listDepartments(currentUser.getFactoryId(), code, name, pageRequest);
 
         Map<String, Object> response = new HashMap<>();
         response.put("items", departments.getContent());
@@ -66,32 +59,35 @@ public class DepartmentController {
 
     @PostMapping
     public ResponseEntity<DepartmentResponse> createDepartment(
-            @RequestHeader(value = "Authorization", required = false) String token,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody CreateDepartmentRequest request
     ) {
-        Long factoryId = extractFactoryId(token);
-        String creatorName = "管理员"; // In a real app, extract from token
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
+        Long factoryId = currentUser.getFactoryId();
+        String creatorName = currentUser.getName();
         DepartmentResponse response = departmentService.createDepartment(factoryId, creatorName, request);
         return ResponseEntity.ok(response);
     }
 
     @PutMapping("/{id}")
     public ResponseEntity<DepartmentResponse> updateDepartment(
-            @RequestHeader(value = "Authorization", required = false) String token,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id,
             @Valid @RequestBody UpdateDepartmentRequest request
     ) {
-        Long factoryId = extractFactoryId(token);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
+        Long factoryId = currentUser.getFactoryId();
         DepartmentResponse response = departmentService.updateDepartment(factoryId, id, request);
         return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteDepartment(
-            @RequestHeader(value = "Authorization", required = false) String token,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        Long factoryId = extractFactoryId(token);
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
+        Long factoryId = currentUser.getFactoryId();
         departmentService.deleteDepartment(factoryId, id);
         return ResponseEntity.ok().build();
     }

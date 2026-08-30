@@ -28,7 +28,7 @@ const loginForm = reactive({
 const loginTab = ref<'phone' | 'factory'>('factory')
 const rememberMe = ref(false)
 
-// 挂载/初始化时读取 localStorage
+// Restore saved login identifiers only. Never persist the password in browser storage.
 try {
   const saved = localStorage.getItem('gongdan_remember_me')
   if (saved) {
@@ -37,7 +37,13 @@ try {
       rememberMe.value = true
       loginForm.factoryCode = parsed.factoryCode || ''
       loginForm.username = parsed.username || ''
-      loginForm.password = parsed.password || ''
+      if (parsed.password) {
+        localStorage.setItem('gongdan_remember_me', JSON.stringify({
+          remember: true,
+          factoryCode: loginForm.factoryCode,
+          username: loginForm.username
+        }))
+      }
     }
   }
 } catch (e) {
@@ -73,8 +79,7 @@ async function handleLogin() {
       localStorage.setItem('gongdan_remember_me', JSON.stringify({
         remember: true,
         factoryCode: loginForm.factoryCode,
-        username: loginForm.username,
-        password: loginForm.password
+        username: loginForm.username
       }))
     } else {
       localStorage.removeItem('gongdan_remember_me')
@@ -203,10 +208,16 @@ async function handleSelectFactory(factoryId: number) {
   <main class="login-page">
     <section class="login-hero">
       <div class="brand">
-        <img class="logo-mark" src="/logo.jpg" alt="Logo" />
+        <span class="brand-mark"><img class="logo-mark" src="/logo.jpg" alt="数字工单通" /></span>
+        <span class="brand-name">
+          <strong>数字工单通</strong>
+          <small>生产现场协同平台</small>
+        </span>
       </div>
       <div class="hero-copy">
-        <h1>随时随地，管理车间现场</h1>
+        <p class="hero-kicker">轻量化生产执行与现场协同</p>
+        <h1>让每一张工单<br />都清楚、及时、可追溯</h1>
+        <p class="hero-description">从计划下达到移动报工，把人员、设备、物料和质量信息沉淀在同一条生产链路中。</p>
         <div class="feature-grid">
           <div class="feature-item">
             <span class="feature-icon">01</span>
@@ -230,12 +241,16 @@ async function handleSelectFactory(factoryId: number) {
             </div>
           </div>
         </div>
+        <div class="hero-assurance"><span></span> 本地部署可用 · 数据留在企业内部</div>
       </div>
     </section>
     <section class="login-panel">
       <div class="login-box">
-        <h2>欢迎登录</h2>
-        <p class="login-sub">小工单管理系统</p>
+        <div class="login-heading">
+          <span>账号登录</span>
+          <h2>进入生产工作台</h2>
+          <p class="login-sub">使用工厂账号或已绑定的手机号登录</p>
+        </div>
 
         <!-- Tab switcher -->
         <div class="login-tabs">
@@ -310,7 +325,7 @@ async function handleSelectFactory(factoryId: number) {
           <div class="remember-me-row">
             <label class="remember-me-label">
               <input type="checkbox" v-model="rememberMe" />
-              <span>记住用户名密码</span>
+              <span>记住账号</span>
             </label>
           </div>
           <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
@@ -318,6 +333,7 @@ async function handleSelectFactory(factoryId: number) {
             {{ loading ? '登录中...' : '登录' }}
           </button>
         </form>
+        <p v-if="!showFactorySelect && !showBindFactory" class="login-help">账号由工厂管理员统一创建与维护</p>
       </div>
     </section>
   </main>

@@ -16,7 +16,6 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/process-routes")
-@CrossOrigin(origins = "*")
 public class ProcessRouteController {
 
     private final ProcessRouteService routeService;
@@ -35,7 +34,7 @@ public class ProcessRouteController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
-        AuthenticatedUser cu = tokenService.requireUser(authorization);
+        AuthenticatedUser cu = tokenService.requireAdmin(authorization);
         PageRequest pr = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<ProcessRouteResponse> result = routeService.list(cu.getFactoryId(), code, name, pr);
         Map<String, Object> resp = new HashMap<>();
@@ -49,7 +48,7 @@ public class ProcessRouteController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody ProcessRouteRequest req
     ) {
-        AuthenticatedUser cu = tokenService.requireUser(authorization);
+        AuthenticatedUser cu = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(routeService.create(cu.getFactoryId(), cu.getUserId(), req));
     }
 
@@ -59,7 +58,7 @@ public class ProcessRouteController {
             @PathVariable Long id,
             @RequestBody ProcessRouteRequest req
     ) {
-        AuthenticatedUser cu = tokenService.requireUser(authorization);
+        AuthenticatedUser cu = tokenService.requireAdmin(authorization);
         return ResponseEntity.ok(routeService.update(cu.getFactoryId(), cu.getUserId(), id, req));
     }
 
@@ -68,7 +67,7 @@ public class ProcessRouteController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable Long id
     ) {
-        AuthenticatedUser cu = tokenService.requireUser(authorization);
+        AuthenticatedUser cu = tokenService.requireAdmin(authorization);
         routeService.delete(cu.getFactoryId(), id);
         return ResponseEntity.ok().build();
     }

@@ -48,6 +48,21 @@ class SmsServiceTest {
     }
 
     @Test
+    @DisplayName("验证码非消费校验后仍可消费，消费后不可复用")
+    void verifyCode_withoutConsume_shouldKeepCodeUsableUntilConsumed() {
+        smsService.sendCode("13800138101", "192.168.1.1");
+
+        SmsService.SmsCodeEntry entry = smsService.getCodeEntry("13800138101");
+        String code = entry.getCode();
+
+        assertTrue(smsService.verifyCode("13800138101", code, false), "非消费校验应通过");
+        assertFalse(entry.isVerified(), "非消费校验不应标记验证码已使用");
+        assertTrue(smsService.verifyCode("13800138101", code), "消费校验应通过");
+        assertTrue(entry.isVerified(), "消费校验应标记验证码已使用");
+        assertFalse(smsService.verifyCode("13800138101", code), "已消费验证码不能复用");
+    }
+
+    @Test
     @DisplayName("错误验证码校验失败")
     void verifyCode_withWrongCode_shouldReturnFalse() {
         smsService.sendCode("13800138002", "192.168.1.1");
@@ -84,6 +99,20 @@ class SmsServiceTest {
                 smsService.sendCode("13800138004", "192.168.1.2"));
 
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, exception.getStatus());
+    }
+
+    @Test
+    @DisplayName("短信发送器失败时返回服务不可用")
+    void sendCode_senderFailure_shouldThrowServiceUnavailable() {
+        SmsService service = new SmsService(null, null, (phone, code) -> {
+            throw new IllegalStateException("provider failed");
+        });
+
+        ApiException exception = assertThrows(ApiException.class, () ->
+                service.sendCode("13800138005", "192.168.1.3"));
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, exception.getStatus());
+        assertEquals("短信发送失败，请稍后再试", exception.getMessage());
     }
 
     @Test

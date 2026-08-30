@@ -23,7 +23,9 @@ Spring Boot + Vue 3 + MySQL 9.2 的小工单系统雏形。当前已实现电脑
 
 - 工厂代码：`HHGD`
 - 用户名：`admin`
-- 密码：`123456`
+- 密码：`local-admin-pass`
+
+本地超级管理员默认登录：工厂代码 `ADMIN`，用户名 `admin`，密码 `local-super-admin-pass`。
 
 ## 本地 MySQL 配置
 

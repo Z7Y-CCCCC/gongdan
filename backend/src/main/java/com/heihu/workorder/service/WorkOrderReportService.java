@@ -20,10 +20,6 @@ import com.heihu.workorder.repository.WorkOrderReportRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -33,80 +29,104 @@ import java.util.Locale;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 @Transactional
 public class WorkOrderReportService {
 
+    private static final Logger log = LoggerFactory.getLogger(WorkOrderReportService.class);
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final long MAX_IMAGE_SIZE = 10L * 1024L * 1024L;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final WorkOrderReportRepository reportRepository;
     private final WorkOrderReportImageRepository imageRepository;
     private final WorkOrderRepository workOrderRepository;
     private final UserRepository userRepository;
+    private final ReportImageStorage reportImageStorage;
+    private final NotificationService notificationService;
 
-    @Value("${app.upload.report-image-dir:uploads/report-images}")
-    private String reportImageDir;
+    @Value("${app.upload.pending-image-ttl-hours:24}")
+    private int pendingImageTtlHours;
 
     public WorkOrderReportService(
             WorkOrderReportRepository reportRepository,
             WorkOrderReportImageRepository imageRepository,
             WorkOrderRepository workOrderRepository,
-            UserRepository userRepository
+            UserRepository userRepository,
+            ReportImageStorage reportImageStorage,
+            NotificationService notificationService
     ) {
         this.reportRepository = reportRepository;
         this.imageRepository = imageRepository;
         this.workOrderRepository = workOrderRepository;
         this.userRepository = userRepository;
+        this.reportImageStorage = reportImageStorage;
+        this.notificationService = notificationService;
     }
 
     public WorkOrderReportImageResponse uploadImage(Long factoryId, Long userId, MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "请选择图片");
         }
-        if (file.getSize() > 10L * 1024L * 1024L) {
+        if (file.getSize() > MAX_IMAGE_SIZE) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "单张图片不能超过10MB");
         }
-        String originalName = StringUtils.hasText(file.getOriginalFilename()) ? file.getOriginalFilename() : "image";
+        String originalName = sanitizeOriginalFileName(file.getOriginalFilename());
         String ext = extension(originalName);
-        String contentType = StringUtils.hasText(file.getContentType()) ? file.getContentType() : "";
-        if (!isAllowedImage(ext, contentType)) {
+        String contentType = normalizeContentType(file.getContentType());
+        if (!isAllowedExt(ext)) {
+            ext = extensionFromContentType(contentType);
+        }
+        if (!isAllowedImageMetadata(ext, contentType)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "仅支持 jpg、jpeg、png、webp 图片");
         }
+        validateImageSignature(file, ext);
         FactoryUser uploader = requireUser(factoryId, userId);
         String storedName = UUID.randomUUID().toString().replace("-", "") + "." + ext;
-        Path root = Paths.get(reportImageDir).toAbsolutePath().normalize();
-        Path target = root.resolve(storedName).normalize();
-        try {
-            Files.createDirectories(root);
-            try (InputStream input = file.getInputStream()) {
-                Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } catch (IOException ex) {
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "图片保存失败");
-        }
+        reportImageStorage.store(storedName, file);
 
         WorkOrderReportImage image = new WorkOrderReportImage();
         image.setFactory(uploader.getFactory());
         image.setUploader(uploader);
         image.setOriginalFileName(originalName);
         image.setStoredFileName(storedName);
-        image.setAccessPath("/uploads/report-images/" + storedName);
+        image.setAccessPath("/api/reports/images/pending");
         image.setFileSize(file.getSize());
-        image.setContentType(StringUtils.hasText(contentType) ? contentType : "image/" + ext);
+        image.setContentType(StringUtils.hasText(contentType) ? contentType : resolvedContentType(ext));
         image.setCreatedAt(LocalDateTime.now());
-        return WorkOrderReportImageResponse.from(imageRepository.save(image));
+        WorkOrderReportImage saved = imageRepository.save(image);
+        saved.setAccessPath("/api/mobile/reports/images/" + saved.getId() + "/file");
+        return WorkOrderReportImageResponse.from(imageRepository.save(saved));
     }
 
+    @Transactional(readOnly = true)
+    public ReportImageDownload getImageDownload(Long factoryId, Long imageId) {
+        WorkOrderReportImage image = imageRepository.findById(imageId)
+                .filter(item -> item.getFactory().getId().equals(factoryId))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "图片不存在"));
+        return new ReportImageDownload(image, reportImageStorage.load(image.getStoredFileName()));
+    }
+
+    @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderReportResponse createReport(Long factoryId, Long userId, WorkOrderReportRequest request) {
-        FactoryUser reporter = requireUser(factoryId, userId);
+        if (request == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "请填写报工信息");
+        }
+        FactoryUser currentUser = requireUser(factoryId, userId);
+        FactoryUser reporter = resolveReporter(factoryId, request.getReporterUserId(), currentUser);
         if (request.getWorkOrderId() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "请选择工单");
         }
@@ -118,6 +138,9 @@ public class WorkOrderReportService {
         int defectQty = nonNegative(request.getDefectQuantity());
         if (reportQty <= 0 && goodQty <= 0 && defectQty <= 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "请填写报工数量");
+        }
+        if (reportQty != goodQty + defectQty) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "良品数与不良数之和必须等于报工数");
         }
         if (request.getImageIds() != null && request.getImageIds().size() > 9) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "单次报工最多上传9张图片");
@@ -152,10 +175,12 @@ public class WorkOrderReportService {
         report.setUpdatedAt(now);
         WorkOrderReport saved = reportRepository.save(report);
         attachImages(factoryId, userId, saved, request.getImageIds());
+        notificationService.publishReportSubmitted(saved);
         return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "reports.admin.list", key = "#factoryId + ':' + #status + ':' + #workOrderCode + ':' + #reporterName + ':' + #period + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<WorkOrderReportResponse> listAdmin(
             Long factoryId,
             String status,
@@ -175,12 +200,14 @@ public class WorkOrderReportService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "reports.mobile.list", key = "#factoryId + ':' + #userId + ':' + #status + ':' + #period + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<WorkOrderReportResponse> listMobile(Long factoryId, Long userId, String status, String period, Pageable pageable) {
         return reportRepository.searchMobile(factoryId, userId, parseStatus(status), periodStart(period), pageable)
                 .map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "reports.detail", key = "#factoryId + ':' + #reportId")
     public WorkOrderReportResponse get(Long factoryId, Long reportId) {
         WorkOrderReport report = reportRepository.findById(reportId)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -188,6 +215,7 @@ public class WorkOrderReportService {
         return toResponse(report);
     }
 
+    @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderReportResponse approve(Long factoryId, Long approverId, Long reportId, WorkOrderReportApprovalRequest request) {
         WorkOrderReport report = requirePending(factoryId, reportId);
         FactoryUser approver = requireUser(factoryId, approverId);
@@ -199,9 +227,12 @@ public class WorkOrderReportService {
         report.setApprovalRemark(normalize(request == null ? null : request.getRemark()));
         report.setUpdatedAt(now);
         applyApprovedReport(report, now);
-        return toResponse(reportRepository.save(report));
+        WorkOrderReport saved = reportRepository.save(report);
+        notificationService.publishReportDecision(saved, true);
+        return toResponse(saved);
     }
 
+    @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail"}, allEntries = true)
     public WorkOrderReportResponse reject(Long factoryId, Long approverId, Long reportId, WorkOrderReportApprovalRequest request) {
         WorkOrderReport report = requirePending(factoryId, reportId);
         FactoryUser approver = requireUser(factoryId, approverId);
@@ -212,7 +243,27 @@ public class WorkOrderReportService {
         report.setApprovedAt(now);
         report.setApprovalRemark(normalize(request == null ? null : request.getRemark()));
         report.setUpdatedAt(now);
-        return toResponse(reportRepository.save(report));
+        WorkOrderReport saved = reportRepository.save(report);
+        notificationService.publishReportDecision(saved, false);
+        return toResponse(saved);
+    }
+
+    @Scheduled(cron = "${app.upload.pending-image-cleanup-cron:0 0 3 * * *}")
+    public int cleanupExpiredPendingImages() {
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(Math.max(1, pendingImageTtlHours));
+        List<WorkOrderReportImage> expired = imageRepository.findByReportIsNullAndCreatedAtBefore(cutoff);
+        if (expired.isEmpty()) {
+            return 0;
+        }
+
+        List<WorkOrderReportImage> removable = expired.stream()
+                .filter(image -> reportImageStorage.delete(image.getStoredFileName()))
+                .collect(Collectors.toList());
+        if (!removable.isEmpty()) {
+            imageRepository.deleteAll(removable);
+        }
+        log.info("清理过期未绑定报工图片：expired={}, removed={}", expired.size(), removable.size());
+        return removable.size();
     }
 
     private void attachImages(Long factoryId, Long userId, WorkOrderReport report, List<Long> imageIds) {
@@ -285,6 +336,15 @@ public class WorkOrderReportService {
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "用户不存在"));
     }
 
+    private FactoryUser resolveReporter(Long factoryId, Long reporterUserId, FactoryUser currentUser) {
+        if (reporterUserId == null || reporterUserId.equals(currentUser.getId())) {
+            return currentUser;
+        }
+        return userRepository.findByIdAndFactoryId(reporterUserId, factoryId)
+                .filter(FactoryUser::isEnabled)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "生产人员不存在或已停用"));
+    }
+
     private WorkOrderReportResponse toResponse(WorkOrderReport report) {
         List<WorkOrderReportImageResponse> images = imageRepository.findByReportIdOrderByCreatedAtAsc(report.getId())
                 .stream()
@@ -355,15 +415,117 @@ public class WorkOrderReportService {
         }
     }
 
-    private boolean isAllowedImage(String ext, String contentType) {
-        boolean extOk = "jpg".equals(ext) || "jpeg".equals(ext) || "png".equals(ext) || "webp".equals(ext);
-        boolean typeOk = contentType == null || contentType.isEmpty() || contentType.toLowerCase(Locale.ROOT).startsWith("image/");
-        return extOk && typeOk;
+    private void validateImageSignature(MultipartFile file, String ext) {
+        byte[] header = new byte[12];
+        int length;
+        try (InputStream input = file.getInputStream()) {
+            length = input.read(header);
+        } catch (IOException ex) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "图片读取失败");
+        }
+        if (!hasImageSignature(ext, header, length)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "图片文件内容不合法");
+        }
+    }
+
+    private boolean hasImageSignature(String ext, byte[] header, int length) {
+        if ("jpg".equals(ext) || "jpeg".equals(ext)) {
+            return length >= 3
+                    && (header[0] & 0xFF) == 0xFF
+                    && (header[1] & 0xFF) == 0xD8
+                    && (header[2] & 0xFF) == 0xFF;
+        }
+        if ("png".equals(ext)) {
+            return length >= 8
+                    && (header[0] & 0xFF) == 0x89
+                    && header[1] == 0x50
+                    && header[2] == 0x4E
+                    && header[3] == 0x47
+                    && header[4] == 0x0D
+                    && header[5] == 0x0A
+                    && header[6] == 0x1A
+                    && header[7] == 0x0A;
+        }
+        if ("webp".equals(ext)) {
+            return length >= 12
+                    && header[0] == 0x52
+                    && header[1] == 0x49
+                    && header[2] == 0x46
+                    && header[3] == 0x46
+                    && header[8] == 0x57
+                    && header[9] == 0x45
+                    && header[10] == 0x42
+                    && header[11] == 0x50;
+        }
+        return false;
+    }
+
+    private boolean isAllowedImageMetadata(String ext, String contentType) {
+        if (!isAllowedExt(ext)) {
+            return false;
+        }
+        if (!StringUtils.hasText(contentType)) {
+            return true;
+        }
+        return resolvedContentType(ext).equals(contentType);
+    }
+
+    private boolean isAllowedExt(String ext) {
+        return "jpg".equals(ext) || "jpeg".equals(ext) || "png".equals(ext) || "webp".equals(ext);
     }
 
     private String extension(String fileName) {
         int dot = fileName.lastIndexOf('.');
-        return dot >= 0 ? fileName.substring(dot + 1).toLowerCase(Locale.ROOT) : "jpg";
+        return dot >= 0 && dot < fileName.length() - 1 ? fileName.substring(dot + 1).toLowerCase(Locale.ROOT) : "";
+    }
+
+    private String extensionFromContentType(String contentType) {
+        if ("image/jpeg".equals(contentType)) {
+            return "jpg";
+        }
+        if ("image/png".equals(contentType)) {
+            return "png";
+        }
+        if ("image/webp".equals(contentType)) {
+            return "webp";
+        }
+        return "";
+    }
+
+    private String resolvedContentType(String ext) {
+        if ("jpg".equals(ext) || "jpeg".equals(ext)) {
+            return "image/jpeg";
+        }
+        if ("png".equals(ext)) {
+            return "image/png";
+        }
+        if ("webp".equals(ext)) {
+            return "image/webp";
+        }
+        return "";
+    }
+
+    private String normalizeContentType(String contentType) {
+        if (!StringUtils.hasText(contentType)) {
+            return "";
+        }
+        String value = contentType.trim().toLowerCase(Locale.ROOT);
+        int semicolon = value.indexOf(';');
+        return semicolon >= 0 ? value.substring(0, semicolon).trim() : value;
+    }
+
+    private String sanitizeOriginalFileName(String fileName) {
+        String value = StringUtils.hasText(fileName) ? fileName.trim() : "image";
+        value = value.replace('\\', '/');
+        int slash = value.lastIndexOf('/');
+        if (slash >= 0) {
+            value = value.substring(slash + 1);
+        }
+        value = value.replaceAll("[\\r\\n\\t\\x00]", "_").trim();
+        if (!StringUtils.hasText(value)) {
+            value = "image";
+        }
+        return value.length() > 255 ? value.substring(value.length() - 255) : value;
     }
 
     private int nonNegative(Integer value) {
@@ -376,5 +538,23 @@ public class WorkOrderReportService {
 
     private String normalizeToEmpty(String value) {
         return normalize(value);
+    }
+
+    public static class ReportImageDownload {
+        private final WorkOrderReportImage image;
+        private final Resource resource;
+
+        public ReportImageDownload(WorkOrderReportImage image, Resource resource) {
+            this.image = image;
+            this.resource = resource;
+        }
+
+        public WorkOrderReportImage getImage() {
+            return image;
+        }
+
+        public Resource getResource() {
+            return resource;
+        }
     }
 }

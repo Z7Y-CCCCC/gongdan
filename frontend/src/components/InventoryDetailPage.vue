@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, type CSSProperties } from 'vue'
 import {
   fetchInventoryDetails,
   type InventoryDetailInfo
 } from '../api'
+import UiIcon from './UiIcon.vue'
+import ColumnSettingsPanel, { type ColumnSetting } from './ColumnSettingsPanel.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -48,27 +50,52 @@ const sourceTypeOptions = [
 const productAttributeOptions = ['自制', '外购', '委外']
 
 // Column config
-const allColumns = [
-  { key: 'index', label: '序号', visible: true },
-  { key: 'receiptCode', label: '单据编号', visible: true },
-  { key: 'productCode', label: '产品编号', visible: true },
-  { key: 'productName', label: '产品名称', visible: true },
-  { key: 'productSpec', label: '产品规格', visible: true },
-  { key: 'productAttribute', label: '产品属性', visible: true },
-  { key: 'unitName', label: '库存单位', visible: true },
-  { key: 'receiptQty', label: '单据数量', visible: true },
-  { key: 'changeQty', label: '库存变更数量', visible: true },
-  { key: 'receiptType', label: '单据类型', visible: true },
-  { key: 'sourceType', label: '来源', visible: true },
-  { key: 'operationTime', label: '收发时间', visible: true },
-  { key: 'remark', label: '备注', visible: true }
+const allColumns: ColumnSetting[] = [
+  { key: 'index', label: '序号', visible: true, width: 70, fixed: 'left' },
+  { key: 'receiptCode', label: '单据编号', visible: true, width: 150, fixed: 'none' },
+  { key: 'productCode', label: '产品编号', visible: true, width: 140, fixed: 'none' },
+  { key: 'productName', label: '产品名称', visible: true, width: 150, fixed: 'none' },
+  { key: 'productSpec', label: '产品规格', visible: true, width: 150, fixed: 'none' },
+  { key: 'productAttribute', label: '产品属性', visible: true, width: 140, fixed: 'none' },
+  { key: 'unitName', label: '库存单位', visible: true, width: 100, fixed: 'none' },
+  { key: 'receiptQty', label: '单据数量', visible: true, width: 110, fixed: 'none' },
+  { key: 'changeQty', label: '库存变更数量', visible: true, width: 140, fixed: 'none' },
+  { key: 'receiptType', label: '单据类型', visible: true, width: 120, fixed: 'none' },
+  { key: 'sourceType', label: '来源', visible: true, width: 100, fixed: 'none' },
+  { key: 'operationTime', label: '收发时间', visible: true, width: 160, fixed: 'none' },
+  { key: 'remark', label: '备注', visible: true, width: 180, fixed: 'none' }
 ]
 const columns = ref(allColumns.map(c => ({ ...c })))
+const defaultColumnSettings = allColumns.map(c => ({ ...c }))
 const showColumnConfig = ref(false)
 
 // ===== Computed =====
 const visibleColumns = computed(() => columns.value.filter(c => c.visible))
 const totalPages = computed(() => Math.ceil(totalItems.value / pageSize.value) || 1)
+
+function detailColumnStyle(column: ColumnSetting, header = false): CSSProperties {
+  const currentIndex = visibleColumns.value.findIndex(item => item.key === column.key)
+  const left = visibleColumns.value
+    .slice(0, currentIndex)
+    .filter(item => item.fixed === 'left')
+    .reduce((sum, item) => sum + item.width, 0)
+  const right = visibleColumns.value
+    .slice(currentIndex + 1)
+    .filter(item => item.fixed === 'right')
+    .reduce((sum, item) => sum + item.width, 0)
+  const style: CSSProperties = {
+    width: `${column.width}px`,
+    minWidth: `${column.width}px`
+  }
+  if (column.fixed !== 'none') {
+    style.position = 'sticky'
+    style.zIndex = header ? 12 : 3
+    style.background = header ? 'var(--table-head-bg)' : 'var(--table-row-bg)'
+    if (column.fixed === 'left') style.left = `${left}px`
+    if (column.fixed === 'right') style.right = `${right}px`
+  }
+  return style
+}
 
 // ===== Methods =====
 function formatDateTime(date: Date): string {
@@ -79,6 +106,10 @@ function formatDateTime(date: Date): string {
   const min = String(date.getMinutes()).padStart(2, '0')
   const s = String(date.getSeconds()).padStart(2, '0')
   return `${y}-${m}-${d} ${h}:${min}:${s}`
+}
+
+function formatDisplayDateTime(value?: string): string {
+  return value ? value.replace('T', ' ').slice(0, 19) : '-'
 }
 
 async function loadData() {
@@ -148,6 +179,12 @@ function handleReset() {
   filterForm.endTime = ''
   currentPage.value = 1
   loadData()
+}
+
+function saveColumnSettings(settings: ColumnSetting[]) {
+  columns.value = settings.map(column => ({ ...column }))
+  showColumnConfig.value = false
+  emit('notice', '列配置已保存')
 }
 
 function goPage(p: number) {
@@ -341,53 +378,44 @@ onMounted(() => {
         导出
       </button>
 
-      <button class="text-btn" type="button" style="color:#586360;" @click="showColumnConfig = true">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-          <line x1="4" y1="21" x2="4" y2="14"></line>
-          <line x1="4" y1="10" x2="4" y2="3"></line>
-          <line x1="12" y1="21" x2="12" y2="12"></line>
-          <line x1="12" y1="8" x2="12" y2="3"></line>
-          <line x1="20" y1="21" x2="20" y2="16"></line>
-          <line x1="20" y1="12" x2="20" y2="3"></line>
-          <line x1="1" y1="14" x2="7" y2="14"></line>
-          <line x1="9" y1="8" x2="15" y2="8"></line>
-          <line x1="17" y1="16" x2="23" y2="16"></line>
-        </svg>
-        字段配置
+      <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true">
+        <UiIcon name="table-columns" :size="16" />
       </button>
     </div>
 
     <!-- Data Table -->
     <div class="table-container">
-      <table class="data-table">
+      <table class="data-table inventory-detail-data-table">
         <thead>
           <tr>
-            <th v-for="col in visibleColumns" :key="col.key">{{ col.label }}</th>
+            <th v-for="col in visibleColumns" :key="col.key" :style="detailColumnStyle(col, true)">{{ col.label }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(item, idx) in items" :key="idx">
-            <td v-if="columns[0].visible">{{ (currentPage - 1) * pageSize + idx + 1 }}</td>
-            <td v-if="columns[1].visible">{{ item.receiptCode }}</td>
-            <td v-if="columns[2].visible">{{ item.productCode }}</td>
-            <td v-if="columns[3].visible">{{ item.productName }}</td>
-            <td v-if="columns[4].visible">{{ item.productSpec || '-' }}</td>
-            <td v-if="columns[5].visible">{{ item.productAttribute || '-' }}</td>
-            <td v-if="columns[6].visible">{{ item.unitName || '-' }}</td>
-            <td v-if="columns[7].visible">{{ item.receiptQty }}</td>
-            <td v-if="columns[8].visible" :class="item.changeQty < 0 ? 'change-negative' : 'change-positive'">
-              {{ item.changeQty > 0 ? '+' + item.changeQty : item.changeQty }}
-            </td>
-            <td v-if="columns[9].visible">
-              <span class="badge" :class="getSourceBadgeClass(item.sourceType)">{{ item.receiptType }}</span>
-            </td>
-            <td v-if="columns[10].visible">
-              <span class="badge" :class="getSourceBadgeClass(item.sourceType)">{{ getSourceLabel(item.sourceType) }}</span>
-            </td>
-            <td v-if="columns[11].visible">{{ item.operationTime }}</td>
-            <td v-if="columns[12].visible" style="max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap" :title="item.remark">
-              {{ item.remark || '-' }}
-            </td>
+            <template v-for="col in visibleColumns" :key="col.key">
+              <td v-if="col.key === 'index'" :style="detailColumnStyle(col)">{{ (currentPage - 1) * pageSize + idx + 1 }}</td>
+              <td v-else-if="col.key === 'receiptCode'" :style="detailColumnStyle(col)">{{ item.receiptCode }}</td>
+              <td v-else-if="col.key === 'productCode'" :style="detailColumnStyle(col)">{{ item.productCode }}</td>
+              <td v-else-if="col.key === 'productName'" :style="detailColumnStyle(col)">{{ item.productName }}</td>
+              <td v-else-if="col.key === 'productSpec'" :style="detailColumnStyle(col)">{{ item.productSpec || '-' }}</td>
+              <td v-else-if="col.key === 'productAttribute'" :style="detailColumnStyle(col)">{{ item.productAttribute || '-' }}</td>
+              <td v-else-if="col.key === 'unitName'" :style="detailColumnStyle(col)">{{ item.unitName || '-' }}</td>
+              <td v-else-if="col.key === 'receiptQty'" :style="detailColumnStyle(col)">{{ item.receiptQty }}</td>
+              <td v-else-if="col.key === 'changeQty'" :style="detailColumnStyle(col)" :class="item.changeQty < 0 ? 'change-negative' : 'change-positive'">
+                {{ item.changeQty > 0 ? '+' + item.changeQty : item.changeQty }}
+              </td>
+              <td v-else-if="col.key === 'receiptType'" :style="detailColumnStyle(col)">
+                <span class="badge" :class="getSourceBadgeClass(item.sourceType)">{{ item.receiptType }}</span>
+              </td>
+              <td v-else-if="col.key === 'sourceType'" :style="detailColumnStyle(col)">
+                <span class="badge" :class="getSourceBadgeClass(item.sourceType)">{{ getSourceLabel(item.sourceType) }}</span>
+              </td>
+              <td v-else-if="col.key === 'operationTime'" :style="detailColumnStyle(col)">{{ formatDisplayDateTime(item.operationTime) }}</td>
+              <td v-else-if="col.key === 'remark'" :style="detailColumnStyle(col)" :title="item.remark">
+                {{ item.remark || '-' }}
+              </td>
+            </template>
           </tr>
           <tr v-if="items.length === 0">
             <td :colspan="visibleColumns.length" style="text-align: center; color: #8a9693; padding: 32px 0;">
@@ -413,26 +441,14 @@ onMounted(() => {
       </select>
     </div>
 
-    <!-- Column Config Modal -->
-    <div v-if="showColumnConfig" class="modal-backdrop">
-      <div class="modal workorder-modal" style="width: 480px;">
-        <div class="modal-header">
-          <h2>字段显示配置</h2>
-          <button class="close-btn" type="button" @click="showColumnConfig = false">×</button>
-        </div>
-        <div style="padding: 24px;">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-            <label v-for="col in columns" :key="col.key" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-              <input type="checkbox" v-model="col.visible" style="accent-color: #00b889; width: 16px; height: 16px;" :disabled="col.key === 'receiptCode'" />
-              <span style="font-size: 14px; color: #1e2724;">{{ col.label }}</span>
-            </label>
-          </div>
-          <div style="text-align: right; margin-top: 24px;">
-            <button class="primary-btn" @click="showColumnConfig = false">确定</button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ColumnSettingsPanel
+      v-if="showColumnConfig"
+      v-model="columns"
+      :defaults="defaultColumnSettings"
+      title="列设置"
+      @confirm="saveColumnSettings"
+      @cancel="showColumnConfig = false"
+    />
   </section>
 </template>
 

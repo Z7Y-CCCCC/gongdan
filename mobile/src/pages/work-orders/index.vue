@@ -8,9 +8,9 @@
       <view class="nav-right">
         <view class="search-box" v-if="showSearch">
           <input class="search-input" v-model="keyword" placeholder="搜索工单编号/产品名" @confirm="doSearch" />
-          <view @tap="showSearch = false; keyword = ''; doSearch()">✕</view>
+          <view class="icon-button" @click="showSearch = false; keyword = ''; doSearch()"><uni-icons type="closeempty" size="20" color="#586360" /></view>
         </view>
-        <view v-else class="search-icon" @tap="showSearch = true">🔍</view>
+        <view v-else class="search-icon" @click="showSearch = true"><uni-icons type="search" size="22" color="#586360" /></view>
       </view>
     </view>
 
@@ -18,7 +18,7 @@
     <view class="status-tabs">
       <view v-for="tab in statusTabs" :key="tab.key"
             class="tab" :class="{ active: currentTab === tab.key }"
-            @tap="currentTab = tab.key">
+            @click="currentTab = tab.key">
         {{ tab.label }} {{ tab.count > 0 ? tab.count : '' }}
       </view>
     </view>
@@ -27,7 +27,7 @@
     <view class="total-count">总计 ({{ filteredOrders.length }})</view>
 
     <scroll-view scroll-y class="order-list" @scrolltolower="loadMore">
-      <view v-for="item in filteredOrders" :key="item.id" class="order-card" @tap="goToDetail(item)">
+      <view v-for="item in filteredOrders" :key="item.id" class="order-card" @click="goToDetail(item)">
         <view class="card-main">
           <view class="card-info">
             <view class="info-top">
@@ -40,17 +40,17 @@
             </view>
             <text class="order-code">{{ item.code }}</text>
             <view class="info-field">
-              <text class="field-icon">📋</text>
+              <uni-icons class="field-icon" type="compose" size="14" color="#8a9693" />
               <text class="label">工单编号：</text>
               <text class="val">{{ item.code }}</text>
             </view>
             <view class="info-field">
-              <text class="field-icon">📦</text>
+              <uni-icons class="field-icon" type="shop" size="14" color="#8a9693" />
               <text class="label">产品信息：</text>
               <text class="val">{{ item.productCode }} | {{ item.productName }}</text>
             </view>
             <view class="info-field">
-              <text class="field-icon">📊</text>
+              <uni-icons class="field-icon" type="bars" size="14" color="#8a9693" />
               <text class="label">工单进度：</text>
               <text class="val">{{ item.goodQuantity || 0 }}/{{ item.plannedQuantity || 0 }}个</text>
             </view>
@@ -74,14 +74,17 @@
     </scroll-view>
 
     <!-- 悬浮扫码按钮 -->
-    <view class="scan-fab" @tap="handleScan">
-      <text class="scan-icon">📷</text>
+    <view class="scan-fab" @click="handleScan">
+      <uni-icons type="camera-filled" size="24" color="#fff" />
     </view>
 
     <!-- 加载中 -->
     <view v-if="loading" class="loading-hint">
       <text>加载中...</text>
     </view>
+    <!-- #ifdef H5 -->
+    <MobileTabBar current="orders" />
+    <!-- #endif -->
   </view>
 </template>
 
@@ -90,12 +93,24 @@ import { ref, computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { fetchWorkOrders, ensureLogin } from '../../services/api'
 import type { WorkOrderInfo } from '../../types/api'
+import MobileTabBar from '../../components/MobileTabBar.vue'
+import { usePageDraft } from '../../composables/usePageDraft'
 
 const orders = ref<WorkOrderInfo[]>([])
 const loading = ref(false)
 const currentTab = ref('all')
 const keyword = ref('')
 const showSearch = ref(false)
+
+usePageDraft({
+  key: 'gongdan:draft:work-order-filter',
+  source: () => ({ currentTab: currentTab.value, keyword: keyword.value, showSearch: showSearch.value }),
+  restore: (draft) => {
+    currentTab.value = draft.currentTab || 'all'
+    keyword.value = draft.keyword || ''
+    showSearch.value = Boolean(draft.showSearch || draft.keyword)
+  }
+})
 
 const statusTabs = computed(() => {
   const all = orders.value
@@ -167,10 +182,14 @@ function statusLabel(status: string) {
 function calculateStepPercent(order: WorkOrderInfo, step: any) {
   const planned = step.plannedQuantity || order.plannedQuantity || 0
   if (!planned) return 0
-  return Math.min(100, Math.round(((step.completedQuantity || 0) / planned) * 100))
+  return Math.min(100, Math.round((((step.completedQuantity || 0) + (step.defectQuantity || 0)) / planned) * 100))
 }
 
 const goToDetail = (item: WorkOrderInfo) => {
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = `#/pages/work-order-detail/index?id=${item.id}`
+    return
+  }
   uni.navigateTo({
     url: `/pages/work-order-detail/index?id=${item.id}`
   })
@@ -187,7 +206,6 @@ const handleScan = () => {
   }
   uni.scanCode({
     success: (res) => {
-      console.log('扫码结果：', res.result)
       const url = res.result
       if (url.includes('/pages/work-order-detail/')) {
         const match = url.match(/[?&]id=(\d+)/)
@@ -223,7 +241,8 @@ const handleScan = () => {
 }
 .nav-left { font-size: 32rpx; font-weight: bold; display: flex; align-items: center; }
 .nav-right { display: flex; align-items: center; }
-.search-icon { font-size: 36rpx; }
+.search-icon,
+.icon-button { width: 56rpx; height: 56rpx; display: flex; align-items: center; justify-content: center; }
 
 .search-box {
   display: flex;
@@ -254,7 +273,7 @@ const handleScan = () => {
 
 .total-count { padding: 20rpx 30rpx; font-size: 24rpx; color: #999; }
 
-.order-list { flex: 1; padding: 0 20rpx; box-sizing: border-box; }
+.order-list { flex: 1; padding: 0 20rpx 130rpx; box-sizing: border-box; }
 .order-card {
   background: white;
   border-radius: 16rpx;
@@ -278,7 +297,7 @@ const handleScan = () => {
 
 .order-code { font-size: 30rpx; font-weight: bold; display: block; margin-bottom: 15rpx; }
 .info-field { display: flex; align-items: center; margin-bottom: 6rpx; }
-.field-icon { font-size: 22rpx; margin-right: 8rpx; }
+.field-icon { margin-right: 8rpx; flex-shrink: 0; }
 .info-field .label { font-size: 22rpx; color: #999; }
 .info-field .val { font-size: 22rpx; color: #666; }
 
@@ -342,5 +361,4 @@ const handleScan = () => {
   align-items: center;
   box-shadow: 0 8rpx 20rpx rgba(0,184,137,0.3);
 }
-.scan-icon { font-size: 40rpx; }
 </style>

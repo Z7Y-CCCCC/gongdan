@@ -1,20 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   approveReport,
+  fetchReportImageBlob,
   fetchReports,
   rejectReport,
   type ReportStatus,
   type WorkOrderReportInfo
 } from '../api'
+import UiIcon from './UiIcon.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
 
 const status = ref<ReportStatus>('PENDING')
-const reports = ref<WorkOrderReportInfo[]>([])
+const allReports = ref<WorkOrderReportInfo[]>([])
+const reports = computed(() => allReports.value.filter(item => item.status === status.value))
 const loading = ref(false)
 const detail = ref<WorkOrderReportInfo | null>(null)
+const imageObjectUrls = ref<Record<number, string>>({})
 const rejectTarget = ref<WorkOrderReportInfo | null>(null)
 const rejectRemark = ref('')
 const filters = reactive({
@@ -24,22 +29,21 @@ const filters = reactive({
 })
 
 const tabs = computed(() => [
-  { key: 'PENDING' as ReportStatus, label: '未审批', count: reports.value.filter(item => item.status === 'PENDING').length },
-  { key: 'APPROVED' as ReportStatus, label: '已审批', count: reports.value.filter(item => item.status === 'APPROVED').length },
-  { key: 'REJECTED' as ReportStatus, label: '已驳回', count: reports.value.filter(item => item.status === 'REJECTED').length }
+  { key: 'PENDING' as ReportStatus, label: '未审批', count: allReports.value.filter(item => item.status === 'PENDING').length },
+  { key: 'APPROVED' as ReportStatus, label: '已审批', count: allReports.value.filter(item => item.status === 'APPROVED').length },
+  { key: 'REJECTED' as ReportStatus, label: '已驳回', count: allReports.value.filter(item => item.status === 'REJECTED').length }
 ])
 
 async function loadReports() {
   loading.value = true
   try {
     const res = await fetchReports(props.token, {
-      status: status.value,
       workOrderCode: filters.workOrderCode,
       reporterName: filters.reporterName,
       period: filters.period,
       size: 500
     })
-    reports.value = res.items
+    allReports.value = res.items
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '报工列表加载失败')
   } finally {
@@ -51,7 +55,7 @@ async function handleApprove(item: WorkOrderReportInfo) {
   try {
     const updated = await approveReport(props.token, item.id)
     emit('notice', `报工「${updated.workOrderCode} / ${updated.processName}」已审批通过`)
-    detail.value = updated
+    await openDetail(updated)
     await loadReports()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '审批失败')
@@ -69,7 +73,7 @@ async function submitReject() {
     const updated = await rejectReport(props.token, rejectTarget.value.id, rejectRemark.value)
     emit('notice', `报工「${updated.workOrderCode} / ${updated.processName}」已驳回`)
     rejectTarget.value = null
-    detail.value = updated
+    await openDetail(updated)
     await loadReports()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '驳回失败')
@@ -86,11 +90,38 @@ function minutesLabel(value: number) {
   return hours > 0 ? `${hours}小时${minutes}分钟` : `${minutes}分钟`
 }
 
-function imageUrl(path: string) {
-  return path
+async function openDetail(item: WorkOrderReportInfo) {
+  revokeImageObjectUrls()
+  detail.value = item
+  for (const image of item.images) {
+    try {
+      const blob = await fetchReportImageBlob(props.token, image.id)
+      imageObjectUrls.value = {
+        ...imageObjectUrls.value,
+        [image.id]: URL.createObjectURL(blob)
+      }
+    } catch (e) {
+      emit('notice', e instanceof Error ? e.message : '图片加载失败')
+    }
+  }
+}
+
+function closeDetail() {
+  detail.value = null
+  revokeImageObjectUrls()
+}
+
+function imageUrl(id: number) {
+  return imageObjectUrls.value[id] || ''
+}
+
+function revokeImageObjectUrls() {
+  Object.values(imageObjectUrls.value).forEach(url => URL.revokeObjectURL(url))
+  imageObjectUrls.value = {}
 }
 
 onMounted(loadReports)
+onBeforeUnmount(revokeImageObjectUrls)
 </script>
 
 <template>
@@ -102,7 +133,7 @@ onMounted(loadReports)
         class="tab-pill"
         :class="{ active: status === tab.key }"
         type="button"
-        @click="status = tab.key; loadReports()"
+        @click="status = tab.key"
       >
         {{ tab.label }} {{ tab.count }}
       </button>
@@ -134,12 +165,16 @@ onMounted(loadReports)
     </div>
 
     <div class="toolbar">
-      <button class="toolbar-btn" type="button" @click="loadReports">刷新</button>
+      <button class="toolbar-btn" type="button" @click="loadReports">
+        <UiIcon name="refresh" />
+        刷新
+      </button>
       <span class="muted">审批通过后才会同步更新工单工序进度</span>
+      <TableConfigButton table-id="report-approval-list-table" />
     </div>
 
     <div class="table-container">
-      <table class="data-table">
+      <table id="report-approval-list-table" class="data-table">
         <thead>
           <tr>
             <th style="width:70px">序号</th>
@@ -170,13 +205,13 @@ onMounted(loadReports)
               <span class="status-badge" :class="{ disabled: item.status === 'REJECTED' }">{{ statusLabel(item.status) }}</span>
             </td>
             <td class="action-cell">
-              <button class="action-link" type="button" @click="detail = item">详情</button>
-              <button v-if="item.status === 'PENDING'" class="action-link" type="button" @click="handleApprove(item)">通过</button>
-              <button v-if="item.status === 'PENDING'" class="action-link danger" type="button" @click="openReject(item)">驳回</button>
+              <button class="action-link" type="button" @click="openDetail(item)"><UiIcon name="eye" />详情</button>
+              <button v-if="item.status === 'PENDING'" class="action-link" type="button" @click="handleApprove(item)"><UiIcon name="check" />通过</button>
+              <button v-if="item.status === 'PENDING'" class="action-link danger" type="button" @click="openReject(item)"><UiIcon name="close" />驳回</button>
             </td>
           </tr>
           <tr v-if="!loading && reports.length === 0">
-            <td colspan="11" style="text-align:center;color:#8a9693;padding:32px">暂无报工记录</td>
+            <td colspan="11" style="text-align:center;color:var(--text-muted);padding:32px">暂无报工记录</td>
           </tr>
           <tr v-if="loading">
             <td colspan="11" style="text-align:center;color:#8a9693;padding:32px">加载中...</td>
@@ -189,7 +224,7 @@ onMounted(loadReports)
       <div class="modal report-detail-modal">
         <div class="modal-header">
           <h2>报工详情</h2>
-          <button class="close-btn" type="button" @click="detail = null">×</button>
+          <button class="close-btn" type="button" @click="closeDetail">×</button>
         </div>
         <div class="report-detail">
           <div><span>工单编号</span><strong>{{ detail.workOrderCode }}</strong></div>
@@ -209,16 +244,16 @@ onMounted(loadReports)
           <div class="full">
             <span>报工图片</span>
             <div class="report-images">
-              <a v-for="image in detail.images" :key="image.id" :href="imageUrl(image.accessPath)" target="_blank">
-                <img :src="imageUrl(image.accessPath)" :alt="image.originalFileName" />
+              <a v-for="image in detail.images" :key="image.id" :href="imageUrl(image.id)" target="_blank">
+                <img v-if="imageUrl(image.id)" :src="imageUrl(image.id)" :alt="image.originalFileName" />
               </a>
               <em v-if="detail.images.length === 0">暂无图片</em>
             </div>
           </div>
         </div>
         <div v-if="detail.status === 'PENDING'" class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="openReject(detail)">驳回</button>
-          <button class="primary-btn wide" type="button" @click="handleApprove(detail)">审批通过</button>
+          <button class="ghost-btn wide" type="button" @click="openReject(detail)"><UiIcon name="close" />驳回</button>
+          <button class="primary-btn wide" type="button" @click="handleApprove(detail)"><UiIcon name="check" />审批通过</button>
         </div>
       </div>
     </div>
@@ -234,8 +269,8 @@ onMounted(loadReports)
           <textarea v-model="rejectRemark" class="reject-textarea" placeholder="请输入驳回原因"></textarea>
         </div>
         <div class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="rejectTarget = null">取消</button>
-          <button class="primary-btn wide" type="button" @click="submitReject">确定驳回</button>
+          <button class="ghost-btn wide" type="button" @click="rejectTarget = null"><UiIcon name="close" />取消</button>
+          <button class="primary-btn wide" type="button" @click="submitReject"><UiIcon name="check" />确定驳回</button>
         </div>
       </div>
     </div>

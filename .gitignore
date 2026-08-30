@@ -9,11 +9,21 @@ target/
 node_modules/
 dist/
 .vite/
+.playwright-cli/
+.playwright-mcp/
 
 # IDE
 .idea/
 *.iml
 .vscode/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
 
 # OS
 .DS_Store
@@ -21,6 +31,13 @@ Thumbs.db
 
 # Logs
 *.log
+output/
+backend/logs/
+
+# Local backups
+*.bak
+backups/
+release-windows/
 
 # Uploads
 backend/uploads/

@@ -9,9 +9,12 @@ import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.ProcessRoute;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.ProcessRouteRepository;
+import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UserRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,13 +34,16 @@ public class ProcessRouteService {
     private final ProcessRouteRepository routeRepository;
     private final FactoryRepository factoryRepository;
     private final UserRepository userRepository;
+    private final ProductRepository productRepository;
 
     public ProcessRouteService(ProcessRouteRepository routeRepository,
                                FactoryRepository factoryRepository,
-                               UserRepository userRepository) {
+                               UserRepository userRepository,
+                               ProductRepository productRepository) {
         this.routeRepository = routeRepository;
         this.factoryRepository = factoryRepository;
         this.userRepository = userRepository;
+        this.productRepository = productRepository;
     }
 
     private ProcessRouteResponse toResponse(ProcessRoute r) {
@@ -63,6 +69,7 @@ public class ProcessRouteService {
         return resp;
     }
 
+    @Cacheable(cacheNames = "process.routes.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<ProcessRouteResponse> list(Long factoryId, String code, String name, Pageable pageable) {
         Page<ProcessRoute> page;
         boolean hasCode = code != null && !code.trim().isEmpty();
@@ -79,6 +86,7 @@ public class ProcessRouteService {
         return page.map(this::toResponse);
     }
 
+    @CacheEvict(cacheNames = {"process.routes.list", "products.list"}, allEntries = true)
     public ProcessRouteResponse create(Long factoryId, Long userId, ProcessRouteRequest req) {
         if (req.getName() == null || req.getName().trim().isEmpty()) {
             throw new IllegalArgumentException("工艺路线名称不能为空");
@@ -114,6 +122,7 @@ public class ProcessRouteService {
         return toResponse(routeRepository.save(route));
     }
 
+    @CacheEvict(cacheNames = {"process.routes.list", "products.list"}, allEntries = true)
     public ProcessRouteResponse update(Long factoryId, Long userId, Long id, ProcessRouteRequest req) {
         ProcessRoute route = routeRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))
@@ -138,10 +147,14 @@ public class ProcessRouteService {
         return toResponse(routeRepository.save(route));
     }
 
+    @CacheEvict(cacheNames = {"process.routes.list", "products.list"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         ProcessRoute route = routeRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("工艺路线不存在"));
+        if (productRepository.existsByFactoryIdAndProcessRouteId(factoryId, id)) {
+            throw new IllegalArgumentException("工艺路线已被产品引用，不能删除");
+        }
         routeRepository.delete(route);
     }
 }

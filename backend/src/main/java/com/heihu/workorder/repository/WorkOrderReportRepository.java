@@ -12,6 +12,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface WorkOrderReportRepository extends JpaRepository<WorkOrderReport, Long> {
 
+    boolean existsByFactoryIdAndWorkOrderId(Long factoryId, Long workOrderId);
+
     @Query("select r from WorkOrderReport r where r.factory.id = :factoryId " +
             "and (:status is null or r.status = :status) " +
             "and (:workOrderCode = '' or r.workOrderCode like concat('%', :workOrderCode, '%')) " +
@@ -59,20 +61,24 @@ public interface WorkOrderReportRepository extends JpaRepository<WorkOrderReport
     // --- Home Dashboard: Performance queries ---
 
     /**
-     * 完成数量（良品数）：SUM(goodQuantity) WHERE createdAt in [start, end) AND factoryId matches
+     * 完成数量（良品数）：只统计已审批报工。
      */
     @Query("SELECT COALESCE(SUM(r.goodQuantity), 0) FROM WorkOrderReport r " +
-            "WHERE r.factory.id = :factoryId AND r.createdAt >= :start AND r.createdAt < :end")
+            "WHERE r.factory.id = :factoryId " +
+            "AND r.status = com.heihu.workorder.model.ReportStatus.APPROVED " +
+            "AND r.createdAt >= :start AND r.createdAt < :end")
     int sumGoodQuantityInRange(
             @Param("factoryId") Long factoryId,
             @Param("start") LocalDateTime start,
             @Param("end") LocalDateTime end);
 
     /**
-     * 不良品数：SUM(defectQuantity) WHERE createdAt in [start, end) AND factoryId matches
+     * 不良品数：只统计已审批报工。
      */
     @Query("SELECT COALESCE(SUM(r.defectQuantity), 0) FROM WorkOrderReport r " +
-            "WHERE r.factory.id = :factoryId AND r.createdAt >= :start AND r.createdAt < :end")
+            "WHERE r.factory.id = :factoryId " +
+            "AND r.status = com.heihu.workorder.model.ReportStatus.APPROVED " +
+            "AND r.createdAt >= :start AND r.createdAt < :end")
     int sumDefectQuantityInRange(
             @Param("factoryId") Long factoryId,
             @Param("start") LocalDateTime start,

@@ -31,6 +31,10 @@
       "style": { "navigationBarTitleText": "报工列表" }
     },
     {
+      "path": "pages/field-events/index",
+      "style": { "navigationBarTitleText": "现场事件" }
+    },
+    {
       "path": "pages/tasks/index",
       "style": { "navigationBarTitleText": "任务" }
     },

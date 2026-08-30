@@ -31,7 +31,7 @@ function onAvatarError() {
 
 // Handle "view work order" events from child sections
 function handleViewWorkOrder(workOrderId: number) {
-  console.log('View work order:', workOrderId)
+  void workOrderId
 }
 </script>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import QRCode from 'qrcode'
 import {
   createUser,
@@ -55,30 +55,61 @@ import {
   type PhoneLoginResult,
   type FactoryOptionItem,
   fetchWorkOrders,
-  fetchReports
+  fetchReports,
+  fetchSalesOrders,
+  fetchPluginRuntimeManifest,
+  fetchNotifications,
+  fetchNotificationUnreadCount,
+  markNotificationRead,
+  markAllNotificationsRead,
+  type NotificationInfo,
+  type PluginRuntimeManifestInfo
 } from './api'
-import ProductDefinitionPage from './components/ProductDefinitionPage.vue'
-import WorkOrderPage from './components/WorkOrderPage.vue'
-import CustomWorkOrderFieldsPage from './components/CustomWorkOrderFieldsPage.vue'
-import ReportApprovalPage from './components/ReportApprovalPage.vue'
-import BaseDataPage from './components/BaseDataPage.vue'
-import UserManagementPage from './components/UserManagementPage.vue'
-import DepartmentManagementPage from './components/DepartmentManagementPage.vue'
-import HomeDashboardPage from './views/HomeDashboardPage.vue'
-import InboundReceiptPage from './components/InboundReceiptPage.vue'
-import OutboundReceiptPage from './components/OutboundReceiptPage.vue'
-import InventoryBalancePage from './components/InventoryBalancePage.vue'
-import InventoryDetailPage from './components/InventoryDetailPage.vue'
-import CustomReceiptFieldsPage from './components/CustomReceiptFieldsPage.vue'
 import DeleteConfirmDialog from './components/DeleteConfirmDialog.vue'
-import SuperAdminAuthCodesPage from './components/SuperAdminAuthCodesPage.vue'
-import BindFactoryPage from './components/BindFactoryPage.vue'
+import LoadingProgressOverlay from './components/LoadingProgressOverlay.vue'
+import WorkspaceTabs, { type WorkspaceTabItem } from './components/WorkspaceTabs.vue'
+import UiIcon from './components/UiIcon.vue'
 import { useAuth } from './composables/useAuth'
+import { buildWorkshopDashboard } from './utils/workshopDashboard'
+
+const ProductDefinitionPage = defineAsyncComponent(() => import('./components/ProductDefinitionPage.vue'))
+const BomPage = defineAsyncComponent(() => import('./components/BomPage.vue'))
+const SalesOrderPage = defineAsyncComponent(() => import('./components/SalesOrderPage.vue'))
+const WorkOrderPage = defineAsyncComponent(() => import('./components/WorkOrderPage.vue'))
+const TaskPage = defineAsyncComponent(() => import('./components/TaskPage.vue'))
+const CustomWorkOrderFieldsPage = defineAsyncComponent(() => import('./components/CustomWorkOrderFieldsPage.vue'))
+const ReportApprovalPage = defineAsyncComponent(() => import('./components/ReportApprovalPage.vue'))
+const BaseDataPage = defineAsyncComponent(() => import('./components/BaseDataPage.vue'))
+const UserManagementPage = defineAsyncComponent(() => import('./components/UserManagementPage.vue'))
+const DepartmentManagementPage = defineAsyncComponent(() => import('./components/DepartmentManagementPage.vue'))
+const FactorySettingsPage = defineAsyncComponent(() => import('./components/FactorySettingsPage.vue'))
+const HomeDashboardPage = defineAsyncComponent(() => import('./views/HomeDashboardPage.vue'))
+const InboundReceiptPage = defineAsyncComponent(() => import('./components/InboundReceiptPage.vue'))
+const OutboundReceiptPage = defineAsyncComponent(() => import('./components/OutboundReceiptPage.vue'))
+const InventoryBalancePage = defineAsyncComponent(() => import('./components/InventoryBalancePage.vue'))
+const InventoryDetailPage = defineAsyncComponent(() => import('./components/InventoryDetailPage.vue'))
+const InventorySummaryPage = defineAsyncComponent(() => import('./components/InventorySummaryPage.vue'))
+const CustomReceiptFieldsPage = defineAsyncComponent(() => import('./components/CustomReceiptFieldsPage.vue'))
+const SuperAdminAuthCodesPage = defineAsyncComponent(() => import('./components/SuperAdminAuthCodesPage.vue'))
+const BindFactoryPage = defineAsyncComponent(() => import('./components/BindFactoryPage.vue'))
+const WarehousePage = defineAsyncComponent(() => import('./components/WarehousePage.vue'))
+const SupplierPage = defineAsyncComponent(() => import('./components/SupplierPage.vue'))
+const CustomerPage = defineAsyncComponent(() => import('./components/CustomerPage.vue'))
+const ReportCenterPage = defineAsyncComponent(() => import('./components/ReportCenterPage.vue'))
+const AdvancedOperationsPage = defineAsyncComponent(() => import('./components/AdvancedOperationsPage.vue'))
+const OnlineUsersPage = defineAsyncComponent(() => import('./components/OnlineUsersPage.vue'))
+const CacheMonitorPage = defineAsyncComponent(() => import('./components/CacheMonitorPage.vue'))
+const CacheListPage = defineAsyncComponent(() => import('./components/CacheListPage.vue'))
+const InternalChatPage = defineAsyncComponent(() => import('./components/InternalChatPage.vue'))
+const NotificationCenterPage = defineAsyncComponent(() => import('./components/NotificationCenterPage.vue'))
+const PluginCenterPage = defineAsyncComponent(() => import('./components/PluginCenterPage.vue'))
+const PluginRuntimePage = defineAsyncComponent(() => import('./components/PluginRuntimePage.vue'))
 
 const sharedAuth = useAuth()
 
 const token = ref(localStorage.getItem('heihu_token') || '')
 const currentUser = ref<UserInfo | null>(readStoredUser())
+const isInternalChatWindow = ref(['#/message-center', '#/im-chat'].includes(window.location.hash))
 const isSuperAdmin = ref(localStorage.getItem('heihu_is_super_admin') === 'true')
 const users = ref<UserInfo[]>([])
 const loading = ref(false)
@@ -125,6 +156,9 @@ const resetPasswordForm = reactive({
   confirmPassword: ''
 })
 const showUserDropdown = ref(false)
+const showNotificationDropdown = ref(false)
+const notificationsLoading = ref(false)
+const notificationError = ref('')
 const showNewPassword = ref(false)
 const showConfirmPassword = ref(false)
 const activeConfigMenu = ref('department') // default to department based on user request
@@ -133,6 +167,397 @@ const activeBasedataMenu = ref('unit') // default to unit
 const activeProductionMenu = ref('workorder')
 const activeCustomMenu = ref('workorder')
 const activeInventoryMenu = ref('inbound') // 'inbound' | 'outbound' | 'detail' | 'balance' | 'summary'
+const activeMonitorMenu = ref<'online' | 'cache' | 'cacheList'>('online')
+const activePluginKey = ref('')
+const runtimePlugins = ref<PluginRuntimeManifestInfo[]>([])
+const selectedRuntimePlugin = computed(() => runtimePlugins.value.find(item => item.pluginKey === activePluginKey.value) || null)
+const activePageCacheKey = computed(() => {
+  if (activeMainMenu.value === 'production') return `production-${activeProductionMenu.value}`
+  if (activeMainMenu.value === 'inventory') return `inventory-${activeInventoryMenu.value}`
+  if (activeMainMenu.value === 'basedata') return `basedata-${activeBasedataMenu.value}`
+  if (activeMainMenu.value === 'custom') return `custom-${activeCustomMenu.value}`
+  if (activeMainMenu.value === 'sysconfig') return `sysconfig-${activeConfigMenu.value}`
+  if (activeMainMenu.value === 'monitor') return `monitor-${activeMonitorMenu.value}`
+  if (activeMainMenu.value === 'plugin') return `plugin-${activePluginKey.value}`
+  return activeMainMenu.value
+})
+const pageMotionStage = ref<HTMLElement | null>(null)
+
+type WorkspaceLoadingStageStatus = 'pending' | 'loading' | 'done' | 'error'
+interface WorkspaceLoadingStage {
+  key: string
+  label: string
+  detail: string
+  status: WorkspaceLoadingStageStatus
+}
+
+function createWorkspaceLoadingStages(): WorkspaceLoadingStage[] {
+  return [
+    { key: 'restore-session', label: '恢复登录会话', detail: '读取本地登录状态', status: 'pending' },
+    { key: 'load-users', label: '加载用户数据', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-departments', label: '加载部门数据', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-units', label: '加载单位数据', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-defects', label: '加载不良品项', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-processes', label: '加载工序数据', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-routes', label: '加载工艺路线', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-notifications', label: '同步工作台通知', detail: '等待接口响应', status: 'pending' },
+    { key: 'load-plugin-manifest', label: '加载插件运行清单', detail: '等待接口响应', status: 'pending' },
+    { key: 'prepare-workspace', label: '准备工作区', detail: '等待页面渲染', status: 'pending' }
+  ]
+}
+
+const workspaceLoadingStages = ref<WorkspaceLoadingStage[]>(createWorkspaceLoadingStages())
+const workspaceLoadingVisible = ref(Boolean(token.value && currentUser.value && !isInternalChatWindow.value))
+const workspaceLoadingProgress = ref(workspaceLoadingVisible.value ? 4 : 0)
+const workspaceLoadingStage = ref(workspaceLoadingVisible.value ? '正在恢复登录会话' : '')
+const workspaceLoadingError = ref('')
+let workspaceBootstrapRun = 0
+
+type WorkspaceTab = WorkspaceTabItem & {
+  main: string
+  config?: string
+  basedata?: string
+  production?: string
+  inventory?: string
+  custom?: string
+  monitor?: string
+  plugin?: string
+}
+
+const workspaceTabs = ref<WorkspaceTab[]>([
+  { id: 'home', label: '分析页', main: 'home', closable: false, pinned: true }
+])
+const activeWorkspaceTabId = ref('home')
+const tabContextMenu = reactive({ show: false, x: 0, y: 0, tabId: '' })
+const showChromeQuickMenu = ref(false)
+const showQuickApps = ref(false)
+const showLanguageMenu = ref(false)
+const showTimezoneDialog = ref(false)
+const showWorkspaceSearch = ref(false)
+const workspaceSearchInput = ref<HTMLInputElement | null>(null)
+const isWorkspaceMaximized = ref(false)
+const isAppFullscreen = ref(false)
+let nativeFullscreenActive = false
+const isDarkTheme = ref(localStorage.getItem('heihu_theme') === 'dark')
+const timezoneOptions = [
+  { value: 'America/New_York', label: 'America/New_York (GMT-5)' },
+  { value: 'Europe/London', label: 'Europe/London (GMT0)' },
+  { value: 'Asia/Shanghai', label: 'Asia/Shanghai (GMT+8)' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (GMT+9)' },
+  { value: 'Asia/Seoul', label: 'Asia/Seoul (GMT+9)' }
+]
+const selectedTimezone = ref(localStorage.getItem('heihu_timezone') || 'Asia/Shanghai')
+const timezoneDraft = ref(selectedTimezone.value)
+
+watch(isDarkTheme, value => {
+  localStorage.setItem('heihu_theme', value ? 'dark' : 'light')
+  document.documentElement.classList.toggle('dark', value)
+}, { immediate: true })
+
+const workspaceLabels: Record<string, string> = {
+  home: '分析页',
+  dashboard: '车间看板',
+  advanced: '高级运营',
+  report: '生产报表',
+  'production-sales': '销售订单',
+  'production-workorder': '工单',
+  'production-task': '任务',
+  'production-reporting': '报工工作台',
+  'inventory-inbound': '入库单',
+  'inventory-outbound': '出库单',
+  'inventory-detail': '库存收发明细',
+  'inventory-balance': '库存余额',
+  'inventory-summary': '进销存汇总',
+  'basedata-product': '产品定义',
+  'basedata-bom': '物料清单',
+  'basedata-unit': '单位',
+  'basedata-defect': '不良品项',
+  'basedata-process': '工序',
+  'basedata-route': '工艺路线',
+  'basedata-warehouse': '仓库',
+  'basedata-supplier': '供应商',
+  'basedata-customer': '客户',
+  'custom-workorder': '工单字段',
+  'custom-reporting': '报工字段',
+  'custom-receipt': '出入库单字段',
+  'custom-receipt_detail': '出入库明细字段',
+  'sysconfig-department': '部门',
+  'sysconfig-user': '用户',
+  'sysconfig-factory': '工厂',
+  'sysconfig-plugin-center': '插件中心',
+  'super-admin': '授权码管理',
+  'monitor-online': '在线用户',
+  'monitor-cache': '缓存监控',
+  'monitor-cacheList': '缓存列表'
+}
+
+function captureWorkspaceTab(): WorkspaceTab {
+  const id = activePageCacheKey.value
+  return {
+    id,
+    label: workspaceLabels[id] || selectedRuntimePlugin.value?.name || '工作台',
+    main: activeMainMenu.value,
+    config: activeConfigMenu.value,
+    basedata: activeBasedataMenu.value,
+    production: activeProductionMenu.value,
+    inventory: activeInventoryMenu.value,
+    custom: activeCustomMenu.value,
+    monitor: activeMonitorMenu.value,
+    plugin: activePluginKey.value,
+    closable: id !== 'home',
+    pinned: id === 'home'
+  }
+}
+
+function syncWorkspaceTab() {
+  const next = captureWorkspaceTab()
+  const existing = workspaceTabs.value.find(tab => tab.id === next.id)
+  if (existing) {
+    const pinned = existing.id === 'home' || existing.pinned
+    Object.assign(existing, next)
+    existing.pinned = pinned
+  } else workspaceTabs.value.push(next)
+  activeWorkspaceTabId.value = next.id
+  tabContextMenu.show = false
+}
+
+function activateWorkspaceTab(tab: WorkspaceTab) {
+  activeMainMenu.value = tab.main
+  if (tab.config) activeConfigMenu.value = tab.config
+  if (tab.basedata) activeBasedataMenu.value = tab.basedata
+  if (tab.production) activeProductionMenu.value = tab.production
+  if (tab.inventory) activeInventoryMenu.value = tab.inventory
+  if (tab.custom) activeCustomMenu.value = tab.custom
+  if (tab.monitor) activeMonitorMenu.value = tab.monitor as 'online' | 'cache' | 'cacheList'
+  if (tab.plugin) activePluginKey.value = tab.plugin
+  activeWorkspaceTabId.value = tab.id
+  tabContextMenu.show = false
+}
+
+function activateWorkspaceTabFromEvent(tab: WorkspaceTabItem) {
+  activateWorkspaceTab(tab as WorkspaceTab)
+}
+
+function openTabContextMenu(event: MouseEvent, tab: WorkspaceTabItem) {
+  const menuWidth = 220
+  const menuHeight = 324
+  tabContextMenu.x = Math.min(event.clientX, window.innerWidth - menuWidth - 12)
+  tabContextMenu.y = Math.min(event.clientY, window.innerHeight - menuHeight - 12)
+  tabContextMenu.tabId = tab.id
+  tabContextMenu.show = true
+  showChromeQuickMenu.value = false
+}
+
+function closeTabContextMenu() {
+  tabContextMenu.show = false
+}
+
+function closeWorkspaceTab(id: string) {
+  const index = workspaceTabs.value.findIndex(tab => tab.id === id)
+  const tab = workspaceTabs.value[index]
+  if (!tab || !tab.closable || tab.pinned) return
+  workspaceTabs.value.splice(index, 1)
+  if (activeWorkspaceTabId.value === id) {
+    activateWorkspaceTab(workspaceTabs.value[Math.max(0, index - 1)] || workspaceTabs.value[0])
+  }
+  closeTabContextMenu()
+}
+
+function toggleWorkspaceTabPinned(tab: WorkspaceTabItem) {
+  const target = workspaceTabs.value.find(item => item.id === tab.id)
+  if (!target || target.id === 'home') return
+  target.pinned = !target.pinned
+}
+
+function toggleTabPinned() {
+  const tab = workspaceTabs.value.find(item => item.id === tabContextMenu.tabId)
+  if (tab) toggleWorkspaceTabPinned(tab)
+  closeTabContextMenu()
+}
+
+function closeTabsWhere(predicate: (tab: WorkspaceTab, index: number) => boolean) {
+  const currentId = activeWorkspaceTabId.value
+  workspaceTabs.value = workspaceTabs.value.filter((tab, index) => tab.pinned || !tab.closable || !predicate(tab, index))
+  if (!workspaceTabs.value.some(tab => tab.id === currentId)) activateWorkspaceTab(workspaceTabs.value[0])
+  closeTabContextMenu()
+}
+
+function closeTabsLeft() {
+  const index = workspaceTabs.value.findIndex(tab => tab.id === tabContextMenu.tabId)
+  closeTabsWhere((_tab, tabIndex) => tabIndex < index)
+}
+
+function closeTabsRight() {
+  const index = workspaceTabs.value.findIndex(tab => tab.id === tabContextMenu.tabId)
+  closeTabsWhere((_tab, tabIndex) => tabIndex > index)
+}
+
+function closeOtherTabs() {
+  const keepId = tabContextMenu.tabId
+  closeTabsWhere(tab => tab.id !== keepId)
+}
+
+function closeAllTabs() {
+  workspaceTabs.value = workspaceTabs.value.filter(tab => tab.pinned || !tab.closable)
+  activateWorkspaceTab(workspaceTabs.value[0])
+  showChromeQuickMenu.value = false
+  closeTabContextMenu()
+}
+
+function refreshWorkspace() {
+  window.location.reload()
+}
+
+function openCurrentTabInNewWindow() {
+  window.open(window.location.href, '_blank', 'noopener,noreferrer')
+  closeTabContextMenu()
+}
+
+function jumpFromQuickApp(main: string, sub = '') {
+  activeMainMenu.value = main
+  if (main === 'production' && sub) activeProductionMenu.value = sub
+  if (main === 'inventory' && sub) activeInventoryMenu.value = sub
+  if (main === 'basedata' && sub) activeBasedataMenu.value = sub
+  if (main === 'sysconfig' && sub) activeConfigMenu.value = sub
+  if (main === 'monitor' && sub) activeMonitorMenu.value = sub as 'online' | 'cache' | 'cacheList'
+  if (main === 'plugin' && sub) activePluginKey.value = sub
+  showQuickApps.value = false
+}
+
+function openRuntimePlugin(pluginKey: string) {
+  activeMainMenu.value = 'plugin'
+  activePluginKey.value = pluginKey
+  expandedMenus.plugins = true
+}
+
+function selectLanguage(language: string) {
+  showLanguageMenu.value = false
+  if (language === 'zh-CN') showAction('当前界面已是简体中文')
+  else showAction('英文界面将在多语言资源配置后启用')
+}
+
+function toggleChromeQuickMenu() {
+  showChromeQuickMenu.value = !showChromeQuickMenu.value
+  showQuickApps.value = false
+  showLanguageMenu.value = false
+  showTimezoneDialog.value = false
+  showWorkspaceSearch.value = false
+  tabContextMenu.show = false
+}
+
+function toggleQuickApps() {
+  showQuickApps.value = !showQuickApps.value
+  showChromeQuickMenu.value = false
+  showLanguageMenu.value = false
+  showTimezoneDialog.value = false
+}
+
+function toggleLanguageMenu() {
+  showLanguageMenu.value = !showLanguageMenu.value
+  showQuickApps.value = false
+  showChromeQuickMenu.value = false
+  showTimezoneDialog.value = false
+}
+
+function toggleTheme() {
+  isDarkTheme.value = !isDarkTheme.value
+}
+
+function openInternalChat() {
+  const url = new URL(window.location.href)
+  url.hash = '#/im-chat'
+  const messageWindow = window.open(url.toString(), '_blank', 'noopener,noreferrer')
+  if (!messageWindow) {
+    errorMessage.value = '浏览器阻止了内部沟通窗口，请允许弹窗后重试'
+    return
+  }
+}
+
+function openTimezoneDialog() {
+  timezoneDraft.value = selectedTimezone.value
+  showTimezoneDialog.value = true
+  showQuickApps.value = false
+  showChromeQuickMenu.value = false
+  showLanguageMenu.value = false
+}
+
+function closeTimezoneDialog() {
+  showTimezoneDialog.value = false
+}
+
+function confirmTimezone() {
+  selectedTimezone.value = timezoneDraft.value
+  localStorage.setItem('heihu_timezone', selectedTimezone.value)
+  showTimezoneDialog.value = false
+  const selected = timezoneOptions.find(option => option.value === selectedTimezone.value)
+  showAction(`时区已切换为 ${selected?.label || selectedTimezone.value}`)
+}
+
+function syncNativeFullscreenState() {
+  if (document.fullscreenElement) {
+    nativeFullscreenActive = true
+    isAppFullscreen.value = true
+    return
+  }
+
+  if (nativeFullscreenActive) {
+    nativeFullscreenActive = false
+    isAppFullscreen.value = false
+  }
+}
+
+async function toggleAppFullscreen() {
+  if (isAppFullscreen.value) {
+    // Remove the app-level fallback immediately so the button never feels stuck.
+    isAppFullscreen.value = false
+    nativeFullscreenActive = false
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen?.()
+      } catch {
+        // The CSS fallback has already exited; browser-level fullscreen may be unavailable.
+      }
+    }
+    return
+  }
+
+  // Enter the reliable workspace mode first. Native browser fullscreen is only an enhancement.
+  isAppFullscreen.value = true
+  if (!document.documentElement.requestFullscreen) return
+
+  try {
+    await document.documentElement.requestFullscreen()
+    nativeFullscreenActive = true
+  } catch {
+    // Some local browsers deny the native API; the workspace fallback remains active.
+  }
+}
+
+function focusWorkspaceSearch() {
+  showWorkspaceSearch.value = true
+  showChromeQuickMenu.value = false
+  nextTick(() => workspaceSearchInput.value?.focus())
+}
+
+function submitWorkspaceSearch() {
+  handleSearch()
+  showWorkspaceSearch.value = false
+}
+
+watch(activePageCacheKey, async () => {
+  syncWorkspaceTab()
+  await nextTick()
+  const stage = pageMotionStage.value
+  if (!stage || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  stage.getAnimations().forEach(animation => animation.cancel())
+  stage.animate(
+    [
+      { opacity: 0.45, transform: 'translateY(7px)' },
+      { opacity: 1, transform: 'translateY(0)' }
+    ],
+    { duration: 220, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
+  )
+})
 
 // ======== 车间看板数据 ========
 const isDashboardFullscreen = ref(false)
@@ -161,54 +586,83 @@ const exitDashboard = () => {
   activeConfigMenu.value = 'department'
 }
 
+function workOrderProgress(wo: any) {
+  if (typeof wo.progressPercent === 'number') return Math.max(0, Math.min(100, Math.round(wo.progressPercent)))
+  const planned = Number(wo.plannedQuantity || 0)
+  if (planned <= 0) return 0
+  return Math.max(0, Math.min(100, Math.round(((wo.goodQuantity || 0) + (wo.defectQuantity || 0)) / planned * 100)))
+}
+
+function isClosedStatus(status: string | undefined) {
+  return ['COMPLETED', 'CANCELED', 'CANCELLED', '已完成', '已取消'].includes(status || '')
+}
+
 const loadDashboardData = async () => {
   try {
-    const token = localStorage.getItem('token') || ''
-    if (!token) return
+    const authToken = token.value || localStorage.getItem('heihu_token') || ''
+    if (!authToken) return
 
     // 1. 获取真实工单数据
-    const woResponse = await fetchWorkOrders(token, { page: 1, size: 50 })
+    const woResponse = await fetchWorkOrders(authToken, { page: 1, size: 50 })
     const realWorkOrders = woResponse.items || []
     
-    // 更新工单概览表格
-    tableData.value = realWorkOrders.map(wo => ({
-      code: wo.code,
-      product: wo.productName || '未知产品',
-      qty: wo.planCount || 0,
-      customer: wo.customerName || '-',
-      urgent: false, // 假设没有此字段
-      progress: Math.floor(Math.random() * 100) // 模拟进度
-    }))
-
-    // 简单的统计聚合
-    const totalPlan = realWorkOrders.reduce((sum, wo) => sum + (wo.planCount || 0), 0)
-    dashboardKpi.planCount = totalPlan
-
     // 2. 获取报工记录，聚合任务执行进度
-    const reportRes = await fetchReports(token, { page: 1, size: 200 })
+    const [reportRes, salesOrderRes] = await Promise.all([
+      fetchReports(authToken, { page: 1, size: 200 }),
+      fetchSalesOrders(authToken, { page: 1, size: 500 })
+    ])
     const reports = reportRes.items || []
+    const customerNamesByOrderCode = new Map((salesOrderRes.items || []).map(order => [order.code, order.customerName]))
+    const workshopDashboard = buildWorkshopDashboard(realWorkOrders, reports, new Date(), customerNamesByOrderCode)
+    tableData.value = workshopDashboard.tableData
+    taskProgressData.value = workshopDashboard.taskProgressData
+    Object.assign(dashboardKpi, workshopDashboard.metrics)
     dashboardReports.value = reports.map(r => ({
       ...r,
-      createdAt: r.createdAt ? r.createdAt.replace('T', ' ').substring(5, 16) : ''
+      createdAt: normalizeDate(r.createdAt)
     }))
-    
-    const processMap: Record<string, any> = {}
-    reports.forEach(r => {
-      const pName = r.processName || '未知工序'
-      if (!processMap[pName]) {
-        processMap[pName] = { process: pName, taskCount: 0, planned: 0, good: 0, defect: 0, remaining: 0 }
+
+    const analyticsReports = reports.filter(r => r.status === 'APPROVED')
+
+    const dailyMap = new Map<string, { day: number; done: number; output: number; defect: number }>()
+    const reporterMap = new Map<string, number>()
+    const defectMap = new Map<string, number>()
+    analyticsReports.forEach(r => {
+      const dateKey = (r.createdAt || '').slice(0, 10)
+      if (dateKey) {
+        const day = Number(dateKey.slice(8, 10))
+        const item = dailyMap.get(dateKey) || { day, done: 0, output: 0, defect: 0 }
+        item.done += 1
+        item.output += (r.goodQuantity || 0)
+        item.defect += (r.defectQuantity || 0)
+        dailyMap.set(dateKey, item)
       }
-      processMap[pName].taskCount += 1
-      processMap[pName].good += (r.goodQuantity || 0)
-      processMap[pName].defect += (r.defectQuantity || 0)
-      // 真实业务中计划数应该是工单任务里的计划数
-      processMap[pName].planned += (r.goodQuantity || 0) + (r.defectQuantity || 0) + 100
-      processMap[pName].remaining = processMap[pName].planned - processMap[pName].good
+      reporterMap.set(r.reporterName || '未知员工', (reporterMap.get(r.reporterName || '未知员工') || 0) + (r.goodQuantity || 0))
+      const defectName = r.defectItemName || (r.defectQuantity > 0 ? '未分类不良' : '')
+      if (defectName) defectMap.set(defectName, (defectMap.get(defectName) || 0) + (r.defectQuantity || 0))
     })
-    
-    if (Object.keys(processMap).length > 0) {
-      taskProgressData.value = Object.values(processMap)
-    }
+    barData.value = Array.from(dailyMap.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-10).map(([, item]) => item)
+    perfData.value = Array.from(reporterMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5)
+    const totalDefectItems = Array.from(defectMap.values()).reduce((sum, count) => sum + count, 0)
+    const colors = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#6b7280']
+    pieData.value = Array.from(defectMap.entries()).map(([name, count], index) => ({
+      name,
+      color: colors[index % colors.length],
+      count,
+      pct: totalDefectItems > 0 ? (count / totalDefectItems * 100).toFixed(2) + '%' : '0.00%'
+    }))
+    defectTrend.value = barData.value.map(item => ({
+      day: item.day,
+      count: item.defect,
+      rate: item.output + item.defect > 0 ? Number((item.defect / (item.output + item.defect) * 100).toFixed(2)) : 0
+    }))
+    scrollMessages.value = reports.slice(0, 8).map(r => ({
+      time: (r.createdAt || '').replace('T', ' ').substring(0, 19),
+      text: `${r.reporterName || '-'} | ${r.processName || '-'} | ${r.productName || '-'} | 良品${r.goodQuantity || 0} | 不良${r.defectQuantity || 0}`
+    }))
 
   } catch (e) {
     console.error('Failed to load dashboard data:', e)
@@ -216,6 +670,10 @@ const loadDashboardData = async () => {
 }
 
 watch(activeMainMenu, (newVal) => {
+  if (!hasAdminAccess.value && newVal !== 'home') {
+    activeMainMenu.value = 'home'
+    return
+  }
   if (newVal === 'dashboard') {
     loadDashboardData()
   }
@@ -226,90 +684,190 @@ watch(activeMainMenu, (newVal) => {
 })
 
 const dashboardKpi = reactive({
-  planCount: 5285,
-  delayedOrders: 7,
-  delayedTasks: 37,
-  todayDone: 1,
-  todayTasks: 5,
-  todayOutput: 250,
-  defectRate: 1.96
+  inProcessOrderCount: 0,
+  planCount: 0,
+  inProcessTaskPlanCount: 0,
+  inProcessTaskCount: 0,
+  delayedOrders: 0,
+  delayedTasks: 0,
+  todayDone: 0,
+  todayTasks: 0,
+  todayOutput: 0,
+  todayDefect: 0,
+  defectRate: 0
 })
 
-const barData = ref([
-  { day: 12, done: 3, output: 800 }, { day: 13, done: 5, output: 600 },
-  { day: 14, done: 8, output: 1000 }, { day: 15, done: 4, output: 700 },
-  { day: 16, done: 6, output: 400 }, { day: 17, done: 2, output: 350 },
-  { day: 18, done: 7, output: 900 }, { day: 19, done: 5, output: 500 },
-  { day: 20, done: 3, output: 850 }, { day: 21, done: 4, output: 650 }
-])
+const barData = ref<Array<{ day: number; done: number; output: number; defect: number }>>([])
 
-const perfData = ref([
-  { name: '虞竹', value: 1621 },
-  { name: '张俊健', value: 1224 },
-  { name: '段超', value: 863 },
-  { name: '乔峰', value: 350 },
-  { name: '慕容复', value: 300 }
-])
-const perfMax = computed(() => Math.max(...perfData.value.map(p => p.value)))
+const perfData = ref<Array<{ name: string; value: number }>>([])
+const perfMax = computed(() => Math.max(1, ...perfData.value.map(p => p.value)))
 
-const defectTrend = ref([
-  { day: 12, count: 5, rate: 0.8 }, { day: 13, count: 3, rate: 0.5 },
-  { day: 14, count: 8, rate: 1.2 }, { day: 15, count: 2, rate: 0.3 },
-  { day: 16, count: 6, rate: 0.9 }, { day: 17, count: 4, rate: 0.6 },
-  { day: 18, count: 10, rate: 1.5 }, { day: 19, count: 7, rate: 1.1 },
-  { day: 20, count: 3, rate: 0.4 }, { day: 21, count: 5, rate: 0.8 }
-])
+const defectTrend = ref<Array<{ day: number; count: number; rate: number }>>([])
 
-const pieData = ref([
-  { name: '针扎', color: '#3b82f6', count: 30, pct: '37.50%' },
-  { name: '割纹', color: '#f59e0b', count: 10, pct: '12.50%' },
-  { name: '划边', color: '#10b981', count: 9, pct: '11.25%' },
-  { name: '飞溅', color: '#ef4444', count: 10, pct: '12.50%' },
-  { name: '气泡', color: '#8b5cf6', count: 10, pct: '12.50%' },
-  { name: '其他', color: '#6b7280', count: 11, pct: '13.75%' }
-])
+const pieData = ref<Array<{ name: string; color: string; count: number; pct: string }>>([])
+const pieBackground = computed(() => {
+  const total = pieData.value.reduce((sum, item) => sum + item.count, 0)
+  if (total <= 0) return '#16314b'
+  let cursor = 0
+  const segments = pieData.value.map(item => {
+    const start = cursor
+    cursor += item.count / total * 100
+    return `${item.color} ${start}% ${cursor}%`
+  })
+  return `conic-gradient(${segments.join(', ')})`
+})
 
-const scrollMessages = ref([
-  { time: '2023-04-21 11:30:09', text: '段超 | 包装 | 02|宝慧轴承S6... | 良品150 | 不良品5' },
-  { time: '2023-04-20 12:16:31', text: '虞竹 | 包装 | 04|智能wifi-7组... | 05|18型支承... | 良品600' },
-  { time: '2023-04-19 11:46:52', text: '张俊健 | 包装仓 | T-1白/小T-shirt | 良品100' },
-  { time: '2023-04-19 11:39:49', text: '张俊健 | 驱动包 | T-1白/小T-shirt | 不良品5' }
-])
+const scrollMessages = ref<Array<{ time: string; text: string }>>([])
 
 const dashboardReports = ref<any[]>([])
+
+const notificationItems = ref<NotificationInfo[]>([])
+const notificationUnreadCount = ref(0)
+const notificationCount = computed(() => notificationUnreadCount.value)
+const notificationPreview = computed(() => notificationItems.value.slice(0, 8))
+let notificationPollTimer: ReturnType<typeof setInterval> | null = null
+
+function normalizeDate(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.replace('T', ' ').substring(0, 16)
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: selectedTimezone.value,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(date).replace(/\//g, '-')
+  } catch {
+    return value.replace('T', ' ').substring(0, 16)
+  }
+}
+
+async function loadNotificationCount(): Promise<boolean> {
+  if (!token.value) {
+    notificationUnreadCount.value = 0
+    return true
+  }
+  try {
+    notificationUnreadCount.value = await fetchNotificationUnreadCount(token.value)
+    return true
+  } catch (error) {
+    notificationUnreadCount.value = 0
+    notificationError.value = error instanceof Error ? error.message : '通知数量加载失败'
+    return false
+  }
+}
+
+async function loadNotifications(): Promise<boolean> {
+  if (!token.value) {
+    notificationItems.value = []
+    notificationUnreadCount.value = 0
+    return true
+  }
+  notificationsLoading.value = true
+  notificationError.value = ''
+  try {
+    const result = await fetchNotifications(token.value, { scope: 'active', page: 1, size: 8 })
+    notificationItems.value = result.items || []
+    notificationUnreadCount.value = result.unreadCount || 0
+    return true
+  } catch (error) {
+    notificationItems.value = []
+    notificationError.value = error instanceof Error ? error.message : '通知加载失败'
+    return false
+  } finally {
+    notificationsLoading.value = false
+  }
+}
+
+function startNotificationPolling() {
+  if (notificationPollTimer) clearInterval(notificationPollTimer)
+  notificationPollTimer = setInterval(() => {
+    if (!token.value || isInternalChatWindow.value) return
+    void loadNotificationCount()
+    if (showNotificationDropdown.value) void loadNotifications()
+  }, 60000)
+}
+
+async function loadPluginRuntimeManifest(): Promise<boolean> {
+  if (!token.value) {
+    runtimePlugins.value = []
+    return true
+  }
+  try {
+    runtimePlugins.value = await fetchPluginRuntimeManifest(token.value)
+    if (activePluginKey.value && !runtimePlugins.value.some(item => item.pluginKey === activePluginKey.value)) {
+      activePluginKey.value = ''
+      if (activeMainMenu.value === 'plugin') activeMainMenu.value = 'home'
+    }
+    return true
+  } catch (error) {
+    // 插件清单是可选能力，清单服务异常不能阻断核心工作台启动。
+    runtimePlugins.value = []
+    return true
+  }
+}
+
+async function toggleNotifications() {
+  showNotificationDropdown.value = !showNotificationDropdown.value
+  showUserDropdown.value = false
+  if (showNotificationDropdown.value) {
+    await loadNotifications()
+  }
+}
+
+async function markAllNotificationsAsRead() {
+  if (!token.value || notificationUnreadCount.value === 0) return
+  try {
+    await markAllNotificationsRead(token.value)
+    notificationItems.value.forEach(item => {
+      item.unread = false
+      if (item.state === 'UNREAD') item.state = 'READ'
+    })
+    notificationUnreadCount.value = 0
+  } catch (error) {
+    notificationError.value = error instanceof Error ? error.message : '全部已读失败'
+  }
+}
+
+function openNotificationCenter() {
+  activeMainMenu.value = 'notifications'
+  showNotificationDropdown.value = false
+  showUserDropdown.value = false
+}
+
+async function openNotification(item: NotificationInfo) {
+  if (item.unread && token.value) {
+    try {
+      await markNotificationRead(token.value, item.id)
+      item.unread = false
+      item.state = 'READ'
+      notificationUnreadCount.value = Math.max(0, notificationUnreadCount.value - 1)
+    } catch {
+      // Navigation remains available even when the read-state update is temporarily unavailable.
+    }
+  }
+  activeMainMenu.value = item.targetMain || 'home'
+  if (item.targetMain === 'production') {
+    activeProductionMenu.value = item.targetSub || 'workorder'
+    expandedMenus.production = true
+  }
+  showNotificationDropdown.value = false
+}
 
 const displayReports = computed(() => {
   if (dashboardReports.value && dashboardReports.value.length > 0) {
     return dashboardReports.value.slice(0, 5)
   }
-  return [
-    { createdAt: '03-12 18:02', reporterName: '王艺儒', processName: '制版拼版', productName: '111', goodQuantity: 30, defectQuantity: 0 },
-    { createdAt: '03-12 18:00', reporterName: '王艺儒', processName: '抽检', productName: '111', goodQuantity: 100, defectQuantity: 0 },
-    { createdAt: '04-21 11:30', reporterName: '段超', processName: '包装', productName: '02|宝慧轴承S6...', goodQuantity: 150, defectQuantity: 5 },
-    { createdAt: '04-20 12:16', reporterName: '虞竹', processName: '包装', productName: '04|智能wifi-7组...', goodQuantity: 600, defectQuantity: 0 }
-  ]
+  return []
 })
 
-const tableData = ref([
-  { code: 'GD20230401-6', product: '股骨头髁关节假体', qty: 234, customer: '厦门市医院', urgent: false, progress: 75 },
-  { code: 'GD20230401-5', product: '美标维纶绞片M5...', qty: 133, customer: '宁德时代', urgent: true, progress: 60 },
-  { code: 'GD20230401-4', product: '智能wifi-7组座', qty: 1000, customer: '格力电器', urgent: false, progress: 45 },
-  { code: 'GD20230401-3', product: '弹簧座', qty: 1000, customer: '华为手机', urgent: false, progress: 30 },
-  { code: 'GD20230401-2', product: '18型支承轴', qty: 600, customer: '花花公子', urgent: false, progress: 85 },
-  { code: 'GD20230401-1', product: '黑湖精密模具', qty: 2018, customer: '上汽大众', urgent: false, progress: 90 },
-  { code: 'GD20220120', product: '结构钛铝板', qty: 300, customer: '特斯拉', urgent: false, progress: 55 }
-])
+const tableData = ref<Array<{ code: string; product: string; qty: number; customer: string; urgent: boolean; progress: number; steps: { name: string; progress: number }[] }>>([])
 
-const taskProgressData = ref([
-  { process: '注塑', taskCount: 4, planned: 1467, good: 1142, defect: 6, remaining: 325 },
-  { process: '外协 电镀', taskCount: 3, planned: 517, good: 229, defect: 0, remaining: 288 },
-  { process: 'CNC', taskCount: 4, planned: 2985, good: 2021, defect: 7, remaining: 964 },
-  { process: '包装', taskCount: 4, planned: 5235, good: 2830, defect: 63, remaining: 2405 },
-  { process: '折弯', taskCount: 4, planned: 2535, good: 2261, defect: 8, remaining: 274 },
-  { process: '机加', taskCount: 5, planned: 3485, good: 2652, defect: 8, remaining: 833 },
-  { process: '下料', taskCount: 7, planned: 4235, good: 4279, defect: 52, remaining: -44 },
-  { process: '冲压', taskCount: 7, planned: 4785, good: 3534, defect: 19, remaining: 1251 }
-])
+const taskProgressData = ref<Array<{ process: string; taskCount: number; planned: number; good: number; defect: number; remaining: number }>>([])
 
 const showEditPrintTemplateModal = ref(false)
 
@@ -415,13 +973,13 @@ watchEffect(() => {
   if (!tpl) return
   let text = ''
   if (tpl.qrSource === '工单外链') {
-    text = `${window.location.origin}/workorder/123456`
+    text = `${window.location.origin}/workorder/preview`
   } else if (tpl.qrSource === '工单编号') {
-    text = 'GD20220120'
+    text = 'GD-PREVIEW'
   } else if (tpl.qrSource === '工单二维码') {
-    text = '123456'
+    text = 'WORK_ORDER_QR_PREVIEW'
   } else {
-    text = tpl.qrSource || '123456'
+    text = tpl.qrSource || 'WORK_ORDER_PREVIEW'
   }
   QRCode.toDataURL(text, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } }).then((url: string) => {
     qrPreviewUrl.value = url
@@ -453,11 +1011,15 @@ const showUnitModal = ref(false)
 const editingUnit = ref<UnitInfo | null>(null)
 const unitForm = reactive({ name: '', remark: '' })
 
-async function loadUnits() {
+async function loadUnits(): Promise<boolean> {
   try {
     const res = await fetchUnits(token.value)
     units.value = res.items
-  } catch (e) { console.error('加载单位失败', e) }
+    return true
+  } catch (e) {
+    console.error('加载单位失败', e)
+    return false
+  }
 }
 function openCreateUnit() {
   editingUnit.value = null
@@ -506,11 +1068,15 @@ const showDefectModal = ref(false)
 const editingDefect = ref<DefectInfo | null>(null)
 const defectForm = reactive({ code: '', name: '' })
 
-async function loadDefects() {
+async function loadDefects(): Promise<boolean> {
   try {
     const res = await fetchDefects(token.value)
     defects.value = res.items
-  } catch (e) { console.error('加载不良品项失败', e) }
+    return true
+  } catch (e) {
+    console.error('加载不良品项失败', e)
+    return false
+  }
 }
 function openCreateDefect() {
   editingDefect.value = null
@@ -670,7 +1236,6 @@ function openRouteStepDropdown(stepId: number) {
   })
   newMap[stepId] = !isOpen
   routeStepDropdownOpen.value = newMap
-  console.log('Toggle route step dropdown', stepId, 'isOpen:', !isOpen)
 }
 
 function closeAllRouteStepDropdowns() {
@@ -808,8 +1373,8 @@ function confirmDeleteRoute(r: RouteItem) {
   }
   confirmState.show = true
 }
-async function loadRoutes() {
-  if (!token.value) return
+async function loadRoutes(): Promise<boolean> {
+  if (!token.value) return false
   try {
     const res = await fetchProcessRoutes(token.value, { size: 999 })
     routes.value = res.items.map(r => ({
@@ -826,8 +1391,10 @@ async function loadRoutes() {
       creator: r.creator || '',
       createdAt: r.createdAt ? r.createdAt.slice(0, 10) : ''
     }))
+    return true
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : '工艺路线加载失败'
+    return false
   }
 }
 
@@ -1115,8 +1682,8 @@ async function handleDeleteProcess(p: ProcessItem) {
     errorMessage.value = e instanceof Error ? e.message : '删除失败'
   }
 }
-async function loadProcesses() {
-  if (!token.value) return
+async function loadProcesses(): Promise<boolean> {
+  if (!token.value) return false
   try {
     const res = await fetchProcesses(token.value, { size: 999 })
     processes.value = res.items.map(p => ({
@@ -1134,8 +1701,10 @@ async function loadProcesses() {
       requirements: p.requirements || '',
       collectData: (p.collectData || []).map(c => ({ type: c.type, name: c.name }))
     }))
+    return true
   } catch (e) {
     errorMessage.value = e instanceof Error ? e.message : '工序加载失败'
+    return false
   }
 }
 function addCollectDataRow() {
@@ -1162,10 +1731,13 @@ const expandedMenus = reactive<Record<string, boolean>>({
   upstream: false,
   inventory: false,
   basedata: false,
-  custom: false,
-  report: false,
-  sysconfig: false
-})
+    custom: false,
+    report: false,
+    advanced: false,
+    sysconfig: false,
+    monitor: false,
+    plugins: false
+  })
 
 function toggleMenu(key: string) {
   expandedMenus[key] = !expandedMenus[key]
@@ -1212,7 +1784,7 @@ const loginForm = reactive({
 const loginTab = ref<'phone' | 'factory'>('factory')
 const rememberMe = ref(false)
 
-// 挂载/初始化时读取 localStorage
+// Restore saved login identifiers only. Never persist the password in browser storage.
 try {
   const saved = localStorage.getItem('gongdan_remember_me')
   if (saved) {
@@ -1221,7 +1793,13 @@ try {
       rememberMe.value = true
       loginForm.factoryCode = parsed.factoryCode || ''
       loginForm.username = parsed.username || ''
-      loginForm.password = parsed.password || ''
+      if (parsed.password) {
+        localStorage.setItem('gongdan_remember_me', JSON.stringify({
+          remember: true,
+          factoryCode: loginForm.factoryCode,
+          username: loginForm.username
+        }))
+      }
     }
   }
 } catch (e) {
@@ -1277,6 +1855,7 @@ const editForm = reactive<UpdateUserPayload>({
 })
 
 const isLoggedIn = computed(() => Boolean(token.value && currentUser.value))
+const hasAdminAccess = computed(() => Boolean(isSuperAdmin.value || currentUser.value?.role === 'ADMIN'))
 const filteredUsers = computed(() => {
   return users.value.filter((item) => {
     const matchName = !filterForm.name || item.name.includes(filterForm.name)
@@ -1319,6 +1898,130 @@ function readStoredUser() {
   }
 }
 
+function resetWorkspaceLoading() {
+  workspaceLoadingStages.value = createWorkspaceLoadingStages()
+  workspaceLoadingProgress.value = 0
+  workspaceLoadingStage.value = '准备启动'
+  workspaceLoadingError.value = ''
+  workspaceLoadingVisible.value = true
+}
+
+function updateWorkspaceLoadingProgress() {
+  const total = workspaceLoadingStages.value.length
+  const completed = workspaceLoadingStages.value.filter(stage => stage.status === 'done').length
+  workspaceLoadingProgress.value = total > 0 ? Math.round((completed / total) * 100) : 100
+}
+
+async function runWorkspaceLoadingStage(
+  runId: number,
+  key: string,
+  task: () => Promise<string | void> | string | void
+) {
+  const stage = workspaceLoadingStages.value.find(item => item.key === key)
+  if (!stage || runId !== workspaceBootstrapRun) return
+
+  stage.status = 'loading'
+  stage.detail = '正在请求数据，请稍候'
+  workspaceLoadingStage.value = stage.label
+  updateWorkspaceLoadingProgress()
+
+  try {
+    const detail = await task()
+    if (runId !== workspaceBootstrapRun) return
+    stage.status = 'done'
+    stage.detail = detail || '已完成'
+    updateWorkspaceLoadingProgress()
+  } catch (error) {
+    if (runId !== workspaceBootstrapRun) return
+    stage.status = 'error'
+    stage.detail = '请求失败，已暂停'
+    workspaceLoadingStage.value = stage.label
+    workspaceLoadingError.value = `${stage.label}失败：${error instanceof Error ? error.message : '接口返回失败'}`
+    updateWorkspaceLoadingProgress()
+    throw error
+  }
+}
+
+async function bootstrapWorkspace(): Promise<boolean> {
+  if (!token.value || !currentUser.value) {
+    workspaceLoadingVisible.value = false
+    return true
+  }
+
+  const runId = ++workspaceBootstrapRun
+  resetWorkspaceLoading()
+  errorMessage.value = ''
+
+  try {
+    await runWorkspaceLoadingStage(runId, 'restore-session', async () => {
+      currentFactoryCode.value = localStorage.getItem('heihu_factory_code') || currentFactoryCode.value
+      await nextTick()
+      return `已恢复 ${currentFactoryCode.value} 工厂会话`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-users', async () => {
+      if (!await loadUsers()) throw new Error(errorMessage.value || '用户接口没有返回成功')
+      return `已加载 ${users.value.length} 个用户`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-departments', async () => {
+      if (!await loadDepartments()) throw new Error(errorMessage.value || '部门接口没有返回成功')
+      const allDepartments = await fetchDepartments(token.value, { code: '', name: '', page: 1, size: 999 })
+      departments.value = allDepartments.items
+      departmentTotal.value = allDepartments.total
+      return `已加载 ${allDepartments.items.length} 个部门`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-units', async () => {
+      if (!await loadUnits()) throw new Error('单位接口没有返回成功')
+      return `已加载 ${units.value.length} 个单位`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-defects', async () => {
+      if (!await loadDefects()) throw new Error('不良品项接口没有返回成功')
+      return `已加载 ${defects.value.length} 个不良品项`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-processes', async () => {
+      if (!await loadProcesses()) throw new Error(errorMessage.value || '工序接口没有返回成功')
+      return `已加载 ${processes.value.length} 道工序`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-routes', async () => {
+      if (!await loadRoutes()) throw new Error(errorMessage.value || '工艺路线接口没有返回成功')
+      return `已加载 ${routes.value.length} 条工艺路线`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-notifications', async () => {
+      if (!await loadNotificationCount()) throw new Error(notificationError.value || '通知数量接口没有返回成功')
+      return `已同步 ${notificationUnreadCount.value} 条未读通知`
+    })
+    await runWorkspaceLoadingStage(runId, 'load-plugin-manifest', async () => {
+      await loadPluginRuntimeManifest()
+      return runtimePlugins.value.length > 0
+        ? `已挂载 ${runtimePlugins.value.length} 个插件入口`
+        : '当前工厂没有启用插件'
+    })
+    await runWorkspaceLoadingStage(runId, 'prepare-workspace', async () => {
+      await nextTick()
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+      return '工作区已准备完成'
+    })
+
+    if (runId !== workspaceBootstrapRun) return false
+    workspaceLoadingProgress.value = 100
+    workspaceLoadingStage.value = '加载完成'
+    await new Promise(resolve => setTimeout(resolve, 220))
+    if (runId === workspaceBootstrapRun) workspaceLoadingVisible.value = false
+    return true
+  } catch (error) {
+    if (runId === workspaceBootstrapRun) {
+      workspaceLoadingVisible.value = true
+      if (!workspaceLoadingError.value) {
+        workspaceLoadingError.value = error instanceof Error ? error.message : '工作区初始化失败'
+      }
+    }
+    return false
+  }
+}
+
+function retryWorkspaceBootstrap() {
+  void bootstrapWorkspace()
+}
+
 function persistSession(response: LoginResponse) {
   token.value = response.token
   currentUser.value = response.user
@@ -1330,9 +2033,17 @@ function persistSession(response: LoginResponse) {
   sharedAuth.persistSession(response)
   // 登录后默认进入主页仪表盘
   activeMainMenu.value = 'home'
+  startNotificationPolling()
 }
 
 const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
+const genericCustomFieldScopes: Record<string, string> = {
+  product: '产品',
+  bom: '物料清单',
+  process: '工序',
+  reporting: '报工',
+  customer: '客户'
+}
 
 const searchQuery = ref('')
 function handleSearch() {
@@ -1353,13 +2064,36 @@ function handleSearch() {
     { label: '工艺路线', mainMenu: 'basedata', subMenu: 'route', expandedMenu: 'basedata' },
     { label: '仓库', mainMenu: 'basedata', subMenu: 'warehouse', expandedMenu: 'basedata' },
     { label: '供应商', mainMenu: 'basedata', subMenu: 'supplier', expandedMenu: 'basedata' },
+    { label: '客户', mainMenu: 'basedata', subMenu: 'customer', expandedMenu: 'basedata' },
     { label: '产品', mainMenu: 'custom', subMenu: 'product', expandedMenu: 'custom' },
     { label: '客户', mainMenu: 'custom', subMenu: 'customer', expandedMenu: 'custom' },
     { label: '部门', mainMenu: 'sysconfig', subMenu: 'department', expandedMenu: 'sysconfig' },
     { label: '用户', mainMenu: 'sysconfig', subMenu: 'user', expandedMenu: 'sysconfig' },
+    { label: '插件中心', mainMenu: 'sysconfig', subMenu: 'plugin-center', expandedMenu: 'sysconfig' },
+    { label: '在线用户', mainMenu: 'monitor', subMenu: 'online', expandedMenu: 'monitor' },
+    { label: '缓存监控', mainMenu: 'monitor', subMenu: 'cache', expandedMenu: 'monitor' },
+    { label: '缓存列表', mainMenu: 'monitor', subMenu: 'cacheList', expandedMenu: 'monitor' },
     { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' },
+    { label: 'SOP', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '文档库', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '消息推送', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '企业微信', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '质检返工', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '设备工位', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '排产甘特', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '工资绩效', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    { label: '现场事件', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '主页', mainMenu: 'home', subMenu: '', expandedMenu: '' }
   ]
+
+  const runtimePlugin = runtimePlugins.value.find(item =>
+    item.name.toLowerCase().includes(query) || item.pluginKey.toLowerCase().includes(query)
+  )
+  if (runtimePlugin) {
+    openRuntimePlugin(runtimePlugin.pluginKey)
+    searchQuery.value = ''
+    return
+  }
 
   const match = menuMap.find(m => m.label.includes(query))
   if (match) {
@@ -1371,6 +2105,7 @@ function handleSearch() {
     else if (match.mainMenu === 'basedata') activeBasedataMenu.value = match.subMenu
     else if (match.mainMenu === 'custom') activeCustomMenu.value = match.subMenu
     else if (match.mainMenu === 'sysconfig') activeConfigMenu.value = match.subMenu
+    else if (match.mainMenu === 'monitor') activeMonitorMenu.value = match.subMenu as 'online' | 'cache' | 'cacheList'
     searchQuery.value = ''
   }
 }
@@ -1384,8 +2119,7 @@ async function handleLogin() {
       localStorage.setItem('gongdan_remember_me', JSON.stringify({
         remember: true,
         factoryCode: loginForm.factoryCode,
-        username: loginForm.username,
-        password: loginForm.password
+        username: loginForm.username
       }))
     } else {
       localStorage.removeItem('gongdan_remember_me')
@@ -1393,8 +2127,7 @@ async function handleLogin() {
     persistSession(response)
     currentFactoryCode.value = loginForm.factoryCode
     localStorage.setItem('heihu_factory_code', loginForm.factoryCode)
-    await loadUsers()
-    await loadDepartments()
+    await bootstrapWorkspace()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败'
   } finally {
@@ -1454,7 +2187,7 @@ async function handlePhoneLogin() {
       pendingPhoneCredential.loginType = 'sms'
       pendingPhoneCredential.credential = phoneForm.code
     }
-    handlePhoneLoginResult(result)
+    await handlePhoneLoginResult(result)
   } catch (e) {
     phoneError.value = e instanceof Error ? e.message : '登录失败'
   } finally {
@@ -1462,7 +2195,7 @@ async function handlePhoneLogin() {
   }
 }
 
-function handlePhoneLoginResult(result: PhoneLoginResult) {
+async function handlePhoneLoginResult(result: PhoneLoginResult) {
   if (result.bindingRequired && result.phone) {
     // 需要绑定工厂，携带手机号跳转到绑定页面，不显示错误提示
     bindingPhone.value = result.phone
@@ -1472,8 +2205,7 @@ function handlePhoneLoginResult(result: PhoneLoginResult) {
     showFactorySelect.value = true
   } else if (result.token && result.user) {
     persistSession({ token: result.token, user: result.user, isSuperAdmin: false })
-    loadUsers()
-    loadDepartments()
+    await bootstrapWorkspace()
   }
 }
 
@@ -1502,8 +2234,7 @@ async function handleSelectFactory(factoryId: number) {
         localStorage.setItem('heihu_factory_code', factory.factoryCode)
       }
       showFactorySelect.value = false
-      loadUsers()
-      loadDepartments()
+      await bootstrapWorkspace()
     }
   } catch (e) {
     phoneError.value = e instanceof Error ? e.message : '登录失败'
@@ -1512,29 +2243,33 @@ async function handleSelectFactory(factoryId: number) {
   }
 }
 
-async function loadUsers() {
+async function loadUsers(): Promise<boolean> {
   if (!token.value) {
-    return
+    return false
   }
   usersLoading.value = true
   try {
     users.value = await fetchUsers(token.value)
+    return true
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '用户列表加载失败'
+    return false
   } finally {
     usersLoading.value = false
   }
 }
 
-async function loadDepartments() {
-  if (!token.value) return
+async function loadDepartments(): Promise<boolean> {
+  if (!token.value) return false
   departmentsLoading.value = true
   try {
     const res = await fetchDepartments(token.value, departmentFilterForm)
     departments.value = res.items
     departmentTotal.value = res.total
+    return true
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '部门加载失败'
+    return false
   } finally {
     departmentsLoading.value = false
   }
@@ -1679,7 +2414,7 @@ async function copySuccessUser() {
     await navigator.clipboard.writeText(text)
     showAction('账号信息已复制到剪贴板')
   } catch (err) {
-    window.alert('复制失败，请手动复制')
+    errorMessage.value = '复制失败，请手动复制'
   }
 }
 
@@ -1765,11 +2500,11 @@ async function handleResetPassword() {
   const newPassword = resetPasswordForm.password
   const confirmPassword = resetPasswordForm.confirmPassword
   if (!newPassword.trim()) {
-    window.alert('新密码不能为空')
+    errorMessage.value = '新密码不能为空'
     return
   }
   if (newPassword !== confirmPassword) {
-    window.alert('两次输入的密码不一致')
+    errorMessage.value = '两次输入的密码不一致'
     return
   }
   errorMessage.value = ''
@@ -2002,10 +2737,22 @@ function handlePrintTemplate() {
 }
 
 function logout() {
+  workspaceBootstrapRun += 1
+  workspaceLoadingVisible.value = false
   token.value = ''
   currentUser.value = null
   isSuperAdmin.value = false
   users.value = []
+  runtimePlugins.value = []
+  activePluginKey.value = ''
+  notificationItems.value = []
+  notificationUnreadCount.value = 0
+  notificationError.value = ''
+  if (notificationPollTimer) {
+    clearInterval(notificationPollTimer)
+    notificationPollTimer = null
+  }
+  showNotificationDropdown.value = false
   localStorage.removeItem('heihu_token')
   localStorage.removeItem('heihu_user')
   localStorage.removeItem('heihu_is_super_admin')
@@ -2015,25 +2762,24 @@ function logout() {
 }
 
 onMounted(() => {
-  if (token.value) {
-    // 页面刷新后默认进入主页仪表盘
+  document.addEventListener('fullscreenchange', syncNativeFullscreenState)
+
+  if (token.value && currentUser.value && !isInternalChatWindow.value) {
+    // 页面刷新后默认进入主页仪表盘，并显示可诊断的初始化进度。
     activeMainMenu.value = 'home'
-    loadUsers()
-    loadDepartments()
-    loadUnits()
-    loadDefects()
-    loadProcesses()
-    loadRoutes()
-    // 额外全量拉取部门（供报工权限树使用，不受列表分页影响）
-    fetchDepartments(token.value, { code: '', name: '', page: 1, size: 999 })
-      .then(res => { departments.value = res.items })
-      .catch(() => {})
+    startNotificationPolling()
+    void bootstrapWorkspace()
+  } else {
+    workspaceLoadingVisible.value = false
   }
 
   window.addEventListener('click', (e) => {
     const target = e.target as HTMLElement
     if (!target.closest('.user-profile')) {
       showUserDropdown.value = false
+    }
+    if (!target.closest('.notification-wrap')) {
+      showNotificationDropdown.value = false
     }
     if (!target.closest('.custom-multiselect')) {
       showUserSelectDropdown.value = false
@@ -2050,12 +2796,52 @@ onMounted(() => {
     if (!target.closest('.route-step-select') && !target.closest('.route-step-dropdown')) {
       closeAllRouteStepDropdowns()
     }
+    if (!target.closest('.chrome-quick-wrap')) {
+      showChromeQuickMenu.value = false
+    }
+    if (!target.closest('.chrome-dropdown-wrap')) {
+      showQuickApps.value = false
+      showLanguageMenu.value = false
+    }
+    if (!target.closest('.tab-context-menu') && !target.closest('.workspace-tabs')) {
+      closeTabContextMenu()
+    }
   })
+
+  window.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault()
+      focusWorkspaceSearch()
+    }
+  })
+  document.addEventListener('fullscreenchange', () => {
+    isAppFullscreen.value = Boolean(document.fullscreenElement)
+  })
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('fullscreenchange', syncNativeFullscreenState)
+  if (notificationPollTimer) clearInterval(notificationPollTimer)
 })
 
 const formatDateTime = (val: string) => {
   if (!val) return '-';
   const d = new Date(val);
+  if (Number.isNaN(d.getTime())) return '-';
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone: selectedTimezone.value,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).format(d).replace(/\//g, '-');
+  } catch {
+    // Fall back to the browser timezone if a stored timezone is no longer valid.
+  }
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -2077,10 +2863,16 @@ function handleNavigate(menu: { main: string; sub: string }) {
   <main v-if="!isLoggedIn" class="login-page">
     <section class="login-hero">
       <div class="brand">
-        <img class="logo-mark" src="/logo.jpg" alt="Logo" />
+        <span class="brand-mark"><img class="logo-mark" src="/logo.jpg" alt="数字工单通" /></span>
+        <span class="brand-name">
+          <strong>数字工单通</strong>
+          <small>生产现场协同平台</small>
+        </span>
       </div>
       <div class="hero-copy">
-        <h1>随时随地，管理车间现场</h1>
+        <p class="hero-kicker">轻量化生产执行与现场协同</p>
+        <h1>让每一张工单<br />都清楚、及时、可追溯</h1>
+        <p class="hero-description">从计划下达到移动报工，把人员、设备、物料和质量信息沉淀在同一条生产链路中。</p>
         <div class="feature-grid">
           <div class="feature-item">
             <span class="feature-icon">01</span>
@@ -2104,12 +2896,16 @@ function handleNavigate(menu: { main: string; sub: string }) {
             </div>
           </div>
         </div>
+        <div class="hero-assurance"><span></span> 本地部署可用 · 数据留在企业内部</div>
       </div>
     </section>
     <section class="login-panel">
       <div class="login-box">
-        <h2>欢迎登录</h2>
-        <p class="login-sub">小工单管理系统</p>
+        <div class="login-heading">
+          <span>账号登录</span>
+          <h2>进入生产工作台</h2>
+          <p class="login-sub">使用工厂账号或已绑定的手机号登录</p>
+        </div>
 
         <!-- Tab switcher -->
         <div v-if="!showBindFactory && !showFactorySelect" class="login-tabs">
@@ -2184,7 +2980,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <div class="remember-me-row">
             <label class="remember-me-label">
               <input type="checkbox" v-model="rememberMe" />
-              <span>记住用户名密码</span>
+              <span>记住账号</span>
             </label>
           </div>
           <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
@@ -2192,142 +2988,226 @@ function handleNavigate(menu: { main: string; sub: string }) {
             {{ loading ? '登录中...' : '登录' }}
           </button>
         </form>
+        <p v-if="!showFactorySelect && !showBindFactory" class="login-help">账号由工厂管理员统一创建与维护</p>
       </div>
     </section>
   </main>
 
-  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed }">
+  <main v-else-if="isInternalChatWindow" class="admin-shell internal-chat-window-shell" :class="{ 'dark-theme': isDarkTheme }">
+    <InternalChatPage
+      :token="token"
+      :current-user="currentUser"
+    />
+  </main>
+
+  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'app-fullscreen': isAppFullscreen, 'dark-theme': isDarkTheme }">
     <aside class="sidebar">
       <button class="collapse-toggle" type="button" @click="isSidebarCollapsed = !isSidebarCollapsed">
         <svg v-if="!isSidebarCollapsed" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
         <svg v-else viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 18l6-6-6-6"/></svg>
       </button>
       <div class="factory-name" v-show="!isSidebarCollapsed" :title="currentFactoryCode">{{ currentFactoryCode }}</div>
-      <div class="sidebar-search" v-show="!isSidebarCollapsed">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-        <input v-model="searchQuery" @keydown.enter="handleSearch" type="text" placeholder="搜索(win+shift+f)" style="background: transparent; border: none; color: inherit; outline: none; width: 100%; font-size: 13px;" />
-      </div>
-      <nav>
+      <nav v-if="hasAdminAccess">
         <a v-if="currentUser && currentUser.role === 'ADMIN'" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'home' }" :title="isSidebarCollapsed ? '主页' : ''" @click="activeMainMenu = 'home'">
-          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <UiIcon name="home" :size="18" />
           <span v-show="!isSidebarCollapsed">主页</span>
         </a>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '生产管理' : ''" @click.stop="toggleMenu('production')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <UiIcon name="file" :size="18" />
             <span v-show="!isSidebarCollapsed">生产管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.production }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.production" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'">销售订单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'">工单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'">任务</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'">报工</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'">报工工作台</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.production" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'"><UiIcon name="file" :size="15" />销售订单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'"><UiIcon name="calendar" :size="15" />任务</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'"><UiIcon name="check" :size="15" />报工工作台</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '上下游管理' : ''" @click.stop="toggleMenu('upstream')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            <UiIcon name="share" :size="18" />
             <span v-show="!isSidebarCollapsed">上下游管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.upstream }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.upstream" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true"><UiIcon name="user" :size="15" />客户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true"><UiIcon name="share" :size="15" />供应商</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '库存管理' : ''" @click.stop="toggleMenu('inventory')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            <UiIcon name="layers" :size="18" />
             <span v-show="!isSidebarCollapsed">库存管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.inventory }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.inventory" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'">入库单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'">出库单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'">库存收发明细</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'">库存余额</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'">进销存汇总</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.inventory" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'"><UiIcon name="download" :size="15" />入库单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'"><UiIcon name="upload" :size="15" />出库单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'"><UiIcon name="list" :size="15" />库存收发明细</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'"><UiIcon name="layers" :size="15" />库存余额</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'"><UiIcon name="activity" :size="15" />进销存汇总</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '基础数据' : ''" @click.stop="toggleMenu('basedata')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <UiIcon name="list" :size="18" />
             <span v-show="!isSidebarCollapsed">基础数据</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.basedata }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.basedata" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'">产品定义</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'">物料清单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'">单位</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'">不良品项</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'">工序</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'">工艺路线</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'">仓库</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'">供应商</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.basedata" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'"><UiIcon name="package" :size="15" />产品定义</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'"><UiIcon name="table-columns" :size="15" />单位</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'"><UiIcon name="warning" :size="15" />不良品项</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'"><UiIcon name="settings" :size="15" />工序</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'"><UiIcon name="share" :size="15" />工艺路线</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'"><UiIcon name="home" :size="15" />仓库</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'"><UiIcon name="share" :size="15" />供应商</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '自定义配置' : ''" @click.stop="toggleMenu('custom')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            <UiIcon name="table-columns" :size="18" />
             <span v-show="!isSidebarCollapsed">自定义配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.custom }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.custom" class="sub-items-container">
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'">产品</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'">物料清单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'">工序</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'">工单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'">报工</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'">客户</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'">出入库单</a>
-            <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'">出入库明细</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.custom" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'"><UiIcon name="package" :size="15" />产品</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'"><UiIcon name="settings" :size="15" />工序</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'"><UiIcon name="archive" :size="15" />出入库单</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'"><UiIcon name="list" :size="15" />出入库明细</a>
+            </div>
+          </Transition>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item" :title="isSidebarCollapsed ? '高级运营' : ''" @click.stop="toggleMenu('advanced')">
+            <UiIcon name="file" :size="18" />
+            <span v-show="!isSidebarCollapsed">高级运营</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.advanced }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.advanced" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="settings" :size="15" />SOP / 推送 / 质检 / 设备</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="activity" :size="15" />排产 / 绩效 / 现场</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :title="isSidebarCollapsed ? '报表' : ''" @click.stop="toggleMenu('report')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>
+            <UiIcon name="activity" :size="18" />
             <span v-show="!isSidebarCollapsed">报表</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.report }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'"><UiIcon name="activity" :size="15" />生产报表</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item expanded" :title="isSidebarCollapsed ? '系统配置' : ''" @click.stop="toggleMenu('sysconfig')">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <UiIcon name="settings" :size="18" />
             <span v-show="!isSidebarCollapsed">系统配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.sysconfig }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
-          <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
-            <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'">部门</a>
-            <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'">用户</a>
-            <a class="sub-item">工厂</a>
-          </div>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'"><UiIcon name="share" :size="15" />部门</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'"><UiIcon name="user" :size="15" />用户</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'"><UiIcon name="home" :size="15" />工厂</a>
+              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'plugin-center'"><UiIcon name="layers" :size="15" />插件中心</a>
+            </div>
+          </Transition>
+        </div>
+
+        <div class="nav-group">
+          <a class="nav-item expanded" :title="isSidebarCollapsed ? '系统监控' : ''" @click.stop="toggleMenu('monitor')">
+            <UiIcon name="activity" :size="18" />
+            <span v-show="!isSidebarCollapsed">系统监控</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.monitor }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.monitor" class="sub-items-container">
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'online' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'online'"><UiIcon name="user" :size="15" />在线用户</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cache'"><UiIcon name="activity" :size="15" />缓存监控</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cacheList'"><UiIcon name="list" :size="15" />缓存列表</a>
+            </div>
+          </Transition>
+        </div>
+
+        <div v-if="runtimePlugins.length > 0" class="nav-group">
+          <a class="nav-item expanded" :title="isSidebarCollapsed ? '插件扩展' : ''" @click.stop="toggleMenu('plugins')">
+            <UiIcon name="layers" :size="18" />
+            <span v-show="!isSidebarCollapsed">插件扩展</span>
+            <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.plugins }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
+          </a>
+          <Transition name="sidebar-expand">
+            <div v-show="!isSidebarCollapsed && expandedMenus.plugins" class="sub-items-container">
+              <a
+                v-for="plugin in runtimePlugins"
+                :key="plugin.pluginKey"
+                class="sub-item"
+                :class="{ selected: activeMainMenu === 'plugin' && activePluginKey === plugin.pluginKey }"
+                @click="openRuntimePlugin(plugin.pluginKey)"
+              ><UiIcon name="layers" :size="15" />{{ plugin.name }}</a>
+            </div>
+          </Transition>
         </div>
 
         <div class="nav-group">
           <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'dashboard' }" :title="isSidebarCollapsed ? '车间看板' : ''" @click.stop="activeMainMenu = 'dashboard'">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            <UiIcon name="table-columns" :size="18" />
             <span v-show="!isSidebarCollapsed">车间看板</span>
           </a>
         </div>
 
         <div v-if="isSuperAdmin" class="nav-group">
           <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'super-admin' }" :title="isSidebarCollapsed ? '授权码管理' : ''" @click.stop="activeMainMenu = 'super-admin'">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <UiIcon name="lock" :size="18" />
             <span v-show="!isSidebarCollapsed">授权码管理</span>
           </a>
         </div>
+      </nav>
+      <nav v-else>
+        <a class="nav-item active-parent" :title="isSidebarCollapsed ? '移动端' : ''">
+          <UiIcon name="smartphone" :size="18" />
+          <span v-show="!isSidebarCollapsed">移动端作业</span>
+        </a>
       </nav>
     </aside>
 
     <section class="workspace">
       <header class="topbar">
         <div class="breadcrumb">
-          <template v-if="activeMainMenu === 'home'">
+          <template v-if="isInternalChatWindow">
+            内部沟通
+          </template>
+          <template v-else-if="activeMainMenu === 'home'">
             主页
           </template>
           <template v-else-if="activeMainMenu === 'basedata'">
@@ -2338,11 +3218,14 @@ function handleNavigate(menu: { main: string; sub: string }) {
               基础数据 <span>></span> <a href="#" style="color:inherit;text-decoration:none" @click.prevent="routeView = 'list'">工艺路线</a> <span>></span> {{ routeView === 'create' ? '创建工艺路线' : '编辑工艺路线' }}
             </template>
             <template v-else>
-              基础数据 <span>></span> {{ activeBasedataMenu === 'unit' ? '单位' : activeBasedataMenu === 'product' ? '产品定义' : activeBasedataMenu === 'bom' ? '物料清单' : activeBasedataMenu === 'defect' ? '不良品项' : activeBasedataMenu === 'process' ? '工序' : activeBasedataMenu === 'route' ? '工艺路线' : activeBasedataMenu === 'warehouse' ? '仓库' : '供应商' }}
+              基础数据 <span>></span> {{ activeBasedataMenu === 'unit' ? '单位' : activeBasedataMenu === 'product' ? '产品定义' : activeBasedataMenu === 'bom' ? '物料清单' : activeBasedataMenu === 'defect' ? '不良品项' : activeBasedataMenu === 'process' ? '工序' : activeBasedataMenu === 'route' ? '工艺路线' : activeBasedataMenu === 'warehouse' ? '仓库' : activeBasedataMenu === 'customer' ? '客户' : '供应商' }}
             </template>
           </template>
           <template v-else-if="activeMainMenu === 'production'">
             生产管理 <span>></span> {{ activeProductionMenu === 'sales' ? '销售订单' : activeProductionMenu === 'workorder' ? '工单' : activeProductionMenu === 'task' ? '任务' : activeProductionMenu === 'reporting' ? '报工' : '报工工作台' }}
+          </template>
+          <template v-else-if="activeMainMenu === 'monitor'">
+            系统监控 <span>></span> {{ activeMonitorMenu === 'online' ? '在线用户' : activeMonitorMenu === 'cache' ? '缓存监控' : '缓存列表' }}
           </template>
           <template v-else-if="activeMainMenu === 'custom'">
             自定义配置 <span>></span> {{ activeCustomMenu === 'product' ? '产品' : activeCustomMenu === 'bom' ? '物料清单' : activeCustomMenu === 'process' ? '工序' : activeCustomMenu === 'workorder' ? '工单' : activeCustomMenu === 'reporting' ? '报工' : activeCustomMenu === 'customer' ? '客户' : activeCustomMenu === 'receipt' ? '出入库单' : activeCustomMenu === 'receipt_detail' ? '出入库明细' : '客户' }}
@@ -2353,161 +3236,482 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <template v-else-if="activeMainMenu === 'dashboard'">
             车间看板
           </template>
+          <template v-else-if="activeMainMenu === 'advanced'">
+            高级运营
+          </template>
+          <template v-else-if="activeMainMenu === 'report'">
+            报表 <span>></span> 生产报表
+          </template>
           <template v-else-if="activeMainMenu === 'super-admin'">
             授权码管理
           </template>
-          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : '用户' }}</template>
+          <template v-else-if="activeMainMenu === 'plugin'">
+            插件扩展 <span>></span> {{ selectedRuntimePlugin?.name || '插件' }}
+          </template>
+          <template v-else-if="activeMainMenu === 'notifications'">
+            通知中心
+          </template>
+          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : activeConfigMenu === 'factory' ? '工厂' : activeConfigMenu === 'plugin-center' ? '插件中心' : '用户' }}</template>
         </div>
         <div class="top-actions">
+          <div class="chrome-actions" aria-label="工作台工具">
+            <div class="chrome-dropdown-wrap">
+              <button class="topbar-icon-btn" type="button" title="应用中心" @click.stop="toggleQuickApps">
+                <UiIcon name="grid" :size="17" />
+              </button>
+              <Transition name="dropdown-motion">
+                <div v-if="showQuickApps" class="chrome-quick-menu chrome-app-menu" @click.stop>
+                  <div class="chrome-menu-title">应用中心</div>
+                  <button type="button" @click="jumpFromQuickApp('home')"><UiIcon name="grid" :size="15" /> 分析页</button>
+                  <button type="button" @click="jumpFromQuickApp('production', 'workorder')"><UiIcon name="file" :size="15" /> 工单</button>
+                  <button type="button" @click="jumpFromQuickApp('production', 'workbench')"><UiIcon name="check" :size="15" /> 报工工作台</button>
+                  <button type="button" @click="jumpFromQuickApp('inventory', 'balance')"><UiIcon name="layers" :size="15" /> 库存余额</button>
+                </div>
+              </Transition>
+            </div>
+            <button class="topbar-icon-btn" type="button" title="展开或收起侧栏" @click="isSidebarCollapsed = !isSidebarCollapsed">
+              <UiIcon name="menu" :size="18" />
+            </button>
+            <button class="topbar-icon-btn" type="button" title="刷新当前页面" @click="refreshWorkspace">
+              <UiIcon name="refresh" :size="17" />
+            </button>
+            <div class="workspace-search-wrap">
+              <button v-if="!showWorkspaceSearch" class="header-search-trigger" type="button" title="搜索（Ctrl K）" @click="focusWorkspaceSearch">
+                <UiIcon name="search" :size="15" />
+                <span>搜索</span>
+                <kbd>Ctrl K</kbd>
+              </button>
+              <input
+                v-else
+                ref="workspaceSearchInput"
+                v-model="searchQuery"
+                class="header-search-input"
+                type="search"
+                placeholder="搜索菜单"
+                @keydown.enter="submitWorkspaceSearch"
+                @keydown.esc="showWorkspaceSearch = false"
+              />
+            </div>
+            <div class="chrome-quick-wrap">
+              <button class="topbar-icon-btn" type="button" title="工作台设置" @click.stop="toggleChromeQuickMenu">
+                <UiIcon name="settings" :size="17" />
+              </button>
+              <Transition name="dropdown-motion">
+                <div v-if="showChromeQuickMenu" class="chrome-quick-menu" @click.stop>
+                  <button type="button" @click="isSidebarCollapsed = !isSidebarCollapsed; showChromeQuickMenu = false">
+                    <UiIcon name="menu" :size="15" /> {{ isSidebarCollapsed ? '展开侧栏' : '收起侧栏' }}
+                  </button>
+                  <button type="button" @click="refreshWorkspace">
+                    <UiIcon name="refresh" :size="15" /> 刷新当前页
+                  </button>
+                  <button type="button" @click="toggleAppFullscreen(); showChromeQuickMenu = false">
+                    <UiIcon name="fullscreen" :size="15" /> {{ isAppFullscreen ? '退出全屏' : '全屏工作区' }}
+                  </button>
+                  <button type="button" @click="closeAllTabs">
+                    <UiIcon name="close" :size="15" /> 清理工作区标签
+                  </button>
+                </div>
+              </Transition>
+            </div>
+            <button class="topbar-icon-btn theme-toggle-btn" type="button" :title="isDarkTheme ? '切换浅色主题' : '切换深色主题'" :aria-label="isDarkTheme ? '切换浅色主题' : '切换深色主题'" @click="toggleTheme">
+              <UiIcon :key="isDarkTheme ? 'moon' : 'sun'" :name="isDarkTheme ? 'moon' : 'sun'" :size="17" />
+            </button>
+            <div class="chrome-dropdown-wrap">
+              <button class="topbar-icon-btn" type="button" title="语言" @click.stop="toggleLanguageMenu">
+                <UiIcon name="languages" :size="17" />
+              </button>
+              <Transition name="dropdown-motion">
+                <div v-if="showLanguageMenu" class="chrome-quick-menu chrome-language-menu" @click.stop>
+                  <div class="chrome-menu-title">界面语言</div>
+                  <button type="button" @click="selectLanguage('zh-CN')">简体中文</button>
+                  <button type="button" @click="selectLanguage('en-US')">English</button>
+                </div>
+              </Transition>
+            </div>
+            <div class="chrome-dropdown-wrap">
+              <button class="topbar-icon-btn" type="button" title="设置时区" aria-label="设置时区" @click.stop="openTimezoneDialog">
+                <UiIcon name="timezone" :size="17" />
+              </button>
+            </div>
+            <button class="topbar-icon-btn" type="button" :title="isAppFullscreen ? '退出全屏' : '全屏工作区'" @click="toggleAppFullscreen">
+              <UiIcon :name="isAppFullscreen ? 'minimize' : 'fullscreen'" :size="17" />
+            </button>
+            <div class="chrome-dropdown-wrap">
+              <button class="topbar-icon-btn" type="button" title="IM 聊天" aria-label="IM 聊天" @click="openInternalChat">
+                <UiIcon name="message" :size="17" />
+              </button>
+            </div>
+          </div>
           <template v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'">
-            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showAction('AI读单功能开发中...')">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M4 4h16v16H4z"/><path d="M4 10h16"/><path d="M10 4v16"/></svg>
-              AI读单
-            </button>
-            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showAction('数据分析模板功能开发中...')">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-              数据分析模板
-            </button>
             <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="openEditPrintTemplate">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
               打印模板
             </button>
-            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showAction('移动端卡片功能开发中...')">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-              移动端卡片
-            </button>
-            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="showAction('自定义事件功能开发中...')">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              自定义事件
-            </button>
             <div class="topbar-divider" style="height:14px;background:#dce3e0;width:1px;margin:0 12px"></div>
           </template>
 
-          <button class="topbar-icon-btn" type="button" title="通知">
-            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          </button>
+          <div class="notification-wrap">
+            <button class="topbar-icon-btn notification-btn" type="button" title="通知" @click.stop="toggleNotifications">
+              <UiIcon name="bell" :size="18" />
+              <span v-if="notificationCount" class="notification-badge">{{ notificationCount > 99 ? '99+' : notificationCount }}</span>
+            </button>
+            <Transition name="dropdown-motion">
+              <div v-if="showNotificationDropdown" class="notification-dropdown">
+                <div class="notification-head">
+                  <div>
+                    <strong>通知中心</strong>
+                    <span>{{ notificationUnreadCount ? `${notificationUnreadCount} 条未读` : '暂无未读通知' }}</span>
+                  </div>
+                  <div class="notification-head-actions">
+                    <button v-if="notificationUnreadCount" type="button" class="notification-text-action" @click.stop="markAllNotificationsAsRead">全部已读</button>
+                    <button type="button" class="notification-refresh" title="刷新通知" aria-label="刷新通知" @click.stop="loadNotifications">
+                      <UiIcon name="refresh" :size="15" />
+                    </button>
+                  </div>
+                </div>
+                <div v-if="notificationsLoading" class="notification-state">加载中...</div>
+                <div v-else-if="notificationError" class="notification-state error">{{ notificationError }}</div>
+                <div v-else-if="notificationPreview.length === 0" class="notification-state">暂无通知</div>
+                <template v-else>
+                  <button
+                    v-for="item in notificationPreview"
+                    :key="item.id"
+                    type="button"
+                    class="notification-item"
+                    :class="{ unread: item.unread }"
+                    @click.stop="openNotification(item)"
+                  >
+                    <span class="notification-dot" :class="item.priority.toLowerCase()"></span>
+                    <span class="notification-content">
+                      <strong>{{ item.title }}</strong>
+                      <span>{{ item.content }}</span>
+                    </span>
+                    <time :title="normalizeDate(item.createdAt)">{{ normalizeDate(item.createdAt) || '-' }}</time>
+                  </button>
+                </template>
+                <div class="notification-foot">
+                  <button type="button" class="notification-view-all" @click.stop="openNotificationCenter">查看全部通知</button>
+                </div>
+              </div>
+            </Transition>
+          </div>
           <div class="topbar-divider"></div>
           <div class="user-profile" @click="showUserDropdown = !showUserDropdown">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <UiIcon name="user" :size="18" />
             <span class="username">{{ currentUser?.name }}</span>
             <svg class="dropdown-arrow" :class="{ 'open': showUserDropdown }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M6 9l6 6 6-6"/></svg>
-            <div v-if="showUserDropdown" class="user-dropdown">
-              <button type="button" @click.stop="logout">
-                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                退出登录
-              </button>
-            </div>
+            <Transition name="dropdown-motion">
+              <div v-if="showUserDropdown" class="user-dropdown">
+                <button type="button" @click.stop="logout">
+                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                  退出登录
+                </button>
+              </div>
+            </Transition>
           </div>
         </div>
       </header>
 
-      <HomeDashboardPage
-        v-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
-        :token="token"
+      <WorkspaceTabs
+        :tabs="workspaceTabs"
+        :active-id="activeWorkspaceTabId"
+        @select="activateWorkspaceTabFromEvent"
+        @close="closeWorkspaceTab($event.id)"
+        @pin="toggleWorkspaceTabPinned"
+        @contextmenu="openTabContextMenu"
       />
 
-      <SuperAdminAuthCodesPage
-        v-if="activeMainMenu === 'super-admin'"
-      />
+      <div
+        v-if="tabContextMenu.show"
+        class="tab-context-menu"
+        :style="{ left: `${tabContextMenu.x}px`, top: `${tabContextMenu.y}px` }"
+        role="menu"
+        @click.stop
+      >
+        <button type="button" role="menuitem" @click="closeWorkspaceTab(tabContextMenu.tabId)">
+          <UiIcon name="close" :size="15" /> 关闭
+        </button>
+        <button type="button" role="menuitem" @click="toggleTabPinned">
+          <UiIcon name="pin" :size="15" /> {{ workspaceTabs.find(tab => tab.id === tabContextMenu.tabId)?.pinned ? '取消固定' : '固定' }}
+        </button>
+        <button type="button" role="menuitem" @click="isWorkspaceMaximized = !isWorkspaceMaximized; closeTabContextMenu()">
+          <UiIcon name="maximize" :size="15" /> {{ isWorkspaceMaximized ? '恢复窗口' : '最大化' }}
+        </button>
+        <button type="button" role="menuitem" @click="refreshWorkspace">
+          <UiIcon name="refresh" :size="15" /> 重新加载
+        </button>
+        <button type="button" role="menuitem" @click="openCurrentTabInNewWindow">
+          <UiIcon name="fullscreen" :size="15" /> 在新窗口打开
+        </button>
+        <div class="tab-menu-divider"></div>
+        <button type="button" role="menuitem" :disabled="workspaceTabs.findIndex(tab => tab.id === tabContextMenu.tabId) <= 1" @click="closeTabsLeft">
+          <UiIcon name="arrowLeft" :size="15" /> 关闭左侧标签页
+        </button>
+        <button type="button" role="menuitem" :disabled="workspaceTabs.findIndex(tab => tab.id === tabContextMenu.tabId) >= workspaceTabs.length - 1" @click="closeTabsRight">
+          <UiIcon name="arrowRight" :size="15" /> 关闭右侧标签页
+        </button>
+        <button type="button" role="menuitem" @click="closeOtherTabs">
+          <UiIcon name="layers" :size="15" /> 关闭其它标签页
+        </button>
+        <button type="button" role="menuitem" @click="closeAllTabs">
+          <UiIcon name="close" :size="15" /> 关闭全部标签页
+        </button>
+      </div>
 
-      <ProductDefinitionPage
-        v-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'product'"
-        :token="token"
-        @notice="showAction"
-      />
+      <section v-if="!hasAdminAccess && !isInternalChatWindow" class="content">
+        <div class="placeholder-page">
+          <div class="empty-state">当前账号为生产作业账号，请使用手机端接单、报工和查看任务。</div>
+        </div>
+      </section>
 
-      <WorkOrderPage
-        v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <ReportApprovalPage
-        v-if="activeMainMenu === 'production' && activeProductionMenu === 'workbench'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <CustomWorkOrderFieldsPage
-        v-if="activeMainMenu === 'custom' && activeCustomMenu === 'workorder'"
-        :token="token"
-        @notice="showAction"
-      />
+      <div ref="pageMotionStage" class="page-motion-stage">
+        <KeepAlive :max="32">
+          <NotificationCenterPage
+            v-if="activeMainMenu === 'notifications' && currentUser"
+            key="notifications"
+            :token="token"
+            @open="openNotification"
+            @notice="showAction"
+          />
+          <HomeDashboardPage
+            v-else-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
+            key="home"
+            :token="token"
+          />
+          <SuperAdminAuthCodesPage v-else-if="activeMainMenu === 'super-admin'" key="super-admin" />
+          <PluginRuntimePage
+            v-else-if="activeMainMenu === 'plugin'"
+            :key="`plugin-${activePluginKey}`"
+            :token="token"
+            :plugin="selectedRuntimePlugin"
+          />
+          <AdvancedOperationsPage
+            v-else-if="activeMainMenu === 'advanced'"
+            key="advanced"
+            :token="token"
+            @notice="showAction"
+          />
+          <ReportCenterPage
+            v-else-if="activeMainMenu === 'report'"
+            key="report"
+            :token="token"
+            @notice="showAction"
+          />
+          <ProductDefinitionPage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'product'"
+            key="basedata-product"
+            :token="token"
+            @notice="showAction"
+          />
+          <BomPage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'bom'"
+            key="basedata-bom"
+            :token="token"
+            @notice="showAction"
+          />
+          <WarehousePage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse'"
+            key="basedata-warehouse"
+            :token="token"
+            @notice="showAction"
+          />
+          <SupplierPage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier'"
+            key="basedata-supplier"
+            :token="token"
+            @notice="showAction"
+          />
+          <CustomerPage
+            v-else-if="activeMainMenu === 'basedata' && activeBasedataMenu === 'customer'"
+            key="basedata-customer"
+            :token="token"
+            @notice="showAction"
+          />
+          <WorkOrderPage
+            v-else-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
+            key="production-workorder"
+            :token="token"
+            @notice="showAction"
+          />
+          <SalesOrderPage
+            v-else-if="activeMainMenu === 'production' && activeProductionMenu === 'sales'"
+            key="production-sales"
+            :token="token"
+            @notice="showAction"
+          />
+          <ReportApprovalPage
+            v-else-if="activeMainMenu === 'production' && (activeProductionMenu === 'workbench' || activeProductionMenu === 'reporting')"
+            key="production-reporting"
+            :token="token"
+            @notice="showAction"
+          />
+          <OnlineUsersPage
+            v-else-if="activeMainMenu === 'monitor' && activeMonitorMenu === 'online'"
+            key="monitor-online"
+            :token="token"
+            @notice="showAction"
+          />
+          <CacheMonitorPage
+            v-else-if="activeMainMenu === 'monitor' && activeMonitorMenu === 'cache'"
+            key="monitor-cache"
+            :token="token"
+            @notice="showAction"
+          />
+          <CacheListPage
+            v-else-if="activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList'"
+            key="monitor-cacheList"
+            :token="token"
+            @notice="showAction"
+          />
+          <TaskPage
+            v-else-if="activeMainMenu === 'production' && activeProductionMenu === 'task'"
+            key="production-task"
+            :token="token"
+            @notice="showAction"
+          />
+          <CustomWorkOrderFieldsPage
+            v-else-if="activeMainMenu === 'custom' && activeCustomMenu === 'workorder'"
+            key="custom-workorder"
+            :token="token"
+            @notice="showAction"
+          />
+          <CustomReceiptFieldsPage
+            v-else-if="activeMainMenu === 'custom' && genericCustomFieldScopes[activeCustomMenu]"
+            :key="`custom-${activeCustomMenu}`"
+            :token="token"
+            :scope="activeCustomMenu"
+            :scope-label="genericCustomFieldScopes[activeCustomMenu]"
+            @notice="showAction"
+          />
+          <CustomReceiptFieldsPage
+            v-else-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt'"
+            key="custom-receipt"
+            :token="token"
+            scope="receipt"
+            scope-label="出入库单"
+            @notice="showAction"
+          />
+          <CustomReceiptFieldsPage
+            v-else-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail'"
+            key="custom-receipt-detail"
+            :token="token"
+            scope="receipt_detail"
+            scope-label="出入库明细"
+            @notice="showAction"
+          />
+          <InboundReceiptPage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound'"
+            key="inventory-inbound"
+            :token="token"
+            @notice="showAction"
+          />
+          <InventoryBalancePage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'balance'"
+            key="inventory-balance"
+            :token="token"
+            @notice="showAction"
+            @navigate="handleNavigate"
+          />
+          <OutboundReceiptPage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound'"
+            key="inventory-outbound"
+            :token="token"
+            @notice="showAction"
+          />
+          <InventoryDetailPage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'detail'"
+            key="inventory-detail"
+            :token="token"
+            @notice="showAction"
+          />
+          <InventorySummaryPage
+            v-else-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'summary'"
+            key="inventory-summary"
+            :token="token"
+            @notice="showAction"
+          />
+          <BaseDataPage
+            v-else-if="activeMainMenu === 'basedata' && ['unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
+            :key="`basedata-${activeBasedataMenu}`"
+            :token="token"
+            :active-basedata-menu="activeBasedataMenu"
+            :users="users"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+            @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
+          />
+          <UserManagementPage
+            v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'"
+            key="sysconfig-user"
+            :token="token"
+            :users="users"
+            :departments="departments"
+            :current-user="currentUser"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+            @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
+            @reload-users="loadUsers"
+            @update-current-user="syncCurrentUser"
+          />
+          <FactorySettingsPage
+            v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory'"
+            key="sysconfig-factory"
+            :token="token"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+          />
+          <PluginCenterPage
+            v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center'"
+            key="sysconfig-plugin-center"
+            :token="token"
+            :is-super-admin="isSuperAdmin"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+            @plugins-changed="loadPluginRuntimeManifest"
+          />
+          <DepartmentManagementPage
+            v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'"
+            key="sysconfig-department"
+            :token="token"
+            :departments="departments"
+            :department-total="departmentTotal"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+            @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
+            @reload-departments="loadDepartments"
+          />
+        </KeepAlive>
+      </div>
 
       <section
         class="content placeholder-page"
-        v-if="activeMainMenu === 'production' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench'"
+        v-if="activeMainMenu === 'production' && activeProductionMenu !== 'sales' && activeProductionMenu !== 'workorder' && activeProductionMenu !== 'workbench' && activeProductionMenu !== 'reporting' && activeProductionMenu !== 'task'"
       >
-        <div class="empty-state">该模块待补全。</div>
+        <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
-
-      <CustomReceiptFieldsPage
-        v-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt'"
-        :token="token"
-        scope="receipt"
-        scope-label="出入库单"
-        @notice="showAction"
-      />
-
-      <CustomReceiptFieldsPage
-        v-if="activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail'"
-        :token="token"
-        scope="receipt_detail"
-        scope-label="出入库明细"
-        @notice="showAction"
-      />
 
       <section
         class="content placeholder-page"
-        v-if="activeMainMenu === 'custom' && activeCustomMenu !== 'workorder' && activeCustomMenu !== 'receipt' && activeCustomMenu !== 'receipt_detail'"
+        v-if="activeMainMenu === 'custom' && activeCustomMenu !== 'workorder' && activeCustomMenu !== 'receipt' && activeCustomMenu !== 'receipt_detail' && !genericCustomFieldScopes[activeCustomMenu]"
       >
-        <div class="empty-state">该模块待补全。</div>
+        <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
-
-      <InboundReceiptPage
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <InventoryBalancePage
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'balance'"
-        :token="token"
-        @notice="showAction"
-        @navigate="handleNavigate"
-      />
-
-      <OutboundReceiptPage
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound'"
-        :token="token"
-        @notice="showAction"
-      />
-
-      <InventoryDetailPage
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu === 'detail'"
-        :token="token"
-        @notice="showAction"
-      />
 
       <section
         class="content placeholder-page"
-        v-if="activeMainMenu === 'inventory' && activeInventoryMenu !== 'inbound' && activeInventoryMenu !== 'balance' && activeInventoryMenu !== 'outbound' && activeInventoryMenu !== 'detail'"
+        v-if="activeMainMenu === 'inventory' && activeInventoryMenu !== 'inbound' && activeInventoryMenu !== 'balance' && activeInventoryMenu !== 'outbound' && activeInventoryMenu !== 'detail' && activeInventoryMenu !== 'summary'"
       >
-        <div class="empty-state">进销存汇总模块待补全。</div>
+        <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
-
-      <!-- 基础数据（组件化） -->
-      <BaseDataPage
-        v-if="activeMainMenu === 'basedata'"
-        :token="token"
-        :active-basedata-menu="activeBasedataMenu"
-        :users="users"
-        @error="msg => errorMessage = msg"
-        @notice="msg => actionMessage = msg"
-        @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
-      />
 
       <!-- 单位管理 -->
+      <section
+        class="content placeholder-page"
+        v-if="activeMainMenu === 'basedata' && !['product', 'bom', 'warehouse', 'supplier', 'customer', 'unit', 'defect', 'process', 'route'].includes(activeBasedataMenu)"
+      >
+        <div class="empty-state">请选择左侧已开放模块。</div>
+      </section>
+
       <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit'">
         <div class="filters">
           <label>
@@ -2519,7 +3723,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <input v-model="unitFilterForm.remark" placeholder="请输入备注" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="">
+            <button class="primary-btn query-btn" type="button" @click="loadUnits">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
               查询
             </button>
@@ -2661,7 +3865,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             默认SOP模板
           </button>
           <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <UiIcon name="table-columns" :size="14" />
             字段配置
           </button>
           <button class="toolbar-btn" type="button">
@@ -2973,7 +4177,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             导入
           </button>
           <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            <UiIcon name="table-columns" :size="13" />
             字段配置
           </button>
           <button class="toolbar-btn" style="margin-left:auto" type="button">导入日志</button>
@@ -3048,7 +4252,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
                   添加一行
                 </button>
                 <button type="button" class="toolbar-btn" style="height:32px;font-size:13px">
-                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+                  <UiIcon name="table-columns" :size="13" />
                   字段配置
                 </button>
               </div>
@@ -3153,20 +4357,6 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <button class="btn-save" type="button" @click="handleSaveRoute()">保存</button>
         </div>
       </section>
-
-      <!-- 用户管理（组件化） -->
-      <UserManagementPage
-        v-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'"
-        :token="token"
-        :users="users"
-        :departments="departments"
-        :current-user="currentUser"
-        @error="msg => errorMessage = msg"
-        @notice="msg => actionMessage = msg"
-        @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
-        @reload-users="loadUsers"
-        @update-current-user="syncCurrentUser"
-      />
 
       <!-- 用户管理 -->
       <section class="content" v-if="false" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'">
@@ -3300,18 +4490,6 @@ function handleNavigate(menu: { main: string; sub: string }) {
         </div>
       </section>
 
-      <!-- 部门管理（组件化） -->
-      <DepartmentManagementPage
-        v-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'"
-        :token="token"
-        :departments="departments"
-        :department-total="departmentTotal"
-        @error="msg => errorMessage = msg"
-        @notice="msg => actionMessage = msg"
-        @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
-        @reload-departments="loadDepartments"
-      />
-
       <!-- 部门管理 -->
       <section class="content" v-if="false" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'">
         <div class="filters">
@@ -3405,8 +4583,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <div class="db-chart-area">
               <div class="db-sub-title">工单产出趋势图({{ currentMonth }})</div>
               <div class="db-legend">
-                <span class="db-legend-item"><i class="dot cyan"></i>完成工单</span>
-                <span class="db-legend-item"><i class="dot blue"></i>工单产出</span>
+                <span class="db-legend-item"><i class="dot cyan"></i>报工次数</span>
+                <span class="db-legend-item"><i class="dot blue"></i>良品产出</span>
               </div>
               <div class="db-bar-chart" style="position: relative;">
                 <!-- SVG 折线 -->
@@ -3451,7 +4629,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <div class="db-kpi-grid-v4">
               <div class="db-kpi-box-v4">
                 <div class="db-kpi-box-v4-title">在制工单数</div>
-                <div class="db-kpi-box-v4-value cyan">7</div>
+                <div class="db-kpi-box-v4-value cyan">{{ dashboardKpi.inProcessOrderCount }}</div>
               </div>
               <div class="db-kpi-box-v4">
                 <div class="db-kpi-box-v4-title">在制工单计划数</div>
@@ -3459,11 +4637,11 @@ function handleNavigate(menu: { main: string; sub: string }) {
               </div>
               <div class="db-kpi-box-v4">
                 <div class="db-kpi-box-v4-title">在制任务计划数</div>
-                <div class="db-kpi-box-v4-value cyan">24878</div>
+                <div class="db-kpi-box-v4-value cyan">{{ dashboardKpi.inProcessTaskPlanCount }}</div>
               </div>
               <div class="db-kpi-box-v4">
                 <div class="db-kpi-box-v4-title">在制任务数</div>
-                <div class="db-kpi-box-v4-value cyan">37</div>
+                <div class="db-kpi-box-v4-value cyan">{{ dashboardKpi.inProcessTaskCount }}</div>
               </div>
             </div>
 
@@ -3501,7 +4679,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 </div>
                 <div class="db-side-item">
                   <span class="db-side-label">今日不良品数</span>
-                  <span class="db-side-value red">0</span>
+                  <span class="db-side-value red">{{ dashboardKpi.todayDefect }}</span>
                 </div>
               </div>
             </div>
@@ -3570,9 +4748,10 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <div class="db-sub-title" style="margin-top:16px">不良品项分布图</div>
             <div class="db-pie-container">
               <div class="db-pie">
-                <div class="db-pie-ring"></div>
+                <div class="db-pie-ring" :style="{ background: pieBackground }"></div>
               </div>
               <div class="db-pie-legend">
+                <div v-if="pieData.length === 0" class="db-pie-empty">暂无不良数据</div>
                 <div v-for="(item, idx) in pieData" :key="idx" class="db-pie-legend-item">
                   <i class="db-pie-dot" :style="{ background: item.color }"></i>
                   <span>{{ item.name }}</span>
@@ -3607,10 +4786,11 @@ function handleNavigate(menu: { main: string; sub: string }) {
                   <td style="width: 10%;"><span :class="['db-tag', row.urgent ? 'urgent' : 'normal']">{{ row.urgent ? '加急订单' : '-' }}</span></td>
                   <td style="width: 35%;">
                     <div class="db-stepper">
-                      <div class="db-step" v-for="step in ['下料','冲压','压铸','折弯','冲压','电解','包装']" :key="step">
-                        <div class="db-step-circle">0%</div>
-                        <div class="db-step-name">{{ step }}</div>
+                      <div class="db-step" v-for="(step, stepIndex) in row.steps" :key="`${row.code}-${stepIndex}`">
+                        <div class="db-step-circle">{{ step.progress }}%</div>
+                        <div class="db-step-name">{{ step.name }}</div>
                       </div>
+                      <span v-if="row.steps.length === 0" style="color:#7893a6;">未配置工序</span>
                     </div>
                   </td>
                 </tr>
@@ -3622,7 +4802,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <div class="db-card db-card-table" style="overflow-y: hidden; display: flex; flex-direction: column; padding: 0 12px 12px 12px; background: transparent; border: none; box-shadow: none;">
             <div class="db-table-header" style="flex-shrink: 0;">
               <span>任务执行进度</span>
-              <span class="db-table-tag">今天</span>
+              <span class="db-table-tag">当前</span>
             </div>
             <table class="db-table-v2">
               <thead>
@@ -3644,6 +4824,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
                   <td class="td-red" style="width: 16%;">{{ row.defect }}</td>
                   <td style="width: 16%;">{{ row.remaining }}</td>
                 </tr>
+                <tr v-if="taskProgressData.length === 0">
+                  <td colspan="6" style="text-align:center;color:#7893a6;padding:18px 0;">暂无在制任务</td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -3652,6 +4835,27 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
     </section>
   </main>
+
+  <div v-if="showTimezoneDialog" class="timezone-overlay modal-backdrop" @click.self="closeTimezoneDialog">
+    <section class="timezone-dialog modal" role="dialog" aria-modal="true" aria-labelledby="timezone-dialog-title">
+      <header class="timezone-dialog-header modal-header">
+        <h2 id="timezone-dialog-title">设置时区</h2>
+        <button class="timezone-close" type="button" title="关闭" aria-label="关闭" @click="closeTimezoneDialog">
+          <UiIcon name="close" :size="16" />
+        </button>
+      </header>
+      <div class="timezone-options modal-body" role="radiogroup" aria-label="时区选项">
+        <label v-for="option in timezoneOptions" :key="option.value" class="timezone-option">
+          <input v-model="timezoneDraft" type="radio" name="system-timezone" :value="option.value" />
+          <span>{{ option.label }}</span>
+        </label>
+      </div>
+      <footer class="timezone-dialog-footer modal-footer">
+        <button class="ghost-btn" type="button" @click="closeTimezoneDialog">取消</button>
+        <button class="primary-btn" type="button" @click="confirmTimezone">确认</button>
+      </footer>
+    </section>
+  </div>
 
   <!-- 导入日志弹窗 -->
   <div v-if="false" class="modal-backdrop">
@@ -4154,4 +5358,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
     </section>
   </div>
 
+  <LoadingProgressOverlay
+    :visible="workspaceLoadingVisible && !isInternalChatWindow"
+    :progress="workspaceLoadingProgress"
+    :stage="workspaceLoadingStage"
+    :stages="workspaceLoadingStages"
+    :error="workspaceLoadingError"
+    @retry="retryWorkspaceBootstrap"
+  />
 </template>

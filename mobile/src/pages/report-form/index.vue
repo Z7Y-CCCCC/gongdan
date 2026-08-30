@@ -5,7 +5,7 @@
       <view class="step-header">
         <view class="step-num">{{ processNo }}</view>
         <text class="step-name">{{ processName }}</text>
-        <view class="close-icon" @tap="handleClose">✕</view>
+        <view class="close-icon" @click="handleClose"><uni-icons type="closeempty" size="20" color="#8a9693" /></view>
       </view>
       <view class="data-grid">
         <view class="data-item">
@@ -26,7 +26,7 @@
     <!-- 表单主体 -->
     <view class="form-list">
       <!-- 生产人员 -->
-      <view class="form-item" @tap="showReporterPicker = true">
+      <view class="form-item" @click="showReporterPicker = true">
         <view class="label"><text class="required">*</text>生产人员</view>
         <view class="value-row">
           <text>{{ selectedReporterName }}</text>
@@ -38,7 +38,7 @@
       <view class="form-item">
         <view class="label"><text class="required">*</text>报工数</view>
         <view class="value-row">
-          <input type="number" v-model="form.reportQuantity" placeholder="0" class="num-input" />
+          <input type="number" v-model="form.reportQuantity" placeholder="0" class="num-input" @input="syncGoodQuantity" />
           <text class="unit">{{ productUnit }} ›</text>
         </view>
       </view>
@@ -55,7 +55,7 @@
       <view class="form-item">
         <view class="label">不良数</view>
         <view class="value-row">
-          <input type="number" v-model="form.defectQuantity" placeholder="请输入" class="num-input red-text" />
+          <input type="number" v-model="form.defectQuantity" placeholder="请输入" class="num-input red-text" @input="syncGoodQuantity" />
         </view>
       </view>
 
@@ -63,8 +63,7 @@
       <view class="form-item" v-if="Number(form.defectQuantity) > 0">
         <view class="label">不良品项</view>
         <view class="value-row">
-          <text class="placeholder">{{ form.defectItemName || '请选择' }}</text>
-          <text class="arrow">›</text>
+          <input v-model="form.defectItemName" class="text-input" placeholder="请输入不良原因" />
         </view>
       </view>
 
@@ -81,12 +80,12 @@
 
       <!-- 开始时间 / 结束时间 -->
       <view class="time-range-box">
-        <view class="time-item" @tap="pickStartTime">
+        <view class="time-item" @click="pickStartTime">
           <text class="tl">开始时间 <text class="required">*</text></text>
           <text class="tv">{{ form.startTime || '请选择' }}</text>
         </view>
         <view class="time-divider"></view>
-        <view class="time-item" @tap="pickEndTime">
+        <view class="time-item" @click="pickEndTime">
           <text class="tl">结束时间 <text class="required">*</text></text>
           <text class="tv">{{ form.endTime || '请选择' }}</text>
         </view>
@@ -96,8 +95,7 @@
       <view class="form-item">
         <view class="label">领料产品</view>
         <view class="value-row">
-          <text class="placeholder">{{ form.materialName || '请选择' }}</text>
-          <text class="arrow">›</text>
+          <input v-model="form.materialName" class="text-input" placeholder="可选，填写领料产品" />
         </view>
       </view>
 
@@ -112,11 +110,11 @@
         <view class="label">报废/次品照片</view>
         <view class="image-grid">
           <view v-for="(img, idx) in uploadedImages" :key="idx" class="img-box">
-            <image :src="img.accessPath" mode="aspectFill" class="uploaded-img" />
-            <view class="img-delete" @tap="removeImage(idx)">✕</view>
+            <image :src="img.previewPath || img.accessPath" mode="aspectFill" class="uploaded-img" />
+            <view class="img-delete" @click="removeImage(idx)"><uni-icons type="closeempty" size="12" color="#fff" /></view>
           </view>
-          <view class="add-box" @tap="chooseImage" v-if="uploadedImages.length < 9">
-            <text class="add-icon">📷</text>
+          <view class="add-box" @click="chooseImage" v-if="uploadedImages.length < 9">
+            <uni-icons type="camera-filled" size="24" color="#8a9693" />
           </view>
         </view>
       </view>
@@ -124,21 +122,21 @@
 
     <!-- 底部按钮 -->
     <view class="footer">
-      <view class="btn outline" @tap="handleSubmit(true)">继续报工</view>
-      <view class="btn solid" @tap="handleSubmit(false)">提交</view>
+      <view class="btn outline" @click="handleSubmit(true)">继续报工</view>
+      <view class="btn solid" @click="handleSubmit(false)">提交</view>
     </view>
 
     <!-- 生产人员选择弹窗 -->
-    <view v-if="showReporterPicker" class="picker-mask" @tap="showReporterPicker = false">
-      <view class="picker-content" @tap.stop>
+    <view v-if="showReporterPicker" class="picker-mask" @click="showReporterPicker = false">
+      <view class="picker-content" @click.stop>
         <view class="picker-header">
           <text class="picker-title">选择生产人员</text>
-          <view class="picker-close" @tap="showReporterPicker = false">✕</view>
+          <view class="picker-close" @click="showReporterPicker = false"><uni-icons type="closeempty" size="20" color="#8a9693" /></view>
         </view>
         <scroll-view scroll-y class="picker-list">
           <view v-for="user in reporterList" :key="user.id"
                 class="picker-item" :class="{ selected: selectedReporterId === user.id }"
-                @tap="selectReporter(user)">
+                @click="selectReporter(user)">
             <text>{{ user.name }}</text>
             <text class="picker-sub">{{ user.username }}</text>
             <text v-if="selectedReporterId === user.id" class="picker-check">✓</text>
@@ -155,6 +153,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { createReport, uploadReportImage, fetchWorkOrderReporters } from '../../services/api'
 import type { ReportImage } from '../../types/api'
+import { usePageDraft } from '../../composables/usePageDraft'
 
 // URL 参数
 let paramOrderId = ''
@@ -165,14 +164,47 @@ let paramCompletedQty = ''
 let paramDefectQty = ''
 let paramReportPermission = ''
 
+function safeDecode(value: string) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function applyRouteOptions(options: Record<string, any> = {}) {
+  paramOrderId = String(options.orderId || '')
+  paramProcessNo = String(options.processNo || '1')
+  paramProcessName = safeDecode(String(options.processName || ''))
+  paramPlannedQty = String(options.plannedQty || '0')
+  paramCompletedQty = String(options.completedQty || '0')
+  paramDefectQty = String(options.defectQty || '0')
+  paramReportPermission = safeDecode(String(options.reportPermission || ''))
+}
+
+function readH5RouteOptions() {
+  if (typeof window === 'undefined' || !window.location) {
+    return {}
+  }
+  const hash = window.location.hash || ''
+  const queryIndex = hash.indexOf('?')
+  if (queryIndex < 0) {
+    return {}
+  }
+  const result: Record<string, string> = {}
+  new URLSearchParams(hash.slice(queryIndex + 1)).forEach((value, key) => {
+    result[key] = value
+  })
+  return result
+}
+
+function formatDateTime(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:00`
+}
+
 onLoad((options) => {
-  paramOrderId = options?.orderId || ''
-  paramProcessNo = options?.processNo || '1'
-  paramProcessName = decodeURIComponent(options?.processName || '')
-  paramPlannedQty = options?.plannedQty || '0'
-  paramCompletedQty = options?.completedQty || '0'
-  paramDefectQty = options?.defectQty || '0'
-  paramReportPermission = decodeURIComponent(options?.reportPermission || '')
+  applyRouteOptions(options || {})
 })
 
 const processNo = ref(1)
@@ -213,6 +245,10 @@ const form = reactive({
 })
 
 onMounted(async () => {
+  if (!paramOrderId) {
+    applyRouteOptions(readH5RouteOptions())
+  }
+
   processNo.value = parseInt(paramProcessNo) || 1
   processName.value = paramProcessName
   plannedQty.value = parseInt(paramPlannedQty) || 0
@@ -225,8 +261,7 @@ onMounted(async () => {
 
   // 设置默认时间
   const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const timeStr = `${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+  const timeStr = formatDateTime(now)
   form.startTime = timeStr
   form.endTime = timeStr
 
@@ -245,9 +280,10 @@ onMounted(async () => {
       // 根据工序的报工权限过滤人员列表
       if (paramReportPermission && paramReportPermission !== '所有人' && paramReportPermission !== 'ALL') {
         const allowedList = paramReportPermission.split(',').map((s: string) => s.trim())
-        reporterList.value = users.filter(u => 
-          allowedList.includes(u.name) || 
-          allowedList.includes(u.username) || 
+        const currentUserAllowedByDepartment = Boolean(user?.departmentName && allowedList.includes(user.departmentName))
+        reporterList.value = currentUserAllowedByDepartment ? users : users.filter(u =>
+          allowedList.includes(u.name) ||
+          allowedList.includes(u.username) ||
           allowedList.includes(String(u.id))
         )
       } else {
@@ -259,6 +295,26 @@ onMounted(async () => {
         reporterList.value = [{ id: user.id, name: user.name || user.username, username: user.username }]
       }
     }
+  }
+})
+
+const { clearDraft: clearReportDraft } = usePageDraft({
+  key: () => `gongdan:draft:report:${paramOrderId || form.workOrderId}:${paramProcessNo || form.processSequenceNo}`,
+  source: () => ({
+    form: { ...form },
+    durationHours: durationHours.value,
+    durationMinutes: durationMinutes.value,
+    selectedReporterId: selectedReporterId.value,
+    selectedReporterName: selectedReporterName.value,
+    uploadedImages: uploadedImages.value
+  }),
+  restore: (draft) => {
+    if (draft.form) Object.assign(form, draft.form)
+    durationHours.value = draft.durationHours ?? '0'
+    durationMinutes.value = draft.durationMinutes ?? '0'
+    selectedReporterId.value = Number(draft.selectedReporterId || 0)
+    selectedReporterName.value = draft.selectedReporterName || ''
+    uploadedImages.value = Array.isArray(draft.uploadedImages) ? draft.uploadedImages : []
   }
 })
 
@@ -275,8 +331,7 @@ const pickStartTime = () => {
     input.onchange = () => {
       if (input.value) {
         const d = new Date(input.value)
-        const pad = (n: number) => String(n).padStart(2, '0')
-        form.startTime = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+        form.startTime = formatDateTime(d)
       }
     }
     input.click()
@@ -292,8 +347,7 @@ const pickEndTime = () => {
     input.onchange = () => {
       if (input.value) {
         const d = new Date(input.value)
-        const pad = (n: number) => String(n).padStart(2, '0')
-        form.endTime = `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+        form.endTime = formatDateTime(d)
       }
     }
     input.click()
@@ -309,6 +363,7 @@ const chooseImage = () => {
       for (const path of res.tempFilePaths) {
         try {
           const img = await uploadReportImage(path)
+          img.previewPath = path
           uploadedImages.value.push(img)
         } catch (e) {
           uni.showToast({ title: '图片上传失败', icon: 'none' })
@@ -322,9 +377,47 @@ const removeImage = (idx: number) => {
   uploadedImages.value.splice(idx, 1)
 }
 
+function syncGoodQuantity() {
+  const reportQuantity = Math.max(0, Number(form.reportQuantity) || 0)
+  const defectQuantity = Math.max(0, Number(form.defectQuantity) || 0)
+  form.goodQuantity = String(Math.max(0, reportQuantity - defectQuantity))
+}
+
+function goBack() {
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = `#/pages/work-order-detail/index?id=${form.workOrderId}`
+    return
+  }
+  uni.navigateBack()
+}
+
+function goAfterSubmit() {
+  if (typeof window !== 'undefined' && window.location) {
+    window.location.hash = '#/pages/report-list/index'
+    return
+  }
+  uni.switchTab({ url: '/pages/report-list/index' })
+}
+
 const handleSubmit = async (isContinue: boolean) => {
+  if (!form.workOrderId || !form.processSequenceNo) {
+    uni.showToast({ title: '工单或工序信息未加载，请返回重进', icon: 'none' })
+    return
+  }
+  if (!selectedReporterId.value) {
+    uni.showToast({ title: '请选择生产人员', icon: 'none' })
+    return
+  }
   if (!form.reportQuantity || Number(form.reportQuantity) <= 0) {
     uni.showToast({ title: '请填写报工数', icon: 'none' })
+    return
+  }
+  if (!form.startTime || !form.endTime) {
+    uni.showToast({ title: '请选择开始和结束时间', icon: 'none' })
+    return
+  }
+  if ((Number(form.goodQuantity) || 0) + (Number(form.defectQuantity) || 0) !== Number(form.reportQuantity)) {
+    uni.showToast({ title: '良品数与不良数之和必须等于报工数', icon: 'none' })
     return
   }
 
@@ -350,14 +443,16 @@ const handleSubmit = async (isContinue: boolean) => {
     })
     uni.hideLoading()
     uni.showToast({ title: '提交成功', icon: 'success' })
+    clearReportDraft()
     if (!isContinue) {
-      setTimeout(() => uni.navigateBack(), 1500)
+      setTimeout(() => goAfterSubmit(), 1500)
     } else {
       // 继续报工：清空表单
       form.reportQuantity = ''
       form.goodQuantity = ''
       form.defectQuantity = ''
       form.defectItemName = ''
+      form.materialName = ''
       form.remark = ''
       uploadedImages.value = []
       durationHours.value = '0'
@@ -370,7 +465,7 @@ const handleSubmit = async (isContinue: boolean) => {
 }
 
 const handleClose = () => {
-  uni.navigateBack()
+  goBack()
 }
 </script>
 
@@ -452,12 +547,23 @@ const handleClose = () => {
 
 .value-row { display: flex; align-items: center; }
 .placeholder { color: #ccc; font-size: 28rpx; }
-.num-input { text-align: right; width: 200rpx; font-size: 28rpx; }
+.num-input {
+  text-align: right;
+  width: 180rpx;
+  height: 58rpx;
+  padding: 0 16rpx;
+  font-size: 28rpx;
+  background: #f7f9f8;
+  border: 1rpx solid #dfe5e3;
+  border-radius: 8rpx;
+  box-sizing: border-box;
+}
 .red-text { color: #ff4d4f; }
+.text-input { width: 260rpx; height: 58rpx; text-align: right; font-size: 26rpx; color: #202926; }
 .unit { font-size: 26rpx; color: #666; margin-left: 10rpx; }
 .arrow { font-size: 32rpx; color: #ccc; margin-left: 10rpx; }
 
-.mini-input { width: 80rpx; text-align: center; font-size: 28rpx; border-bottom: 1px solid #eee; }
+.mini-input { width: 72rpx; height: 56rpx; text-align: center; font-size: 28rpx; background: #f7f9f8; border: 1rpx solid #dfe5e3; border-radius: 8rpx; }
 .unit-s { font-size: 24rpx; color: #999; margin: 0 10rpx; }
 
 .textarea-input {
@@ -533,24 +639,25 @@ const handleClose = () => {
   align-items: center;
 }
 
-.add-icon { font-size: 40rpx; }
 
 .footer {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 20;
   background: white;
   padding: 20rpx 40rpx;
   display: flex;
   padding-bottom: env(safe-area-inset-bottom);
   box-shadow: 0 -4rpx 20rpx rgba(0,0,0,0.05);
+  pointer-events: auto;
 }
 
 .btn {
   flex: 1;
   height: 90rpx;
-  border-radius: 45rpx;
+  border-radius: 12rpx;
   display: flex;
   justify-content: center;
   align-items: center;

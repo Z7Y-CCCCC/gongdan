@@ -2,14 +2,20 @@ package com.heihu.workorder.controller;
 
 import com.heihu.workorder.dto.WorkOrderReportApprovalRequest;
 import com.heihu.workorder.dto.WorkOrderReportResponse;
+import com.heihu.workorder.service.WorkOrderReportService.ReportImageDownload;
 import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.TokenService;
 import com.heihu.workorder.service.WorkOrderReportService;
 import java.util.HashMap;
 import java.util.Map;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -64,6 +70,24 @@ public class WorkOrderReportController {
     ) {
         AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         return reportService.get(currentUser.getFactoryId(), id);
+    }
+
+    @GetMapping("/images/{imageId}/file")
+    public ResponseEntity<Resource> getImage(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable Long imageId
+    ) {
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
+        ReportImageDownload download = reportService.getImageDownload(currentUser.getFactoryId(), imageId);
+        String contentType = download.getImage().getContentType();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(contentType))
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
+                        .filename(download.getImage().getOriginalFileName())
+                        .build()
+                        .toString())
+                .body(download.getResource());
     }
 
     @PostMapping("/{id}/approve")

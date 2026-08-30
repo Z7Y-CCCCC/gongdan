@@ -11,8 +11,11 @@ import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.InboundReceiptRepository;
 import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.util.DateTimeParser;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,6 +49,7 @@ public class InboundReceiptService {
         this.userRepository = userRepository;
     }
 
+    @Cacheable(cacheNames = "inbound.receipts.list", key = "#factoryId + ':' + #code + ':' + #inboundType + ':' + #startTime + ':' + #endTime + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<InboundReceiptResponse> list(Long factoryId, String code, String inboundType,
                                               LocalDateTime startTime, LocalDateTime endTime,
                                               Pageable pageable) {
@@ -67,6 +71,7 @@ public class InboundReceiptService {
         ).map(this::toResponse);
     }
 
+    @Cacheable(cacheNames = "inbound.receipts.detail", key = "#factoryId + ':' + #id")
     public InboundReceiptResponse getById(Long factoryId, Long id) {
         InboundReceipt receipt = inboundReceiptRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))
@@ -74,6 +79,7 @@ public class InboundReceiptService {
         return toResponse(receipt);
     }
 
+    @CacheEvict(cacheNames = {"inbound.receipts.list", "inbound.receipts.detail", "products.list", "inventory.details"}, allEntries = true)
     public InboundReceiptResponse create(Long factoryId, Long userId, InboundReceiptRequest request) {
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("工厂不存在"));
@@ -98,7 +104,7 @@ public class InboundReceiptService {
         receipt.setFactory(factory);
         receipt.setCode(code);
         receipt.setInboundType(request.getInboundType().trim());
-        receipt.setInboundTime(LocalDateTime.parse(request.getInboundTime().trim(), FMT));
+        receipt.setInboundTime(DateTimeParser.parse(request.getInboundTime()));
         receipt.setRemark(normalize(request.getRemark()));
         receipt.setCustomDataJson(writeJson(request.getCustomValues()));
         receipt.setCreatedAt(LocalDateTime.now());
@@ -107,36 +113,38 @@ public class InboundReceiptService {
             userRepository.findById(userId).ifPresent(receipt::setCreator);
         }
 
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            throw new IllegalArgumentException("入库明细不能为空");
+        }
+
         // Process items
-        if (request.getItems() != null && !request.getItems().isEmpty()) {
-            for (InboundReceiptRequest.InboundReceiptItemRequest itemReq : request.getItems()) {
-                if (itemReq.getProductId() == null) {
-                    throw new IllegalArgumentException("产品不能为空");
-                }
-                if (itemReq.getQuantity() == null || itemReq.getQuantity() <= 0) {
-                    throw new IllegalArgumentException("入库数量必须大于0");
-                }
-                Product product = productRepository.findById(itemReq.getProductId())
-                        .filter(p -> p.getFactory().getId().equals(factoryId))
-                        .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
-
-                InboundReceiptItem item = new InboundReceiptItem();
-                item.setInboundReceipt(receipt);
-                item.setProduct(product);
-                item.setQuantity(itemReq.getQuantity());
-                item.setCustomDataJson(writeJson(itemReq.getCustomValues()));
-                receipt.getItems().add(item);
-
-                // Update product inventory
-                product.setInventoryQty(product.getInventoryQty() + itemReq.getQuantity());
-                productRepository.save(product);
+        for (InboundReceiptRequest.InboundReceiptItemRequest itemReq : request.getItems()) {
+            if (itemReq.getProductId() == null) {
+                throw new IllegalArgumentException("产品不能为空");
             }
+            if (itemReq.getQuantity() == null || itemReq.getQuantity() <= 0) {
+                throw new IllegalArgumentException("入库数量必须大于0");
+            }
+            Product product = productForInventoryUpdate(factoryId, itemReq.getProductId());
+
+            InboundReceiptItem item = new InboundReceiptItem();
+            item.setInboundReceipt(receipt);
+            item.setProduct(product);
+            item.setQuantity(itemReq.getQuantity());
+            item.setCustomDataJson(writeJson(itemReq.getCustomValues()));
+            receipt.getItems().add(item);
+
+            // Update product inventory
+            int currentStock = product.getInventoryQty() != null ? product.getInventoryQty() : 0;
+            product.setInventoryQty(currentStock + itemReq.getQuantity());
+            productRepository.save(product);
         }
 
         InboundReceipt saved = inboundReceiptRepository.save(receipt);
         return toResponse(saved);
     }
 
+    @CacheEvict(cacheNames = {"inbound.receipts.list", "inbound.receipts.detail", "products.list", "inventory.details"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         InboundReceipt receipt = inboundReceiptRepository.findById(id)
                 .filter(r -> r.getFactory().getId().equals(factoryId))
@@ -144,13 +152,21 @@ public class InboundReceiptService {
 
         // Revert inventory
         for (InboundReceiptItem item : receipt.getItems()) {
-            Product product = item.getProduct();
-            int newQty = product.getInventoryQty() - item.getQuantity();
-            product.setInventoryQty(Math.max(newQty, 0));
+            Product product = productForInventoryUpdate(factoryId, item.getProduct().getId());
+            int currentStock = product.getInventoryQty() != null ? product.getInventoryQty() : 0;
+            if (currentStock < item.getQuantity()) {
+                throw new IllegalArgumentException("产品 [" + product.getName() + "] 库存已被后续单据消耗，不能删除该入库单");
+            }
+            product.setInventoryQty(currentStock - item.getQuantity());
             productRepository.save(product);
         }
 
         inboundReceiptRepository.delete(receipt);
+    }
+
+    private Product productForInventoryUpdate(Long factoryId, Long productId) {
+        return productRepository.findByIdAndFactoryIdForUpdate(productId, factoryId)
+                .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
     }
 
     private InboundReceiptResponse toResponse(InboundReceipt receipt) {

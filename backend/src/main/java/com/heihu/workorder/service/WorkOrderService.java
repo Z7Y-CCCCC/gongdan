@@ -11,8 +11,11 @@ import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
 import com.heihu.workorder.repository.WorkOrderCategoryRepository;
+import com.heihu.workorder.repository.WorkOrderReportRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,17 +36,21 @@ public class WorkOrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final WorkOrderCategoryRepository categoryRepository;
+    private final WorkOrderReportRepository reportRepository;
 
     public WorkOrderService(WorkOrderRepository workOrderRepository,
                             ProductRepository productRepository,
                             UserRepository userRepository,
-                            WorkOrderCategoryRepository categoryRepository) {
+                            WorkOrderCategoryRepository categoryRepository,
+                            WorkOrderReportRepository reportRepository) {
         this.workOrderRepository = workOrderRepository;
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.categoryRepository = categoryRepository;
+        this.reportRepository = reportRepository;
     }
 
+    @Cacheable(cacheNames = "workorders.list", key = "#factoryId + ':' + #code + ':' + #productName + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<WorkOrderResponse> list(Long factoryId, String code, String productName, Pageable pageable) {
         boolean hasCode = code != null && !code.trim().isEmpty();
         boolean hasProductName = productName != null && !productName.trim().isEmpty();
@@ -59,6 +66,7 @@ public class WorkOrderService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "workorders.detail", key = "#factoryId + ':' + #id")
     public WorkOrderResponse get(Long factoryId, Long id) {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -67,12 +75,14 @@ public class WorkOrderService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "workorders.code", key = "#factoryId + ':' + #code")
     public WorkOrderResponse getByCode(Long factoryId, String code) {
         WorkOrder workOrder = workOrderRepository.findByFactoryIdAndCode(factoryId, code)
                 .orElseThrow(() -> new IllegalArgumentException("工单不存在：" + code));
         return toResponse(workOrder);
     }
 
+    @CacheEvict(cacheNames = {"workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderResponse create(Long factoryId, Long userId, WorkOrderRequest request) {
         WorkOrder workOrder = new WorkOrder();
         workOrder.setCreatedAt(LocalDateTime.now());
@@ -84,6 +94,7 @@ public class WorkOrderService {
         return toResponse(workOrderRepository.save(workOrder));
     }
 
+    @CacheEvict(cacheNames = {"workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderResponse update(Long factoryId, Long id, WorkOrderRequest request) {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -96,10 +107,14 @@ public class WorkOrderService {
         return toResponse(workOrderRepository.save(workOrder));
     }
 
+    @CacheEvict(cacheNames = {"workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
+        if (reportRepository.existsByFactoryIdAndWorkOrderId(factoryId, id)) {
+            throw new IllegalArgumentException("工单已有报工记录，不能删除");
+        }
         workOrderRepository.delete(workOrder);
     }
 
@@ -166,7 +181,7 @@ public class WorkOrderService {
         workOrder.setRelatedOrderCode(normalize(request.getRelatedOrderCode()));
         workOrder.setRemark(normalize(request.getRemark()));
         workOrder.setCustomDataJson(writeJson(request.getCustomValues()));
-        workOrder.setTaskDataJson(writeJson(request.getTasks()));
+        workOrder.setTaskDataJson(writeJson(normalizeTasks(request.getTasks())));
         workOrder.setMaterialDataJson(writeJson(request.getMaterials()));
     }
 
@@ -195,13 +210,14 @@ public class WorkOrderService {
                         ? item.getProduct().getProcessRoute().getName()
                         : null
         );
-        response.setProgressPercent(calculateProgress(readTasks(item.getTaskDataJson())));
+        List<WorkOrderRequest.TaskItem> tasks = normalizeTasks(readTasks(item.getTaskDataJson()));
+        response.setProgressPercent(calculateProgress(tasks));
         response.setPlanStart(item.getPlanStart() != null ? item.getPlanStart().format(FMT) : null);
         response.setPlanEnd(item.getPlanEnd() != null ? item.getPlanEnd().format(FMT) : null);
         response.setRelatedOrderCode(item.getRelatedOrderCode());
         response.setRemark(item.getRemark());
         response.setCustomValues(readCustomValues(item.getCustomDataJson()));
-        response.setTasks(readTasks(item.getTaskDataJson()));
+        response.setTasks(tasks);
         response.setMaterials(readMaterials(item.getMaterialDataJson()));
         response.setCreator(item.getCreator() != null ? item.getCreator().getName() : null);
         response.setCreatedAt(item.getCreatedAt() != null ? item.getCreatedAt().format(FMT) : null);
@@ -264,6 +280,18 @@ public class WorkOrderService {
         } catch (JsonProcessingException e) {
             return Collections.emptyList();
         }
+    }
+
+    private List<WorkOrderRequest.TaskItem> normalizeTasks(List<WorkOrderRequest.TaskItem> tasks) {
+        if (tasks == null) return Collections.emptyList();
+        for (WorkOrderRequest.TaskItem task : tasks) {
+            if (task == null) continue;
+            String permission = normalize(task.getReportPermission());
+            if (permission != null && "all".equalsIgnoreCase(permission)) {
+                task.setReportPermission("所有人");
+            }
+        }
+        return tasks;
     }
 
     private List<WorkOrderRequest.MaterialItem> readMaterials(String json) {

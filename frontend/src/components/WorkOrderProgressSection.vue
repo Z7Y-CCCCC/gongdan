@@ -15,6 +15,7 @@ import {
   type WorkOrderProgressItem
 } from '../api'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{
   token: string
@@ -127,7 +128,10 @@ const columns: ColumnDef[] = [
 
 <template>
   <section class="work-order-progress">
-    <h3 class="work-order-progress__title">工单进度报表</h3>
+    <div class="work-order-progress__title-row">
+      <h3 class="work-order-progress__title">工单进度报表</h3>
+      <TableConfigButton table-id="home-work-order-progress-table" />
+    </div>
 
     <!-- 状态切换标签 -->
     <div class="work-order-progress__tabs">
@@ -145,7 +149,7 @@ const columns: ColumnDef[] = [
 
     <!-- 表格容器 -->
     <div class="work-order-progress__table-wrapper">
-      <table class="work-order-progress__table">
+      <table id="home-work-order-progress-table" class="work-order-progress__table">
         <thead>
           <tr>
             <th

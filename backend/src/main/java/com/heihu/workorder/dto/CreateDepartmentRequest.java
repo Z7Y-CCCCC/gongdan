@@ -1,10 +1,16 @@
 package com.heihu.workorder.dto;
 
 import java.util.List;
+import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Size;
 
 public class CreateDepartmentRequest {
 
+    @Size(max = 64, message = "部门编码不能超过64个字符")
     private String code;
+
+    @NotBlank(message = "部门名称不能为空")
+    @Size(max = 64, message = "部门名称不能超过64个字符")
     private String name;
     private List<Long> userIds;
 

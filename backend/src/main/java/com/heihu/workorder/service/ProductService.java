@@ -9,14 +9,21 @@ import com.heihu.workorder.model.ProcessRoute;
 import com.heihu.workorder.model.Product;
 import com.heihu.workorder.model.ProductOperationLog;
 import com.heihu.workorder.model.Unit;
+import com.heihu.workorder.repository.BomRepository;
 import com.heihu.workorder.repository.FactoryRepository;
+import com.heihu.workorder.repository.InboundReceiptRepository;
+import com.heihu.workorder.repository.OutboundReceiptRepository;
 import com.heihu.workorder.repository.ProcessRouteRepository;
 import com.heihu.workorder.repository.ProductOperationLogRepository;
 import com.heihu.workorder.repository.ProductRepository;
+import com.heihu.workorder.repository.SalesOrderRepository;
 import com.heihu.workorder.repository.UnitRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.repository.WorkOrderRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,19 +43,34 @@ public class ProductService {
     private final UnitRepository unitRepository;
     private final ProcessRouteRepository routeRepository;
     private final UserRepository userRepository;
+    private final WorkOrderRepository workOrderRepository;
+    private final InboundReceiptRepository inboundReceiptRepository;
+    private final OutboundReceiptRepository outboundReceiptRepository;
+    private final BomRepository bomRepository;
+    private final SalesOrderRepository salesOrderRepository;
 
     public ProductService(ProductRepository productRepository,
                           ProductOperationLogRepository productOperationLogRepository,
                           FactoryRepository factoryRepository,
                           UnitRepository unitRepository,
                           ProcessRouteRepository routeRepository,
-                          UserRepository userRepository) {
+                          UserRepository userRepository,
+                          WorkOrderRepository workOrderRepository,
+                          InboundReceiptRepository inboundReceiptRepository,
+                          OutboundReceiptRepository outboundReceiptRepository,
+                          BomRepository bomRepository,
+                          SalesOrderRepository salesOrderRepository) {
         this.productRepository = productRepository;
         this.productOperationLogRepository = productOperationLogRepository;
         this.factoryRepository = factoryRepository;
         this.unitRepository = unitRepository;
         this.routeRepository = routeRepository;
         this.userRepository = userRepository;
+        this.workOrderRepository = workOrderRepository;
+        this.inboundReceiptRepository = inboundReceiptRepository;
+        this.outboundReceiptRepository = outboundReceiptRepository;
+        this.bomRepository = bomRepository;
+        this.salesOrderRepository = salesOrderRepository;
     }
 
     private ProductResponse toResponse(Product product) {
@@ -94,6 +116,7 @@ public class ProductService {
         return response;
     }
 
+    @Cacheable(cacheNames = "products.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #spec + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<ProductResponse> list(Long factoryId, String code, String name, String spec, Pageable pageable) {
         boolean hasCode = code != null && !code.trim().isEmpty();
         boolean hasName = name != null && !name.trim().isEmpty();
@@ -114,6 +137,7 @@ public class ProductService {
         return productOperationLogRepository.findByFactoryId(factoryId, pageable).map(this::toLogResponse);
     }
 
+    @CacheEvict(cacheNames = {"products.list", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public ProductResponse create(Long factoryId, Long userId, String operatorName, ProductRequest request) {
         Product product = new Product();
         Factory factory = factoryRepository.findById(factoryId)
@@ -129,6 +153,7 @@ public class ProductService {
         return toResponse(saved);
     }
 
+    @CacheEvict(cacheNames = {"products.list", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public ProductResponse update(Long factoryId, Long userId, String operatorName, Long id, ProductRequest request) {
         Product product = productRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -139,6 +164,7 @@ public class ProductService {
         return toResponse(saved);
     }
 
+    @CacheEvict(cacheNames = {"products.list", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public void delete(Long factoryId, String operatorName, Long id) {
         Product product = productRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -146,6 +172,7 @@ public class ProductService {
         String productCode = product.getCode();
         String productName = product.getName();
         Factory factory = product.getFactory();
+        ensureProductCanBeDeleted(factoryId, id);
         productRepository.delete(product);
         writeLog(factory, operatorName, "DELETE", productCode, productName, null);
     }
@@ -238,6 +265,25 @@ public class ProductService {
         log.setDetail(detail);
         log.setCreatedAt(LocalDateTime.now());
         productOperationLogRepository.save(log);
+    }
+
+    private void ensureProductCanBeDeleted(Long factoryId, Long productId) {
+        if (workOrderRepository.existsByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被工单引用，不能删除");
+        }
+        if (inboundReceiptRepository.existsByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被入库单引用，不能删除");
+        }
+        if (outboundReceiptRepository.existsByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被出库单引用，不能删除");
+        }
+        if (bomRepository.existsByFactoryIdAndProductId(factoryId, productId)
+                || bomRepository.existsItemByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被BOM引用，不能删除");
+        }
+        if (salesOrderRepository.existsItemByFactoryIdAndProductId(factoryId, productId)) {
+            throw new IllegalArgumentException("产品已被销售订单引用，不能删除");
+        }
     }
 
     @Transactional(readOnly = true)

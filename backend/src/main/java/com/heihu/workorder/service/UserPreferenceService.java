@@ -7,6 +7,8 @@ import com.heihu.workorder.model.UserPreference;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.UserPreferenceRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +23,7 @@ public class UserPreferenceService {
     @Autowired
     private UserRepository userRepository;
 
+    @Cacheable(cacheNames = "user.preferences", key = "#userId + ':' + #key", unless = "#result == null")
     public UserPreferenceResponse getPreference(Long userId, String key) {
         FactoryUser user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -30,6 +33,7 @@ public class UserPreferenceService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "user.preferences", key = "#userId + ':' + #key")
     public UserPreferenceResponse setPreference(Long userId, String key, UserPreferenceRequest request) {
         FactoryUser user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));

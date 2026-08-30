@@ -11,6 +11,8 @@ import com.heihu.workorder.repository.CustomFieldRepository;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -38,6 +40,7 @@ public class CustomFieldService {
         this.userRepository = userRepository;
     }
 
+    @Cacheable(cacheNames = "custom.fields", key = "#factoryId + ':' + #scope")
     public List<CustomFieldResponse> list(Long factoryId, String scope) {
         String scopeName = normalize(scope) != null ? scope.trim() : "workorder";
         return customFieldRepository.findByFactoryIdAndScopeOrderBySortOrderAscCreatedAtAsc(factoryId, scopeName)
@@ -46,6 +49,7 @@ public class CustomFieldService {
                 .collect(Collectors.toList());
     }
 
+    @CacheEvict(cacheNames = "custom.fields", allEntries = true)
     public CustomFieldResponse create(Long factoryId, Long userId, CustomFieldRequest request) {
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("工厂不存在"));
@@ -64,6 +68,7 @@ public class CustomFieldService {
         return toResponse(customFieldRepository.save(field));
     }
 
+    @CacheEvict(cacheNames = "custom.fields", allEntries = true)
     public CustomFieldResponse update(Long factoryId, Long userId, Long id, CustomFieldRequest request) {
         CustomField field = customFieldRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -76,6 +81,7 @@ public class CustomFieldService {
         return toResponse(customFieldRepository.save(field));
     }
 
+    @CacheEvict(cacheNames = "custom.fields", allEntries = true)
     public void delete(Long factoryId, Long id) {
         CustomField field = customFieldRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))

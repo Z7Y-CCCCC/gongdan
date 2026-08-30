@@ -6,6 +6,7 @@ import {
   type CreateUserPayload, type Role, type UpdateUserPayload, type UserInfo, type DepartmentInfo,
   fetchSystemImportLogs, createSystemImportLog
 } from '../api'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{
   token: string
@@ -198,7 +199,7 @@ async function copySuccessUser() {
     await navigator.clipboard.writeText(text)
     showAction('账号信息已复制到剪贴板')
   } catch (err) {
-    window.alert('复制失败，请手动复制')
+    errorMessage.value = '复制失败，请手动复制'
   }
 }
 
@@ -284,11 +285,11 @@ async function handleResetPassword() {
   const newPassword = resetPasswordForm.password
   const confirmPassword = resetPasswordForm.confirmPassword
   if (!newPassword.trim()) {
-    window.alert('新密码不能为空')
+    errorMessage.value = '新密码不能为空'
     return
   }
   if (newPassword !== confirmPassword) {
-    window.alert('两次输入的密码不一致')
+    errorMessage.value = '两次输入的密码不一致'
     return
   }
   errorMessage.value = ''
@@ -584,11 +585,12 @@ function handlePrintTemplate() {
               导入
               <input type="file" accept=".csv" style="display:none" @change="handleImport" />
             </label>
+            <TableConfigButton table-id="user-list-table" />
           </div>
         </div>
 
         <div class="table-container">
-          <table class="data-table">
+          <table id="user-list-table" class="data-table">
             <thead>
               <tr>
                 <th style="min-width: 100px;">姓名</th>

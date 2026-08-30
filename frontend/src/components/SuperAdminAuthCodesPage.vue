@@ -26,6 +26,7 @@ import {
 } from '../api'
 
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 type TabKey = 'factories' | 'admins' | 'authcodes' | 'superadmins'
 
@@ -717,10 +718,11 @@ onMounted(() => {
             <button class="secondary-btn" type="button" @click="loadFactories" :disabled="listLoading">
               刷新
             </button>
+            <TableConfigButton table-id="super-factories-table" />
           </div>
         </div>
         <div class="table-container">
-          <table class="data-table">
+          <table id="super-factories-table" class="data-table">
             <thead>
               <tr>
                 <th>工厂代码</th>
@@ -832,10 +834,11 @@ onMounted(() => {
             <button class="secondary-btn" type="button" @click="loadFactoryAdmins" :disabled="listLoading">
               刷新
             </button>
+            <TableConfigButton table-id="super-factory-admins-table" />
           </div>
         </div>
         <div class="table-container">
-          <table class="data-table">
+          <table id="super-factory-admins-table" class="data-table">
             <thead>
               <tr>
                 <th>工厂代码</th>
@@ -946,10 +949,11 @@ onMounted(() => {
             <button class="secondary-btn" type="button" @click="loadAuthCodes" :disabled="listLoading">
               刷新
             </button>
+            <TableConfigButton table-id="super-auth-codes-table" />
           </div>
         </div>
         <div class="table-container">
-          <table class="data-table">
+          <table id="super-auth-codes-table" class="data-table">
             <thead>
               <tr>
                 <th>授权码</th>
@@ -1036,10 +1040,11 @@ onMounted(() => {
           <h3 class="section-title">超级管理员列表</h3>
           <div class="list-header-actions">
             <button class="secondary-btn" type="button" @click="loadSuperAdmins" :disabled="listLoading">刷新</button>
+            <TableConfigButton table-id="super-admins-table" />
           </div>
         </div>
         <div class="table-container">
-          <table class="data-table">
+          <table id="super-admins-table" class="data-table">
             <thead>
               <tr>
                 <th>用户名</th>
