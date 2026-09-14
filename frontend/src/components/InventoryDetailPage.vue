@@ -6,6 +6,9 @@ import {
 } from '../api'
 import UiIcon from './UiIcon.vue'
 import ColumnSettingsPanel, { type ColumnSetting } from './ColumnSettingsPanel.vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { resolveInventoryTimeRange } from '../utils/inventoryTimeRange'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -16,6 +19,7 @@ const totalItems = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
+const beginLoad = useLatestRequest()
 const showAdvancedFilter = ref(true)
 
 const startTimeFocused = ref(false)
@@ -98,45 +102,14 @@ function detailColumnStyle(column: ColumnSetting, header = false): CSSProperties
 }
 
 // ===== Methods =====
-function formatDateTime(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  const h = String(date.getHours()).padStart(2, '0')
-  const min = String(date.getMinutes()).padStart(2, '0')
-  const s = String(date.getSeconds()).padStart(2, '0')
-  return `${y}-${m}-${d} ${h}:${min}:${s}`
-}
-
 function formatDisplayDateTime(value?: string): string {
   return value ? value.replace('T', ' ').slice(0, 19) : '-'
 }
 
 async function loadData() {
+  const isCurrent = beginLoad()
   loading.value = true
   try {
-    let start: string | undefined = undefined
-    let end: string | undefined = undefined
-    if (filterForm.timeRange === 'custom') {
-      if (filterForm.startTime) start = filterForm.startTime + ' 00:00:00'
-      if (filterForm.endTime) end = filterForm.endTime + ' 23:59:59'
-    } else if (filterForm.timeRange === 'today') {
-      const today = new Date()
-      start = formatDateTime(new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0))
-      end = formatDateTime(new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59))
-    } else if (filterForm.timeRange === 'week') {
-      const today = new Date()
-      const day = today.getDay() || 7
-      const monday = new Date(today)
-      monday.setDate(today.getDate() - day + 1)
-      start = formatDateTime(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), 0, 0, 0))
-      end = formatDateTime(new Date())
-    } else if (filterForm.timeRange === 'month') {
-      const today = new Date()
-      start = formatDateTime(new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0))
-      end = formatDateTime(new Date())
-    }
-
     const res = await fetchInventoryDetails(props.token, {
       receiptCode: filterForm.receiptCode.trim() || undefined,
       receiptType: filterForm.receiptType || undefined,
@@ -146,17 +119,17 @@ async function loadData() {
       productName: filterForm.productName.trim() || undefined,
       productSpec: filterForm.productSpec.trim() || undefined,
       productAttribute: filterForm.productAttribute || undefined,
-      startTime: start,
-      endTime: end,
+      ...resolveInventoryTimeRange(filterForm),
       page: currentPage.value,
       size: pageSize.value
     })
+    if (!isCurrent()) return
     items.value = res.items
     totalItems.value = res.total
   } catch (e: any) {
-    emit('notice', e.message || '加载库存收发明细失败')
+    if (isCurrent()) emit('notice', e.message || '加载库存收发明细失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -210,20 +183,20 @@ function exportCSV() {
   items.value.forEach((item, idx) => {
     const row = [
       idx + 1,
-      `"${item.receiptCode || ''}"`,
-      `"${item.productCode || ''}"`,
-      `"${item.productName || ''}"`,
-      `"${item.productSpec || ''}"`,
-      `"${item.productAttribute || ''}"`,
-      `"${item.unitName || ''}"`,
+      item.receiptCode,
+      item.productCode,
+      item.productName,
+      item.productSpec,
+      item.productAttribute,
+      item.unitName,
       item.receiptQty,
       item.changeQty,
-      `"${item.receiptType || ''}"`,
+      item.receiptType,
       item.sourceType === 'IN' ? '入库单' : '出库单',
-      `"${item.operationTime || ''}"`,
-      `"${(item.remark || '').replace(/"/g, '""')}"`
+      item.operationTime,
+      item.remark
     ]
-    csvRows.push(row.join(','))
+    csvRows.push(row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
   })
 
   const csvContent = '\uFEFF' + csvRows.join('\n')
@@ -246,6 +219,8 @@ function getSourceLabel(sourceType: string): string {
 function getSourceBadgeClass(sourceType: string): string {
   return sourceType === 'IN' ? 'badge-inbound' : 'badge-outbound'
 }
+
+useRefreshOnActivated(loadData)
 
 onMounted(() => {
   loadData()

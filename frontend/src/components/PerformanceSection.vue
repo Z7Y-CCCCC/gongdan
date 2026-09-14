@@ -13,6 +13,8 @@ import { ref, inject, watch, onMounted, type Ref } from 'vue'
 import type { HomeRange, PerformanceResponse } from '../api'
 import { fetchHomePerformance } from '../api'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 
 const props = defineProps<{
   token: string
@@ -27,6 +29,7 @@ const { handleApiError } = useHomeDashboardErrorHandler()
 // Data state
 const data = ref<PerformanceResponse | null>(null)
 const hasError = ref(false)
+const beginLoad = useLatestRequest()
 
 // KPI tile definitions
 interface KpiTile {
@@ -60,11 +63,14 @@ function formatValue(tile: KpiTile): string {
 }
 
 async function loadPerformance() {
+  const isCurrent = beginLoad()
   hasError.value = false
   try {
     const response = await fetchHomePerformance(props.token, homeRange.value)
+    if (!isCurrent()) return
     data.value = response
   } catch (error) {
+    if (!isCurrent()) return
     if (handleApiError(error)) {
       return
     }
@@ -80,6 +86,8 @@ watch(homeRange, () => {
 })
 
 // Initial load
+useRefreshOnActivated(loadPerformance)
+
 onMounted(() => {
   loadPerformance()
 })

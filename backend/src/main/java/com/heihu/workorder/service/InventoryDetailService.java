@@ -57,8 +57,8 @@ public class InventoryDetailService {
 
         int safePage = Math.max(page, 1);
         int safeSize = Math.max(size, 1);
-        int fromIndex = Math.min((safePage - 1) * safeSize, details.size());
-        int toIndex = Math.min(fromIndex + safeSize, details.size());
+        int fromIndex = (int) Math.min((long) (safePage - 1) * safeSize, details.size());
+        int toIndex = (int) Math.min((long) fromIndex + safeSize, details.size());
         return new ArrayList<>(details.subList(fromIndex, toIndex));
     }
 
@@ -84,8 +84,8 @@ public class InventoryDetailService {
                 .filter(item -> matchesLike(item.getProductName(), productName))
                 .filter(item -> matchesLike(item.getProductSpec(), productSpec))
                 .filter(item -> matchesEquals(item.getProductAttribute(), productAttribute))
-                .filter(item -> startTime == null || !item.getOperationTime().isBefore(startTime))
-                .filter(item -> endTime == null || !item.getOperationTime().isAfter(endTime))
+                .filter(item -> startTime == null || (item.getOperationTime() != null && !item.getOperationTime().isBefore(startTime)))
+                .filter(item -> endTime == null || (item.getOperationTime() != null && !item.getOperationTime().isAfter(endTime)))
                 .sorted(Comparator.comparing(InventoryDetailResponse::getOperationTime,
                         Comparator.nullsLast(Comparator.reverseOrder())))
                 .collect(Collectors.toList());

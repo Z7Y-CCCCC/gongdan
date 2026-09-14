@@ -54,11 +54,11 @@ function timestampDateKey(value?: string) {
 }
 
 function isCompletedStatus(status?: string) {
-  return ['COMPLETED', '已完成'].includes(status || '')
+  return ['COMPLETED', 'FINISHED', '已完成', '已结束'].includes(status || '')
 }
 
 function isClosedStatus(status?: string) {
-  return isCompletedStatus(status) || ['CANCELED', 'CANCELLED', '已取消'].includes(status || '')
+  return isCompletedStatus(status) || ['CANCELED', 'CANCELLED', 'CLOSED', '已取消', '已关闭'].includes(status || '')
 }
 
 function taskCompletedQuantity(task: WorkOrderTaskPayload) {

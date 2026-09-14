@@ -24,10 +24,11 @@
 
       <view class="input-group">
         <text class="label">密码</text>
-        <input class="input" v-model="form.password" password placeholder="请输入登录密码" placeholder-style="color:#ccc" />
+        <input class="input" v-model="form.password" :type="isH5 ? 'password' : 'text'" password placeholder="请输入登录密码" placeholder-style="color:#ccc" />
       </view>
 
       <button class="btn-submit" :loading="loading" :disabled="loading" @click="handleBind">登录</button>
+      <button v-if="!isH5" class="wechat-login" :disabled="loading" @click="tryWechatLogin">微信登录 / 重新获取绑定凭证</button>
     </view>
 
     <view class="footer">
@@ -37,17 +38,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { bindAccount, saveSession, wechatLogin } from '../../services/api'
+import { ref, reactive, onBeforeUnmount, onMounted } from 'vue'
+import { bindAccount, passwordLogin, saveSession, wechatLogin } from '../../services/api'
 import { usePageDraft } from '../../composables/usePageDraft'
+import { goAfterLogin as navigateAfterLogin, loginRedirect } from '../../utils/navigation'
 
 const loading = ref(false)
 const redirectUrl = ref('')
-function isLocalH5() {
-  return typeof window !== 'undefined' && window.location && ['127.0.0.1', 'localhost'].includes(window.location.hostname)
-}
+const isH5 = typeof window !== 'undefined'
+let manualLogin = false
+let navigationTimer: ReturnType<typeof setTimeout> | undefined
+onBeforeUnmount(() => { if (navigationTimer) clearTimeout(navigationTimer) })
 const configuredWechatMock = import.meta.env.VITE_WECHAT_MOCK_ENABLED
-const wechatMockEnabled = configuredWechatMock === 'true' || (!configuredWechatMock && isLocalH5())
+const wechatMockEnabled = configuredWechatMock === 'true'
 const form = reactive({
   factoryCode: '',
   username: '',
@@ -57,6 +60,7 @@ const form = reactive({
 
 const { clearDraft: clearAccountDraft } = usePageDraft({
   key: 'gongdan:draft:login-account',
+  scope: 'device',
   source: () => ({ factoryCode: form.factoryCode, username: form.username }),
   restore: (draft) => {
     form.factoryCode = draft.factoryCode || ''
@@ -66,22 +70,26 @@ const { clearDraft: clearAccountDraft } = usePageDraft({
 
 onMounted(() => {
   resolveRedirect()
-  tryWechatLogin()
+  // A normal browser cannot obtain a Mini Program jscode2session code.
+  if (!isH5 && !manualLogin) tryWechatLogin()
 })
 
 function resolveRedirect() {
-  const pages = getCurrentPages()
-  const currentPage = pages[pages.length - 1] as any
-  if (currentPage?.$page?.options?.redirect) {
-    redirectUrl.value = decodeURIComponent(currentPage.$page.options.redirect)
-  }
+  try {
+    const pages = getCurrentPages()
+    const currentPage = pages[pages.length - 1] as any
+    const options = currentPage?.$page?.options || currentPage?.options || {}
+    redirectUrl.value = loginRedirect(options.redirect)
+    manualLogin = options.manual === '1'
+  } catch { /* H5 routes may not yet have a page instance. */ }
   if (typeof window !== 'undefined' && window.location) {
     const hashStr = window.location.hash || ''
     const qIdx = hashStr.indexOf('?')
     if (qIdx >= 0) {
       const hashParams = new URLSearchParams(hashStr.substring(qIdx))
       const r = hashParams.get('redirect')
-      if (r) redirectUrl.value = decodeURIComponent(r)
+      if (r) redirectUrl.value = loginRedirect(r)
+      manualLogin = hashParams.get('manual') === '1'
     }
   }
 }
@@ -107,6 +115,7 @@ async function getWxCode() {
 }
 
 async function tryWechatLogin() {
+  if (loading.value) return
   loading.value = true
   try {
     const code = await getWxCode()
@@ -120,54 +129,47 @@ async function tryWechatLogin() {
     }
     saveSession(res)
     goAfterLogin()
-  } catch (e) {
-    if (wechatMockEnabled) {
-      form.openidTicket = getMockOpenid().replace('MOCK_OPENID_', 'MOCK_TICKET_')
-    }
+  } catch (e: any) {
+    form.openidTicket = ''
+    uni.showToast({ title: e.message || '微信登录失败，请重试', icon: 'none' })
   } finally {
     loading.value = false
   }
 }
 
 function goAfterLogin() {
-  if (redirectUrl.value) {
-    if (typeof window !== 'undefined' && redirectUrl.value.startsWith('#')) {
-      window.location.hash = redirectUrl.value.substring(1)
-      window.location.reload()
-      return
-    }
-    if (redirectUrl.value.startsWith('/pages/')) {
-      uni.navigateTo({ url: redirectUrl.value })
-      return
-    }
-  }
-  if (typeof window !== 'undefined' && window.location) {
-    window.location.hash = '#/pages/home/index'
-    return
-  }
-  uni.switchTab({ url: '/pages/home/index' })
+  navigateAfterLogin(redirectUrl.value)
 }
 
 const handleBind = async () => {
-  if (!form.factoryCode || !form.username || !form.password) {
+  if (loading.value) return
+  if (!form.factoryCode.trim() || !form.username.trim() || !form.password) {
     uni.showToast({ title: '请填写完整信息', icon: 'none' })
+    return
+  }
+  if (!isH5 && !form.openidTicket) {
+    uni.showToast({ title: '请先点击微信登录获取绑定凭证', icon: 'none' })
     return
   }
 
   loading.value = true
+  let signedIn = false
   try {
-    const res = await bindAccount({
-      openidTicket: form.openidTicket,
-      factoryCode: form.factoryCode,
-      username: form.username,
+    const credentials = {
+      factoryCode: form.factoryCode.trim(),
+      username: form.username.trim(),
       password: form.password
-    })
+    }
+    const res = isH5 ? await passwordLogin(credentials)
+      : await bindAccount({ ...credentials, openidTicket: form.openidTicket })
     
     saveSession(res)
+    signedIn = true
+    form.password = ''
     clearAccountDraft()
     uni.showToast({ title: '登录成功', icon: 'success' })
     
-    setTimeout(() => {
+    navigationTimer = setTimeout(() => {
       goAfterLogin()
     }, 1500)
   } catch (e: any) {
@@ -177,7 +179,7 @@ const handleBind = async () => {
       showCancel: false
     })
   } finally {
-    loading.value = false
+    if (!signedIn) loading.value = false
   }
 }
 </script>
@@ -288,6 +290,13 @@ const handleBind = async () => {
 
 .btn-submit[disabled] {
   opacity: 0.72;
+}
+
+.wechat-login {
+  margin-top: 24rpx;
+  background: transparent;
+  color: #00a982;
+  font-size: 24rpx;
 }
 
 .footer {

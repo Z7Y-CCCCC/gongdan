@@ -21,6 +21,8 @@ const isSuperAdmin = ref(localStorage.getItem('heihu_is_super_admin') === 'true'
 const isLoggedIn = computed(() => Boolean(token.value && currentUser.value))
 
 function persistSession(response: LoginResponse) {
+  isKickedAlerted = false
+  document.getElementById('kicked-out-overlay')?.remove()
   token.value = response.token
   currentUser.value = response.user
   isSuperAdmin.value = response.isSuperAdmin ?? false
@@ -40,16 +42,21 @@ function logout() {
 
 let isKickedAlerted = false
 
+// A delayed response from a previous login must never clear a newer session.
+export function handleUnauthorizedSession(requestToken: string, message: string) {
+  if (!requestToken || requestToken !== token.value) return
+  if (message === '您的账号已在其他地方登录，您已被挤下线') {
+    handleKickedOut()
+  } else {
+    logout()
+  }
+}
+
 export function handleKickedOut() {
   if (isKickedAlerted) return
   isKickedAlerted = true
   
-  token.value = ''
-  currentUser.value = null
-  isSuperAdmin.value = false
-  localStorage.removeItem('heihu_token')
-  localStorage.removeItem('heihu_user')
-  localStorage.removeItem('heihu_is_super_admin')
+  logout()
 
   // 动态构建高颜值磨砂玻璃拟物化自定义下线通知弹窗
   const overlay = document.createElement('div')
@@ -159,7 +166,7 @@ export function handleKickedOut() {
     overlay.style.opacity = '0'
     card.style.transform = 'scale(0.9) translateY(20px)'
     setTimeout(() => {
-      document.body.removeChild(overlay)
+      overlay.remove()
       window.location.reload()
     }, 300)
   }

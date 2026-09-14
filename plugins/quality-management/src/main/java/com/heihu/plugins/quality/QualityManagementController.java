@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -41,16 +42,24 @@ public class QualityManagementController {
     }
 
     @GetMapping("/records")
-    public List<QualityRecord> list() {
-        List<QualityRecord> result = new ArrayList<>(records.values());
+    public List<QualityRecord> list(@RequestHeader("X-Plugin-Factory-Id") String factoryId) {
+        List<QualityRecord> result = new ArrayList<>();
+        for (QualityRecord record : records.values()) {
+            if (factoryId.equals(record.getFactoryId())) result.add(record);
+        }
         result.sort(Comparator.comparing(QualityRecord::getCreatedAt).reversed());
         return result;
     }
 
     @PostMapping("/records")
-    public ResponseEntity<QualityRecord> create(@Valid @RequestBody QualityRecordRequest request) {
+    public ResponseEntity<QualityRecord> create(
+            @RequestHeader("X-Plugin-Factory-Id") String factoryId,
+            @RequestHeader("X-Plugin-User-Id") String userId,
+            @Valid @RequestBody QualityRecordRequest request) {
         QualityRecord record = new QualityRecord();
         record.setId(sequence.incrementAndGet());
+        record.setFactoryId(factoryId);
+        record.setOperatorUserId(userId);
         record.setIssue(request.getIssue().trim());
         record.setStatus(request.getStatus().trim());
         record.setRemark(request.getRemark() == null ? "" : request.getRemark().trim());
@@ -78,6 +87,8 @@ public class QualityManagementController {
 
     public static class QualityRecord {
         private Long id;
+        private String factoryId;
+        private String operatorUserId;
         private String issue;
         private String status;
         private String remark;
@@ -85,6 +96,10 @@ public class QualityManagementController {
 
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
+        public String getFactoryId() { return factoryId; }
+        public void setFactoryId(String factoryId) { this.factoryId = factoryId; }
+        public String getOperatorUserId() { return operatorUserId; }
+        public void setOperatorUserId(String operatorUserId) { this.operatorUserId = operatorUserId; }
         public String getIssue() { return issue; }
         public void setIssue(String issue) { this.issue = issue; }
         public String getStatus() { return status; }

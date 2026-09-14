@@ -15,6 +15,7 @@ import com.heihu.workorder.model.Role;
 import com.heihu.workorder.repository.AuthorizationCodeRepository;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.repository.UserSessionRepository;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -23,6 +24,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +51,7 @@ public class SuperAdminService {
     private final UserRepository userRepository;
     private final AuthorizationCodeRepository authorizationCodeRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UserSessionRepository sessionRepository;
 
     public SuperAdminService(
             FactoryRepository factoryRepository,
@@ -56,10 +59,22 @@ public class SuperAdminService {
             AuthorizationCodeRepository authorizationCodeRepository,
             PasswordEncoder passwordEncoder
     ) {
+        this(factoryRepository, userRepository, authorizationCodeRepository, passwordEncoder, null);
+    }
+
+    @Autowired
+    public SuperAdminService(
+            FactoryRepository factoryRepository,
+            UserRepository userRepository,
+            AuthorizationCodeRepository authorizationCodeRepository,
+            PasswordEncoder passwordEncoder,
+            UserSessionRepository sessionRepository
+    ) {
         this.factoryRepository = factoryRepository;
         this.userRepository = userRepository;
         this.authorizationCodeRepository = authorizationCodeRepository;
         this.passwordEncoder = passwordEncoder;
+        this.sessionRepository = sessionRepository;
     }
 
     /**
@@ -126,6 +141,7 @@ public class SuperAdminService {
         List<FactoryUser> users = userRepository.findByFactoryId(factory.getId());
         LocalDateTime now = LocalDateTime.now();
         for (FactoryUser user : users) {
+            revokeSessions(user.getId());
             if (user.isEnabled()) {
                 user.setEnabled(false);
                 user.setUpdatedAt(now);
@@ -242,6 +258,7 @@ public class SuperAdminService {
         user.setEnabled(false);
         user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
+        revokeSessions(userId);
     }
 
     /**
@@ -454,6 +471,7 @@ public class SuperAdminService {
         user.setPasswordHash(passwordEncoder.encode(password));
         user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
+        revokeSessions(userId);
         return password;
     }
 
@@ -531,6 +549,10 @@ public class SuperAdminService {
             return factory;
         }
         return factoryRepository.findByCode(LEGACY_ADMIN_FACTORY_CODE);
+    }
+
+    private void revokeSessions(Long userId) {
+        if (sessionRepository != null) sessionRepository.kickActiveSessions(userId);
     }
 
     private List<Factory> findFactoriesExcludingAdmin() {

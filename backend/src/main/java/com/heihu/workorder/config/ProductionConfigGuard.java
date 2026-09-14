@@ -2,6 +2,7 @@ package com.heihu.workorder.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -61,6 +62,9 @@ public class ProductionConfigGuard {
     @Value("${app.wechat.secret:}")
     private String wechatSecret;
 
+    @Value("${app.wechat.mock-enabled:false}")
+    private boolean wechatMockEnabled;
+
     @Value("${app.sms.http.auth-header-value:}")
     private String smsAuthHeaderValue;
 
@@ -94,6 +98,9 @@ public class ProductionConfigGuard {
         if (!isProd()) {
             return;
         }
+        if (wechatMockEnabled) {
+            throw new IllegalStateException("app.wechat.mock-enabled must be false in prod");
+        }
         requireNonRootDatabaseUser();
         requireRealValue(datasourcePassword, "spring.datasource.password");
         requireRealValue(seedFactoryName, "app.seed.factory-name");
@@ -116,7 +123,7 @@ public class ProductionConfigGuard {
     }
 
     private boolean isProd() {
-        return Arrays.asList(environment.getActiveProfiles()).contains("prod");
+        return environment.acceptsProfiles(Profiles.of("prod"));
     }
 
     private void requireRealValue(String value, String propertyName) {

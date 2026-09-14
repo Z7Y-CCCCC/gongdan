@@ -22,6 +22,8 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.concurrent.atomic.AtomicReference;
+import javax.servlet.ReadListener;
+import javax.servlet.ServletInputStream;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.AfterEach;
@@ -59,8 +61,9 @@ class PluginProxyControllerTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws IOException {
         if (server != null) server.stop(0);
+        if (controller != null) controller.close();
     }
 
     @Test
@@ -87,8 +90,7 @@ class PluginProxyControllerTest {
         ResponseEntity<byte[]> response = controller.proxy(
                 "Bearer core-secret",
                 "equipment-inspection",
-                request("GET", "/api/plugins/equipment-inspection/api/plugin/equipment-inspection/ping"),
-                null
+                request("GET", "/api/plugins/equipment-inspection/api/plugin/equipment-inspection/ping")
         );
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
@@ -97,7 +99,8 @@ class PluginProxyControllerTest {
         assertEquals("{\"inspectionIntervalDays\":7}", config.get());
         assertTrue(signature.get() != null && signature.get().matches("[0-9a-f]{64}"));
         String canonical = String.join("\n", "GET", "/api/plugin/equipment-inspection/ping",
-                "equipment-inspection", "1.0.0", "7", "9", "ADMIN", timestamp.get(), bodyHash.get());
+                "equipment-inspection", "1.0.0", "7", "9", "ADMIN", timestamp.get(), bodyHash.get(),
+                Base64.getEncoder().encodeToString(config.get().getBytes(StandardCharsets.UTF_8)));
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec("test-plugin-gateway-secret".getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         assertEquals(hex(mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8))), signature.get());
@@ -115,28 +118,87 @@ class PluginProxyControllerTest {
         ResponseEntity<byte[]> redirect = controller.proxy(
                 "Bearer core-secret",
                 "equipment-inspection",
-                request("GET", "/api/plugins/equipment-inspection/api/plugin/equipment-inspection/redirect"),
-                null
+                request("GET", "/api/plugins/equipment-inspection/api/plugin/equipment-inspection/redirect")
         );
         assertEquals(HttpStatus.BAD_GATEWAY, redirect.getStatusCode());
 
         ApiException wrongPath = assertThrows(ApiException.class, () -> controller.proxy(
                 "Bearer core-secret",
                 "equipment-inspection",
-                request("GET", "/api/plugins/equipment-inspection/actuator/health"),
-                null
+                request("GET", "/api/plugins/equipment-inspection/actuator/health")
         ));
         assertEquals(HttpStatus.NOT_FOUND, wrongPath.getStatus());
 
         byte[] oversized = new byte[257];
+        MockHttpServletRequest oversizedRequest = request("POST",
+                "/api/plugins/equipment-inspection/api/plugin/equipment-inspection/inspections");
+        oversizedRequest.setContent(oversized);
         ResponseEntity<byte[]> tooLarge = controller.proxy(
                 "Bearer core-secret",
                 "equipment-inspection",
-                request("POST", "/api/plugins/equipment-inspection/api/plugin/equipment-inspection/inspections"),
-                oversized
+                oversizedRequest
         );
         assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, tooLarge.getStatusCode());
         assertTrue(new String(tooLarge.getBody(), StandardCharsets.UTF_8).contains("请求内容过大"));
+    }
+
+    @Test
+    void patchForwardsMethodAndBodyWithoutRetries() throws Exception {
+        AtomicReference<String> method = new AtomicReference<>();
+        AtomicReference<String> body = new AtomicReference<>();
+        server.createContext("/api/plugin/equipment-inspection/inspections", exchange -> {
+            method.set(exchange.getRequestMethod());
+            java.io.ByteArrayOutputStream received = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int read;
+            while ((read = exchange.getRequestBody().read(buffer)) != -1) received.write(buffer, 0, read);
+            body.set(new String(received.toByteArray(), StandardCharsets.UTF_8));
+            respond(exchange, 200, "{\"ok\":true}");
+        });
+        server.start();
+        stubTarget("{}");
+        MockHttpServletRequest request = request("PATCH",
+                "/api/plugins/equipment-inspection/api/plugin/equipment-inspection/inspections");
+        request.setContent("{\"result\":\"OK\"}".getBytes(StandardCharsets.UTF_8));
+        request.setContentType("application/json");
+        ResponseEntity<byte[]> response = controller.proxy("Bearer core-secret", "equipment-inspection", request);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("PATCH", method.get());
+        assertEquals("{\"result\":\"OK\"}", body.get());
+    }
+
+    @Test
+    void chunkedOversizedRequestStopsReadingBeforeBufferingEntirePayload() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        MockHttpServletRequest request = new MockHttpServletRequest("POST",
+                "/api/plugins/equipment-inspection/api/plugin/equipment-inspection/inspections") {
+            @Override public long getContentLengthLong() { return -1; }
+            @Override public ServletInputStream getInputStream() {
+                return new ServletInputStream() {
+                    @Override public int read() {
+                        if (reads.incrementAndGet() > 4096) throw new AssertionError("Read past bounded first chunk");
+                        return 'x';
+                    }
+                    @Override public boolean isFinished() { return false; }
+                    @Override public boolean isReady() { return true; }
+                    @Override public void setReadListener(ReadListener listener) { }
+                };
+            }
+        };
+        ResponseEntity<byte[]> response = controller.proxy("Bearer core-secret", "equipment-inspection", request);
+        assertEquals(HttpStatus.PAYLOAD_TOO_LARGE, response.getStatusCode());
+        assertTrue(reads.get() <= 4096);
+    }
+
+    @Test
+    void gatewayRespectsConfiguredServletContextPath() throws Exception {
+        server.createContext("/api/plugin/equipment-inspection/ping", exchange -> respond(exchange, 200, "{}"));
+        server.start();
+        stubTarget("{}");
+        MockHttpServletRequest request = request("GET",
+                "/workorder/api/plugins/equipment-inspection/api/plugin/equipment-inspection/ping");
+        request.setContextPath("/workorder");
+        assertEquals(HttpStatus.OK, controller.proxy("Bearer core-secret", "equipment-inspection", request).getStatusCode());
     }
 
     private void stubTarget(String configJson) {

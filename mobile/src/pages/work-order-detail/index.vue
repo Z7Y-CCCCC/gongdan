@@ -46,7 +46,7 @@
         <view v-if="activeTab === 'material'" class="line"></view>
       </view>
       <view class="tab-item" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">
-        生产履历
+        我的生产履历
         <view v-if="activeTab === 'history'" class="line"></view>
       </view>
     </view>
@@ -126,6 +126,7 @@
 
     <!-- 生产履历 tab -->
     <scroll-view v-if="activeTab === 'history'" scroll-y class="process-list">
+      <ListLimitNotice :total="reportTotal" :loaded="loadedReports" label="个人报工" />
       <view v-if="reports.length === 0" class="empty-hint"><text>暂无生产履历</text></view>
       <view v-for="item in reports" :key="item.id" class="history-card">
         <view class="history-head">
@@ -163,8 +164,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { fetchReports, fetchWorkOrder, fetchWorkOrderByCode, ensureLogin } from '../../services/api'
+import { fetchReports, fetchWorkOrder, fetchWorkOrderByCode, fetchWorkOrderReporters, ensureLogin } from '../../services/api'
 import type { WorkOrderInfo, WorkOrderReport } from '../../types/api'
+import ListLimitNotice from '../../components/ListLimitNotice.vue'
+import { canReportTask } from '../../utils/report-permission'
+import { safeDecode } from '../../utils/navigation'
 
 const order = ref<WorkOrderInfo>({
   id: 0,
@@ -185,6 +189,9 @@ const loading = ref(true)
 const activeTab = ref('progress')
 const productUnit = ref('个')
 const reports = ref<WorkOrderReport[]>([])
+const reportTotal = ref(0)
+const loadedReports = ref(0)
+let checkingPermission = false
 const materialReports = computed(() => reports.value.filter(item => item.status === 'APPROVED' && item.materialName))
 
 // 从 URL 参数中获取 id 或 code
@@ -216,7 +223,7 @@ onMounted(async () => {
     const idMatch = hash.match(/[?&]id=(\d+)/)
     if (idMatch) orderId = idMatch[1]
     const codeMatch = hash.match(/[?&]code=([^&]+)/)
-    if (codeMatch) orderCode = decodeURIComponent(codeMatch[1])
+    if (codeMatch) orderCode = safeDecode(codeMatch[1])
   }
 
   if (!ensureLogin()) {
@@ -264,11 +271,16 @@ const loadReports = async () => {
   try {
     const res = await fetchReports()
     const items = res.items || []
+    reportTotal.value = res.total
+    loadedReports.value = items.length
     reports.value = items
       .filter(item => item.workOrderId === order.value.id || item.workOrderCode === order.value.code)
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-  } catch (e) {
+  } catch (e: any) {
     reports.value = []
+    reportTotal.value = 0
+    loadedReports.value = 0
+    uni.showToast({ title: e.message || '生产履历加载失败', icon: 'none' })
   }
 }
 
@@ -287,7 +299,7 @@ const daysRemain = computed(() => {
 
 function statusLabel(status: string) {
   const map: Record<string, string> = {
-    NOT_STARTED: '未开始', EXECUTING: '执行中', PAUSED: '已暂停',
+    NOT_STARTED: '未开始', EXECUTING: '执行中', IN_PROGRESS: '执行中', PAUSED: '已暂停',
     COMPLETED: '已完成', FINISHED: '已结束', CLOSED: '已关闭', CANCELED: '已取消'
   }
   return map[status] || status || '未知'
@@ -295,7 +307,7 @@ function statusLabel(status: string) {
 
 function statusClass(status: string) {
   const map: Record<string, string> = {
-    NOT_STARTED: 'status-gray', EXECUTING: 'status-green', PAUSED: 'status-orange',
+    NOT_STARTED: 'status-gray', EXECUTING: 'status-green', IN_PROGRESS: 'status-green', PAUSED: 'status-orange',
     COMPLETED: 'status-blue', FINISHED: 'status-blue', CLOSED: 'status-gray', CANCELED: 'status-red'
   }
   return map[status] || 'status-gray'
@@ -355,33 +367,25 @@ function reportStatusClass(status: string) {
 }
 
 const hasReportPermission = (step: any) => {
-  const perm = String(step.reportPermission || '').trim()
-  if (!perm || perm === '所有人' || perm.toUpperCase() === 'ALL') {
-    return true
-  }
-  const user = uni.getStorageSync('user')
-  if (!user) return false
-
-  // 逗号分隔的权限列表
-  const allowedList = perm.split(',').map((s: string) => s.trim())
-
-  // 只要允许列表里包含了当前用户的 姓名、用户名、角色 或 id
-  return allowedList.includes(user.name) ||
-         allowedList.includes(user.username) ||
-         allowedList.includes(String(user.id)) ||
-         allowedList.includes(user.role) ||
-         allowedList.includes(user.roleLabel) ||
-         allowedList.includes(user.departmentName) ||
-         step.assignee === user.name ||
-         step.assignee === user.username
+  return ['NOT_STARTED', 'EXECUTING', 'IN_PROGRESS'].includes(order.value.status) && canReportTask(step, uni.getStorageSync('user'))
 }
 
 const handleNoPermission = () => {
   uni.showToast({ title: '您没有此工序的报工权限', icon: 'none' })
 }
 
-const handleReport = (step: any) => {
-  if (!ensureLogin()) return
+const handleReport = async (step: any) => {
+  if (checkingPermission || !ensureLogin()) return
+  checkingPermission = true
+  try {
+    const users = await fetchWorkOrderReporters(order.value.id, step.sequenceNo)
+    if (!users.some(user => user.id === uni.getStorageSync('user')?.id)) throw new Error('您没有此工序的报工权限')
+  } catch (e: any) {
+    uni.showToast({ title: e.message || '报工权限确认失败，请重试', icon: 'none' })
+    return
+  } finally {
+    checkingPermission = false
+  }
   const url = `/pages/report-form/index?orderId=${order.value.id}&processNo=${step.sequenceNo || 1}&processName=${encodeURIComponent(step.processName || '')}&plannedQty=${step.plannedQuantity || order.value.plannedQuantity || 0}&completedQty=${step.completedQuantity || 0}&defectQty=${step.defectQuantity || 0}&reportPermission=${encodeURIComponent(step.reportPermission || '')}`
   if (typeof window !== 'undefined' && window.location) {
     window.location.hash = `#${url}`

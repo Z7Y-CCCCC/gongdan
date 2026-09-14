@@ -11,6 +11,10 @@ import {
   type ProductInfo
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
+import { resolveInventoryTimeRange } from '../utils/inventoryTimeRange'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
@@ -29,6 +33,9 @@ const totalReceipts = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
+const saving = ref(false)
+const beginReceiptsLoad = useLatestRequest()
+const beginProductsLoad = useLatestRequest()
 
 const startTimeFocused = ref(false)
 const endTimeFocused = ref(false)
@@ -256,52 +263,42 @@ function getDetailItemCustomValue(item: any, fieldId: number | undefined) {
 }
 
 async function loadReceipts() {
+  const isCurrent = beginReceiptsLoad()
   loading.value = true
   try {
-    let start = undefined
-    let end = undefined
-    if (filterForm.timeRange === 'custom') {
-      if (filterForm.startTime) start = filterForm.startTime + ' 00:00:00'
-      if (filterForm.endTime) end = filterForm.endTime + ' 23:59:59'
-    } else if (filterForm.timeRange === 'today') {
-      const today = new Date()
-      start = formatDateTime(new Date(today.setHours(0, 0, 0, 0)))
-      end = formatDateTime(new Date(today.setHours(23, 59, 59, 999)))
-    } else if (filterForm.timeRange === 'week') {
-      const today = new Date()
-      const day = today.getDay() || 7
-      const monday = new Date(today.setDate(today.getDate() - day + 1))
-      start = formatDateTime(new Date(monday.setHours(0, 0, 0, 0)))
-      end = formatDateTime(new Date())
-    } else if (filterForm.timeRange === 'month') {
-      const today = new Date()
-      start = formatDateTime(new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0))
-      end = formatDateTime(new Date())
-    }
-
     const res = await fetchOutboundReceipts(props.token, {
       code: filterForm.code.trim() || undefined,
       outboundType: filterForm.outboundType || undefined,
-      startTime: start,
-      endTime: end,
+      ...resolveInventoryTimeRange(filterForm),
       page: currentPage.value,
       size: pageSize.value
     })
+    if (!isCurrent()) return
     receipts.value = res.items
     totalReceipts.value = res.total
+    if (currentPage.value > totalPages.value) {
+      currentPage.value = totalPages.value
+      await loadReceipts()
+    }
   } catch (e: any) {
-    emit('notice', e.message || '加载出库单失败')
+    if (isCurrent()) emit('notice', e.message || '加载出库单失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
 async function loadProducts() {
+  const isCurrent = beginProductsLoad()
   try {
-    const res = await fetchProducts(props.token, { page: 1, size: 1000 })
+    const res = await fetchAllPages(params => fetchProducts(props.token, params), 500, isCurrent)
+    if (!isCurrent()) return
     products.value = res.items
-  } catch (e) {
-    // ignore
+    for (const item of formItems.value) {
+      const product = res.items.find(product => product.id === item.productId)
+      if (product) item.inventoryQty = product.inventoryQty || 0
+    }
+  } catch (e: any) {
+    if (isCurrent()) emit('notice', e.message || '加载产品失败')
   }
 }
 
@@ -356,6 +353,7 @@ function handleCreate() {
   }))
   formItems.value = []
   view.value = 'create'
+  void loadProducts()
 }
 
 function cancelCreate() {
@@ -380,8 +378,8 @@ function addProductToItems() {
     emit('notice', '请选择产品')
     return
   }
-  if (addProductForm.quantity <= 0) {
-    emit('notice', '数量必须大于 0')
+  if (!Number.isInteger(addProductForm.quantity) || addProductForm.quantity <= 0) {
+    emit('notice', '数量必须为大于 0 的整数')
     return
   }
   const product = products.value.find(p => p.id === addProductForm.productId)
@@ -424,6 +422,11 @@ function removeFormItem(index: number) {
 }
 
 async function submitCreate() {
+  if (saving.value) return
+  if (!createForm.outboundType || !createForm.outboundTime) {
+    emit('notice', '请选择出库类型和出库时间')
+    return
+  }
   if (formItems.value.length === 0) {
     emit('notice', '请至少添加一个产品')
     return
@@ -431,17 +434,14 @@ async function submitCreate() {
 
   // Frontend stock check validation
   for (const item of formItems.value) {
-    if (item.quantity <= 0) {
-      emit('notice', '出库数量必须大于 0')
+    if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+      emit('notice', '出库数量必须为大于 0 的整数')
       return
     }
-    const currentStock = item.inventoryQty || 0
-    if (item.quantity > currentStock) {
-      emit('notice', `产品 [${item.productName}] 库存不足，当前库存为 ${currentStock}，无法提交`)
-      return
-    }
+    // Stock shown in the form is only a snapshot. The server validates it atomically.
   }
 
+  saving.value = true
   try {
     const payload = {
       code: createForm.code.trim() || undefined,
@@ -469,9 +469,11 @@ async function submitCreate() {
     emit('notice', '创建出库单成功')
     view.value = 'list'
     currentPage.value = 1
-    loadReceipts()
+    await Promise.all([loadReceipts(), loadProducts()])
   } catch (e: any) {
     emit('notice', e.message || '创建出库单失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -499,6 +501,12 @@ function showReceiptDetail(receipt: OutboundReceiptInfo) {
   activeReceipt.value = receipt
   showDetailModal.value = true
 }
+
+useRefreshOnActivated(() => {
+  void loadReceipts()
+  void loadProducts()
+  void loadCustomFieldConfigs()
+})
 
 onMounted(() => {
   loadCustomFieldConfigs()
@@ -826,7 +834,7 @@ onMounted(() => {
 
       <div class="form-actions" style="margin-top:24px; display:flex; justify-content: flex-end; gap: 12px;">
         <button class="ghost-btn" style="width: 90px;" type="button" @click="cancelCreate">取消</button>
-        <button class="primary-btn" style="width: 90px;" type="button" @click="submitCreate">保存</button>
+        <button class="primary-btn" style="width: 90px;" type="button" @click="submitCreate" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
       </div>
     </template>
 

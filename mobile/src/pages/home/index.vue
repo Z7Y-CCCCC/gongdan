@@ -62,6 +62,7 @@
 
     <view class="stats-section">
       <text class="section-title">今日报工统计</text>
+      <ListLimitNotice :total="reportTotal" :loaded="reports.length" />
       <view class="stats-grid">
         <view class="stat-box">
           <text class="stat-value">{{ todayGood }}</text>
@@ -91,10 +92,14 @@ import { onShow } from '@dcloudio/uni-app'
 import { clearSession, ensureLogin, fetchReports } from '../../services/api'
 import type { WorkOrderReport } from '../../types/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
+import ListLimitNotice from '../../components/ListLimitNotice.vue'
+import { navigatePage } from '../../utils/navigation'
 
 const userInfo = ref<any>({})
 const currentDate = ref('')
 const reports = ref<WorkOrderReport[]>([])
+const reportTotal = ref(0)
+let statsLoading = false
 
 const todayKey = computed(() => {
   const now = new Date()
@@ -127,11 +132,18 @@ onShow(() => {
 })
 
 async function loadStats() {
+  if (statsLoading) return
+  statsLoading = true
   try {
     const result = await fetchReports('', 'today')
     reports.value = result.items || []
-  } catch {
+    reportTotal.value = result.total
+  } catch (e: any) {
     reports.value = []
+    reportTotal.value = 0
+    uni.showToast({ title: e.message || '报工统计加载失败', icon: 'none' })
+  } finally {
+    statsLoading = false
   }
 }
 
@@ -159,28 +171,25 @@ const handleScan = () => {
           uni.navigateTo({ url: `/pages/work-order-detail/index?code=${codeMatch[1]}` })
           return
         }
-        uni.navigateTo({ url: `/pages/work-order-detail/index?id=${res.result}` })
+        const target = /^\d+$/.test(url) ? `id=${url}` : `code=${encodeURIComponent(url)}`
+        uni.navigateTo({ url: `/pages/work-order-detail/index?${target}` })
       }
     }
   })
 }
 
 const navigateTo = (url: string) => {
-  if (typeof window !== 'undefined' && window.location) {
-    window.location.hash = `#${url}`
-    return
-  }
-  uni.navigateTo({ url })
+  navigatePage(url)
 }
 
 const handleLogout = () => {
   uni.showModal({
     title: '提示',
-    content: '确定要退出登录并解除绑定吗？',
+    content: '确定要退出当前登录吗？微信绑定关系将保留。',
     success: (res) => {
       if (res.confirm) {
         clearSession()
-        uni.reLaunch({ url: '/pages/bind/index' })
+        navigatePage('/pages/bind/index?manual=1', true)
       }
     }
   })

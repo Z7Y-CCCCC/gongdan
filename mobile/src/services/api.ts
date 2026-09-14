@@ -1,4 +1,5 @@
-import type { FieldEventPayload, FieldEventRecord, ListResponse, MobileAuthResult, ReportImage, ReportStatus, WorkOrderInfo, WorkOrderReport } from '../types/api'
+import type { FieldEventPayload, FieldEventRecord, ListResponse, MobileAuthResult, ReportImage, WorkOrderInfo, WorkOrderReport, UserInfo } from '../types/api'
+import { loginRedirect, navigatePage } from '../utils/navigation'
 
 // H5 can use /api through a reverse proxy. Local static demos use the backend port directly.
 // Mini Program builds should set VITE_API_BASE_URL to HTTPS.
@@ -15,9 +16,14 @@ function token() {
   return uni.getStorageSync('token') || ''
 }
 
-export function saveSession(result: MobileAuthResult) {
-  if (result.token) uni.setStorageSync('token', result.token)
-  if (result.user) uni.setStorageSync('user', result.user)
+let expiryRedirectTimer: ReturnType<typeof setTimeout> | undefined
+
+export function saveSession(result: Pick<MobileAuthResult, 'token' | 'user'>) {
+  if (!result.token || !result.user) throw new Error('登录响应不完整，请重试')
+  if (expiryRedirectTimer) clearTimeout(expiryRedirectTimer)
+  expiryRedirectTimer = undefined
+  uni.setStorageSync('token', result.token)
+  uni.setStorageSync('user', result.user)
 }
 
 export function clearSession() {
@@ -42,34 +48,33 @@ export function ensureLogin() {
         redirect = path + (query ? `?${query}` : '')
       }
     } catch (e) {}
+    if (redirect.replace(/^#/, '').split('?')[0] === '/pages/bind/index') return false
+    redirect = loginRedirect(redirect)
     const url = redirect ? `/pages/bind/index?redirect=${encodeURIComponent(redirect)}` : '/pages/bind/index'
-    if (typeof window !== 'undefined' && window.location) {
-      window.location.hash = `#${url}`
-      return false
-    }
-    setTimeout(() => {
-      uni.reLaunch({
-        url,
-        fail: (err) => {
-          console.error('[ensureLogin] reLaunch failed, trying navigateTo...', err)
-          uni.navigateTo({
-            url,
-            fail: (err2) => {
-              console.error('[ensureLogin] navigateTo also failed. Fallback to location.href...', err2)
-              if (typeof window !== 'undefined' && window.location) {
-                window.location.hash = `#/pages/bind/index?redirect=${encodeURIComponent(redirect)}`
-              }
-            }
-          })
-        }
-      })
-    }, 100)
+    navigatePage(url, true)
     return false
   }
   return true
 }
 
-export function request<T>(path: string, options: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; data?: any; header?: Record<string, string> } = {}): Promise<T> {
+function responseError(status: number, data: any, requestToken: string, fallback: string) {
+  const message = typeof data?.message === 'string' ? data.message
+    : status === 401 ? '登录已失效，请重新登录' : fallback
+  if (status === 401 && requestToken && token() === requestToken) {
+    clearSession()
+    uni.showToast({ title: message, icon: 'none', duration: 2000 })
+    if (!expiryRedirectTimer) {
+      expiryRedirectTimer = setTimeout(() => {
+        expiryRedirectTimer = undefined
+        if (!token()) ensureLogin()
+      }, 1500)
+    }
+  }
+  return new Error(message)
+}
+
+export function request<T>(path: string, options: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; data?: any; header?: Record<string, string>; auth?: boolean } = {}): Promise<T> {
+  const requestToken = options.auth === false ? '' : token()
   return new Promise((resolve, reject) => {
     uni.request({
       url: `${API_BASE}${path}`,
@@ -79,28 +84,19 @@ export function request<T>(path: string, options: { method?: 'GET' | 'POST' | 'P
       timeout: 30000,
       header: {
         'Content-Type': 'application/json',
-        ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
+        ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {}),
         ...(options.header || {})
       },
       success: (res) => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
+          if (requestToken && token() !== requestToken) {
+            reject(new Error('登录状态已变更，请刷新'))
+            return
+          }
           resolve(res.data as T)
           return
         }
-        // token 失效或被挤下线
-        if (res.statusCode === 401) {
-          clearSession()
-          const data = res.data as any
-          const msg = data?.message || '登录已失效，请重新登录'
-          uni.showToast({ title: msg, icon: 'none', duration: 2000 })
-          setTimeout(() => {
-            uni.reLaunch({ url: '/pages/bind/index' })
-          }, 1500)
-          reject(new Error(msg))
-          return
-        }
-        const data = res.data as any
-        reject(new Error(data?.message || '请求失败'))
+        reject(responseError(res.statusCode, res.data, requestToken, '请求失败'))
       },
       fail: () => reject(new Error('网络请求失败'))
     })
@@ -110,19 +106,53 @@ export function request<T>(path: string, options: { method?: 'GET' | 'POST' | 'P
 export function wechatLogin(payload: { code?: string; mockOpenid?: string }) {
   return request<MobileAuthResult>('/mobile/auth/wechat-login', {
     method: 'POST',
-    data: payload
+    data: payload,
+    auth: false
   })
 }
 
 export function bindAccount(payload: { openidTicket: string; factoryCode: string; username: string; password: string }) {
   return request<MobileAuthResult>('/mobile/auth/bind', {
     method: 'POST',
-    data: payload
+    data: payload,
+    auth: false
   })
 }
 
+export function passwordLogin(payload: { factoryCode: string; username: string; password: string }) {
+  return request<{ token: string; user: UserInfo }>('/auth/login', { method: 'POST', data: payload, auth: false })
+}
+
+function queryString(params: Record<string, string | number | undefined>) {
+  return Object.entries(params).filter(([, value]) => value !== undefined && value !== '')
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&')
+}
+
+async function fetchAllPages<T extends { id: number }>(path: string, params: Record<string, string> = {}): Promise<ListResponse<T>> {
+  const size = 100
+  const maxItems = 5000
+  const sessionToken = token()
+  const first = await request<ListResponse<T>>(`${path}?${queryString({ ...params, page: 1, size })}`)
+  const items = [...(first.items || [])]
+  const ids = new Set(items.map(item => item.id))
+  const total = Math.max(items.length, Number(first.total) || 0)
+  for (let page = 2; page <= Math.min(Math.ceil(total / size), maxItems / size); page += 1) {
+    if (token() !== sessionToken) throw new Error('登录状态已变更，请刷新')
+    const next = await request<ListResponse<T>>(`${path}?${queryString({ ...params, page, size })}`)
+    if (!next.items?.length) break
+    for (const item of next.items) {
+      if (!ids.has(item.id) && items.length < maxItems) {
+        ids.add(item.id)
+        items.push(item)
+      }
+    }
+  }
+  if (token() !== sessionToken) throw new Error('登录状态已变更，请刷新')
+  return { items, total, truncated: items.length < total }
+}
+
 export function fetchWorkOrders() {
-  return request<ListResponse<WorkOrderInfo>>('/mobile/work-orders?size=500')
+  return fetchAllPages<WorkOrderInfo>('/mobile/work-orders')
 }
 
 export function fetchWorkOrder(id: number | string) {
@@ -133,21 +163,27 @@ export function fetchWorkOrderByCode(code: string) {
   return request<WorkOrderInfo>(`/mobile/work-orders/by-code/${encodeURIComponent(code)}`)
 }
 
-export function fetchWorkOrderReporters(workOrderId: number | string) {
-  return request<Array<{ id: number; name: string; username: string }>>(`/mobile/work-orders/${workOrderId}/reporters`)
+export function fetchWorkOrderReporters(workOrderId: number | string, processSequenceNo: number) {
+  return request<Array<{ id: number; name: string; username: string; departmentName?: string }>>(`/mobile/work-orders/${workOrderId}/reporters?processSequenceNo=${processSequenceNo}`)
 }
 
 export function uploadReportImage(filePath: string): Promise<ReportImage> {
+  const requestToken = token()
   return new Promise((resolve, reject) => {
     uni.uploadFile({
       url: `${API_BASE}/mobile/reports/images`,
       filePath,
       name: 'file',
+      timeout: 30000,
       header: {
-        Authorization: `Bearer ${token()}`
+        ...(requestToken ? { Authorization: `Bearer ${requestToken}` } : {})
       },
       success: (res) => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
+          if (requestToken && token() !== requestToken) {
+            reject(new Error('登录状态已变更，请重新上传'))
+            return
+          }
           try {
             resolve(JSON.parse(res.data) as ReportImage)
           } catch {
@@ -155,9 +191,27 @@ export function uploadReportImage(filePath: string): Promise<ReportImage> {
           }
           return
         }
-        reject(new Error('图片上传失败'))
+        let data: unknown
+        try { data = JSON.parse(res.data) } catch { data = undefined }
+        reject(responseError(res.statusCode, data, requestToken, '图片上传失败'))
       },
       fail: () => reject(new Error('图片上传失败'))
+    })
+  })
+}
+
+export function downloadReportImage(imageId: number): Promise<string> {
+  const requestToken = token()
+  return new Promise((resolve, reject) => {
+    uni.downloadFile({
+      url: `${API_BASE}/mobile/reports/images/${imageId}/file`,
+      timeout: 30000,
+      header: requestToken ? { Authorization: `Bearer ${requestToken}` } : {},
+      success: (res) => {
+        if (res.statusCode === 200 && token() === requestToken) resolve(res.tempFilePath)
+        else reject(responseError(res.statusCode, undefined, requestToken, '图片已失效或无法加载，请重新上传'))
+      },
+      fail: () => reject(new Error('图片加载失败，请重新上传'))
     })
   })
 }
@@ -185,11 +239,7 @@ export function createReport(payload: {
 }
 
 export function fetchReports(status?: string, period = '') {
-  const params = new URLSearchParams()
-  if (status) params.set('status', status)
-  if (period) params.set('period', period)
-  params.set('size', '500')
-  return request<ListResponse<WorkOrderReport>>(`/mobile/reports?${params.toString()}`)
+  return fetchAllPages<WorkOrderReport>('/mobile/reports', { status: status || '', period })
 }
 
 export function fetchFieldEvents() {

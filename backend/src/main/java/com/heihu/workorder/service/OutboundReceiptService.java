@@ -12,6 +12,7 @@ import com.heihu.workorder.repository.OutboundReceiptRepository;
 import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.util.DateTimeParser;
+import com.heihu.workorder.util.InventoryQuantities;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.cache.annotation.CacheEvict;
@@ -24,6 +25,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.TreeSet;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -78,8 +84,9 @@ public class OutboundReceiptService {
         return toResponse(receipt);
     }
 
-    @CacheEvict(cacheNames = {"outbound.receipts.list", "outbound.receipts.detail", "products.list", "inventory.details"}, allEntries = true)
+    @CacheEvict(cacheNames = {"products.list", "inventory.details", "inbound.receipts.list", "inbound.receipts.detail", "outbound.receipts.list", "outbound.receipts.detail"}, allEntries = true)
     public OutboundReceiptResponse create(Long factoryId, Long userId, OutboundReceiptRequest request) {
+        if (request == null) throw new IllegalArgumentException("请填写出库单信息");
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("工厂不存在"));
 
@@ -114,6 +121,13 @@ public class OutboundReceiptService {
 
         // Process items
         if (request.getItems() != null && !request.getItems().isEmpty()) {
+            List<Long> productIds = new ArrayList<>();
+            for (OutboundReceiptRequest.OutboundReceiptItemRequest itemReq : request.getItems()) {
+                if (itemReq == null || itemReq.getProductId() == null) throw new IllegalArgumentException("产品不能为空");
+                if (itemReq.getQuantity() == null || itemReq.getQuantity() <= 0) throw new IllegalArgumentException("出库数量必须大于0");
+                productIds.add(itemReq.getProductId());
+            }
+            Map<Long, Product> lockedProducts = lockProducts(factoryId, productIds);
             for (OutboundReceiptRequest.OutboundReceiptItemRequest itemReq : request.getItems()) {
                 if (itemReq.getProductId() == null) {
                     throw new IllegalArgumentException("产品不能为空");
@@ -121,7 +135,7 @@ public class OutboundReceiptService {
                 if (itemReq.getQuantity() == null || itemReq.getQuantity() <= 0) {
                     throw new IllegalArgumentException("出库数量必须大于0");
                 }
-                Product product = productForInventoryUpdate(factoryId, itemReq.getProductId());
+                Product product = lockedProducts.get(itemReq.getProductId());
 
                 // Stock validation
                 int currentStock = product.getInventoryQty() != null ? product.getInventoryQty() : 0;
@@ -148,17 +162,18 @@ public class OutboundReceiptService {
         return toResponse(saved);
     }
 
-    @CacheEvict(cacheNames = {"outbound.receipts.list", "outbound.receipts.detail", "products.list", "inventory.details"}, allEntries = true)
+    @CacheEvict(cacheNames = {"products.list", "inventory.details", "inbound.receipts.list", "inbound.receipts.detail", "outbound.receipts.list", "outbound.receipts.detail"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
-        OutboundReceipt receipt = outboundReceiptRepository.findById(id)
-                .filter(r -> r.getFactory().getId().equals(factoryId))
+        OutboundReceipt receipt = outboundReceiptRepository.findByIdAndFactoryIdForUpdate(id, factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("出库单不存在"));
 
-        // Revert inventory
+        Map<Long, Product> lockedProducts = lockProducts(factoryId, receipt.getItems().stream()
+                .map(item -> item.getProduct().getId()).collect(Collectors.toList()));
+        // The receipt lock prevents simultaneous deletions from reverting stock twice.
         for (OutboundReceiptItem item : receipt.getItems()) {
-            Product product = productForInventoryUpdate(factoryId, item.getProduct().getId());
+            Product product = lockedProducts.get(item.getProduct().getId());
             int currentStock = product.getInventoryQty() != null ? product.getInventoryQty() : 0;
-            product.setInventoryQty(currentStock + item.getQuantity());
+            product.setInventoryQty(InventoryQuantities.add(currentStock, item.getQuantity()));
             productRepository.save(product);
         }
 
@@ -168,6 +183,14 @@ public class OutboundReceiptService {
     private Product productForInventoryUpdate(Long factoryId, Long productId) {
         return productRepository.findByIdAndFactoryIdForUpdate(productId, factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
+    }
+
+    private Map<Long, Product> lockProducts(Long factoryId, List<Long> productIds) {
+        Map<Long, Product> products = new LinkedHashMap<>();
+        for (Long productId : new TreeSet<>(productIds)) {
+            products.put(productId, productForInventoryUpdate(factoryId, productId));
+        }
+        return products;
     }
 
     private OutboundReceiptResponse toResponse(OutboundReceipt receipt) {
@@ -207,9 +230,7 @@ public class OutboundReceiptService {
 
     private String generateCode(Long factoryId) {
         String prefix = "CK" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-        long count = outboundReceiptRepository.findByFactoryId(factoryId,
-                org.springframework.data.domain.PageRequest.of(0, 1)).getTotalElements();
-        return prefix + String.format("%04d", count + 1);
+        return prefix + UUID.randomUUID().toString().replace("-", "");
     }
 
     private String writeJson(Object value) {

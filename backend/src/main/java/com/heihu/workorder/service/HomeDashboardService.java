@@ -30,7 +30,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
+import java.time.Duration;
 import java.time.temporal.TemporalAdjusters;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -76,13 +76,13 @@ public class HomeDashboardService {
         List<WorkOrder> workOrders = workOrderRepository.findByFactoryIdAndCreatedAtInRange(factoryId, start, end);
 
         // 按工序名聚合统计
-        Map<String, int[]> aggregation = new HashMap<>();
-        // int[0]=taskCount, int[1]=plannedQuantity, int[2]=goodQuantity, int[3]=defectQuantity
+        Map<String, long[]> aggregation = new HashMap<>();
+        // [0]=taskCount, [1]=plannedQuantity, [2]=goodQuantity, [3]=defectQuantity
 
         for (WorkOrder wo : workOrders) {
             List<WorkOrderRequest.TaskItem> tasks = readTasks(wo.getTaskDataJson());
             for (WorkOrderRequest.TaskItem task : tasks) {
-                if (task.getProcessName() == null || task.getProcessName().trim().isEmpty()) {
+                if (Boolean.FALSE.equals(task.getEnabled()) || task.getProcessName() == null || task.getProcessName().trim().isEmpty()) {
                     continue;
                 }
 
@@ -96,7 +96,7 @@ public class HomeDashboardService {
                 }
 
                 String processName = task.getProcessName().trim();
-                int[] stats = aggregation.computeIfAbsent(processName, k -> new int[4]);
+                long[] stats = aggregation.computeIfAbsent(processName, k -> new long[4]);
                 stats[0] += 1;
                 stats[1] += task.getPlannedQuantity() != null ? Math.max(task.getPlannedQuantity(), 0) : 0;
                 stats[2] += task.getApprovedQuantity() != null ? Math.max(task.getApprovedQuantity(), 0) : 0;
@@ -113,13 +113,13 @@ public class HomeDashboardService {
 
         // 构建结果：只返回在 processes 表中能匹配到的工序
         List<ProcessCardItemResponse> items = new ArrayList<>();
-        for (Map.Entry<String, int[]> entry : aggregation.entrySet()) {
+        for (Map.Entry<String, long[]> entry : aggregation.entrySet()) {
             String processName = entry.getKey();
             Process process = processMap.get(processName);
             if (process == null) {
                 continue;
             }
-            int[] stats = entry.getValue();
+            long[] stats = entry.getValue();
             items.add(new ProcessCardItemResponse(
                     process.getId(),
                     processName,
@@ -205,17 +205,17 @@ public class HomeDashboardService {
         LocalDateTime end = interval[1];
 
         // 计划数
-        int plannedQuantity = workOrderRepository.sumPlannedQuantityInRange(factoryId, start, end);
+        long plannedQuantity = workOrderRepository.sumPlannedQuantityInRange(factoryId, start, end);
 
         // 完成数量（良品数）
-        int completedQuantity = workOrderReportRepository.sumGoodQuantityInRange(factoryId, start, end);
+        long completedQuantity = workOrderReportRepository.sumGoodQuantityInRange(factoryId, start, end);
 
         // 工单数量
-        int workOrderCount = workOrderRepository.countInRange(factoryId, start, end);
+        long workOrderCount = workOrderRepository.countInRange(factoryId, start, end);
 
         // 不良品率
-        int goodQty = workOrderReportRepository.sumGoodQuantityInRange(factoryId, start, end);
-        int defectQty = workOrderReportRepository.sumDefectQuantityInRange(factoryId, start, end);
+        long goodQty = completedQuantity;
+        long defectQty = workOrderReportRepository.sumDefectQuantityInRange(factoryId, start, end);
         double defectRatePercent;
         long denominator = (long) goodQty + defectQty;
         if (denominator == 0) {
@@ -235,8 +235,7 @@ public class HomeDashboardService {
         } else {
             double totalDays = 0;
             for (WorkOrder wo : completedOrders) {
-                long days = ChronoUnit.DAYS.between(wo.getCreatedAt(), wo.getCompletedAt());
-                totalDays += days;
+                totalDays += Math.max(0, Duration.between(wo.getCreatedAt(), wo.getCompletedAt()).getSeconds()) / 86400.0;
             }
             averageCycleDays = BigDecimal.valueOf(totalDays / completedOrders.size())
                     .setScale(1, RoundingMode.HALF_UP)
@@ -244,7 +243,7 @@ public class HomeDashboardService {
         }
 
         // 超期未完成工单（不受 range 影响）
-        int overdueUnfinishedCount = workOrderRepository.countOverdueUnfinishedByFactory(factoryId, now);
+        long overdueUnfinishedCount = workOrderRepository.countOverdueUnfinishedByFactory(factoryId, now);
 
         return new PerformanceResponse(
                 plannedQuantity,
@@ -352,7 +351,8 @@ public class HomeDashboardService {
             return Collections.emptyList();
         }
         try {
-            return objectMapper.readValue(json, new TypeReference<List<WorkOrderRequest.TaskItem>>() {});
+            List<WorkOrderRequest.TaskItem> tasks = objectMapper.readValue(json, new TypeReference<List<WorkOrderRequest.TaskItem>>() {});
+            return tasks == null ? Collections.emptyList() : tasks.stream().filter(Objects::nonNull).collect(Collectors.toList());
         } catch (JsonProcessingException e) {
             return Collections.emptyList();
         }

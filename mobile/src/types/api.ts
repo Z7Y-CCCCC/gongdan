@@ -2,6 +2,7 @@ export type ReportStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 
 export interface UserInfo {
   id: number
+  factoryId?: number
   username: string
   name: string
   role: 'ADMIN' | 'PRODUCTION'
@@ -54,6 +55,7 @@ export interface WorkOrderInfo {
 export interface ListResponse<T> {
   items: T[]
   total: number
+  truncated?: boolean
 }
 
 export interface FieldEventRecord {

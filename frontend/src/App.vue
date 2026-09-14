@@ -13,6 +13,7 @@ import {
   updateUserPermission,
   updateUserStatus,
   fetchDepartments,
+  fetchCurrentFactory,
   createDepartment,
   updateDepartment,
   deleteDepartment,
@@ -96,6 +97,7 @@ const WarehousePage = defineAsyncComponent(() => import('./components/WarehouseP
 const SupplierPage = defineAsyncComponent(() => import('./components/SupplierPage.vue'))
 const CustomerPage = defineAsyncComponent(() => import('./components/CustomerPage.vue'))
 const ReportCenterPage = defineAsyncComponent(() => import('./components/ReportCenterPage.vue'))
+const AnalyticsReportPage = defineAsyncComponent(() => import('./components/AnalyticsReportPage.vue'))
 const AdvancedOperationsPage = defineAsyncComponent(() => import('./components/AdvancedOperationsPage.vue'))
 const OnlineUsersPage = defineAsyncComponent(() => import('./components/OnlineUsersPage.vue'))
 const CacheMonitorPage = defineAsyncComponent(() => import('./components/CacheMonitorPage.vue'))
@@ -103,14 +105,13 @@ const CacheListPage = defineAsyncComponent(() => import('./components/CacheListP
 const InternalChatPage = defineAsyncComponent(() => import('./components/InternalChatPage.vue'))
 const NotificationCenterPage = defineAsyncComponent(() => import('./components/NotificationCenterPage.vue'))
 const PluginCenterPage = defineAsyncComponent(() => import('./components/PluginCenterPage.vue'))
+const ExternalDataSourcePage = defineAsyncComponent(() => import('./components/ExternalDataSourcePage.vue'))
 const PluginRuntimePage = defineAsyncComponent(() => import('./components/PluginRuntimePage.vue'))
 
 const sharedAuth = useAuth()
 
-const token = ref(localStorage.getItem('heihu_token') || '')
-const currentUser = ref<UserInfo | null>(readStoredUser())
+const { token, currentUser, isSuperAdmin, currentFactoryCode, isLoggedIn } = sharedAuth
 const isInternalChatWindow = ref(['#/message-center', '#/im-chat'].includes(window.location.hash))
-const isSuperAdmin = ref(localStorage.getItem('heihu_is_super_admin') === 'true')
 const users = ref<UserInfo[]>([])
 const loading = ref(false)
 const usersLoading = ref(false)
@@ -259,6 +260,7 @@ const workspaceLabels: Record<string, string> = {
   dashboard: '车间看板',
   advanced: '高级运营',
   report: '生产报表',
+  analytics: '分析报表',
   'production-sales': '销售订单',
   'production-workorder': '工单',
   'production-task': '任务',
@@ -285,6 +287,7 @@ const workspaceLabels: Record<string, string> = {
   'sysconfig-user': '用户',
   'sysconfig-factory': '工厂',
   'sysconfig-plugin-center': '插件中心',
+  'sysconfig-external-data-sources': '外部数据源',
   'super-admin': '授权码管理',
   'monitor-online': '在线用户',
   'monitor-cache': '缓存监控',
@@ -1812,6 +1815,7 @@ const phoneForm = reactive({
   code: ''
 })
 const smsCountdown = ref(0)
+const sendingSms = ref(false)
 let smsTimer: ReturnType<typeof setInterval> | null = null
 const phoneError = ref('')
 const showFactorySelect = ref(false)
@@ -1854,7 +1858,6 @@ const editForm = reactive<UpdateUserPayload>({
   virtualUser: false
 })
 
-const isLoggedIn = computed(() => Boolean(token.value && currentUser.value))
 const hasAdminAccess = computed(() => Boolean(isSuperAdmin.value || currentUser.value?.role === 'ADMIN'))
 const filteredUsers = computed(() => {
   return users.value.filter((item) => {
@@ -1885,18 +1888,6 @@ const isAllSelected = computed({
     }
   }
 })
-
-function readStoredUser() {
-  const raw = localStorage.getItem('heihu_user')
-  if (!raw) {
-    return null
-  }
-  try {
-    return JSON.parse(raw) as UserInfo
-  } catch {
-    return null
-  }
-}
 
 function resetWorkspaceLoading() {
   workspaceLoadingStages.value = createWorkspaceLoadingStages()
@@ -1943,7 +1934,7 @@ async function runWorkspaceLoadingStage(
 }
 
 async function bootstrapWorkspace(): Promise<boolean> {
-  if (!token.value || !currentUser.value) {
+  if (!token.value || !currentUser.value || !hasAdminAccess.value) {
     workspaceLoadingVisible.value = false
     return true
   }
@@ -1954,7 +1945,11 @@ async function bootstrapWorkspace(): Promise<boolean> {
 
   try {
     await runWorkspaceLoadingStage(runId, 'restore-session', async () => {
-      currentFactoryCode.value = localStorage.getItem('heihu_factory_code') || currentFactoryCode.value
+      if (!isSuperAdmin.value) {
+        const factory = await fetchCurrentFactory(token.value)
+        if (runId !== workspaceBootstrapRun) return
+        sharedAuth.setFactoryCode(factory.code)
+      }
       await nextTick()
       return `已恢复 ${currentFactoryCode.value} 工厂会话`
     })
@@ -2023,20 +2018,12 @@ function retryWorkspaceBootstrap() {
 }
 
 function persistSession(response: LoginResponse) {
-  token.value = response.token
-  currentUser.value = response.user
-  isSuperAdmin.value = response.isSuperAdmin ?? false
-  localStorage.setItem('heihu_token', response.token)
-  localStorage.setItem('heihu_user', JSON.stringify(response.user))
-  localStorage.setItem('heihu_is_super_admin', String(response.isSuperAdmin ?? false))
-  // 同步 useAuth composable 的共享状态（供 HomeDashboardPage 等子组件使用）
   sharedAuth.persistSession(response)
   // 登录后默认进入主页仪表盘
   activeMainMenu.value = 'home'
   startNotificationPolling()
 }
 
-const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HHGD')
 const genericCustomFieldScopes: Record<string, string> = {
   product: '产品',
   bom: '物料清单',
@@ -2070,10 +2057,12 @@ function handleSearch() {
     { label: '部门', mainMenu: 'sysconfig', subMenu: 'department', expandedMenu: 'sysconfig' },
     { label: '用户', mainMenu: 'sysconfig', subMenu: 'user', expandedMenu: 'sysconfig' },
     { label: '插件中心', mainMenu: 'sysconfig', subMenu: 'plugin-center', expandedMenu: 'sysconfig' },
+    ...(hasAdminAccess.value ? [{ label: '外部数据源', mainMenu: 'sysconfig', subMenu: 'external-data-sources', expandedMenu: 'sysconfig' }] : []),
     { label: '在线用户', mainMenu: 'monitor', subMenu: 'online', expandedMenu: 'monitor' },
     { label: '缓存监控', mainMenu: 'monitor', subMenu: 'cache', expandedMenu: 'monitor' },
     { label: '缓存列表', mainMenu: 'monitor', subMenu: 'cacheList', expandedMenu: 'monitor' },
     { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' },
+    { label: '分析报表', mainMenu: 'analytics', subMenu: '', expandedMenu: 'report' },
     { label: 'SOP', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '文档库', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '消息推送', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
@@ -2111,22 +2100,23 @@ function handleSearch() {
 }
 
 async function handleLogin() {
+  if (loading.value) return
   errorMessage.value = ''
   loading.value = true
+  const submittedLogin = { ...loginForm }
   try {
-    const response = await login(loginForm)
+    const response = await login(submittedLogin)
     if (rememberMe.value) {
       localStorage.setItem('gongdan_remember_me', JSON.stringify({
         remember: true,
-        factoryCode: loginForm.factoryCode,
-        username: loginForm.username
+        factoryCode: submittedLogin.factoryCode,
+        username: submittedLogin.username
       }))
     } else {
       localStorage.removeItem('gongdan_remember_me')
     }
     persistSession(response)
-    currentFactoryCode.value = loginForm.factoryCode
-    localStorage.setItem('heihu_factory_code', loginForm.factoryCode)
+    sharedAuth.setFactoryCode(submittedLogin.factoryCode)
     await bootstrapWorkspace()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败'
@@ -2141,7 +2131,8 @@ async function handleSendSms() {
     phoneError.value = '请输入正确的手机号'
     return
   }
-  if (smsCountdown.value > 0) return
+  if (smsCountdown.value > 0 || sendingSms.value) return
+  sendingSms.value = true
   try {
     await sendSmsCode({ phone: phoneForm.phone })
     smsCountdown.value = 60
@@ -2154,10 +2145,13 @@ async function handleSendSms() {
     }, 1000)
   } catch (e) {
     phoneError.value = e instanceof Error ? e.message : '发送验证码失败'
+  } finally {
+    sendingSms.value = false
   }
 }
 
 async function handlePhoneLogin() {
+  if (loading.value) return
   phoneError.value = ''
   if (!isPhoneValid.value) {
     phoneError.value = '请输入正确的手机号'
@@ -2217,6 +2211,7 @@ function handleBindSuccess(payload: { token: string; user: any }) {
 }
 
 async function handleSelectFactory(factoryId: number) {
+  if (loading.value) return
   loading.value = true
   phoneError.value = ''
   try {
@@ -2230,8 +2225,7 @@ async function handleSelectFactory(factoryId: number) {
       persistSession({ token: result.token, user: result.user, isSuperAdmin: false })
       const factory = factoryList.value.find(f => f.factoryId === factoryId)
       if (factory) {
-        currentFactoryCode.value = factory.factoryCode
-        localStorage.setItem('heihu_factory_code', factory.factoryCode)
+        sharedAuth.setFactoryCode(factory.factoryCode)
       }
       showFactorySelect.value = false
       await bootstrapWorkspace()
@@ -2736,13 +2730,40 @@ function handlePrintTemplate() {
   printWindow.focus()
 }
 
-function logout() {
+function resetAuthenticatedWorkspace() {
   workspaceBootstrapRun += 1
   workspaceLoadingVisible.value = false
-  token.value = ''
-  currentUser.value = null
-  isSuperAdmin.value = false
   users.value = []
+  departments.value = []
+  units.value = []
+  defects.value = []
+  processes.value = []
+  routes.value = []
+  selectedUserIds.value = []
+  tableData.value = []
+  taskProgressData.value = []
+  dashboardReports.value = []
+  workspaceTabs.value = [{ id: 'home', label: '分析页', main: 'home', closable: false, pinned: true }]
+  activeWorkspaceTabId.value = 'home'
+  for (const modal of [showCreateModal, showEditModal, showPermissionModal, showImportLogModal,
+    showResetPasswordModal, showEditPrintTemplateModal, showUnitModal, showDefectModal,
+    showDepartmentModal, showUserDropdown, showChromeQuickMenu, showQuickApps,
+    showTimezoneDialog, showWorkspaceSearch, showFactorySelect, showBindFactory]) {
+    modal.value = false
+  }
+  confirmState.show = false
+  confirmState.action = () => {}
+  successUser.value = null
+  successUserPassword.value = ''
+  editingUser.value = null
+  permissionUser.value = null
+  resetPasswordUser.value = null
+  resetPasswordForm.password = ''
+  resetPasswordForm.confirmPassword = ''
+  loginForm.password = ''
+  phoneForm.password = ''
+  phoneForm.code = ''
+  pendingPhoneCredential.credential = ''
   runtimePlugins.value = []
   activePluginKey.value = ''
   notificationItems.value = []
@@ -2753,12 +2774,17 @@ function logout() {
     notificationPollTimer = null
   }
   showNotificationDropdown.value = false
-  localStorage.removeItem('heihu_token')
-  localStorage.removeItem('heihu_user')
-  localStorage.removeItem('heihu_is_super_admin')
   // 退出登录时重置主菜单和子菜单的焦点
   activeMainMenu.value = 'home'
   activeConfigMenu.value = 'department'
+}
+
+watch(token, (nextToken, previousToken) => {
+  if (previousToken && previousToken !== nextToken) resetAuthenticatedWorkspace()
+}, { flush: 'sync' })
+
+function logout() {
+  sharedAuth.logout()
 }
 
 onMounted(() => {
@@ -2822,6 +2848,9 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncNativeFullscreenState)
   if (notificationPollTimer) clearInterval(notificationPollTimer)
+  if (smsTimer) clearInterval(smsTimer)
+  if (errorTimer) clearTimeout(errorTimer)
+  if (actionTimer) clearTimeout(actionTimer)
 })
 
 const formatDateTime = (val: string) => {
@@ -2922,6 +2951,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <span class="factory-code-label">{{ f.factoryCode }}</span>
             </div>
           </div>
+          <p v-if="phoneError" class="form-error">{{ phoneError }}</p>
           <button class="text-btn" type="button" @click="showFactorySelect = false">返回</button>
         </div>
 
@@ -2952,7 +2982,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <span>验证码</span>
             <div class="sms-input-row">
               <input v-model="phoneForm.code" placeholder="请输入验证码" maxlength="6" />
-              <button type="button" class="sms-btn" :disabled="smsCountdown > 0 || !isPhoneValid" @click="handleSendSms">
+              <button type="button" class="sms-btn" :disabled="sendingSms || smsCountdown > 0 || !isPhoneValid" @click="handleSendSms">
                 {{ smsCountdown > 0 ? smsCountdown + 's后重新获取' : '获取验证码' }}
               </button>
             </div>
@@ -3125,6 +3155,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
               <a class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'"><UiIcon name="activity" :size="15" />生产报表</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'analytics' }" @click="activeMainMenu = 'analytics'"><UiIcon name="table-columns" :size="15" />分析报表</a>
             </div>
           </Transition>
         </div>
@@ -3141,6 +3172,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'"><UiIcon name="user" :size="15" />用户</a>
               <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'"><UiIcon name="home" :size="15" />工厂</a>
               <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'plugin-center'"><UiIcon name="layers" :size="15" />插件中心</a>
+              <a v-if="hasAdminAccess" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'external-data-sources' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'external-data-sources'"><UiIcon name="layers" :size="15" />外部数据源</a>
             </div>
           </Transition>
         </div>
@@ -3242,6 +3274,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <template v-else-if="activeMainMenu === 'report'">
             报表 <span>></span> 生产报表
           </template>
+          <template v-else-if="activeMainMenu === 'analytics'">
+            报表 <span>></span> 分析报表
+          </template>
           <template v-else-if="activeMainMenu === 'super-admin'">
             授权码管理
           </template>
@@ -3251,7 +3286,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <template v-else-if="activeMainMenu === 'notifications'">
             通知中心
           </template>
-          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : activeConfigMenu === 'factory' ? '工厂' : activeConfigMenu === 'plugin-center' ? '插件中心' : '用户' }}</template>
+          <template v-else>系统配置 <span>></span> {{ activeConfigMenu === 'department' ? '部门' : activeConfigMenu === 'factory' ? '工厂' : activeConfigMenu === 'plugin-center' ? '插件中心' : activeConfigMenu === 'external-data-sources' ? '外部数据源' : '用户' }}</template>
         </div>
         <div class="top-actions">
           <div class="chrome-actions" aria-label="工作台工具">
@@ -3465,7 +3500,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
       </section>
 
       <div ref="pageMotionStage" class="page-motion-stage">
-        <KeepAlive :max="32">
+        <KeepAlive :key="token" :max="32">
           <NotificationCenterPage
             v-if="activeMainMenu === 'notifications' && currentUser"
             key="notifications"
@@ -3494,6 +3529,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <ReportCenterPage
             v-else-if="activeMainMenu === 'report'"
             key="report"
+            :token="token"
+            @notice="showAction"
+          />
+          <AnalyticsReportPage
+            v-else-if="activeMainMenu === 'analytics'"
+            key="analytics"
             :token="token"
             @notice="showAction"
           />
@@ -3656,6 +3697,13 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <FactorySettingsPage
             v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory'"
             key="sysconfig-factory"
+            :token="token"
+            @error="msg => errorMessage = msg"
+            @notice="msg => actionMessage = msg"
+          />
+          <ExternalDataSourcePage
+            v-else-if="activeMainMenu === 'sysconfig' && activeConfigMenu === 'external-data-sources' && hasAdminAccess"
+            :key="`sysconfig-external-data-sources-${currentFactoryCode}`"
             :token="token"
             @error="msg => errorMessage = msg"
             @notice="msg => actionMessage = msg"

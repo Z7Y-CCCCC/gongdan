@@ -1,14 +1,12 @@
 package com.heihu.workorder.controller;
 
 import com.heihu.workorder.dto.WorkOrderResponse;
+import com.heihu.workorder.dto.WorkOrderReporterResponse;
 import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.TokenService;
 import com.heihu.workorder.service.WorkOrderService;
-import com.heihu.workorder.repository.UserRepository;
-import com.heihu.workorder.model.FactoryUser;
-import java.util.ArrayList;
+import com.heihu.workorder.service.WorkOrderReportService;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.data.domain.Page;
@@ -28,12 +26,12 @@ public class MobileWorkOrderController {
 
     private final WorkOrderService workOrderService;
     private final TokenService tokenService;
-    private final UserRepository userRepository;
+    private final WorkOrderReportService reportService;
 
-    public MobileWorkOrderController(WorkOrderService workOrderService, TokenService tokenService, UserRepository userRepository) {
+    public MobileWorkOrderController(WorkOrderService workOrderService, TokenService tokenService, WorkOrderReportService reportService) {
         this.workOrderService = workOrderService;
         this.tokenService = tokenService;
-        this.userRepository = userRepository;
+        this.reportService = reportService;
     }
 
     @GetMapping
@@ -72,21 +70,12 @@ public class MobileWorkOrderController {
     }
 
     @GetMapping("/{id}/reporters")
-    public List<Map<String, Object>> getReporters(
+    public List<WorkOrderReporterResponse> getReporters(
             @RequestHeader(value = "Authorization", required = false) String authorization,
-            @PathVariable Long id
+            @PathVariable Long id,
+            @RequestParam(required = false) Integer processSequenceNo
     ) {
         AuthenticatedUser currentUser = tokenService.requireUser(authorization);
-        // 获取当前工厂下所有启用的用户作为可选报工人员
-        List<FactoryUser> users = userRepository.findByFactoryIdAndEnabledTrue(currentUser.getFactoryId());
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (FactoryUser user : users) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("id", user.getId());
-            item.put("name", user.getName());
-            item.put("username", user.getUsername());
-            result.add(item);
-        }
-        return result;
+        return reportService.listReporters(currentUser.getFactoryId(), id, processSequenceNo);
     }
 }

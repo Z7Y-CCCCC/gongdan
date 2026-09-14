@@ -55,7 +55,7 @@ public class PhoneAuthService {
     public PhoneLoginResponse loginByPassword(String phone, String password) {
         String limitKey = AuthAttemptLimiter.key("phone-password", phone);
         authAttemptLimiter.checkAllowed(limitKey);
-        List<FactoryUser> users = userRepository.findAllByPhone(phone);
+        List<FactoryUser> users = userRepository.findAllByPhoneForUpdate(phone);
         if (users.isEmpty()) {
             PhoneLoginResponse response = new PhoneLoginResponse();
             response.setBindingRequired(true);
@@ -116,9 +116,9 @@ public class PhoneAuthService {
         }
         authAttemptLimiter.recordSuccess(limitKey);
 
-        List<FactoryUser> users = userRepository.findAllByPhone(phone);
+        List<FactoryUser> users = userRepository.findAllByPhoneForUpdate(phone);
         if (users.isEmpty()) {
-            smsService.verifyCode(phone, code);
+            consumeSmsCode(phone, code, limitKey);
             // 验证码有效但手机号未注册，返回 bindingRequired 响应引导绑定
             PhoneLoginResponse response = new PhoneLoginResponse();
             response.setBindingRequired(true);
@@ -132,12 +132,12 @@ public class PhoneAuthService {
                 .collect(Collectors.toList());
 
         if (enabled.isEmpty()) {
-            smsService.verifyCode(phone, code);
+            consumeSmsCode(phone, code, limitKey);
             throw new ApiException(HttpStatus.FORBIDDEN, "账号已被禁用");
         }
 
         if (enabled.size() == 1) {
-            smsService.verifyCode(phone, code);
+            consumeSmsCode(phone, code, limitKey);
             FactoryUser user = enabled.get(0);
             String token = tokenService.issue(user);
             PhoneLoginResponse response = new PhoneLoginResponse();
@@ -162,7 +162,7 @@ public class PhoneAuthService {
     public PhoneLoginResponse selectFactory(String phone, Long factoryId, String loginType, String credential) {
         String limitKey = AuthAttemptLimiter.key("phone-select", loginType, phone);
         authAttemptLimiter.checkAllowed(limitKey);
-        List<FactoryUser> users = userRepository.findAllByPhone(phone);
+        List<FactoryUser> users = userRepository.findAllByPhoneForUpdate(phone);
 
         FactoryUser user = users.stream()
                 .filter(u -> u.getFactory().getId().equals(factoryId))
@@ -200,5 +200,12 @@ public class PhoneAuthService {
         return users.stream()
                 .map(u -> new FactoryOption(u.getFactory().getId(), u.getFactory().getCode(), u.getFactory().getName()))
                 .collect(Collectors.toList());
+    }
+
+    private void consumeSmsCode(String phone, String code, String limitKey) {
+        if (!smsService.verifyCode(phone, code)) {
+            authAttemptLimiter.recordFailure(limitKey);
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "验证码错误或已过期");
+        }
     }
 }

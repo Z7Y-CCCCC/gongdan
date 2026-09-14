@@ -26,6 +26,7 @@ Star History 图表现在由仓库自己的 GitHub Actions 生成并保存到 `d
 | 库存与单据 | 入库单、出库单、库存明细、库存结余、物料清单 |
 | 基础数据 | 产品、客户、供应商、仓库、单位、工序、工艺路线和分类 |
 | 系统配置 | 用户、部门、工厂、权限、通知、内部聊天和字段配置 |
+| 外部数据源 | 工厂级 HTTP API / SQLite 配置、手动健康检查与只读元数据浏览；网络数据库待真实验收，暂不开放（不含业务同步） |
 | 移动端 | uni-app H5 和微信小程序的工单、报工、报表和现场记录 |
 | 插件平台 | 工厂级安装、启停、配置、健康检查、灰度、回滚和卸载 |
 | MCP 诊断 | 面向 AI Agent 的只读健康检查、接口检查、冒烟测试和日志查询 |
@@ -37,7 +38,7 @@ Star History 图表现在由仓库自己的 GitHub Actions 生成并保存到 `d
 - 管理端：Vue 3、Vite、TypeScript、Vitest、ExcelJS。
 - 移动端：uni-app、Vue 3、TypeScript，支持 H5 和微信小程序。
 - 插件：独立 Spring Boot 服务，通过核心网关和 HMAC 签名通信。
-- 诊断网关：Node.js 20、官方 MCP TypeScript SDK、Streamable HTTP。
+- 诊断网关：Node.js 22、官方 MCP TypeScript SDK、Streamable HTTP。
 
 ## 目录结构
 
@@ -58,7 +59,7 @@ docs/                            插件、验收、备份和灾备文档
 ### 环境要求
 
 - Java 8 和 Maven 3.8+
-- Node.js 20+
+- Node.js 22 LTS（22.12+）或 24 LTS；CI 与前端/移动端构建镜像使用 Node.js 22。
 - MySQL 8.4+，本地示例默认使用 `3308` 端口
 - Redis 7+，本地示例默认使用 `6379` 端口
 
@@ -80,6 +81,8 @@ npm run dev
 ```
 
 打开 `http://localhost:5173`。前端 API 默认访问 `http://localhost:8080/api`，可在 `frontend/.env` 中设置 `VITE_API_BASE_URL`。
+
+开发和预览服务默认只监听本机。确需局域网联调时，可显式使用 `npm run dev -- --host 0.0.0.0`，并限制在可信网络；不要把开发服务器作为公网生产服务。
 
 ### 启动移动端
 
@@ -119,6 +122,14 @@ docker compose --profile mcp up --build -d mcp
 - 验收结果：[`docs/PLUGIN_ACCEPTANCE_REPORT.md`](docs/PLUGIN_ACCEPTANCE_REPORT.md)
 
 当前插件平台是受控的独立服务底座，不是可以从互联网下载并自动执行任意代码的插件商店。制品签名、漏洞扫描、自动部署和插件独立持久化仍需要在上线前继续建设。
+
+## 分析报表
+
+系统保留内置生产报表，并提供可选的 Apache Superset 分析报表入口。它通过后端签发短期 guest token，并按当前工厂附加行级过滤；配置和验收步骤见 [`docs/REPORTING_INTEGRATION.md`](docs/REPORTING_INTEGRATION.md)。
+
+## 外部数据源
+
+外部数据源一期当前开放 HTTP API 和 SQLite；MySQL、PostgreSQL、SQL Server 的适配代码和驱动保留，但未完成真实服务/TLS 验收，前后端均暂不开放。配置、出口授权、凭据密钥、V22 升级和验收边界见 [`docs/EXTERNAL_DATA_SOURCES.md`](docs/EXTERNAL_DATA_SOURCES.md)。默认拒绝未授权外部连接，不改变核心数据库和备份目标。
 
 ## MCP 诊断网关
 

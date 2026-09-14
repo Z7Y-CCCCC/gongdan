@@ -3,6 +3,9 @@ package com.heihu.workorder.service;
 import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.Product;
 import com.heihu.workorder.model.ProductOperationLog;
+import com.heihu.workorder.model.Unit;
+import com.heihu.workorder.dto.ProductRequest;
+import com.heihu.workorder.dto.ProductResponse;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.InboundReceiptRepository;
 import com.heihu.workorder.repository.BomRepository;
@@ -28,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 @ExtendWith(MockitoExtension.class)
 class ProductServiceTest {
@@ -87,7 +91,7 @@ class ProductServiceTest {
     @Test
     void deleteRejectsProductReferencedByWorkOrder() {
         Product product = product();
-        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
         when(workOrderRepository.existsByFactoryIdAndProductId(1L, 10L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.delete(1L, "operator", 10L))
@@ -100,7 +104,7 @@ class ProductServiceTest {
     @Test
     void deleteRejectsProductReferencedByInboundReceipt() {
         Product product = product();
-        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
         when(inboundReceiptRepository.existsByFactoryIdAndProductId(1L, 10L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.delete(1L, "operator", 10L))
@@ -113,7 +117,7 @@ class ProductServiceTest {
     @Test
     void deleteRejectsProductReferencedByOutboundReceipt() {
         Product product = product();
-        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
         when(outboundReceiptRepository.existsByFactoryIdAndProductId(1L, 10L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.delete(1L, "operator", 10L))
@@ -126,7 +130,7 @@ class ProductServiceTest {
     @Test
     void deleteRejectsProductReferencedByBom() {
         Product product = product();
-        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
         when(bomRepository.existsByFactoryIdAndProductId(1L, 10L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.delete(1L, "operator", 10L))
@@ -139,7 +143,7 @@ class ProductServiceTest {
     @Test
     void deleteRejectsProductReferencedBySalesOrder() {
         Product product = product();
-        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
         when(salesOrderRepository.existsItemByFactoryIdAndProductId(1L, 10L)).thenReturn(true);
 
         assertThatThrownBy(() -> service.delete(1L, "operator", 10L))
@@ -152,7 +156,7 @@ class ProductServiceTest {
     @Test
     void deleteRemovesProductAndWritesLogWhenUnreferenced() {
         Product product = product();
-        when(productRepository.findById(10L)).thenReturn(Optional.of(product));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
 
         service.delete(1L, "operator", 10L);
 
@@ -163,6 +167,82 @@ class ProductServiceTest {
         assertThat(log.getActionType()).isEqualTo("DELETE");
         assertThat(log.getProductCode()).isEqualTo("P001");
         assertThat(log.getProductName()).isEqualTo("Test Product");
+    }
+
+    @Test
+    void metadataUpdatePreservesInventoryWhenQuantityIsNotSupplied() {
+        Product product = product();
+        product.setInventoryQty(37);
+        product.setVersion(5L);
+        Unit unit = new Unit();
+        unit.setId(20L);
+        unit.setFactory(product.getFactory());
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
+        when(unitRepository.findById(20L)).thenReturn(Optional.of(unit));
+        when(productRepository.saveAndFlush(product)).thenAnswer(invocation -> {
+            product.setVersion(6L);
+            return product;
+        });
+        ProductRequest request = validRequest();
+        request.setVersion(5L);
+
+        ProductResponse response = service.update(1L, 2L, "operator", 10L, request);
+
+        assertThat(product.getInventoryQty()).isEqualTo(37);
+        assertThat(response.getVersion()).isEqualTo(6L);
+        verify(productRepository, never()).findById(10L);
+    }
+
+    @Test
+    void staleProductVersionCannotOverwriteChangedStock() {
+        Product product = product();
+        product.setInventoryQty(37);
+        product.setVersion(5L);
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
+        ProductRequest request = validRequest();
+        request.setVersion(4L);
+        request.setInventoryQty(3);
+
+        assertThatThrownBy(() -> service.update(1L, 2L, "operator", 10L, request))
+                .isInstanceOf(org.springframework.orm.ObjectOptimisticLockingFailureException.class);
+        assertThat(product.getInventoryQty()).isEqualTo(37);
+        assertThat(product.getVersion()).isEqualTo(5L);
+        verify(productRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void omittingVersionCannotBypassInventoryConflictProtection() {
+        Product product = product();
+        product.setInventoryQty(37);
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
+        ProductRequest request = validRequest();
+        request.setInventoryQty(0);
+        assertThatThrownBy(() -> service.update(1L, 2L, "operator", 10L, request))
+                .isInstanceOf(com.heihu.workorder.exception.ApiException.class)
+                .extracting("status").isEqualTo(org.springframework.http.HttpStatus.CONFLICT);
+        assertThat(product.getInventoryQty()).isEqualTo(37);
+    }
+
+    @Test
+    void negativeProductInventoryIsRejected() {
+        Product product = product();
+        Unit unit = new Unit();
+        unit.setId(20L);
+        unit.setFactory(product.getFactory());
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
+        when(unitRepository.findById(20L)).thenReturn(Optional.of(unit));
+        ProductRequest request = validRequest();
+        request.setInventoryQty(-1);
+        assertThatThrownBy(() -> service.update(1L, 2L, "operator", 10L, request))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("库存数量");
+    }
+
+    private ProductRequest validRequest() {
+        ProductRequest request = new ProductRequest();
+        request.setCode("P001");
+        request.setName("Updated Product");
+        request.setUnitId(20L);
+        return request;
     }
 
     private Product product() {

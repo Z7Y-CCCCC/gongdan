@@ -1,0 +1,15 @@
+{
+  "name": "@gongdan/uni-zip-adapter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bounded, fail-closed synchronous ZIP adapter for the pinned uni compiler cache workflow",
+  "main": "index.cjs",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "fflate": "0.8.3"
+  },
+  "license": "UNLICENSED"
+}

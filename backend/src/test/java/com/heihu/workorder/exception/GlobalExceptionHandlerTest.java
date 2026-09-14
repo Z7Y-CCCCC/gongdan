@@ -3,6 +3,8 @@ package com.heihu.workorder.exception;
 import com.heihu.workorder.dto.ErrorResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -57,5 +59,19 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().getMessage()).isEqualTo("请求参数不完整或格式不正确");
+    }
+
+    @Test
+    void optimisticConflictsReturnConflict() {
+        assertThat(handler.handleOptimisticLockingFailure(new OptimisticLockingFailureException("stale"))
+                .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void lockTimeoutsReturnConflictWithoutDatabaseDetails() {
+        ResponseEntity<ErrorResponse> response = handler.handlePessimisticLockingFailure(
+                new CannotAcquireLockException("internal_table lock timeout"));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().getMessage()).doesNotContain("internal_table");
     }
 }

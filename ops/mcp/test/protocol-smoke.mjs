@@ -8,16 +8,46 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const key = 'protocol-test-mcp-key';
+let loginCount = 0;
+let expireCacheToken = false;
+let redirectTargetCount = 0;
+const backendMethods = [];
 
 const backend = http.createServer(async (req, res) => {
   const requestUrl = new URL(req.url || '/', 'http://127.0.0.1');
+  backendMethods.push([req.method, requestUrl.pathname]);
   if (req.method === 'POST' && requestUrl.pathname === '/api/auth/login') {
-    return send(res, 200, { token: 'mock-backend-token' });
+    loginCount += 1;
+    return send(res, 200, { token: `mock-backend-token-${loginCount}` });
   }
   if (requestUrl.pathname === '/actuator/health/readiness' || requestUrl.pathname === '/actuator/health/liveness') {
     return send(res, 200, { status: 'UP' });
   }
   if (!req.headers.authorization) return send(res, 401, { message: 'missing auth' });
+  if (expireCacheToken && requestUrl.pathname.startsWith('/api/monitor/cache')
+      && req.headers.authorization === 'Bearer mock-backend-token-1') {
+    const delay = requestUrl.pathname.endsWith('/recovery') ? 250 : requestUrl.pathname.endsWith('/names') ? 125 : 0;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    return send(res, 401, { message: 'expired' });
+  }
+  if (req.headers.authorization !== `Bearer mock-backend-token-${loginCount}`) {
+    return send(res, 401, { message: 'superseded session' });
+  }
+  if (requestUrl.pathname === '/api/redirect-target') redirectTargetCount += 1;
+  if (requestUrl.searchParams.get('name') === 'redirect') {
+    res.writeHead(302, { Location: '/api/redirect-target' });
+    return res.end();
+  }
+  if (requestUrl.searchParams.get('name') === 'oversized') {
+    return send(res, 200, { value: 'x'.repeat(2 * 1024 * 1024 + 1) });
+  }
+  if (requestUrl.searchParams.get('name') === 'non-json') {
+    res.writeHead(502, { 'Content-Type': 'text/plain' });
+    return res.end('upstream error: password=must-hide token=must-hide');
+  }
+  if (requestUrl.searchParams.get('name') === 'timeout') {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
   if (requestUrl.pathname === '/api/monitor/cache') return send(res, 200, { hitRate: 0.99, entries: 4 });
   if (requestUrl.pathname === '/api/monitor/cache/names') return send(res, 200, [{ name: 'products' }]);
   if (requestUrl.pathname === '/api/monitor/cache/recovery') return send(res, 200, []);
@@ -45,7 +75,11 @@ const mcp = spawn(process.execPath, [path.join(root, 'server.mjs')], {
     MCP_BACKEND_FACTORY_CODE: 'HHGD',
     MCP_BACKEND_USERNAME: 'mcp-test',
     MCP_BACKEND_PASSWORD: 'test-password',
+    MCP_BACKEND_TOKEN: '',
+    MCP_BACKEND_TIMEOUT_MS: '1000',
     MCP_RATE_LIMIT_PER_MINUTE: '1000',
+    MCP_ALLOWED_HOSTS: `127.0.0.1:${mcpPort}`,
+    MCP_ALLOWED_ORIGINS: 'https://diagnostics.example.test',
   },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -64,6 +98,16 @@ try {
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
   });
   assert(unauthorized.status === 401, 'unauthorized MCP request must be rejected');
+
+  for (const extraHeaders of [{ Host: 'untrusted.example.test' }, { Origin: 'https://untrusted.example.test' }]) {
+    // Node fetch normalizes Host to the URL authority; use raw HTTP to test it.
+    const blocked = await rawRequest(`${base}/mcp`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...extraHeaders },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+    assert(blocked.status === 403, `configured Host and Origin allowlists must be enforced (${JSON.stringify(extraHeaders)} returned ${blocked.status})`);
+  }
 
   const initialized = await rpc(base, 'initialize', {
     protocolVersion: '2025-06-18',
@@ -119,7 +163,24 @@ try {
     arguments: { endpoint: 'products', query: { arbitrary: 'nope' } },
   });
   assert(deniedPath.result?.isError === true, 'unknown query parameters must be rejected');
-  console.log('MCP protocol smoke passed: initialize, discovery, auth, diagnostics, smoke, logs, sessions, cache, redaction, allowlist');
+
+  expireCacheToken = true;
+  const refreshed = await rpc(base, 'tools/call', { name: 'inspect_cache', arguments: {} });
+  assert(toolData(refreshed).ok === true, 'parallel cache requests must recover from expired tokens');
+  assert(loginCount === 2, 'staggered 401 responses must share one token refresh');
+
+  const redirected = toolData(await rpc(base, 'tools/call', { name: 'inspect_api', arguments: { endpoint: 'products', query: { name: 'redirect' } } }));
+  assert(redirected.status === 302 && redirectTargetCount === 0, 'backend redirects must not escape the endpoint allowlist');
+  const oversized = await rpc(base, 'tools/call', { name: 'inspect_api', arguments: { endpoint: 'products', query: { name: 'oversized' } } });
+  assert(toolData(oversized).error?.code === 'BACKEND_RESPONSE_TOO_LARGE', 'oversized responses must fail with a bounded diagnostic');
+  const nonJson = await rpc(base, 'tools/call', { name: 'inspect_api', arguments: { endpoint: 'products', query: { name: 'non-json' } } });
+  assert(!JSON.stringify(nonJson).includes('must-hide'), 'non-JSON upstream errors must not leak unredacted secrets');
+  const timedOut = await rpc(base, 'tools/call', { name: 'inspect_api', arguments: { endpoint: 'products', query: { name: 'timeout' } } });
+  assert(toolData(timedOut).error?.code === 'BACKEND_TIMEOUT', 'backend timeouts must be reported');
+  const recovered = await rpc(base, 'tools/call', { name: 'inspect_api', arguments: { endpoint: 'products' } });
+  assert(toolData(recovered).ok === true, 'a timeout must not poison subsequent requests');
+  assert(backendMethods.every(([method, pathname]) => method === 'GET' || (method === 'POST' && pathname === '/api/auth/login')), 'only sign-in may write to the backend');
+  console.log('MCP protocol smoke passed: discovery, auth, Host/Origin, diagnostics, redaction, allowlist, parallel refresh, redirects, response limits, timeout recovery');
 } finally {
   mcp.kill('SIGTERM');
   backend.close();
@@ -135,16 +196,30 @@ function send(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function rawRequest(url, options) {
+  return new Promise((resolve, reject) => {
+    const request = http.request(url, { method: options.method, headers: options.headers }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => resolve({ status: response.statusCode, body: Buffer.concat(chunks).toString() }));
+    });
+    request.on('error', reject);
+    request.end(options.body);
+  });
+}
+
 async function waitForHealth(child, base, getOutput) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  // Cold module loading on Windows/OneDrive can exceed the old four-second limit.
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${base}/healthz`);
+      const response = await fetch(`${base}/healthz`, { signal: AbortSignal.timeout(1000) });
       if (response.ok) return;
     } catch {
       // The child process may still be binding its port.
     }
     if (child.exitCode !== null) throw new Error(`MCP server exited early: ${getOutput()}`);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`MCP server did not start: ${getOutput()}`);
 }

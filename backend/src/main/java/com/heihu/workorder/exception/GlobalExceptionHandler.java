@@ -5,11 +5,17 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -54,7 +60,6 @@ public class GlobalExceptionHandler {
             MissingServletRequestPartException.class,
             MultipartException.class,
             HttpMessageNotReadableException.class,
-            HttpMediaTypeNotSupportedException.class,
             MethodArgumentTypeMismatchException.class
     })
     public ResponseEntity<ErrorResponse> handleMalformedRequest(Exception exception) {
@@ -64,11 +69,50 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("请求参数不完整或格式不正确"));
     }
 
-    @ExceptionHandler(org.springframework.orm.ObjectOptimisticLockingFailureException.class)
-    public ResponseEntity<ErrorResponse> handleOptimisticLockingFailure(org.springframework.orm.ObjectOptimisticLockingFailureException exception) {
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException exception) {
+        HttpHeaders headers = new HttpHeaders();
+        if (exception.getSupportedHttpMethods() != null) {
+            headers.setAllow(exception.getSupportedHttpMethods());
+        }
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .headers(headers).contentType(MediaType.APPLICATION_JSON)
+                .body(new ErrorResponse("不支持的请求方法"));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMediaTypeNotSupported(HttpMediaTypeNotSupportedException exception) {
+        HttpHeaders headers = new HttpHeaders();
+        if (!exception.getSupportedMediaTypes().isEmpty()) {
+            headers.setAccept(exception.getSupportedMediaTypes());
+        }
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .headers(headers).contentType(MediaType.APPLICATION_JSON)
+                .body(new ErrorResponse("不支持的请求内容类型"));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<ErrorResponse> handleMediaTypeNotAcceptable(HttpMediaTypeNotAcceptableException exception) {
+        // An explicit content type preserves the API error contract even when the
+        // original Accept header cannot be satisfied by the normal response.
+        return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ErrorResponse("无法提供请求的响应格式"));
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<ErrorResponse> handleOptimisticLockingFailure(OptimisticLockingFailureException exception) {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(new ErrorResponse("该数据刚刚已被其他同权限账号修改或已删除，请重新刷新数据进行操作"));
+    }
+
+    @ExceptionHandler({PessimisticLockingFailureException.class,
+            javax.persistence.PessimisticLockException.class, javax.persistence.LockTimeoutException.class})
+    public ResponseEntity<ErrorResponse> handlePessimisticLockingFailure(Exception exception) {
+        log.warn("Concurrent update could not acquire a database lock", exception);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse("该数据正在被其他操作修改，请刷新后重试"));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

@@ -42,3 +42,7 @@ release-windows/
 # Uploads
 backend/uploads/
 uploads/
+
+# Local Tools
+Launch-Codex-Fast.*
+

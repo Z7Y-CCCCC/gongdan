@@ -34,12 +34,18 @@ function h5RpxFallbackPlugin() {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, '')
+  const devHost = process.env.VITE_DEV_HOST || env.VITE_DEV_HOST || '127.0.0.1'
   return {
     base: process.env.VITE_PUBLIC_BASE_URL || env.VITE_PUBLIC_BASE_URL || '/',
+    publicDir: 'public',
     plugins: [uni(), h5RpxFallbackPlugin()],
     server: {
-      port: 5174
+      host: devHost,
+      port: 5174,
+      // uni 4.29 defaults this to false; preserve Vite's filesystem boundary.
+      fs: { strict: true }
     },
+    preview: { host: devHost },
     resolve: {
       alias: {
         'vue': path.resolve(__dirname, 'node_modules/@dcloudio/uni-h5-vue/dist/vue.runtime.esm.js')

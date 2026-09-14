@@ -532,7 +532,9 @@ async function backendRequest(path, options = {}) {
   const auth = options.auth === false ? null : await getBackendToken();
   const result = await fetchWithTimeout(url, auth);
   if (result.status === 401 && options.auth !== false && config.backendPassword && !config.backendToken && !options.retried) {
-    await getBackendToken(true);
+    // A late 401 for an older token must not invalidate a token another request
+    // has already refreshed (the backend allows only one session per identity).
+    await getBackendToken(auth);
     return backendRequest(path, { ...options, retried: true });
   }
   if (result.status === 401) {
@@ -550,15 +552,16 @@ async function backendRequest(path, options = {}) {
   return result;
 }
 
-async function getBackendToken(force = false) {
+async function getBackendToken(rejectedToken = null) {
   if (config.backendToken) return config.backendToken;
   if (!config.backendPassword) {
     const error = new Error('Configure MCP_BACKEND_TOKEN or MCP_BACKEND_FACTORY_CODE, MCP_BACKEND_USERNAME and MCP_BACKEND_PASSWORD');
     error.code = 'MCP_CONFIGURATION';
     throw error;
   }
-  if (!force && backendToken) return backendToken;
+  if (rejectedToken && backendToken === rejectedToken) backendToken = null;
   if (backendTokenPromise) return backendTokenPromise;
+  if (backendToken) return backendToken;
   backendTokenPromise = (async () => {
     const url = new URL('/api/auth/login', `${config.backendUrl}/`);
     const response = await fetchWithTimeout(url, null, {
@@ -598,19 +601,38 @@ async function fetchWithTimeout(url, token, options = {}) {
       },
       body: options.body,
       signal: controller.signal,
+      // Never follow a diagnostic GET or credential POST outside its allowlist.
+      redirect: 'manual',
     });
-    const text = await response.text();
-    if (Buffer.byteLength(text, 'utf8') > MAX_RESPONSE_BYTES) {
-      const error = new Error('The backend response exceeded the diagnostic response limit');
-      error.code = 'BACKEND_RESPONSE_TOO_LARGE';
-      throw error;
+    const chunks = [];
+    let size = 0;
+    if (response.body) {
+      const reader = response.body.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > MAX_RESPONSE_BYTES) {
+            await reader.cancel();
+            const error = new Error('The backend response exceeded the diagnostic response limit');
+            error.code = 'BACKEND_RESPONSE_TOO_LARGE';
+            throw error;
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
     }
+    const text = Buffer.concat(chunks, size).toString('utf8');
     let body = null;
     if (text) {
       try {
         body = JSON.parse(text);
       } catch {
-        body = { rawText: text.slice(0, 2000) };
+        // Arbitrary HTML/text cannot be reliably redacted by JSON field names.
+        body = { format: 'non-json', omitted: true };
       }
     }
     return { status: response.status, headers: response.headers, body };
@@ -715,6 +737,8 @@ async function handleMcp(req, res, body) {
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
+    // SDK allowlists are ignored unless this flag is explicitly enabled.
+    enableDnsRebindingProtection: true,
     ...(config.allowedHosts.length ? { allowedHosts: config.allowedHosts } : {}),
     ...(config.allowedOrigins.length ? { allowedOrigins: config.allowedOrigins } : {}),
   });

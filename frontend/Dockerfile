@@ -1,13 +1,18 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /workspace
 COPY package*.json ./
 RUN npm ci
 COPY . .
 ARG VITE_API_BASE_URL=/api
+ARG APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS=http://localhost:9101,http://localhost:9102
+ARG APP_ANALYTICS_ALLOWED_ORIGINS=
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS=$APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS
+ENV APP_ANALYTICS_ALLOWED_ORIGINS=$APP_ANALYTICS_ALLOWED_ORIGINS
 RUN npm run build
+RUN node scripts/render-nginx.mjs nginx.conf /tmp/gongdan-nginx.conf
 
 FROM nginx:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /tmp/gongdan-nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/dist /usr/share/nginx/html
 EXPOSE 80

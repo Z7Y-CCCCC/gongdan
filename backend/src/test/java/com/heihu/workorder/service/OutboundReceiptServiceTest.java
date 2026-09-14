@@ -3,6 +3,7 @@ package com.heihu.workorder.service;
 import com.heihu.workorder.dto.OutboundReceiptRequest;
 import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.OutboundReceipt;
+import com.heihu.workorder.model.OutboundReceiptItem;
 import com.heihu.workorder.model.Product;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.OutboundReceiptRepository;
@@ -18,6 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -72,6 +75,53 @@ class OutboundReceiptServiceTest {
         verify(productRepository).findByIdAndFactoryIdForUpdate(10L, 1L);
         verify(productRepository, never()).findById(10L);
         verify(productRepository).save(product);
+    }
+
+    @Test
+    void stockLocksAreAcquiredInStableProductIdOrder() {
+        OutboundReceiptRequest request = request(20L, 1);
+        OutboundReceiptRequest.OutboundReceiptItemRequest second = new OutboundReceiptRequest.OutboundReceiptItemRequest();
+        second.setProductId(10L);
+        second.setQuantity(1);
+        request.setItems(java.util.Arrays.asList(request.getItems().get(0), second));
+        when(factoryRepository.findById(1L)).thenReturn(Optional.of(factory(1L)));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product(10L, 2)));
+        when(productRepository.findByIdAndFactoryIdForUpdate(20L, 1L)).thenReturn(Optional.of(product(20L, 2)));
+        when(outboundReceiptRepository.save(any(OutboundReceipt.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        service.create(1L, null, request);
+        org.mockito.InOrder order = inOrder(productRepository);
+        order.verify(productRepository).findByIdAndFactoryIdForUpdate(10L, 1L);
+        order.verify(productRepository).findByIdAndFactoryIdForUpdate(20L, 1L);
+    }
+
+    @Test
+    void deleteLocksReceiptAndRejectsStockOverflow() {
+        OutboundReceipt receipt = new OutboundReceipt();
+        receipt.setId(99L);
+        receipt.setFactory(factory(1L));
+        Product product = product(10L, Integer.MAX_VALUE);
+        OutboundReceiptItem item = new OutboundReceiptItem();
+        item.setProduct(product);
+        item.setQuantity(1);
+        receipt.getItems().add(item);
+        when(outboundReceiptRepository.findByIdAndFactoryIdForUpdate(99L, 1L)).thenReturn(Optional.of(receipt));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
+        assertThatThrownBy(() -> service.delete(1L, 99L)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("库存数量");
+        verify(outboundReceiptRepository, never()).findById(99L);
+        verify(outboundReceiptRepository, never()).delete(receipt);
+    }
+
+    private OutboundReceiptRequest request(Long productId, int quantity) {
+        OutboundReceiptRequest request = new OutboundReceiptRequest();
+        request.setCode("CK001");
+        request.setOutboundType("销售出库");
+        request.setOutboundTime("2026-09-11 12:00:00");
+        OutboundReceiptRequest.OutboundReceiptItemRequest item = new OutboundReceiptRequest.OutboundReceiptItemRequest();
+        item.setProductId(productId);
+        item.setQuantity(quantity);
+        request.setItems(Collections.singletonList(item));
+        return request;
     }
 
     private Factory factory(Long id) {

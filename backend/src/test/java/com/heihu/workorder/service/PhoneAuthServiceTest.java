@@ -54,7 +54,7 @@ class PhoneAuthServiceTest {
         String password = "password123";
         FactoryUser user = buildUser(1L, phone, "hashedPwd", true, 1L, "F001", "工厂A");
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.singletonList(user));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.singletonList(user));
         when(passwordEncoder.matches(password, "hashedPwd")).thenReturn(true);
         when(tokenService.issue(user)).thenReturn("test-token-abc");
 
@@ -72,7 +72,7 @@ class PhoneAuthServiceTest {
     void loginByPassword_phoneNotFound_shouldReturnBindingRequired() {
         String phone = "13800000000";
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.emptyList());
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.emptyList());
 
         PhoneLoginResponse response = phoneAuthService.loginByPassword(phone, "anyPassword");
 
@@ -88,7 +88,7 @@ class PhoneAuthServiceTest {
         String phone = "13800138000";
         FactoryUser user = buildUser(1L, phone, "hashedPwd", true, 1L, "F001", "工厂A");
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.singletonList(user));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.singletonList(user));
         when(passwordEncoder.matches("wrongPassword", "hashedPwd")).thenReturn(false);
 
         ApiException exception = assertThrows(ApiException.class, () ->
@@ -104,7 +104,7 @@ class PhoneAuthServiceTest {
         String phone = "13800138000";
         FactoryUser user = buildUser(1L, phone, "hashedPwd", false, 1L, "F001", "工厂A");
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.singletonList(user));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.singletonList(user));
         when(passwordEncoder.matches("password123", "hashedPwd")).thenReturn(true);
 
         ApiException exception = assertThrows(ApiException.class, () ->
@@ -125,7 +125,7 @@ class PhoneAuthServiceTest {
 
         when(smsService.verifyCode(phone, code, false)).thenReturn(true);
         when(smsService.verifyCode(phone, code)).thenReturn(true);
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.singletonList(user));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.singletonList(user));
         when(tokenService.issue(user)).thenReturn("sms-token-xyz");
 
         PhoneLoginResponse response = phoneAuthService.loginBySmsCode(phone, code);
@@ -155,6 +155,21 @@ class PhoneAuthServiceTest {
     }
 
     @Test
+    void smsCodeConsumedAfterPrecheckCannotStillIssueToken() {
+        String phone = "13800138000";
+        String code = "123456";
+        FactoryUser user = buildUser(1L, phone, "hashedPwd", true, 1L, "F001", "工厂A");
+        when(smsService.verifyCode(phone, code, false)).thenReturn(true);
+        when(smsService.verifyCode(phone, code)).thenReturn(false);
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.singletonList(user));
+
+        ApiException exception = assertThrows(ApiException.class,
+                () -> phoneAuthService.loginBySmsCode(phone, code));
+        assertEquals(HttpStatus.UNAUTHORIZED, exception.getStatus());
+        verify(tokenService, never()).issue(any());
+    }
+
+    @Test
     @DisplayName("测试验证码登录（手机号未注册但验证码有效）应返回 bindingRequired")
     void loginBySmsCode_phoneNotRegistered_validCode_shouldReturnBindingRequired() {
         String phone = "13800000000";
@@ -162,7 +177,7 @@ class PhoneAuthServiceTest {
 
         when(smsService.verifyCode(phone, code, false)).thenReturn(true);
         when(smsService.verifyCode(phone, code)).thenReturn(true);
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.emptyList());
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.emptyList());
 
         PhoneLoginResponse response = phoneAuthService.loginBySmsCode(phone, code);
 
@@ -182,7 +197,7 @@ class PhoneAuthServiceTest {
         FactoryUser user1 = buildUser(1L, phone, "hashedPwd", true, 10L, "F001", "工厂A");
         FactoryUser user2 = buildUser(2L, phone, "hashedPwd", true, 20L, "F002", "工厂B");
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Arrays.asList(user1, user2));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Arrays.asList(user1, user2));
         when(passwordEncoder.matches(password, "hashedPwd")).thenReturn(true);
 
         PhoneLoginResponse response = phoneAuthService.loginByPassword(phone, password);
@@ -211,7 +226,7 @@ class PhoneAuthServiceTest {
         FactoryUser user2 = buildUser(2L, phone, "hashedPwd", true, 20L, "F002", "工厂B");
 
         when(smsService.verifyCode(phone, code, false)).thenReturn(true);
-        when(userRepository.findAllByPhone(phone)).thenReturn(Arrays.asList(user1, user2));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Arrays.asList(user1, user2));
 
         PhoneLoginResponse response = phoneAuthService.loginBySmsCode(phone, code);
 
@@ -234,7 +249,7 @@ class PhoneAuthServiceTest {
         FactoryUser user1 = buildUser(1L, phone, "hashedPwd", true, 10L, "F001", "工厂A");
         FactoryUser user2 = buildUser(2L, phone, "hashedPwd", true, 20L, "F002", "工厂B");
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Arrays.asList(user1, user2));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Arrays.asList(user1, user2));
         when(passwordEncoder.matches("password123", "hashedPwd")).thenReturn(true);
         when(tokenService.issue(user1)).thenReturn("factory-token-123");
 
@@ -256,7 +271,7 @@ class PhoneAuthServiceTest {
         FactoryUser user1 = buildUser(1L, phone, "hashedPwd", true, 10L, "F001", "工厂A");
         FactoryUser user2 = buildUser(2L, phone, "hashedPwd", true, 20L, "F002", "工厂B");
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Arrays.asList(user1, user2));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Arrays.asList(user1, user2));
         when(smsService.verifyCode(phone, code)).thenReturn(true);
         when(tokenService.issue(user1)).thenReturn("sms-factory-token");
 
@@ -276,7 +291,7 @@ class PhoneAuthServiceTest {
         Long factoryId = 10L;
         FactoryUser user1 = buildUser(1L, phone, "hashedPwd", true, 10L, "F001", "工厂A");
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.singletonList(user1));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.singletonList(user1));
         when(smsService.verifyCode(phone, code)).thenReturn(false);
 
         ApiException exception = assertThrows(ApiException.class, () ->

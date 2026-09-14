@@ -31,12 +31,20 @@ class EquipmentInspectionApplicationTest {
     }
 
     @Test
+    void matrixParametersCannotBypassGatewayAuthentication() throws Exception {
+        mockMvc.perform(get("/api/plugin;ignored/equipment-inspection/ping")
+                        .header("X-Plugin-Factory-Id", "99")
+                        .header("X-Plugin-User-Id", "999")
+                        .header("X-Plugin-Role", "ADMIN"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void gatewayContextAndFactoryIsolationWork() throws Exception {
         String config = Base64.getEncoder().encodeToString(
                 "{\"inspectionIntervalDays\":7}".getBytes(StandardCharsets.UTF_8));
         mockMvc.perform(get("/api/plugin/equipment-inspection/ping")
-                        .headers(gatewayHeaders("GET", "/api/plugin/equipment-inspection/ping", "1", "11", ""))
-                        .header("X-Plugin-Config-Base64", config))
+                        .headers(gatewayHeaders("GET", "/api/plugin/equipment-inspection/ping", "1", "11", "", config)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.factoryId").value(1))
                 .andExpect(jsonPath("$.userId").value(11))
@@ -84,17 +92,46 @@ class EquipmentInspectionApplicationTest {
 
     private org.springframework.http.HttpHeaders gatewayHeaders(
             String method, String path, String factoryId, String userId, String body) throws Exception {
+        return gatewayHeaders(method, path, factoryId, userId, body, "");
+    }
+
+    @Test
+    void tamperedOrRemovedSignedConfigurationIsRejected() throws Exception {
+        String path = "/api/plugin/equipment-inspection/ping";
+        org.springframework.http.HttpHeaders changed = gatewayHeaders("GET", path, "1", "11", "", "e30=");
+        changed.set("X-Plugin-Config-Base64", "eyJieXBhc3MiOnRydWV9");
+        mockMvc.perform(get(path).headers(changed)).andExpect(status().isForbidden());
+        org.springframework.http.HttpHeaders removed = gatewayHeaders("GET", path, "1", "11", "", "e30=");
+        removed.remove("X-Plugin-Config-Base64");
+        mockMvc.perform(get(path).headers(removed)).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void outOfRangeSignedFactoryIdIsRejectedBeforeControllerParsing() throws Exception {
+        String path = "/api/plugin/equipment-inspection/ping";
+        mockMvc.perform(get(path).headers(gatewayHeaders("GET", path, "9999999999999999999", "11", "")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void publicHealthCheckRemainsAccessible() throws Exception {
+        mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
+    }
+
+    private org.springframework.http.HttpHeaders gatewayHeaders(
+            String method, String path, String factoryId, String userId, String body, String configBase64) throws Exception {
         org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
         headers.set("X-Plugin-Key", "equipment-inspection");
         headers.set("X-Plugin-Factory-Id", factoryId);
         headers.set("X-Plugin-User-Id", userId);
         headers.set("X-Plugin-Role", "ADMIN");
         headers.set("X-Plugin-Version", "1.0.0");
+        if (!configBase64.isEmpty()) headers.set("X-Plugin-Config-Base64", configBase64);
         String timestamp = String.valueOf(System.currentTimeMillis() / 1000L);
         String bodyHash = hex(MessageDigest.getInstance("SHA-256")
                 .digest(body.getBytes(StandardCharsets.UTF_8)));
         String canonical = String.join("\n", method, path, "equipment-inspection", "1.0.0",
-                factoryId, userId, "ADMIN", timestamp, bodyHash);
+                factoryId, userId, "ADMIN", timestamp, bodyHash, configBase64);
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec("test-plugin-gateway-secret".getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         headers.set("X-Plugin-Body-SHA256", bodyHash);

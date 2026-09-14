@@ -35,7 +35,7 @@
         <textarea v-model="form.description" placeholder="描述现场情况、影响数量、需要谁处理" />
       </view>
 
-      <button class="submit-btn" :loading="saving" @click="submitEvent">提交上报</button>
+      <button class="submit-btn" :loading="saving" :disabled="saving" @click="submitEvent">提交上报</button>
     </view>
 
     <view class="recent-head">
@@ -91,6 +91,7 @@ onMounted(() => {
 })
 
 async function loadEvents() {
+  if (loading.value) return
   loading.value = true
   try {
     const result = await fetchFieldEvents()
@@ -103,6 +104,7 @@ async function loadEvents() {
 }
 
 async function submitEvent() {
+  if (saving.value || !ensureLogin()) return
   if (!form.title.trim()) {
     uni.showToast({ title: '请填写事件标题', icon: 'none' })
     return
@@ -136,7 +138,8 @@ async function submitEvent() {
 function payloadOf(event: FieldEventRecord): Record<string, any> {
   if (!event.payloadJson) return {}
   try {
-    return JSON.parse(event.payloadJson)
+    const payload = JSON.parse(event.payloadJson)
+    return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {}
   } catch {
     return {}
   }

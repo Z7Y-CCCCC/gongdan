@@ -3,11 +3,15 @@ import { computed, onMounted, ref } from 'vue'
 import { fetchReports, fetchWorkOrders, type WorkOrderInfo, type WorkOrderReportInfo } from '../api'
 import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
 
 const loading = ref(false)
+const beginLoad = useLatestRequest()
 const workOrders = ref<WorkOrderInfo[]>([])
 const reports = ref<WorkOrderReportInfo[]>([])
 
@@ -54,18 +58,20 @@ const reporterRows = computed(() => {
 const recentReports = computed(() => reports.value.slice(0, 10))
 
 async function loadData() {
+  const isCurrent = beginLoad()
   loading.value = true
   try {
     const [workOrderRes, reportRes] = await Promise.all([
-      fetchWorkOrders(props.token, { page: 1, size: 500 }),
-      fetchReports(props.token, { page: 1, size: 500 })
+      fetchAllPages(params => fetchWorkOrders(props.token, params), 500, isCurrent),
+      fetchAllPages(params => fetchReports(props.token, params), 500, isCurrent)
     ])
+    if (!isCurrent()) return
     workOrders.value = workOrderRes.items || []
     reports.value = reportRes.items || []
   } catch (e) {
-    emit('notice', e instanceof Error ? e.message : '报表数据加载失败')
+    if (isCurrent()) emit('notice', e instanceof Error ? e.message : '报表数据加载失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -80,6 +86,7 @@ function statusLabel(status: string) {
   return status || '-'
 }
 
+useRefreshOnActivated(loadData)
 onMounted(loadData)
 </script>
 

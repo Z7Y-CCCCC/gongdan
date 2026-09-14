@@ -6,16 +6,19 @@ import com.heihu.workorder.dto.UpdateUserRequest;
 import com.heihu.workorder.dto.UserResponse;
 import com.heihu.workorder.exception.ApiException;
 import com.heihu.workorder.model.Factory;
+import com.heihu.workorder.model.Department;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.Role;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.repository.UserSessionRepository;
 import com.heihu.workorder.repository.DepartmentRepository;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -33,6 +36,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final DepartmentRepository departmentRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UserSessionRepository sessionRepository;
 
     public UserService(
             FactoryRepository factoryRepository,
@@ -40,10 +44,22 @@ public class UserService {
             DepartmentRepository departmentRepository,
             PasswordEncoder passwordEncoder
     ) {
+        this(factoryRepository, userRepository, departmentRepository, passwordEncoder, null);
+    }
+
+    @Autowired
+    public UserService(
+            FactoryRepository factoryRepository,
+            UserRepository userRepository,
+            DepartmentRepository departmentRepository,
+            PasswordEncoder passwordEncoder,
+            UserSessionRepository sessionRepository
+    ) {
         this.factoryRepository = factoryRepository;
         this.userRepository = userRepository;
         this.departmentRepository = departmentRepository;
         this.passwordEncoder = passwordEncoder;
+        this.sessionRepository = sessionRepository;
     }
 
     @Transactional(readOnly = true)
@@ -79,7 +95,7 @@ public class UserService {
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
         if (request.getDepartmentId() != null) {
-            user.setDepartment(departmentRepository.findById(request.getDepartmentId()).orElse(null));
+            user.setDepartment(requireFactoryDepartment(factoryId, request.getDepartmentId()));
         }
         user.setVirtualUser(Boolean.TRUE.equals(request.getVirtualUser()));
         user.setEnabled(true);
@@ -100,7 +116,7 @@ public class UserService {
         user.setName(request.getName().trim());
         user.setRole(request.getRole());
         if (request.getDepartmentId() != null) {
-            user.setDepartment(departmentRepository.findById(request.getDepartmentId()).orElse(null));
+            user.setDepartment(requireFactoryDepartment(factoryId, request.getDepartmentId()));
         } else {
             user.setDepartment(null);
         }
@@ -120,6 +136,7 @@ public class UserService {
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
+        if (sessionRepository != null) sessionRepository.kickActiveSessions(userId);
         return new ResetPasswordResponse("密码已重置", newPassword);
     }
 
@@ -141,6 +158,7 @@ public class UserService {
         FactoryUser user = getFactoryUser(factoryId, userId);
         user.setEnabled(Boolean.TRUE.equals(enabled));
         user.setUpdatedAt(LocalDateTime.now());
+        if (!user.isEnabled() && sessionRepository != null) sessionRepository.kickActiveSessions(userId);
         return UserResponse.from(userRepository.save(user));
     }
 
@@ -157,6 +175,13 @@ public class UserService {
     private FactoryUser getFactoryUser(Long factoryId, Long userId) {
         return userRepository.findByIdAndFactoryId(userId, factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "用户不存在"));
+    }
+
+    private Department requireFactoryDepartment(Long factoryId, Long departmentId) {
+        return departmentRepository.findById(departmentId)
+                .filter(department -> department.getFactory() != null
+                        && factoryId.equals(department.getFactory().getId()))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "部门不存在"));
     }
 
     private void applyUniqueAccountFields(Long factoryId, Long userId, String username, String phoneValue) {
@@ -284,12 +309,7 @@ public class UserService {
             }
 
             try {
-                Role role;
-                try {
-                    role = Role.valueOf(roleStr);
-                } catch (IllegalArgumentException e) {
-                    role = roleStr.contains("生产") ? Role.PRODUCTION : Role.ADMIN;
-                }
+                Role role = parseImportRole(roleStr);
 
                 LocalDateTime now = LocalDateTime.now();
                 FactoryUser user = new FactoryUser();
@@ -320,6 +340,13 @@ public class UserService {
         }
 
         return new ImportResult(lines.length - 1, successCount, failCount, errors);
+    }
+
+    private Role parseImportRole(String value) {
+        for (Role role : Role.values()) {
+            if (role.name().equals(value) || role.getLabel().equals(value)) return role;
+        }
+        throw new IllegalArgumentException("角色必须为 ADMIN/管理员 或 PRODUCTION/生产人员");
     }
 
     private String csvEscape(String value) {

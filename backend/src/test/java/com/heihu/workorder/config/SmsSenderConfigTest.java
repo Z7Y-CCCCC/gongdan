@@ -36,6 +36,15 @@ class SmsSenderConfigTest {
     }
 
     @Test
+    void logSenderIsRejectedWhenProdIsTheDefaultProfile() {
+        SmsSenderProperties properties = new SmsSenderProperties();
+        properties.setSender("log");
+        MockEnvironment environment = new MockEnvironment();
+        environment.setDefaultProfiles("prod");
+        assertThrows(IllegalStateException.class, () -> config.smsSender(properties, environment));
+    }
+
+    @Test
     void httpSenderRequiresUrl() {
         SmsSenderProperties properties = new SmsSenderProperties();
         properties.setSender("http");

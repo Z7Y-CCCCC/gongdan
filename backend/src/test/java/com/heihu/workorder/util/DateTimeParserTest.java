@@ -37,4 +37,12 @@ class DateTimeParserTest {
     void rejectsInvalidDateTimeWithClientError() {
         assertThrows(IllegalArgumentException.class, () -> DateTimeParser.parse("2026/07/22 09:30"));
     }
+
+    @Test
+    void rejectsImpossibleDatesInsteadOfSilentlyChangingTheDay() {
+        assertThrows(IllegalArgumentException.class, () -> DateTimeParser.parse("2026-02-30 09:30:00"));
+        assertThrows(IllegalArgumentException.class, () -> DateTimeParser.parse("2026-02-29 09:30"));
+        assertThrows(IllegalArgumentException.class, () -> DateTimeParser.parse("2026-07-22 24:00:00"));
+        assertEquals(LocalDateTime.of(2024, 2, 29, 9, 30), DateTimeParser.parse("2024-02-29 09:30"));
+    }
 }

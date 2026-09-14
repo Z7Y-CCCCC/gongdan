@@ -92,7 +92,7 @@ class MobileAuthServiceTest {
         Factory factory = factory(1L, "HHGD");
         FactoryUser user = user(10L, factory);
         when(factoryRepository.findByCode("HHGD")).thenReturn(Optional.of(factory));
-        when(userRepository.findByFactoryIdAndUsername(1L, "worker")).thenReturn(Optional.of(user));
+        when(userRepository.findByFactoryIdAndUsernameForUpdate(1L, "worker")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("bad", "hashed")).thenReturn(false);
 
         MobileBindRequest bindRequest = bindRequest(login.getOpenidTicket(), "bad");
@@ -115,7 +115,7 @@ class MobileAuthServiceTest {
         Factory factory = factory(1L, "HHGD");
         FactoryUser user = user(10L, factory);
         when(factoryRepository.findByCode("HHGD")).thenReturn(Optional.of(factory));
-        when(userRepository.findByFactoryIdAndUsername(1L, "worker")).thenReturn(Optional.of(user));
+        when(userRepository.findByFactoryIdAndUsernameForUpdate(1L, "worker")).thenReturn(Optional.of(user));
         when(passwordEncoder.matches("bad", "hashed")).thenReturn(false);
         when(passwordEncoder.matches("secret", "hashed")).thenReturn(true);
         when(userRepository.findByWechatOpenid("MOCK_OPENID_RETRY")).thenReturn(Optional.empty());

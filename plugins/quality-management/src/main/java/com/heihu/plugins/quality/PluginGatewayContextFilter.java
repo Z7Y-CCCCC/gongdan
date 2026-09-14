@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 @Component
 public class PluginGatewayContextFilter extends OncePerRequestFilter {
@@ -34,7 +35,9 @@ public class PluginGatewayContextFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/api/plugin/");
+        // Match the same decoded, matrix-parameter-free path that Spring MVC routes.
+        String path = UrlPathHelper.defaultInstance.getPathWithinApplication(request);
+        return !(path.equals("/api/plugin") || path.startsWith("/api/plugin/"));
     }
 
     @Override
@@ -49,9 +52,10 @@ public class PluginGatewayContextFilter extends OncePerRequestFilter {
             return;
         }
         if (!PLUGIN_KEY.equals(request.getHeader("X-Plugin-Key"))
-                || !isNumeric(request.getHeader("X-Plugin-Factory-Id"))
-                || !isNumeric(request.getHeader("X-Plugin-User-Id"))
-                || !StringUtils.hasText(request.getHeader("X-Plugin-Role"))
+                || !isPositiveId(request.getHeader("X-Plugin-Factory-Id"))
+                || !isPositiveId(request.getHeader("X-Plugin-User-Id"))
+                || !("ADMIN".equals(request.getHeader("X-Plugin-Role"))
+                        || "PRODUCTION".equals(request.getHeader("X-Plugin-Role")))
                 || !isValidGatewaySignature(request, requestBody)) {
             writeError(response, HttpServletResponse.SC_FORBIDDEN, "必须通过工单系统插件网关访问");
             return;
@@ -75,9 +79,10 @@ public class PluginGatewayContextFilter extends OncePerRequestFilter {
             String canonical = String.join("\n", request.getMethod(), path, PLUGIN_KEY,
                     request.getHeader("X-Plugin-Version") == null ? "" : request.getHeader("X-Plugin-Version"),
                     request.getHeader("X-Plugin-Factory-Id"), request.getHeader("X-Plugin-User-Id"),
-                    request.getHeader("X-Plugin-Role"), timestamp, bodyHash);
+                    request.getHeader("X-Plugin-Role"), timestamp, bodyHash,
+                    request.getHeader("X-Plugin-Config-Base64") == null ? "" : request.getHeader("X-Plugin-Config-Base64"));
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(gatewaySecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            mac.init(new SecretKeySpec(gatewaySecret.trim().getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
             byte[] expected = mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8));
             return java.security.MessageDigest.isEqual(expected, hexToBytes(signature));
         } catch (Exception ex) {
@@ -103,6 +108,15 @@ public class PluginGatewayContextFilter extends OncePerRequestFilter {
             result[i / 2] = (byte) ((high << 4) + low);
         }
         return result;
+    }
+
+    private boolean isPositiveId(String value) {
+        if (value == null || !value.matches("[1-9][0-9]{0,18}")) return false;
+        try {
+            return Long.parseLong(value) > 0;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
     private byte[] readBody(HttpServletRequest request) throws IOException {

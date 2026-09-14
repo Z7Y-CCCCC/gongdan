@@ -5,6 +5,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'backend-process.ps1')
 
 if (-not $EnvFile) {
     $EnvFile = Join-Path $ReleaseRoot "config\gongdan.env"
@@ -14,14 +15,9 @@ function Import-DotEnv([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) {
         throw "Missing config file: $Path"
     }
-    foreach ($line in Get-Content -LiteralPath $Path -Encoding UTF8) {
-        $trimmed = $line.Trim()
-        if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
-        $separator = $trimmed.IndexOf("=")
-        if ($separator -lt 1) { continue }
-        $name = $trimmed.Substring(0, $separator).Trim()
-        $value = $trimmed.Substring($separator + 1).Trim()
-        [Environment]::SetEnvironmentVariable($name, $value, "Process")
+    $values = ConvertFrom-BackendDotEnv (Get-Content -LiteralPath $Path -Encoding UTF8)
+    foreach ($name in $values.Keys) {
+        [Environment]::SetEnvironmentVariable($name, $values[$name], "Process")
     }
 }
 
@@ -51,7 +47,7 @@ New-Item -ItemType Directory -Path $runtimeDir, $logDir -Force | Out-Null
 
 if (Test-Path -LiteralPath $pidFile) {
     $existingPid = [int](Get-Content -LiteralPath $pidFile -Raw)
-    if (Get-Process -Id $existingPid -ErrorAction SilentlyContinue) {
+    if (Get-VerifiedBackendProcess $existingPid $jarPath) {
         Write-Host "Backend is already running. PID=$existingPid" -ForegroundColor Yellow
         exit 0
     }

@@ -3,15 +3,15 @@ package com.heihu.workorder.dto;
 public class ProcessCardItemResponse {
     private Long processId;
     private String processName;
-    private int taskCount;
-    private int plannedQuantity;
-    private int goodQuantity;
-    private int defectQuantity;
+    private long taskCount;
+    private long plannedQuantity;
+    private long goodQuantity;
+    private long defectQuantity;
 
     public ProcessCardItemResponse() {
     }
 
-    public ProcessCardItemResponse(Long processId, String processName, int taskCount, int plannedQuantity, int goodQuantity, int defectQuantity) {
+    public ProcessCardItemResponse(Long processId, String processName, long taskCount, long plannedQuantity, long goodQuantity, long defectQuantity) {
         this.processId = processId;
         this.processName = processName;
         this.taskCount = taskCount;
@@ -26,15 +26,15 @@ public class ProcessCardItemResponse {
     public String getProcessName() { return processName; }
     public void setProcessName(String processName) { this.processName = processName; }
 
-    public int getTaskCount() { return taskCount; }
-    public void setTaskCount(int taskCount) { this.taskCount = taskCount; }
+    public long getTaskCount() { return taskCount; }
+    public void setTaskCount(long taskCount) { this.taskCount = taskCount; }
 
-    public int getPlannedQuantity() { return plannedQuantity; }
-    public void setPlannedQuantity(int plannedQuantity) { this.plannedQuantity = plannedQuantity; }
+    public long getPlannedQuantity() { return plannedQuantity; }
+    public void setPlannedQuantity(long plannedQuantity) { this.plannedQuantity = plannedQuantity; }
 
-    public int getGoodQuantity() { return goodQuantity; }
-    public void setGoodQuantity(int goodQuantity) { this.goodQuantity = goodQuantity; }
+    public long getGoodQuantity() { return goodQuantity; }
+    public void setGoodQuantity(long goodQuantity) { this.goodQuantity = goodQuantity; }
 
-    public int getDefectQuantity() { return defectQuantity; }
-    public void setDefectQuantity(int defectQuantity) { this.defectQuantity = defectQuantity; }
+    public long getDefectQuantity() { return defectQuantity; }
+    public void setDefectQuantity(long defectQuantity) { this.defectQuantity = defectQuantity; }
 }

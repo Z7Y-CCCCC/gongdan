@@ -12,6 +12,7 @@ public class ProductRequest {
     private String minStock;
     private String safetyStock;
     private Integer inventoryQty;
+    private Long version;
     private String costPrice;
     private String salePrice;
     private Boolean keyPart;
@@ -43,6 +44,8 @@ public class ProductRequest {
     public void setSafetyStock(String safetyStock) { this.safetyStock = safetyStock; }
     public Integer getInventoryQty() { return inventoryQty; }
     public void setInventoryQty(Integer inventoryQty) { this.inventoryQty = inventoryQty; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
     public String getCostPrice() { return costPrice; }
     public void setCostPrice(String costPrice) { this.costPrice = costPrice; }
     public String getSalePrice() { return salePrice; }

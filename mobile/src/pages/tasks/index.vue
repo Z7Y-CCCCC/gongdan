@@ -5,6 +5,8 @@
       <text class="subtitle">共 {{ tasks.length }} 项待处理工序</text>
     </view>
 
+    <ListLimitNotice :total="orderTotal" :loaded="loadedOrders" label="工单" />
+
     <view v-if="loading" class="state">
       <text>加载中...</text>
     </view>
@@ -45,9 +47,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { ensureLogin, fetchWorkOrders } from '../../services/api'
+import { ensureLogin, fetchWorkOrders, fetchWorkOrderReporters } from '../../services/api'
 import type { WorkOrderInfo, WorkOrderTask } from '../../types/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
+import ListLimitNotice from '../../components/ListLimitNotice.vue'
+import { canReportTask } from '../../utils/report-permission'
 
 interface TaskCard {
   id: string
@@ -65,7 +69,10 @@ interface TaskCard {
 
 const tasks = ref<TaskCard[]>([])
 const loading = ref(false)
+const orderTotal = ref(0)
+const loadedOrders = ref(0)
 const errorMessage = ref('')
+let checkingPermission = false
 
 onShow(() => {
   if (!ensureLogin()) return
@@ -78,15 +85,20 @@ onMounted(() => {
 })
 
 async function loadTasks() {
+  if (loading.value) return
   loading.value = true
   errorMessage.value = ''
   try {
     const res = await fetchWorkOrders()
+    orderTotal.value = res.total
+    loadedOrders.value = res.items.length
     tasks.value = (res.items || [])
       .flatMap(order => buildTaskCards(order))
       .sort((a, b) => a.workOrderCode.localeCompare(b.workOrderCode) || a.sequenceNo - b.sequenceNo)
   } catch (e: any) {
     tasks.value = []
+    orderTotal.value = 0
+    loadedOrders.value = 0
     errorMessage.value = e.message || '加载任务失败'
   } finally {
     loading.value = false
@@ -128,28 +140,25 @@ function buildTaskCards(order: WorkOrderInfo): TaskCard[] {
 }
 
 function isFinishedOrder(order: WorkOrderInfo) {
-  return ['COMPLETED', 'FINISHED', 'CLOSED', 'CANCELED'].includes(order.status)
+  return !['NOT_STARTED', 'EXECUTING', 'IN_PROGRESS'].includes(order.status)
 }
 
 function hasReportPermission(task: WorkOrderTask) {
-  const permission = task.reportPermission
-  if (!permission || permission === '所有人' || permission === 'ALL') {
-    return true
-  }
-  const user = uni.getStorageSync('user')
-  if (!user) return false
-  const allowed = permission.split(',').map(item => item.trim())
-  return allowed.includes(user.name) ||
-    allowed.includes(user.username) ||
-    allowed.includes(String(user.id)) ||
-    allowed.includes(user.role) ||
-    allowed.includes(user.roleLabel) ||
-    allowed.includes(user.departmentName) ||
-    task.assignee === user.name ||
-    task.assignee === user.username
+  return canReportTask(task, uni.getStorageSync('user'))
 }
 
-function handleTask(task: TaskCard) {
+async function handleTask(task: TaskCard) {
+  if (checkingPermission || !ensureLogin()) return
+  checkingPermission = true
+  try {
+    const users = await fetchWorkOrderReporters(task.workOrderId, task.sequenceNo)
+    if (!users.some(user => user.id === uni.getStorageSync('user')?.id)) throw new Error('您没有此工序的报工权限')
+  } catch (e: any) {
+    uni.showToast({ title: e.message || '报工权限确认失败，请重试', icon: 'none' })
+    return
+  } finally {
+    checkingPermission = false
+  }
   const url = `/pages/report-form/index?orderId=${task.workOrderId}&processNo=${task.sequenceNo}&processName=${encodeURIComponent(task.processName)}&plannedQty=${task.plannedQuantity}&completedQty=${task.completedQuantity}&defectQty=${task.defectQuantity}&reportPermission=${encodeURIComponent(task.reportPermission || '')}`
   if (typeof window !== 'undefined' && window.location) {
     window.location.hash = `#${url}`

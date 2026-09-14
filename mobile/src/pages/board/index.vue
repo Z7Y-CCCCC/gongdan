@@ -1,5 +1,7 @@
 <template>
   <view class="container">
+    <ListLimitNotice :total="orderTotal" :loaded="workOrders.length" label="工单" />
+    <ListLimitNotice :total="reportTotal" :loaded="reports.length" label="个人报工" />
     <view class="summary-card">
       <view class="card-head">
         <view>
@@ -21,11 +23,11 @@
         </view>
         <view class="stat-item">
           <text class="stat-value green">{{ todayReportCount }}</text>
-          <text class="stat-label">今日报工</text>
+          <text class="stat-label">我的今日报工</text>
         </view>
         <view class="stat-item">
           <text class="stat-value orange">{{ pendingReportCount }}</text>
-          <text class="stat-label">待审批</text>
+          <text class="stat-label">我的待审批</text>
         </view>
       </view>
     </view>
@@ -53,7 +55,7 @@
 
     <view class="section">
       <view class="section-head">
-        <text class="section-title">报工排行</text>
+        <text class="section-title">我的工序产出</text>
         <text class="section-sub">不良 {{ totalDefect }}</text>
       </view>
       <view v-if="rankings.length === 0 && !loading" class="empty">暂无报工记录</view>
@@ -82,10 +84,13 @@ import { onShow } from '@dcloudio/uni-app'
 import { ensureLogin, fetchReports, fetchWorkOrders } from '../../services/api'
 import type { WorkOrderInfo, WorkOrderReport } from '../../types/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
+import ListLimitNotice from '../../components/ListLimitNotice.vue'
 
 const loading = ref(false)
 const workOrders = ref<WorkOrderInfo[]>([])
 const reports = ref<WorkOrderReport[]>([])
+const orderTotal = ref(0)
+const reportTotal = ref(0)
 
 const todayKey = computed(() => {
   const now = new Date()
@@ -95,17 +100,13 @@ const todayKey = computed(() => {
 
 const totalPlanned = computed(() => workOrders.value.reduce((sum, item) => sum + (item.plannedQuantity || 0), 0))
 const approvedReports = computed(() => reports.value.filter(item => item.status === 'APPROVED'))
-const totalGood = computed(() => {
-  const orderGood = workOrders.value.reduce((sum, item) => sum + (item.goodQuantity || 0), 0)
-  const reportGood = approvedReports.value.reduce((sum, item) => sum + (item.goodQuantity || 0), 0)
-  return Math.max(orderGood, reportGood)
-})
+const totalGood = computed(() => workOrders.value.reduce((sum, item) => sum + (item.goodQuantity || 0), 0))
 const totalDefect = computed(() => approvedReports.value.reduce((sum, item) => sum + (item.defectQuantity || 0), 0))
 const achievementRate = computed(() => {
   if (!totalPlanned.value) return 0
   return Math.min(100, Math.round((totalGood.value / totalPlanned.value) * 100))
 })
-const activeOrderCount = computed(() => workOrders.value.filter(item => !['FINISHED', 'CLOSED', 'CANCELED'].includes(item.status)).length)
+const activeOrderCount = computed(() => workOrders.value.filter(item => !['COMPLETED', 'FINISHED', 'CLOSED', 'CANCELED'].includes(item.status)).length)
 const pendingReportCount = computed(() => reports.value.filter(item => item.status === 'PENDING').length)
 const todayReportCount = computed(() => reports.value.filter(item => (item.createdAt || '').startsWith(todayKey.value)).length)
 
@@ -124,7 +125,7 @@ const orderRows = computed(() => {
 const rankings = computed(() => {
   const grouped = new Map<string, number>()
   for (const report of approvedReports.value) {
-    const name = report.reporterName || '未命名人员'
+    const name = report.processName || '未命名工序'
     grouped.set(name, (grouped.get(name) || 0) + (report.goodQuantity || 0))
   }
   const rows = Array.from(grouped.entries())
@@ -142,6 +143,7 @@ function statusLabel(status: string) {
   return {
     NOT_STARTED: '未开始',
     EXECUTING: '执行中',
+    IN_PROGRESS: '执行中',
     PAUSED: '已暂停',
     COMPLETED: '已完成',
     FINISHED: '已结束',
@@ -151,6 +153,7 @@ function statusLabel(status: string) {
 }
 
 async function loadBoard() {
+  if (loading.value) return
   if (!ensureLogin()) return
   loading.value = true
   try {
@@ -160,10 +163,14 @@ async function loadBoard() {
     ])
     workOrders.value = ordersRes.items || []
     reports.value = reportsRes.items || []
+    orderTotal.value = ordersRes.total
+    reportTotal.value = reportsRes.total
   } catch (e: any) {
     uni.showToast({ title: e.message || '看板加载失败', icon: 'none' })
     workOrders.value = []
     reports.value = []
+    orderTotal.value = 0
+    reportTotal.value = 0
   } finally {
     loading.value = false
   }

@@ -8,11 +8,16 @@ import {
   fetchCustomFields,
   fetchCustomFieldAttachmentBlob,
   fetchReportImageBlob,
+  uploadCustomFieldAttachment,
   type InboundReceiptInfo,
   type InboundReceiptItemPayload,
   type ProductInfo
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
+import { resolveInventoryTimeRange } from '../utils/inventoryTimeRange'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
 import ColumnSettingsPanel, { type ColumnSetting } from '@/components/ColumnSettingsPanel.vue'
@@ -30,6 +35,9 @@ const totalReceipts = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
+const saving = ref(false)
+const beginReceiptsLoad = useLatestRequest()
+const beginProductsLoad = useLatestRequest()
 
 const startTimeFocused = ref(false)
 const endTimeFocused = ref(false)
@@ -124,7 +132,7 @@ const inboundPrintTemplate = reactive({
 // ===== Computed =====
 const visibleColumns = computed(() => columns.value.filter(c => c.visible))
 const visibleItemColumns = computed(() => itemColumns.value.filter(c => c.visible))
-const totalPages = computed(() => Math.ceil(totalReceipts.value / pageSize.value))
+const totalPages = computed(() => Math.max(1, Math.ceil(totalReceipts.value / pageSize.value)))
 
 function inboundColumnStyle(column: ReceiptTableColumn, header = false): CSSProperties {
   const currentIndex = visibleColumns.value.findIndex(item => item.key === column.key)
@@ -278,31 +286,37 @@ function getItemCustomValueObj(item: any, fieldId: number | undefined) {
 }
 
 async function loadReceipts() {
+  const isCurrent = beginReceiptsLoad()
   loading.value = true
   try {
     const res = await fetchInboundReceipts(props.token, {
       code: filterForm.code || undefined,
       inboundType: filterForm.inboundType || undefined,
-      startTime: filterForm.startTime || undefined,
-      endTime: filterForm.endTime || undefined,
+      ...resolveInventoryTimeRange(filterForm),
       page: currentPage.value,
       size: pageSize.value
     })
+    if (!isCurrent()) return
     receipts.value = res.items
     totalReceipts.value = res.total
+    if (currentPage.value > totalPages.value) {
+      currentPage.value = totalPages.value
+      await loadReceipts()
+    }
   } catch (e: any) {
-    emit('notice', e.message || '加载入库单失败')
+    if (isCurrent()) emit('notice', e.message || '加载入库单失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
 async function loadProducts() {
+  const isCurrent = beginProductsLoad()
   try {
-    const res = await fetchProducts(props.token, { size: 1000 })
-    products.value = res.items
+    const res = await fetchAllPages(params => fetchProducts(props.token, params), 500, isCurrent)
+    if (isCurrent()) products.value = res.items
   } catch (e: any) {
-    // silent
+    if (isCurrent()) emit('notice', e.message || '加载产品失败')
   }
 }
 
@@ -355,8 +369,8 @@ function confirmAddProduct() {
     emit('notice', '请选择产品')
     return
   }
-  if (addProductForm.quantity <= 0) {
-    emit('notice', '入库数量必须大于0')
+  if (!Number.isInteger(addProductForm.quantity) || addProductForm.quantity <= 0) {
+    emit('notice', '入库数量必须为大于 0 的整数')
     return
   }
   const product = products.value.find(p => p.id === addProductForm.productId)
@@ -396,6 +410,7 @@ function removeItem(index: number) {
 }
 
 async function handleSave() {
+  if (saving.value) return
   if (!createForm.inboundType) {
     emit('notice', '请选择入库类型')
     return
@@ -408,8 +423,12 @@ async function handleSave() {
     emit('notice', '请至少添加一个产品')
     return
   }
+  if (formItems.value.some(item => !Number.isInteger(item.quantity) || item.quantity <= 0)) {
+    emit('notice', '入库数量必须为大于 0 的整数')
+    return
+  }
 
-  loading.value = true
+  saving.value = true
   try {
     await createInboundReceipt(props.token, {
       code: createForm.code || undefined,
@@ -435,11 +454,12 @@ async function handleSave() {
     })
     emit('notice', '入库单创建成功')
     view.value = 'list'
-    loadReceipts()
+    currentPage.value = 1
+    await loadReceipts()
   } catch (e: any) {
     emit('notice', e.message || '创建失败')
   } finally {
-    loading.value = false
+    saving.value = false
   }
 }
 
@@ -509,23 +529,8 @@ function saveInboundPrintTemplate() {
 }
 
 function handleTimeRangeChange() {
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  if (filterForm.timeRange === 'today') {
-    filterForm.startTime = formatDateTime(today)
-    filterForm.endTime = formatDateTime(new Date(today.getTime() + 86400000 - 1))
-  } else if (filterForm.timeRange === 'week') {
-    const weekStart = new Date(today.getTime() - today.getDay() * 86400000)
-    filterForm.startTime = formatDateTime(weekStart)
-    filterForm.endTime = formatDateTime(now)
-  } else if (filterForm.timeRange === 'month') {
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    filterForm.startTime = formatDateTime(monthStart)
-    filterForm.endTime = formatDateTime(now)
-  } else {
-    filterForm.startTime = ''
-    filterForm.endTime = ''
-  }
+  filterForm.startTime = ''
+  filterForm.endTime = ''
 }
 
 const uploadingFieldId = ref<number | null>(null)
@@ -546,24 +551,7 @@ async function handleCustomFieldUpload(field: any, event: Event, customValueObj:
     formData.append('fieldId', String(field.id))
     formData.append('fieldType', field.fieldType)
     
-    const response = await fetch('/api/custom-field-attachments', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${props.token}`
-      },
-      body: formData
-    })
-    
-    if (!response.ok) {
-      let msg = '上传失败'
-      try {
-        const body = await response.json()
-        msg = body.message || msg
-      } catch {}
-      throw new Error(msg)
-    }
-    
-    const data = await response.json()
+    const data = await uploadCustomFieldAttachment(props.token, formData)
     const currentVal = String(customValueObj.value || '')
     const newPath = data.accessPath
     customFieldPreviewUrls.value[newPath] = URL.createObjectURL(file)
@@ -633,6 +621,12 @@ async function loadProtectedCustomFieldPreview(path: string) {
     loadingCustomFieldPreviews.delete(path)
   }
 }
+
+useRefreshOnActivated(() => {
+  void loadReceipts()
+  void loadProducts()
+  void loadCustomFieldConfigs()
+})
 
 onMounted(() => {
   loadInboundPrintTemplate()
@@ -1088,7 +1082,7 @@ onBeforeUnmount(() => {
 
       <div style="margin-top:24px;display:flex;gap:12px;align-items:center">
         <button class="btn-cancel" type="button" @click="cancelCreate">取消</button>
-        <button class="btn-save" type="button" @click="handleSave" :disabled="loading">保存</button>
+        <button class="btn-save" type="button" @click="handleSave" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
       </div>
     </template>
 

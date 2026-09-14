@@ -20,6 +20,9 @@ import {
   type ProductCategoryInfo
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 import TableConfigButton from './TableConfigButton.vue'
@@ -36,6 +39,8 @@ const units = ref<UnitInfo[]>([])
 const routes = ref<ProcessRouteInfo[]>([])
 const view = ref<'list' | 'form'>('list')
 const editingProduct = ref<ProductInfo | null>(null)
+const saving = ref(false)
+const beginLoad = useLatestRequest()
 const logs = ref<string[]>([])
 const showLogs = ref(false)
 const filter = reactive({ code: '', name: '', spec: '' })
@@ -205,21 +210,22 @@ function resetForm() {
 }
 
 async function loadData() {
-  const [productRes, unitRes, routeRes, categoryRes] = await Promise.all([
-    fetchProducts(props.token, { size: 500 }),
-    fetchUnits(props.token, { size: 500 }),
-    fetchProcessRoutes(props.token, { size: 500 }),
-    fetchProductCategories(props.token)
-  ])
-  products.value = productRes.items
-  units.value = unitRes.items
-  routes.value = routeRes.items
-  categories.value = categoryRes
-  
+  const isCurrent = beginLoad()
   try {
+    const [productRes, unitRes, routeRes, categoryRes] = await Promise.all([
+      fetchAllPages(params => fetchProducts(props.token, params), 500, isCurrent),
+      fetchAllPages(params => fetchUnits(props.token, params), 500, isCurrent),
+      fetchAllPages(params => fetchProcessRoutes(props.token, params), 500, isCurrent),
+      fetchProductCategories(props.token)
+    ])
+    if (!isCurrent()) return
+    products.value = productRes.items
+    units.value = unitRes.items
+    routes.value = routeRes.items
+    categories.value = categoryRes
     await refreshProductImportLogs()
-  } catch (e) {
-    // ignore
+  } catch (e: any) {
+    if (isCurrent()) emit('notice', e.message || '加载产品失败')
   }
 }
 
@@ -263,8 +269,17 @@ function copyProduct(item: ProductInfo) {
 }
 
 async function saveProduct() {
+  if (saving.value) return
+  if (!form.name.trim()) {
+    emit('notice', '请输入产品名称')
+    return
+  }
   if (!form.unitId) {
     emit('notice', '请选择库存单位')
+    return
+  }
+  if (!Number.isInteger(Number(form.inventoryQty)) || Number(form.inventoryQty) < 0) {
+    emit('notice', '库存数量必须为大于或等于 0 的整数')
     return
   }
   const payload: ProductPayload = {
@@ -275,7 +290,9 @@ async function saveProduct() {
     attribute: form.attribute,
     routeId: form.routeId ? Number(form.routeId) : null,
     supplierName: form.supplierName || undefined,
-    inventoryQty: Number(form.inventoryQty || 0),
+    inventoryQty: editingProduct.value && Number(form.inventoryQty) === editingProduct.value.inventoryQty
+      ? undefined : Number(form.inventoryQty),
+    version: editingProduct.value?.version,
     maxStock: form.maxStock || undefined,
     minStock: form.minStock || undefined,
     safetyStock: form.safetyStock || undefined,
@@ -288,15 +305,22 @@ async function saveProduct() {
     customerName: form.customerName || undefined,
     productType: form.productType || undefined
   }
-  if (editingProduct.value) {
-    await updateProduct(props.token, editingProduct.value.id, payload)
-    emit('notice', '产品已更新')
-  } else {
-    await createProduct(props.token, payload)
-    emit('notice', '产品已创建')
+  saving.value = true
+  try {
+    if (editingProduct.value) {
+      await updateProduct(props.token, editingProduct.value.id, payload)
+      emit('notice', '产品已更新')
+    } else {
+      await createProduct(props.token, payload)
+      emit('notice', '产品已创建')
+    }
+    view.value = 'list'
+    await loadData()
+  } catch (e: any) {
+    emit('notice', e.message || '保存产品失败')
+  } finally {
+    saving.value = false
   }
-  view.value = 'list'
-  await loadData()
 }
 
 async function removeProduct(item: ProductInfo) {
@@ -601,6 +625,7 @@ async function handleImportProducts(event: Event) {
   reader.readAsText(file, 'utf-8')
 }
 
+useRefreshOnActivated(loadData)
 onMounted(loadData)
 </script>
 
@@ -842,7 +867,7 @@ onMounted(loadData)
         </div>
         <div class="form-bottom-bar">
           <button class="ghost-btn wide" type="button" @click="view = 'list'">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveProduct">保存</button>
+          <button class="primary-btn wide" type="button" @click="saveProduct" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
         </div>
       </div>
     </template>

@@ -13,12 +13,14 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import javax.servlet.http.HttpServletRequest;
 
@@ -60,10 +62,12 @@ public class TokenService {
         this.userRepository = userRepository;
     }
 
+    @Transactional
     public String issue(FactoryUser user) {
         return issue(user, null, null, null, null);
     }
 
+    @Transactional
     public String issue(FactoryUser user, String ipAddress, String loginLocation, String operatingSystem, String browser) {
         cleanupExpiredSessions();
         String token = UUID.randomUUID().toString().replace("-", "");
@@ -71,6 +75,7 @@ public class TokenService {
             if (userRepository != null && user.getId() != null) {
                 user = userRepository.findByIdForUpdate(user.getId())
                         .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "用户不存在或已被删除"));
+                requireEnabledUser(user);
             }
             if (user.getId() != null) {
                 sessionRepository.kickActiveSessions(user.getId());
@@ -135,18 +140,11 @@ public class TokenService {
     public void refreshSessionMetadata(String authorization, HttpServletRequest request) {
         if (sessionRepository == null || request == null) return;
         String token = extractToken(authorization);
-        sessionRepository.findByTokenHash(hashToken(token)).ifPresent(session -> {
-            String forwardedAddress = request.getHeader("X-Forwarded-For");
-            String remoteAddress = StringUtils.hasText(forwardedAddress)
-                    ? forwardedAddress.split(",")[0].trim()
-                    : request.getRemoteAddr();
-            String userAgent = request.getHeader("User-Agent");
-            session.setIpAddress(StringUtils.hasText(remoteAddress) ? remoteAddress : "-");
-            session.setLoginLocation("\u5185\u7f51IP");
-            session.setOperatingSystem(detectOperatingSystem(userAgent));
-            session.setBrowser(detectBrowser(userAgent));
-            sessionRepository.save(session);
-        });
+        String remoteAddress = request.getRemoteAddr();
+        String userAgent = request.getHeader("User-Agent");
+        // Update only metadata: merging a previously read session can undo a concurrent kick.
+        sessionRepository.updateMetadata(hashToken(token), StringUtils.hasText(remoteAddress) ? remoteAddress : "-",
+                "\u5185\u7f51IP", detectOperatingSystem(userAgent), detectBrowser(userAgent), Instant.now());
     }
 
     public AuthenticatedUser requireUser(String authorization) {
@@ -162,7 +160,22 @@ public class TokenService {
                 sessionRepository.delete(session);
                 throw new ApiException(HttpStatus.UNAUTHORIZED, "\u60a8\u7684\u8d26\u53f7\u5df2\u5728\u5176\u4ed6\u5730\u65b9\u767b\u5f55\uff0c\u60a8\u5df2\u88ab\u6324\u4e0b\u7ebf");
             }
+            FactoryUser liveUser = null;
+            if (userRepository != null) {
+                liveUser = userRepository.findByIdWithFactory(session.getUserId()).orElse(null);
+                if (liveUser == null || !liveUser.isEnabled() || liveUser.getFactory() == null
+                        || !liveUser.getFactory().isEnabled()
+                        || !Objects.equals(session.getFactoryId(), liveUser.getFactory().getId())) {
+                    sessionRepository.delete(session);
+                    throw new ApiException(HttpStatus.UNAUTHORIZED, "账号或工厂已停用，或用户已不存在，请重新登录");
+                }
+            }
             touchSession(session);
+            if (liveUser != null) {
+                // Authorization must use current permissions, not the snapshot taken at login.
+                return new AuthenticatedUser(liveUser.getId(), liveUser.getFactory().getId(),
+                        liveUser.getFactory().getCode(), liveUser.getRole(), liveUser.getName());
+            }
             return new AuthenticatedUser(
                     session.getUserId(),
                     session.getFactoryId(),
@@ -191,8 +204,13 @@ public class TokenService {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime lastActiveAt = session.getLastActiveAt();
         if (lastActiveAt == null || lastActiveAt.plusSeconds(30).isBefore(now)) {
-            session.setLastActiveAt(now);
-            sessionRepository.save(session);
+            sessionRepository.updateLastActiveAt(session.getId(), now, Instant.now());
+        }
+    }
+
+    private void requireEnabledUser(FactoryUser user) {
+        if (!user.isEnabled() || user.getFactory() == null || !user.getFactory().isEnabled()) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "账号或工厂已停用，无法登录");
         }
     }
 

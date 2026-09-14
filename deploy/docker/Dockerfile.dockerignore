@@ -1,0 +1,18 @@
+# The combined build needs only these two source trees, never databases,
+# local credentials, release bundles, browser sessions or workspace screenshots.
+**
+!frontend/
+!frontend/**
+!mobile/
+!mobile/**
+!deploy/
+!deploy/docker/
+!deploy/docker/Dockerfile
+**/node_modules/
+**/dist/
+**/output/
+**/.playwright-cli/
+**/.playwright-mcp/
+**/.env
+**/.env.*
+**/*.log

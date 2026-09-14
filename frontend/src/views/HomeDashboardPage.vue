@@ -174,6 +174,7 @@ function handleViewWorkOrder(workOrderId: number) {
 /* Main Content */
 .home-content {
   flex: 1;
+  min-width: 0;
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
@@ -182,6 +183,7 @@ function handleViewWorkOrder(workOrderId: number) {
 
 /* Section cards */
 .home-section {
+  min-width: 0;
   background: #fff;
   border-radius: 8px;
   padding: 20px;
@@ -196,7 +198,8 @@ function handleViewWorkOrder(workOrderId: number) {
 /* Bottom Grid: responsive layout */
 .home-bottom-grid {
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  min-width: 0;
   gap: 20px;
   flex: 1;
 }
@@ -204,14 +207,15 @@ function handleViewWorkOrder(workOrderId: number) {
 /* Right column stacks performance + broadcast */
 .home-right-column {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 20px;
 }
 
-/* Responsive: < 1280px stack vertically */
-@media (max-width: 1279px) {
+/* Allow for the sidebar and card padding before retaining the wide-screen two-column layout. */
+@media (max-width: 1439px) {
   .home-bottom-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .home-right-column {

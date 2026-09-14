@@ -1,6 +1,40 @@
-import { handleKickedOut } from './composables/useAuth'
+import { handleUnauthorizedSession, useAuth } from './composables/useAuth'
 
 export type Role = 'ADMIN' | 'PRODUCTION'
+
+export interface ExternalSourceConfig {
+  code: string; name: string; description: string; kind: 'HTTP' | 'DATABASE'
+  driver: 'MYSQL' | 'POSTGRESQL' | 'SQLSERVER' | 'SQLITE'
+  baseUrl: string; healthPath: string; authType: 'NONE' | 'API_KEY' | 'BEARER' | 'BASIC'
+  headerName: string; username: string; host: string; port: number; database: string; schema: string
+  fileId: string; tls: boolean; timeoutSeconds: number
+  secretAction: 'KEEP' | 'REPLACE' | 'CLEAR'; secretValue: string; version?: number; sourceId?: number
+}
+export interface ExternalSourceCheck {
+  id?: number; configVersion?: number; status: string; errorCode?: string; message: string
+  httpStatus?: number; durationMs?: number; startedAt: string; finishedAt?: string; traceId: string
+}
+export interface ExternalSourceInfo {
+  id: number; version: number; enabled: boolean; archived: boolean; config: ExternalSourceConfig
+  secretConfigured: boolean; health: string; lastCheck?: ExternalSourceCheck; updatedAt: string
+}
+export interface ExternalSchemaResult {
+  items: Array<{ schema?: string; table?: string; column?: string; type: string; nullable?: boolean; primaryKey?: boolean }>
+  hasMore: boolean; message: string
+}
+export interface ExternalSourceCapabilities {
+  secretsReady: boolean; sqliteFiles: string[]; databaseDrivers: string[]; pendingDatabaseDrivers?: string[]
+}
+export const externalSources = {
+  list: (token: string, page = 0, archived = false) => request<{ items: ExternalSourceInfo[]; total: number; hasMore: boolean }>(`/external-data-sources?page=${page}&archived=${archived}`, { headers: { Authorization: `Bearer ${token}` } }),
+  capabilities: (token: string) => request<ExternalSourceCapabilities>('/external-data-sources/capabilities', { headers: { Authorization: `Bearer ${token}` } }),
+  save: (token: string, config: ExternalSourceConfig, id?: number) => request<ExternalSourceInfo>(`/external-data-sources${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(config) }),
+  test: (token: string, id: number) => request<ExternalSourceCheck>(`/external-data-sources/${id}/test`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }),
+  testDraft: (token: string, config: ExternalSourceConfig) => request<ExternalSourceCheck>('/external-data-sources/test-config', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(config) }),
+  action: (token: string, source: ExternalSourceInfo, action: 'enable' | 'disable' | 'archive' | 'restore') => request<ExternalSourceInfo>(`/external-data-sources/${source.id}/${action}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify({ version: source.version }) }),
+  history: (token: string, id: number, page = 0) => request<{ content: ExternalSourceCheck[]; last: boolean }>(`/external-data-sources/${id}/checks?page=${page}`, { headers: { Authorization: `Bearer ${token}` } }),
+  schema: (token: string, id: number, table = '', page = 0) => request<ExternalSchemaResult>(`/external-data-sources/${id}/schema?table=${encodeURIComponent(table)}&page=${page}`, { headers: { Authorization: `Bearer ${token}` } })
+}
 
 export interface UserInfo {
   id: number
@@ -91,7 +125,19 @@ export interface ResetPasswordResponse {
   temporaryPassword: string
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
+
+export interface AnalyticsConfig {
+  enabled: boolean
+  provider: 'apache-superset' | string
+  supersetDomain?: string
+  dashboardId?: string
+}
+
+export interface AnalyticsGuestToken {
+  token: string
+  expiresInSeconds: number
+}
 
 export class ApiError extends Error {
   status: number
@@ -101,7 +147,32 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+function sessionGuard(options: RequestInit) {
+  const requestToken = new Headers(options.headers).get('Authorization')?.replace(/^Bearer\s+/i, '') || ''
+  const session = useAuth()
+  const belongsToCurrentSession = Boolean(requestToken && requestToken === session.token.value)
+  return () => {
+    if (belongsToCurrentSession && requestToken !== session.token.value) {
+      throw new ApiError('登录状态已变更，请重新加载', 409)
+    }
+  }
+}
+
+export function fetchAnalyticsConfig(token: string) {
+  return request<AnalyticsConfig>('/analytics/config', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export function fetchAnalyticsGuestToken(token: string) {
+  return request<AnalyticsGuestToken>('/analytics/guest-token', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+async function fetchResponse(path: string, options: RequestInit = {}, fallbackMessage = '请求失败，请稍后再试'): Promise<Response> {
+  const assertCurrentSession = sessionGuard(options)
   const method = (options.method || 'GET').toUpperCase()
   let url = `${API_BASE}${path}`
 
@@ -116,40 +187,55 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     }
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
-      'Pragma': 'no-cache',
-      ...(options.headers || {})
-    }
-  })
+  const headers = new Headers(options.headers)
+  if (!(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  headers.set('Cache-Control', 'no-cache')
+  headers.set('Pragma', 'no-cache')
+  const requestToken = headers.get('Authorization')?.replace(/^Bearer\s+/i, '') || ''
+  const response = await fetch(url, { ...options, headers })
+  assertCurrentSession()
 
   if (!response.ok) {
-    let message = '请求失败，请稍后再试'
+    let message = fallbackMessage
     try {
       const body = await response.json()
-      message = body.message || message
+      if (typeof body?.message === 'string' && body.message.trim()) message = body.message
     } catch {
       message = response.statusText || message
     }
-    if (response.status === 401 && message === '您的账号已在其他地方登录，您已被挤下线') {
-      handleKickedOut()
-    }
+    assertCurrentSession()
+    if (response.status === 401) handleUnauthorizedSession(requestToken, message)
     throw new ApiError(message, response.status)
   }
+
+  return response
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const assertCurrentSession = sessionGuard(options)
+  const response = await fetchResponse(path, options)
 
   if (response.status === 204) {
     return undefined as T
   }
 
   const text = await response.text()
-  if (!text) {
+  assertCurrentSession()
+  if (!text.trim()) {
     return undefined as T
   }
 
   return JSON.parse(text) as T
+}
+
+async function requestBlob(path: string, options: RequestInit, fallbackMessage: string) {
+  const assertCurrentSession = sessionGuard(options)
+  const response = await fetchResponse(path, options, fallbackMessage)
+  const blob = await response.blob()
+  assertCurrentSession()
+  return blob
 }
 
 export function login(payload: LoginPayload) {
@@ -410,22 +496,11 @@ export function exportUsersUrl(token: string): string {
 }
 
 export async function exportUsersCsv(token: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/users/export`, {
+  const blob = await requestBlob('/users/export', {
     headers: {
       Authorization: `Bearer ${token}`
     }
-  })
-  if (!response.ok) {
-    let message = '导出失败'
-    try {
-      const body = await response.json()
-      message = body.message || message
-    } catch {
-      message = response.statusText || message
-    }
-    throw new Error(message)
-  }
-  const blob = await response.blob()
+  }, '导出失败')
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -445,26 +520,13 @@ export async function importUsersCsv(token: string, file: File): Promise<ImportR
   const formData = new FormData()
   formData.append('file', file)
 
-  const response = await fetch(`${API_BASE}/users/import`, {
+  return request<ImportResult>('/users/import', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`
     },
     body: formData
   })
-
-  if (!response.ok) {
-    let message = '导入失败'
-    try {
-      const body = await response.json()
-      message = body.message || message
-    } catch {
-      message = response.statusText || message
-    }
-    throw new Error(message)
-  }
-
-  return response.json()
 }
 
 export async function fetchDepartments(token: string, params: { code?: string; name?: string; page?: number; size?: number }) {
@@ -913,6 +975,7 @@ export async function deleteProcessRoute(token: string, id: number) {
 
 // ===== 产品定义 API =====
 export interface ProductPayload {
+  version?: number
   code?: string
   name: string
   unitId: number
@@ -935,6 +998,7 @@ export interface ProductPayload {
 }
 
 export interface ProductInfo {
+  version?: number
   id: number
   code: string
   name: string
@@ -1575,39 +1639,33 @@ export async function fetchReport(token: string, id: number) {
 }
 
 export async function fetchReportImageBlob(token: string, imageId: number) {
-  const response = await fetch(`${API_BASE}/reports/images/${imageId}/file`, {
+  return requestBlob(`/reports/images/${imageId}/file`, {
     headers: { Authorization: `Bearer ${token}` }
-  })
-  if (response.status === 401) {
-    handleKickedOut()
-  }
-  if (!response.ok) {
-    let message = '图片加载失败'
-    try {
-      const data = await response.json()
-      message = data.message || message
-    } catch {}
-    throw new ApiError(message, response.status)
-  }
-  return response.blob()
+  }, '图片加载失败')
 }
 
 export async function fetchCustomFieldAttachmentBlob(token: string, attachmentId: number) {
-  const response = await fetch(`${API_BASE}/custom-field-attachments/${attachmentId}/file`, {
+  return requestBlob(`/custom-field-attachments/${attachmentId}/file`, {
     headers: { Authorization: `Bearer ${token}` }
+  }, '附件加载失败')
+}
+
+export function uploadCustomFieldAttachment(token: string, formData: FormData) {
+  return request<{ accessPath: string }>('/custom-field-attachments', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData
   })
-  if (response.status === 401) {
-    handleKickedOut()
-  }
-  if (!response.ok) {
-    let message = '附件加载失败'
-    try {
-      const data = await response.json()
-      message = data.message || message
-    } catch {}
-    throw new ApiError(message, response.status)
-  }
-  return response.blob()
+}
+
+export async function fetchProductsExportBlob(token: string, params: { code?: string; name?: string; spec?: string } = {}) {
+  const query = new URLSearchParams()
+  if (params.code) query.set('code', params.code)
+  if (params.name) query.set('name', params.name)
+  if (params.spec) query.set('spec', params.spec)
+  return requestBlob(`/products/export?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  }, '导出失败')
 }
 
 export async function approveReport(token: string, id: number, remark = '') {

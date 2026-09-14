@@ -10,6 +10,7 @@ import {
   type UserInfo
 } from '../api'
 import UiIcon from './UiIcon.vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
 
 const props = defineProps<{
   token: string
@@ -31,7 +32,9 @@ const contactsSearch = ref<HTMLInputElement | null>(null)
 const messageList = ref<HTMLElement | null>(null)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let contactsRequest: Promise<void> | null = null
-let messagesRequest: Promise<void> | null = null
+let messagesRequest: { peerId: number; promise: Promise<void> } | null = null
+const beginMessagesLoad = useLatestRequest()
+let disposed = false
 
 const activePeer = computed(() => contacts.value.find(contact => contact.id === activePeerId.value) || null)
 const filteredContacts = computed(() => {
@@ -109,12 +112,13 @@ async function loadContacts() {
   contactsRequest = (async () => {
     loadingContacts.value = contacts.value.length === 0
     try {
-      const previousPeerId = activePeerId.value
-      contacts.value = await fetchInternalChatContacts(props.token)
-      if (previousPeerId && contacts.value.some(contact => contact.id === previousPeerId)) {
-        activePeerId.value = previousPeerId
-      } else if (!activePeerId.value && contacts.value.length > 0) {
-        activePeerId.value = contacts.value[0].id
+      const result = await fetchInternalChatContacts(props.token)
+      if (disposed) return
+      contacts.value = result
+      // Keep the user's current selection, not the selection captured before this request.
+      if (!contacts.value.some(contact => contact.id === activePeerId.value)) {
+        activePeerId.value = contacts.value[0]?.id ?? null
+        messages.value = []
       }
       errorMessage.value = ''
     } catch (error) {
@@ -128,24 +132,33 @@ async function loadContacts() {
 }
 
 async function loadMessages(peerId = activePeerId.value, quiet = false) {
-  if (!props.token || !peerId || messagesRequest) return
-  messagesRequest = (async () => {
+  if (!props.token || !peerId || disposed || peerId !== activePeerId.value) return
+  if (messagesRequest?.peerId === peerId) return messagesRequest.promise
+  const isLatest = beginMessagesLoad()
+  const isCurrent = () => isLatest() && peerId === activePeerId.value && !disposed
+  const promise = (async () => {
     if (!quiet) loadingMessages.value = true
     try {
-      messages.value = await fetchInternalChatMessages(props.token, peerId)
+      const result = await fetchInternalChatMessages(props.token, peerId)
+      if (!isCurrent()) return
+      messages.value = result
       await markInternalChatRead(props.token, peerId)
+      if (!isCurrent()) return
       const contact = contacts.value.find(item => item.id === peerId)
       if (contact) contact.unreadCount = 0
       await scrollToLatest()
       errorMessage.value = ''
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '消息加载失败'
+      if (isCurrent()) errorMessage.value = error instanceof Error ? error.message : '消息加载失败'
     } finally {
-      loadingMessages.value = false
-      messagesRequest = null
+      if (isLatest()) {
+        loadingMessages.value = false
+        messagesRequest = null
+      }
     }
   })()
-  await messagesRequest
+  messagesRequest = { peerId, promise }
+  await promise
 }
 
 function selectContact(contact: InternalChatContactInfo) {
@@ -170,13 +183,18 @@ function togglePresence() {
 }
 
 async function sendMessage() {
-  const content = composer.value.trim()
-  if (!content || !activePeerId.value || sending.value) return
+  const draft = composer.value
+  const content = draft.trim()
+  const peerId = activePeerId.value
+  if (!content || !peerId || sending.value) return
   sending.value = true
   try {
-    await sendInternalChatMessage(props.token, { receiverId: activePeerId.value, content })
-    composer.value = ''
-    await loadMessages(activePeerId.value)
+    await sendInternalChatMessage(props.token, { receiverId: peerId, content })
+    if (disposed) return
+    if (activePeerId.value === peerId) {
+      if (composer.value === draft) composer.value = ''
+      await loadMessages(peerId)
+    }
     await loadContacts()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '消息发送失败'
@@ -193,6 +211,8 @@ function handleComposerKeydown(event: KeyboardEvent) {
 }
 
 function startPolling() {
+  if (disposed) return
+  if (pollTimer) clearInterval(pollTimer)
   pollTimer = setInterval(() => {
     void loadContacts()
     if (activePeerId.value) void loadMessages(activePeerId.value, true)
@@ -209,6 +229,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
   if (pollTimer) clearInterval(pollTimer)
 })
 </script>

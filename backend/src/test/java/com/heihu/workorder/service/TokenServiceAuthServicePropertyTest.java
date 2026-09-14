@@ -168,7 +168,7 @@ class TokenServiceAuthServicePropertyTest {
         user.setUpdatedAt(LocalDateTime.now());
 
         when(factoryRepo.findByCode(uppercasedCode)).thenReturn(Optional.of(factory));
-        when(userRepo.findByFactoryIdAndUsername(factory.getId(), username)).thenReturn(Optional.of(user));
+        when(userRepo.findByFactoryIdAndUsernameForUpdate(factory.getId(), username)).thenReturn(Optional.of(user));
 
         // Act
         LoginRequest request = new LoginRequest();

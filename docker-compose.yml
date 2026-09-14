@@ -28,11 +28,21 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${SPRING_REDIS_PASSWORD:-}
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$$REDIS_PASSWORD" ]; then
+          exec docker-entrypoint.sh redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+        else
+          exec docker-entrypoint.sh redis-server --appendonly yes
+        fi
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "if [ -n \"$$REDIS_PASSWORD\" ]; then export REDISCLI_AUTH=\"$$REDIS_PASSWORD\"; fi; redis-cli ping | grep -q '^PONG$'"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -91,7 +101,19 @@ services:
       APP_PLUGIN_GATEWAY_SECRET: ${APP_PLUGIN_GATEWAY_SECRET:?set APP_PLUGIN_GATEWAY_SECRET}
       APP_PLUGIN_ALLOWED_BACKEND_HOSTS: ${APP_PLUGIN_ALLOWED_BACKEND_HOSTS:-quality-plugin,inspection-plugin}
       APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS: ${APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS:-http://localhost:9101,http://localhost:9102}
+      APP_ANALYTICS_SUPERSET_URL: ${APP_ANALYTICS_SUPERSET_URL:-}
+      APP_ANALYTICS_SUPERSET_USERNAME: ${APP_ANALYTICS_SUPERSET_USERNAME:-}
+      APP_ANALYTICS_SUPERSET_PASSWORD: ${APP_ANALYTICS_SUPERSET_PASSWORD:-}
+      APP_ANALYTICS_DASHBOARD_ID: ${APP_ANALYTICS_DASHBOARD_ID:-}
+      APP_ANALYTICS_TIMEOUT_SECONDS: ${APP_ANALYTICS_TIMEOUT_SECONDS:-5}
       APP_SYSTEM_LOG_RETENTION_DAYS: ${APP_SYSTEM_LOG_RETENTION_DAYS:-365}
+      APP_EXTERNAL_DATA_KEYS: ${APP_EXTERNAL_DATA_KEYS:-}
+      APP_EXTERNAL_DATA_ACTIVE_KEY: ${APP_EXTERNAL_DATA_ACTIVE_KEY:-}
+      APP_EXTERNAL_DATA_ALLOWED_TARGETS: ${APP_EXTERNAL_DATA_ALLOWED_TARGETS:-}
+      APP_EXTERNAL_DATA_ALLOWED_ADDRESSES: ${APP_EXTERNAL_DATA_ALLOWED_ADDRESSES:-}
+      APP_EXTERNAL_DATA_PLAINTEXT_TARGETS: ${APP_EXTERNAL_DATA_PLAINTEXT_TARGETS:-}
+      APP_EXTERNAL_DATA_SQLITE_ROOT: ${APP_EXTERNAL_DATA_SQLITE_ROOT:-}
+      APP_EXTERNAL_DATA_SQLITE_FILES: ${APP_EXTERNAL_DATA_SQLITE_FILES:-}
       APP_SYSTEM_LOG_CLEANUP_CRON: ${APP_SYSTEM_LOG_CLEANUP_CRON:-0 30 3 * * *}
       APP_SLOW_REQUEST_THRESHOLD_MS: ${APP_SLOW_REQUEST_THRESHOLD_MS:-1000}
       APP_LOG_FILE: ${APP_LOG_FILE:-/var/log/heihu-workorder/backend.log}
@@ -112,9 +134,13 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: deploy/docker/Dockerfile
       args:
         VITE_API_BASE_URL: /api
+        VITE_MOBILE_BASE_URL: /mobile
+        APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS: ${APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS:-http://localhost:9101,http://localhost:9102}
+        APP_ANALYTICS_ALLOWED_ORIGINS: ${APP_ANALYTICS_ALLOWED_ORIGINS:-}
     restart: unless-stopped
     depends_on:
       backend:

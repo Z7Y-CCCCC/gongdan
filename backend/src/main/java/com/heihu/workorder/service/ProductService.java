@@ -4,6 +4,8 @@ import com.heihu.workorder.dto.ProductOperationLogRequest;
 import com.heihu.workorder.dto.ProductOperationLogResponse;
 import com.heihu.workorder.dto.ProductRequest;
 import com.heihu.workorder.dto.ProductResponse;
+import com.heihu.workorder.exception.ApiException;
+import org.springframework.http.HttpStatus;
 import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.ProcessRoute;
 import com.heihu.workorder.model.Product;
@@ -25,6 +27,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -89,6 +92,7 @@ public class ProductService {
         response.setMinStock(product.getMinStock());
         response.setSafetyStock(product.getSafetyStock());
         response.setInventoryQty(product.getInventoryQty());
+        response.setVersion(product.getVersion());
         response.setCostPrice(product.getCostPrice());
         response.setSalePrice(product.getSalePrice());
         response.setKeyPart(product.getKeyPart());
@@ -137,7 +141,7 @@ public class ProductService {
         return productOperationLogRepository.findByFactoryId(factoryId, pageable).map(this::toLogResponse);
     }
 
-    @CacheEvict(cacheNames = {"products.list", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
+    @CacheEvict(cacheNames = {"products.list", "inventory.details", "inbound.receipts.list", "inbound.receipts.detail", "outbound.receipts.list", "outbound.receipts.detail", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public ProductResponse create(Long factoryId, Long userId, String operatorName, ProductRequest request) {
         Product product = new Product();
         Factory factory = factoryRepository.findById(factoryId)
@@ -153,21 +157,26 @@ public class ProductService {
         return toResponse(saved);
     }
 
-    @CacheEvict(cacheNames = {"products.list", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
+    @CacheEvict(cacheNames = {"products.list", "inventory.details", "inbound.receipts.list", "inbound.receipts.detail", "outbound.receipts.list", "outbound.receipts.detail", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public ProductResponse update(Long factoryId, Long userId, String operatorName, Long id, ProductRequest request) {
-        Product product = productRepository.findById(id)
-                .filter(item -> item.getFactory().getId().equals(factoryId))
+        Product product = productRepository.findByIdAndFactoryIdForUpdate(id, factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
+        if (request != null && request.getVersion() != null && !request.getVersion().equals(product.getVersion())) {
+            throw new ObjectOptimisticLockingFailureException(Product.class, id);
+        }
+        if (request != null && request.getVersion() == null && request.getInventoryQty() != null
+                && request.getInventoryQty() >= 0 && !request.getInventoryQty().equals(product.getInventoryQty())) {
+            throw new ApiException(HttpStatus.CONFLICT, "调整库存前请刷新产品并提供版本号");
+        }
         applyRequest(product, factoryId, request, false);
-        Product saved = productRepository.save(product);
+        Product saved = productRepository.saveAndFlush(product);
         writeLog(saved.getFactory(), operatorName, "UPDATE", saved.getCode(), saved.getName(), null);
         return toResponse(saved);
     }
 
-    @CacheEvict(cacheNames = {"products.list", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
+    @CacheEvict(cacheNames = {"products.list", "inventory.details", "inbound.receipts.list", "inbound.receipts.detail", "outbound.receipts.list", "outbound.receipts.detail", "boms.list", "sales.orders.list", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public void delete(Long factoryId, String operatorName, Long id) {
-        Product product = productRepository.findById(id)
-                .filter(item -> item.getFactory().getId().equals(factoryId))
+        Product product = productRepository.findByIdAndFactoryIdForUpdate(id, factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
         String productCode = product.getCode();
         String productName = product.getName();
@@ -195,7 +204,7 @@ public class ProductService {
     }
 
     private void applyRequest(Product product, Long factoryId, ProductRequest request, boolean creating) {
-        if (request.getName() == null || request.getName().trim().isEmpty()) {
+        if (request == null || request.getName() == null || request.getName().trim().isEmpty()) {
             throw new IllegalArgumentException("产品名称不能为空");
         }
         if (request.getUnitId() == null) {
@@ -239,7 +248,14 @@ public class ProductService {
         product.setMaxStock(normalize(request.getMaxStock()));
         product.setMinStock(normalize(request.getMinStock()));
         product.setSafetyStock(normalize(request.getSafetyStock()));
-        product.setInventoryQty(request.getInventoryQty() != null ? request.getInventoryQty() : 0);
+        if (request.getInventoryQty() != null) {
+            if (request.getInventoryQty() < 0) {
+                throw new IllegalArgumentException("库存数量不能为负数");
+            }
+            product.setInventoryQty(request.getInventoryQty());
+        } else if (creating) {
+            product.setInventoryQty(0);
+        }
         product.setCostPrice(normalize(request.getCostPrice()));
         product.setSalePrice(normalize(request.getSalePrice()));
         product.setKeyPart(request.getKeyPart() != null ? request.getKeyPart() : Boolean.FALSE);

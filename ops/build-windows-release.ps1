@@ -8,16 +8,14 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'release-path.ps1')
 
 if (-not $ReleaseDir) {
     $ReleaseDir = Join-Path $ProjectRoot "release-windows"
 }
 
 $projectPath = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd('\')
-$releasePath = [System.IO.Path]::GetFullPath($ReleaseDir).TrimEnd('\')
-if (-not $releasePath.StartsWith($projectPath + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "ReleaseDir must stay inside the project: $releasePath"
-}
+$releasePath = Get-ValidatedReleasePath $projectPath $ReleaseDir
 
 function Invoke-Checked([string]$Command, [string[]]$Arguments, [string]$FailureMessage) {
     & $Command @Arguments
@@ -59,7 +57,7 @@ $savedEnvironment = @{}
 $buildEnvironment = @{
     VITE_API_BASE_URL = "/api"
     VITE_MOBILE_BASE_URL = "/mobile"
-    VITE_WECHAT_MOCK_ENABLED = "true"
+    VITE_WECHAT_MOCK_ENABLED = "false"
     VITE_PUBLIC_BASE_URL = "/mobile/"
 }
 foreach ($name in $buildEnvironment.Keys) {
@@ -73,7 +71,7 @@ try {
     Push-Location $frontendDir
     try { Invoke-Checked $npm @("run", "build") "Frontend build failed." } finally { Pop-Location }
 
-    [Environment]::SetEnvironmentVariable("VITE_WECHAT_MOCK_ENABLED", "true", "Process")
+    [Environment]::SetEnvironmentVariable("VITE_WECHAT_MOCK_ENABLED", "false", "Process")
     [Environment]::SetEnvironmentVariable("VITE_PUBLIC_BASE_URL", "/mobile/", "Process")
     Push-Location $mobileDir
     try { Invoke-Checked $npm @("run", "build") "Mobile build failed." } finally { Pop-Location }

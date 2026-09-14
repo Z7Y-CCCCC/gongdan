@@ -15,6 +15,8 @@ import {
   type WorkOrderProgressItem
 } from '../api'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{
@@ -25,7 +27,8 @@ const emit = defineEmits<{
   (e: 'view', workOrderId: number): void
 }>()
 
-const { withErrorHandling } = useHomeDashboardErrorHandler()
+const { handleApiError } = useHomeDashboardErrorHandler()
+const beginLoad = useLatestRequest()
 
 // --- 标签定义 ---
 interface TabDef {
@@ -48,6 +51,7 @@ const activeTab = ref<WorkOrderStatusTab>('not_started')
 // --- 数据 ---
 const workOrders = ref<WorkOrderProgressItem[]>([])
 const loading = ref(false)
+const reachedDisplayLimit = computed(() => workOrders.value.length >= 500)
 
 // --- 排序 ---
 type SortableField = 'code' | 'productCode' | 'productName' | 'productSpec' | 'status'
@@ -77,17 +81,20 @@ const sortedWorkOrders = computed(() => {
 
 // --- 数据加载 ---
 async function loadWorkOrders() {
+  const isCurrent = beginLoad()
   loading.value = true
   try {
-    const result = await withErrorHandling(() => fetchHomeWorkOrders(props.token, activeTab.value))
+    const result = await fetchHomeWorkOrders(props.token, activeTab.value)
+    if (!isCurrent()) return
     if (result) {
       workOrders.value = result.items
     }
-  } catch {
+  } catch (error) {
+    if (!isCurrent() || handleApiError(error)) return
     // 非 401/403 错误，保留空列表
     workOrders.value = []
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -102,6 +109,8 @@ function switchTab(tab: WorkOrderStatusTab) {
 watch(activeTab, () => {
   loadWorkOrders()
 })
+
+useRefreshOnActivated(loadWorkOrders)
 
 onMounted(() => {
   loadWorkOrders()
@@ -146,6 +155,10 @@ const columns: ColumnDef[] = [
         {{ tab.label }}
       </button>
     </div>
+
+    <p v-if="!loading && reachedDisplayLimit" class="work-order-progress__limit-note" role="status">
+      最多显示500条，完整工单请到工单列表
+    </p>
 
     <!-- 表格容器 -->
     <div class="work-order-progress__table-wrapper">
@@ -271,6 +284,12 @@ const columns: ColumnDef[] = [
   max-height: 400px;
   border: 1px solid #ebeef5;
   border-radius: 4px;
+}
+
+.work-order-progress__limit-note {
+  margin: 0 0 12px;
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
 }
 
 .work-order-progress__table {

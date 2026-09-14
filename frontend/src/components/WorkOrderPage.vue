@@ -29,15 +29,20 @@ import {
   createSystemOperationLog,
   fetchCustomFieldAttachmentBlob,
   fetchReportImageBlob,
+  uploadCustomFieldAttachment,
   fetchBoms,
   type BomInfo,
   type WorkOrderMaterialPayload
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { fetchAllPages } from '../utils/pagination'
+import { normalizeWorkOrderStatus } from '../utils/workOrderStatus'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import SystemLogsDialog from './SystemLogsDialog.vue'
 import UiIcon from './UiIcon.vue'
 import ColumnSettingsPanel, { type ColumnSetting } from './ColumnSettingsPanel.vue'
+import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -56,6 +61,8 @@ const processes = ref<ProcessInfo[]>([])
 const routes = ref<ProcessRouteInfo[]>([])
 const customFields = ref<CustomFieldInfo[]>([])
 const selectedIds = ref<number[]>([])
+const saving = ref(false)
+const beginLoad = useLatestRequest()
 const showModal = ref(false)
 const activeTab = ref<'basic' | 'custom' | 'task' | 'material'>('basic')
 const editing = ref<WorkOrderInfo | null>(null)
@@ -349,9 +356,9 @@ const statusCards = computed(() => {
   return [
     { key: 'all', label: '全部', count: baseOrders.length },
     { key: 'NOT_STARTED', label: '未开始', count: baseOrders.filter(i => i.status === 'NOT_STARTED').length },
-    { key: 'EXECUTING', label: '执行中', count: baseOrders.filter(i => i.status === 'EXECUTING').length },
+    { key: 'EXECUTING', label: '执行中', count: baseOrders.filter(i => normalizeWorkOrderStatus(i.status) === 'EXECUTING').length },
     { key: 'COMPLETED', label: '已结束', count: baseOrders.filter(i => ['COMPLETED', 'FINISHED', 'CLOSED'].includes(i.status)).length },
-    { key: 'CANCELED', label: '已取消', count: baseOrders.filter(i => i.status === 'CANCELED').length }
+    { key: 'CANCELED', label: '已取消', count: baseOrders.filter(i => normalizeWorkOrderStatus(i.status) === 'CANCELED').length }
   ]
 })
 
@@ -369,7 +376,7 @@ const filteredOrders = computed(() => {
     let statusOk = false
     if (statusFilter.value === 'all') statusOk = true
     else if (statusFilter.value === 'COMPLETED') statusOk = ['COMPLETED', 'FINISHED', 'CLOSED'].includes(item.status)
-    else statusOk = item.status === statusFilter.value
+    else statusOk = normalizeWorkOrderStatus(item.status) === normalizeWorkOrderStatus(statusFilter.value)
 
     const text = `${item.code}${item.productCode}${item.productName}`.toLowerCase()
     const keywordOk = !keyword.value || text.includes(keyword.value.toLowerCase())
@@ -428,7 +435,7 @@ const allSelected = computed(() =>
 )
 
 function statusLabel(value: string) {
-  return { NOT_STARTED: '未开始', EXECUTING: '执行中', PAUSED: '已暂停', COMPLETED: '已完成', FINISHED: '已结束', CLOSED: '已关闭', CANCELED: '已取消' }[value] || value
+  return { NOT_STARTED: '未开始', EXECUTING: '执行中', PAUSED: '已暂停', COMPLETED: '已完成', FINISHED: '已结束', CLOSED: '已关闭', CANCELED: '已取消' }[normalizeWorkOrderStatus(value)] || value
 }
 
 function priorityLabel(value: string) {
@@ -457,49 +464,55 @@ function resetForm() {
 }
 
 async function loadData() {
-  const [orderRes, productRes, processRes, routeRes, fieldRes, categoryRes, bomRes] = await Promise.all([
-    fetchWorkOrders(props.token, { size: 500 }),
-    fetchProducts(props.token, { size: 500 }),
-    fetchProcesses(props.token, { size: 500 }),
-    fetchProcessRoutes(props.token, { size: 500 }),
-    fetchCustomFields(props.token, 'workorder'),
-    fetchWorkOrderCategories(props.token),
-    fetchBoms(props.token, { size: 500 })
-  ])
-  workOrders.value = orderRes.items
-  products.value = productRes.items
-  processes.value = processRes.items
-  routes.value = routeRes.items
-  customFields.value = fieldRes.items
-  categories.value = categoryRes
-  boms.value = bomRes.items
-  
+  const isCurrent = beginLoad()
   try {
-    const pref = await fetchUserPreference(props.token, 'WORK_ORDER_COLUMNS')
-    if (pref && pref.value) {
-      const savedColumns = JSON.parse(pref.value)
-      restoreWorkOrderColumnSettings(Array.isArray(savedColumns) ? savedColumns : undefined)
-    } else {
-      restoreWorkOrderColumnSettings()
-    }
-  } catch (e) {
-    restoreWorkOrderColumnSettings()
-  }
+    const [orderRes, productRes, processRes, routeRes, fieldRes, categoryRes, bomRes] = await Promise.all([
+      fetchAllPages(params => fetchWorkOrders(props.token, params), 500, isCurrent),
+      fetchAllPages(params => fetchProducts(props.token, params), 500, isCurrent),
+      fetchAllPages(params => fetchProcesses(props.token, params), 500, isCurrent),
+      fetchAllPages(params => fetchProcessRoutes(props.token, params), 500, isCurrent),
+      fetchCustomFields(props.token, 'workorder'),
+      fetchWorkOrderCategories(props.token),
+      fetchAllPages(params => fetchBoms(props.token, params), 500, isCurrent)
+    ])
+    if (!isCurrent()) return
+    workOrders.value = orderRes.items
+    products.value = productRes.items
+    processes.value = processRes.items
+    routes.value = routeRes.items
+    customFields.value = fieldRes.items
+    categories.value = categoryRes
+    boms.value = bomRes.items
 
-  try {
-    const heightPref = await fetchUserPreference(props.token, 'WORK_ORDER_ROW_HEIGHT')
-    if (heightPref && heightPref.value) {
-      rowHeight.value = heightPref.value as 'normal' | 'compact' | 'loose'
+    try {
+      const pref = await fetchUserPreference(props.token, 'WORK_ORDER_COLUMNS')
+      if (!isCurrent()) return
+      if (pref && pref.value) {
+        const savedColumns = JSON.parse(pref.value)
+        restoreWorkOrderColumnSettings(Array.isArray(savedColumns) ? savedColumns : undefined)
+      } else {
+        restoreWorkOrderColumnSettings()
+      }
+    } catch {
+      if (isCurrent()) restoreWorkOrderColumnSettings()
     }
-  } catch (e) {
-    // ignore
-  }
 
-  try {
+    try {
+      const heightPref = await fetchUserPreference(props.token, 'WORK_ORDER_ROW_HEIGHT')
+      if (!isCurrent()) return
+      if (heightPref?.value && ['normal', 'compact', 'loose'].includes(heightPref.value)) {
+        rowHeight.value = heightPref.value as 'normal' | 'compact' | 'loose'
+      }
+    } catch {
+      // Preferences are optional; keep the default row height.
+    }
+
+    if (!isCurrent()) return
     await refreshImportLogs()
+    if (!isCurrent()) return
     await refreshLogs()
-  } catch (e) {
-    // ignore
+  } catch (e: any) {
+    if (isCurrent()) emit('notice', e.message || '加载工单失败')
   }
 }
 
@@ -663,24 +676,7 @@ async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
     formData.append('fieldId', String(field.id))
     formData.append('fieldType', field.fieldType)
     
-    const response = await fetch('/api/custom-field-attachments', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${props.token}`
-      },
-      body: formData
-    })
-    
-    if (!response.ok) {
-      let msg = '上传失败'
-      try {
-        const body = await response.json()
-        msg = body.message || msg
-      } catch {}
-      throw new Error(msg)
-    }
-    
-    const data = await response.json()
+    const data = await uploadCustomFieldAttachment(props.token, formData)
     const currentVal = String(getCustomValue(field) || '')
     const newPath = data.accessPath
     customFieldPreviewUrls.value[newPath] = URL.createObjectURL(file)
@@ -778,7 +774,7 @@ function buildTasks(productId: number | '') {
         sequenceNo: index + 1,
         plannedQuantity: Number(form.plannedQuantity || 0),
         planDeadline: fromInputTime(form.planEnd) || '',
-        reportPermission: process.reportPermission?.[0] || '所有人',
+        reportPermission: process.reportPermission?.join(',') || '所有人',
         assignee: '',
         enabled: true
       }
@@ -927,7 +923,7 @@ function addTaskFromProcess(p: any) {
     sequenceNo: form.tasks.length + 1,
     plannedQuantity: Number(form.plannedQuantity || 0),
     planDeadline: fromInputTime(form.planEnd) || '',
-    reportPermission: p.reportPermission?.[0] || '所有人',
+    reportPermission: p.reportPermission?.join(',') || '所有人',
     assignee: '',
     enabled: true
   })
@@ -962,7 +958,7 @@ function addTaskFromRoute(r: any) {
       sequenceNo: 0,
       plannedQuantity: Number(form.plannedQuantity || 0),
       planDeadline: fromInputTime(form.planEnd) || '',
-      reportPermission: process.reportPermission?.[0] || '所有人',
+      reportPermission: process.reportPermission?.join(',') || '所有人',
       assignee: '',
       enabled: true
     }
@@ -1072,13 +1068,14 @@ function normalizedMaterials() {
 }
 
 async function saveOrder() {
+  if (saving.value) return
   if (!form.productId) {
     emit('notice', '请选择产品')
     activeTab.value = 'basic'
     return
   }
-  if (Number(form.plannedQuantity || 0) <= 0) {
-    emit('notice', '计划数必须大于 0')
+  if (!Number.isInteger(Number(form.plannedQuantity)) || Number(form.plannedQuantity) <= 0) {
+    emit('notice', '计划数必须为大于 0 的整数')
     activeTab.value = 'basic'
     return
   }
@@ -1101,6 +1098,7 @@ async function saveOrder() {
     materials: normalizedMaterials(),
     version: editing.value ? form.version : undefined
   }
+  saving.value = true
   try {
     if (editing.value) {
       await updateWorkOrder(props.token, editing.value.id, payload)
@@ -1115,6 +1113,8 @@ async function saveOrder() {
     await loadData()
   } catch (e: any) {
     emit('notice', e.message || '操作失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -1620,32 +1620,47 @@ function handleImport() {
 }
 
 async function handleBulkStatus(status: string) {
-  for (const id of selectedIds.value) {
-    const item = workOrders.value.find(o => o.id === id)
-    if (item) {
-      await updateWorkOrder(props.token, id, {
-        code: item.code,
-        productId: item.productId,
-        plannedQuantity: item.plannedQuantity,
-        status,
-        priority: item.priority,
-        planStart: item.planStart,
-        planEnd: item.planEnd,
-        relatedOrderCode: item.relatedOrderCode,
-        remark: item.remark,
-        goodQuantity: item.goodQuantity,
-        defectQuantity: item.defectQuantity,
-        defectRate: item.defectRate,
-        customValues: item.customValues,
-        tasks: item.tasks,
-        materials: item.materials,
-        version: item.version
-      })
-      addOperationLog(`将工单 ${item.code} 的状态变更为 [${statusLabel(status)}]`)
-    }
+  if (saving.value) return
+  if (selectedIds.value.length === 0) {
+    emit('notice', '请先选择工单')
+    return
   }
-  emit('notice', '状态更新成功')
-  await loadData()
+  saving.value = true
+  let updated = 0
+  try {
+    for (const id of [...selectedIds.value]) {
+      const item = workOrders.value.find(o => o.id === id)
+      if (item) {
+        await updateWorkOrder(props.token, id, {
+          code: item.code,
+          productId: item.productId,
+          plannedQuantity: item.plannedQuantity,
+          categoryId: item.categoryId,
+          status,
+          priority: item.priority,
+          planStart: item.planStart,
+          planEnd: item.planEnd,
+          relatedOrderCode: item.relatedOrderCode,
+          remark: item.remark,
+          goodQuantity: item.goodQuantity,
+          defectQuantity: item.defectQuantity,
+          defectRate: item.defectRate,
+          customValues: item.customValues,
+          tasks: item.tasks,
+          materials: item.materials,
+          version: item.version
+        })
+        updated += 1
+        addOperationLog(`将工单 ${item.code} 的状态变更为 [${statusLabel(status)}]`)
+      }
+    }
+    emit('notice', '状态更新成功')
+  } catch (e: any) {
+    emit('notice', `已更新 ${updated} 条工单；${e.message || '状态更新失败，请刷新后重试'}`)
+  } finally {
+    await loadData()
+    saving.value = false
+  }
 }
 
 async function handleDeleteSelected() {
@@ -2786,7 +2801,7 @@ onUnmounted(() => {
 
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveOrder">确定</button>
+          <button class="primary-btn wide" type="button" @click="saveOrder" :disabled="saving">{{ saving ? '保存中...' : '确定' }}</button>
         </div>
       </div>
     </div>
@@ -3148,7 +3163,7 @@ onUnmounted(() => {
                   </span>
                   <span style="font-size: 11px; background: #f0fbf8; color: #00b889; padding: 1px 5px; border-radius: 3px; display: inline-flex; align-items: center; gap: 2px;">
                     <svg viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                    {{ p.reportPermission?.[0] || '所有人' }}
+                    {{ p.reportPermission?.join(',') || '所有人' }}
                   </span>
                 </div>
               </div>

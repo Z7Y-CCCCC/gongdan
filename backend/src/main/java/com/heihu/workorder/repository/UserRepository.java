@@ -18,7 +18,25 @@ public interface UserRepository extends JpaRepository<FactoryUser, Long> {
 
     Optional<FactoryUser> findByFactoryIdAndPhone(Long factoryId, String phone);
 
+    // Credential checks and token issuance must share this row lock with password updates.
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from FactoryUser u where u.factory.id = :factoryId and u.username = :username")
+    Optional<FactoryUser> findByFactoryIdAndUsernameForUpdate(@Param("factoryId") Long factoryId,
+                                                            @Param("username") String username);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from FactoryUser u where u.factory.id = :factoryId and u.phone = :phone")
+    Optional<FactoryUser> findByFactoryIdAndPhoneForUpdate(@Param("factoryId") Long factoryId,
+                                                         @Param("phone") String phone);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from FactoryUser u where u.phone = :phone order by u.id")
+    List<FactoryUser> findAllByPhoneForUpdate(@Param("phone") String phone);
+
     Optional<FactoryUser> findByIdAndFactoryId(Long id, Long factoryId);
+
+    @Query("select u from FactoryUser u join fetch u.factory where u.id = :id")
+    Optional<FactoryUser> findByIdWithFactory(@Param("id") Long id);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from FactoryUser u join fetch u.factory where u.id = :id")

@@ -12,6 +12,9 @@ import {
   type ProductInfo
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
@@ -29,6 +32,8 @@ const emit = defineEmits<{ notice: [message: string] }>()
 const { visible, title, message, loading: deleteLoading, confirm, handleConfirm, handleCancel } = useDeleteConfirm()
 
 const loading = ref(false)
+const saving = ref(false)
+const beginLoad = useLatestRequest()
 const boms = ref<BomInfo[]>([])
 const products = ref<ProductInfo[]>([])
 const total = ref(0)
@@ -62,23 +67,22 @@ function itemUnit(item: BomFormItem | BomItemInfo) {
 }
 
 async function loadData() {
+  const isCurrent = beginLoad()
   loading.value = true
   try {
+    const search = { code: filter.code.trim() || undefined, productName: filter.productName.trim() || undefined }
     const [bomRes, productRes] = await Promise.all([
-      fetchBoms(props.token, {
-        code: filter.code.trim() || undefined,
-        productName: filter.productName.trim() || undefined,
-        size: 500
-      }),
-      fetchProducts(props.token, { size: 1000 })
+      fetchAllPages(params => fetchBoms(props.token, { ...search, ...params }), 500, isCurrent),
+      fetchAllPages(params => fetchProducts(props.token, params), 500, isCurrent)
     ])
+    if (!isCurrent()) return
     boms.value = bomRes.items
     total.value = bomRes.total
     products.value = productRes.items
   } catch (e) {
-    emit('notice', e instanceof Error ? e.message : '物料清单加载失败')
+    if (isCurrent()) emit('notice', e instanceof Error ? e.message : '物料清单加载失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -191,8 +195,10 @@ function buildPayload(): BomPayload | null {
 }
 
 async function saveBom() {
+  if (saving.value) return
   const payload = buildPayload()
   if (!payload) return
+  saving.value = true
   try {
     if (editing.value) {
       await updateBom(props.token, editing.value.id, payload)
@@ -205,6 +211,8 @@ async function saveBom() {
     await loadData()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -220,6 +228,7 @@ async function removeBom(item: BomInfo) {
   }
 }
 
+useRefreshOnActivated(loadData)
 onMounted(loadData)
 </script>
 
@@ -377,7 +386,7 @@ onMounted(loadData)
         </div>
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveBom">保存</button>
+          <button class="primary-btn wide" type="button" @click="saveBom" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
         </div>
       </div>
     </div>

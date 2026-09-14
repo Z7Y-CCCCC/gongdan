@@ -25,6 +25,7 @@
 
     <!-- 列表内容 -->
     <view class="total-count">总计 ({{ filteredOrders.length }})</view>
+    <ListLimitNotice :total="orderTotal" :loaded="orders.length" label="工单" />
 
     <scroll-view scroll-y class="order-list" @scrolltolower="loadMore">
       <view v-for="item in filteredOrders" :key="item.id" class="order-card" @click="goToDetail(item)">
@@ -69,7 +70,7 @@
         </view>
       </view>
       
-      <view class="no-more" v-if="filteredOrders.length > 0">没有更多了</view>
+      <view class="no-more" v-if="filteredOrders.length > 0">{{ orderTotal > orders.length ? '已显示当前加载记录' : '没有更多了' }}</view>
       <view class="no-more" v-if="filteredOrders.length === 0 && !loading">暂无工单</view>
     </scroll-view>
 
@@ -94,9 +95,11 @@ import { onShow } from '@dcloudio/uni-app'
 import { fetchWorkOrders, ensureLogin } from '../../services/api'
 import type { WorkOrderInfo } from '../../types/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
+import ListLimitNotice from '../../components/ListLimitNotice.vue'
 import { usePageDraft } from '../../composables/usePageDraft'
 
 const orders = ref<WorkOrderInfo[]>([])
+const orderTotal = ref(0)
 const loading = ref(false)
 const currentTab = ref('all')
 const keyword = ref('')
@@ -117,7 +120,7 @@ const statusTabs = computed(() => {
   return [
     { key: 'all', label: '全部', count: all.length },
     { key: 'NOT_STARTED', label: '未开始', count: all.filter(i => i.status === 'NOT_STARTED').length },
-    { key: 'EXECUTING', label: '执行中', count: all.filter(i => i.status === 'EXECUTING').length },
+    { key: 'EXECUTING', label: '执行中', count: all.filter(i => ['EXECUTING', 'IN_PROGRESS'].includes(i.status)).length },
     { key: 'COMPLETED', label: '已结束', count: all.filter(i => ['COMPLETED', 'FINISHED', 'CLOSED'].includes(i.status)).length }
   ]
 })
@@ -127,6 +130,8 @@ const filteredOrders = computed(() => {
   if (currentTab.value !== 'all') {
     if (currentTab.value === 'COMPLETED') {
       list = list.filter(i => ['COMPLETED', 'FINISHED', 'CLOSED'].includes(i.status))
+    } else if (currentTab.value === 'EXECUTING') {
+      list = list.filter(i => ['EXECUTING', 'IN_PROGRESS'].includes(i.status))
     } else {
       list = list.filter(i => i.status === currentTab.value)
     }
@@ -139,13 +144,16 @@ const filteredOrders = computed(() => {
 })
 
 const loadOrders = async () => {
+  if (loading.value) return
   loading.value = true
   try {
     const res = await fetchWorkOrders()
     orders.value = res.items || []
-  } catch (e) {
-    console.error('加载工单失败', e)
+    orderTotal.value = res.total
+  } catch (e: any) {
+    uni.showToast({ title: e.message || '加载工单失败', icon: 'none' })
     orders.value = []
+    orderTotal.value = 0
   } finally {
     loading.value = false
   }
@@ -173,7 +181,7 @@ const loadMore = () => {
 
 function statusLabel(status: string) {
   const map: Record<string, string> = {
-    NOT_STARTED: '未开始', EXECUTING: '执行中', PAUSED: '已暂停',
+    NOT_STARTED: '未开始', EXECUTING: '执行中', IN_PROGRESS: '执行中', PAUSED: '已暂停',
     COMPLETED: '已完成', FINISHED: '已结束', CLOSED: '已关闭', CANCELED: '已取消'
   }
   return map[status] || status || '未知'
@@ -289,7 +297,7 @@ const handleScan = () => {
 .tag { font-size: 20rpx; padding: 2rpx 12rpx; border-radius: 4rpx; }
 .tag.urgent { background: #ff4d4f; color: white; }
 .tag.status { background: #e6f7ff; color: #1890ff; }
-.tag.status.status-EXECUTING { background: #e6f7f3; color: #00b889; }
+.tag.status.status-EXECUTING, .tag.status.status-IN_PROGRESS { background: #e6f7f3; color: #00b889; }
 .tag.status.status-NOT_STARTED { background: #f0f0f0; color: #999; }
 .tag.status.status-COMPLETED,
 .tag.status.status-FINISHED { background: #eef3fe; color: #4080ff; }

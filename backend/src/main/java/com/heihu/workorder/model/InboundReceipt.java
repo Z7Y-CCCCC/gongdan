@@ -6,7 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "inbound_receipts")
+@Table(name = "inbound_receipts", uniqueConstraints =
+        @UniqueConstraint(name = "uk_inbound_receipts_code", columnNames = {"factory_id", "code"}))
 public class InboundReceipt {
 
     @Id
@@ -17,7 +18,7 @@ public class InboundReceipt {
     @JoinColumn(name = "factory_id", nullable = false)
     private Factory factory;
 
-    @Column(nullable = false, length = 64, unique = true)
+    @Column(nullable = false, length = 64)
     private String code;
 
     @Column(nullable = false, length = 32)

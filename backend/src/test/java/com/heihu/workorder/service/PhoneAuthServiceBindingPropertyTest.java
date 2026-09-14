@@ -42,7 +42,7 @@ class PhoneAuthServiceBindingPropertyTest {
         TokenService tokenService = mock(TokenService.class);
         SmsService smsService = mock(SmsService.class);
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.emptyList());
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.emptyList());
 
         PhoneAuthService service = new PhoneAuthService(userRepository, passwordEncoder, tokenService, smsService);
 
@@ -79,7 +79,7 @@ class PhoneAuthServiceBindingPropertyTest {
                 .mapToObj(i -> createEnabledUser((long) i, phone, "hash" + i, (long) (i + 100)))
                 .collect(Collectors.toList());
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(users);
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(users);
         // Password does not match — this is fine, we just verify it doesn't return bindingRequired
         when(passwordEncoder.matches(eq(password), anyString())).thenReturn(false);
 
@@ -119,7 +119,7 @@ class PhoneAuthServiceBindingPropertyTest {
 
         when(smsService.verifyCode(phone, code, false)).thenReturn(true);
         when(smsService.verifyCode(phone, code)).thenReturn(true);
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.emptyList());
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.emptyList());
 
         PhoneAuthService service = new PhoneAuthService(userRepository, passwordEncoder, tokenService, smsService);
 

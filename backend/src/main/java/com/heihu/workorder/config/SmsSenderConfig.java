@@ -3,11 +3,11 @@ package com.heihu.workorder.config;
 import com.heihu.workorder.service.HttpSmsSender;
 import com.heihu.workorder.service.LoggingSmsSender;
 import com.heihu.workorder.service.SmsSender;
-import java.util.Arrays;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 
 @Configuration
 @EnableConfigurationProperties(SmsSenderProperties.class)
@@ -40,6 +40,6 @@ public class SmsSenderConfig {
     }
 
     private static boolean isProd(Environment environment) {
-        return Arrays.asList(environment.getActiveProfiles()).contains("prod");
+        return environment.acceptsProfiles(Profiles.of("prod"));
     }
 }

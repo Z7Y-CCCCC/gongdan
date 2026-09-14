@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { fetchProducts, fetchUserPreference, setUserPreference, type ProductInfo } from '../api'
+import { fetchProducts, fetchProductsExportBlob, fetchUserPreference, setUserPreference, type ProductInfo } from '../api'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import UiIcon from './UiIcon.vue'
 import ColumnSettingsPanel, { type ColumnSetting } from './ColumnSettingsPanel.vue'
 
@@ -16,6 +18,7 @@ const totalProducts = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const loading = ref(false)
+const beginLoad = useLatestRequest()
 
 // Sorting State
 const sortKey = ref('createdAt')
@@ -86,6 +89,7 @@ const sortedProducts = computed(() => {
 
 // ===== Actions =====
 async function loadData() {
+  const isCurrent = beginLoad()
   loading.value = true
   try {
     const res = await fetchProducts(props.token, {
@@ -95,12 +99,13 @@ async function loadData() {
       page: currentPage.value,
       size: pageSize.value
     })
+    if (!isCurrent()) return
     products.value = res.items
     totalProducts.value = res.total
   } catch (e: any) {
-    emit('notice', e.message || '加载库存余额失败')
+    if (isCurrent()) emit('notice', e.message || '加载库存余额失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -211,20 +216,7 @@ function navigateToDetail(item: ProductInfo) {
 
 async function handleExport() {
   try {
-    const query = new URLSearchParams()
-    if (filterForm.code) query.append('code', filterForm.code)
-    if (filterForm.name) query.append('name', filterForm.name)
-    if (filterForm.spec) query.append('spec', filterForm.spec)
-
-    const res = await fetch(`/api/products/export?${query.toString()}`, {
-      headers: {
-        'Authorization': `Bearer ${props.token}`
-      }
-    })
-    if (!res.ok) {
-      throw new Error('导出失败')
-    }
-    const blob = await res.blob()
+    const blob = await fetchProductsExportBlob(props.token, filterForm)
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -236,6 +228,8 @@ async function handleExport() {
     emit('notice', e.message || '导出失败')
   }
 }
+
+useRefreshOnActivated(loadData)
 
 onMounted(() => {
   loadData()

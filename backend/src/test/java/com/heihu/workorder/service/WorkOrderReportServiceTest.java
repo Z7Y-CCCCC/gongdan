@@ -3,6 +3,8 @@ package com.heihu.workorder.service;
 import com.heihu.workorder.exception.ApiException;
 import com.heihu.workorder.dto.WorkOrderReportRequest;
 import com.heihu.workorder.dto.WorkOrderReportResponse;
+import com.heihu.workorder.model.ReportStatus;
+import com.heihu.workorder.model.Department;
 import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.Role;
@@ -28,6 +30,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,6 +39,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -157,6 +162,42 @@ class WorkOrderReportServiceTest {
     }
 
     @Test
+    void uploadDoesNotLeaveAnOrphanFileWhenSavingMetadataFails() throws Exception {
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, factory(1L))));
+        when(imageRepository.save(any())).thenThrow(new IllegalStateException("metadata unavailable"));
+        MockMultipartFile file = new MockMultipartFile("file", "photo.png", "image/png", pngBytes());
+        assertThatThrownBy(() -> service.uploadImage(1L, 2L, file)).isInstanceOf(IllegalStateException.class);
+        try (java.util.stream.Stream<Path> files = Files.list(uploadDir)) {
+            assertThat(files.count()).isZero();
+        }
+    }
+
+    @Test
+    void aLaterTransactionRollbackAlsoRemovesTheUploadedFile() throws Exception {
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, factory(1L))));
+        when(imageRepository.save(any(WorkOrderReportImage.class))).thenAnswer(invocation -> {
+            WorkOrderReportImage image = invocation.getArgument(0);
+            image.setId(99L);
+            return image;
+        });
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.uploadImage(1L, 2L, new MockMultipartFile("file", "photo.png", "image/png", pngBytes()));
+            try (java.util.stream.Stream<Path> files = Files.list(uploadDir)) {
+                assertThat(files.count()).isEqualTo(1);
+            }
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+            }
+            try (java.util.stream.Stream<Path> files = Files.list(uploadDir)) {
+                assertThat(files.count()).isZero();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
     void getImageDownloadRejectsCrossFactoryImage() {
         WorkOrderReportImage image = new WorkOrderReportImage();
         image.setId(10L);
@@ -191,7 +232,7 @@ class WorkOrderReportServiceTest {
 
         when(userRepository.findByIdAndFactoryId(currentUser.getId(), factory.getId())).thenReturn(Optional.of(currentUser));
         when(userRepository.findByIdAndFactoryId(selectedReporter.getId(), factory.getId())).thenReturn(Optional.of(selectedReporter));
-        when(workOrderRepository.findById(order.getId())).thenReturn(Optional.of(order));
+        when(workOrderRepository.findByIdAndFactoryIdForUpdate(order.getId(), factory.getId())).thenReturn(Optional.of(order));
         when(reportRepository.save(any(WorkOrderReport.class))).thenAnswer(invocation -> {
             WorkOrderReport report = invocation.getArgument(0);
             report.setId(9L);
@@ -250,6 +291,179 @@ class WorkOrderReportServiceTest {
         verify(imageRepository).deleteAll(Collections.singletonList(image));
     }
 
+    @Test
+    void createReportRejectsUnknownOrDisabledProcessBeforeSaving() {
+        WorkOrder order = stubOrderAndActor();
+        WorkOrderReportRequest request = validReportRequest();
+        request.setProcessSequenceNo(9);
+        assertThatThrownBy(() -> service.createReport(1L, 2L, request))
+                .isInstanceOf(ApiException.class).hasMessageContaining("工序");
+        request.setProcessSequenceNo(1);
+        order.setTaskDataJson("[{\"sequenceNo\":1,\"processName\":\"裁切\",\"enabled\":false}]");
+        assertThatThrownBy(() -> service.createReport(1L, 2L, request))
+                .isInstanceOf(ApiException.class).hasMessageContaining("工序");
+        verifyNoInteractions(reportRepository);
+    }
+
+    @Test
+    void createReportCannotBypassTaskPermissionsWithForgedReporterOrProcessName() {
+        WorkOrder order = stubOrderAndActor();
+        order.setTaskDataJson("[{\"sequenceNo\":1,\"processName\":\"裁切\",\"reportPermission\":\"worker3\"}]");
+        FactoryUser selected = user(3L, order.getFactory());
+        when(userRepository.findByIdAndFactoryId(3L, 1L)).thenReturn(Optional.of(selected));
+        WorkOrderReportRequest request = validReportRequest();
+        request.setReporterUserId(3L);
+        request.setProcessName("随意伪造的工序");
+        assertThatThrownBy(() -> service.createReport(1L, 2L, request))
+                .isInstanceOf(ApiException.class).extracting("status").isEqualTo(HttpStatus.FORBIDDEN);
+        verifyNoInteractions(reportRepository);
+    }
+
+    @Test
+    void createReportChecksSelectedReporterAsWellAsSubmitter() {
+        WorkOrder order = stubOrderAndActor();
+        order.setTaskDataJson("[{\"sequenceNo\":1,\"processName\":\"裁切\",\"reportPermission\":\"worker2\"}]");
+        when(userRepository.findByIdAndFactoryId(3L, 1L)).thenReturn(Optional.of(user(3L, order.getFactory())));
+        WorkOrderReportRequest request = validReportRequest();
+        request.setReporterUserId(3L);
+        assertThatThrownBy(() -> service.createReport(1L, 2L, request))
+                .isInstanceOf(ApiException.class).extracting("status").isEqualTo(HttpStatus.FORBIDDEN);
+        verifyNoInteractions(reportRepository);
+    }
+
+    @Test
+    void createReportRejectsNegativeQuantitiesRatherThanClampingThemToZero() {
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, factory(1L))));
+        WorkOrderReportRequest request = validReportRequest();
+        request.setDefectQuantity(-1);
+        assertThatThrownBy(() -> service.createReport(1L, 2L, request))
+                .isInstanceOf(ApiException.class).hasMessageContaining("负数");
+        verifyNoInteractions(workOrderRepository, reportRepository);
+    }
+
+    @Test
+    void createReportRejectsClosedOrderAndReversedTimes() {
+        WorkOrder order = stubOrderAndActor();
+        WorkOrderReportRequest request = validReportRequest();
+        order.setStatus("CLOSED");
+        assertThatThrownBy(() -> service.createReport(1L, 2L, request))
+                .isInstanceOf(ApiException.class).hasMessageContaining("不能报工");
+        order.setStatus("EXECUTING");
+        request.setStartTime("2026-09-11 12:00:00");
+        request.setEndTime("2026-09-11 11:00:00");
+        assertThatThrownBy(() -> service.createReport(1L, 2L, request))
+                .isInstanceOf(ApiException.class).hasMessageContaining("结束时间");
+        verifyNoInteractions(reportRepository);
+    }
+
+    @Test
+    void createReportAlwaysUsesTheServerSideProcessName() {
+        stubOrderAndActor();
+        WorkOrderReportRequest request = validReportRequest();
+        request.setProcessName("伪造工序");
+        when(reportRepository.save(any(WorkOrderReport.class))).thenAnswer(invocation -> {
+            WorkOrderReport report = invocation.getArgument(0);
+            report.setId(9L);
+            return report;
+        });
+        assertThat(service.createReport(1L, 2L, request).getProcessName()).isEqualTo("裁切");
+    }
+
+    @Test
+    void reporterListIsRestrictedToTheActualTaskAndDepartment() {
+        WorkOrder order = workOrder(5L, factory(1L));
+        order.setTaskDataJson("[{\"sequenceNo\":1,\"processName\":\"裁切\",\"reportPermission\":\"车间A\"}]");
+        Department department = new Department();
+        department.setName("车间A");
+        FactoryUser allowed = user(2L, order.getFactory());
+        allowed.setDepartment(department);
+        FactoryUser other = user(3L, order.getFactory());
+        when(workOrderRepository.findById(5L)).thenReturn(Optional.of(order));
+        when(userRepository.findByFactoryIdAndEnabledTrue(1L)).thenReturn(java.util.Arrays.asList(allowed, other));
+
+        assertThat(service.listReporters(1L, 5L, 1)).extracting("id").containsExactly(2L);
+        assertThatThrownBy(() -> service.listReporters(9L, 5L, 1))
+                .isInstanceOf(ApiException.class).extracting("status").isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void approvingTheSameReportTwiceCannotApplyQuantitiesTwice() {
+        WorkOrder order = workOrder(5L, factory(1L));
+        WorkOrderReport report = pendingReport(order);
+        when(reportRepository.findByIdAndFactoryIdForUpdate(9L, 1L)).thenReturn(Optional.of(report));
+        when(workOrderRepository.findByIdAndFactoryIdForUpdate(5L, 1L)).thenReturn(Optional.of(order));
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, order.getFactory())));
+        when(reportRepository.save(report)).thenReturn(report);
+
+        service.approve(1L, 2L, 9L, null);
+        assertThat(order.getGoodQuantity()).isEqualTo(4);
+        assertThatThrownBy(() -> service.approve(1L, 2L, 9L, null)).isInstanceOf(ApiException.class);
+        verify(workOrderRepository, times(1)).save(order);
+        verify(reportRepository, times(1)).save(report);
+    }
+
+    @Test
+    void approvalRejectsOverflowAndCannotInventARemovedTask() {
+        WorkOrder order = workOrder(5L, factory(1L));
+        order.setGoodQuantity(Integer.MAX_VALUE);
+        WorkOrderReport report = pendingReport(order);
+        when(reportRepository.findByIdAndFactoryIdForUpdate(9L, 1L)).thenReturn(Optional.of(report));
+        when(workOrderRepository.findByIdAndFactoryIdForUpdate(5L, 1L)).thenReturn(Optional.of(order));
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, order.getFactory())));
+        assertThatThrownBy(() -> service.approve(1L, 2L, 9L, null)).isInstanceOf(ApiException.class)
+                .hasMessageContaining("数量");
+        report.setStatus(ReportStatus.PENDING);
+        order.setTaskDataJson("[]");
+        assertThatThrownBy(() -> service.approve(1L, 2L, 9L, null)).isInstanceOf(ApiException.class)
+                .hasMessageContaining("工序");
+        verify(reportRepository, never()).save(any());
+    }
+
+    private WorkOrder stubOrderAndActor() {
+        WorkOrder order = workOrder(5L, factory(1L));
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, order.getFactory())));
+        when(workOrderRepository.findByIdAndFactoryIdForUpdate(5L, 1L)).thenReturn(Optional.of(order));
+        return order;
+    }
+
+    @Test
+    void approvalCannotCreditADifferentProcessThatReusesTheOldSequenceNumber() {
+        WorkOrder order = workOrder(5L, factory(1L));
+        order.setTaskDataJson("[{\"sequenceNo\":1,\"processName\":\"焊接\",\"plannedQuantity\":100}]");
+        WorkOrderReport report = pendingReport(order);
+        when(reportRepository.findByIdAndFactoryIdForUpdate(9L, 1L)).thenReturn(Optional.of(report));
+        when(workOrderRepository.findByIdAndFactoryIdForUpdate(5L, 1L)).thenReturn(Optional.of(order));
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, order.getFactory())));
+        assertThatThrownBy(() -> service.approve(1L, 2L, 9L, null)).isInstanceOf(ApiException.class)
+                .hasMessageContaining("工序已移除或变更");
+        assertThat(order.getGoodQuantity()).isZero();
+        verify(workOrderRepository, never()).save(any());
+    }
+
+    private WorkOrderReportRequest validReportRequest() {
+        WorkOrderReportRequest request = new WorkOrderReportRequest();
+        request.setWorkOrderId(5L);
+        request.setProcessSequenceNo(1);
+        request.setReportQuantity(4);
+        request.setGoodQuantity(4);
+        request.setDefectQuantity(0);
+        return request;
+    }
+
+    private WorkOrderReport pendingReport(WorkOrder order) {
+        WorkOrderReport report = new WorkOrderReport();
+        report.setId(9L);
+        report.setFactory(order.getFactory());
+        report.setWorkOrder(order);
+        report.setProcessSequenceNo(1);
+        report.setProcessName("裁切");
+        report.setReporter(user(2L, order.getFactory()));
+        report.setStatus(ReportStatus.PENDING);
+        report.setReportQuantity(4);
+        report.setGoodQuantity(4);
+        return report;
+    }
+
     private Factory factory(Long id) {
         Factory factory = new Factory();
         factory.setId(id);
@@ -285,7 +499,8 @@ class WorkOrderReportServiceTest {
         order.setPlannedQuantity(100);
         order.setGoodQuantity(0);
         order.setDefectQuantity(0);
-        order.setStatus("进行中");
+        order.setStatus("IN_PROGRESS");
+        order.setTaskDataJson("[{\"sequenceNo\":1,\"processName\":\"裁切\",\"plannedQuantity\":100}]");
         order.setPriority("中");
         order.setCreatedAt(LocalDateTime.now());
         order.setUpdatedAt(LocalDateTime.now());

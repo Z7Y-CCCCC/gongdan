@@ -138,9 +138,9 @@ public class MobileAuthService {
     }
 
     private Optional<FactoryUser> findUser(Long factoryId, String account) {
-        Optional<FactoryUser> byUsername = userRepository.findByFactoryIdAndUsername(factoryId, account);
+        Optional<FactoryUser> byUsername = userRepository.findByFactoryIdAndUsernameForUpdate(factoryId, account);
         if (byUsername.isPresent()) return byUsername;
-        return userRepository.findByFactoryIdAndPhone(factoryId, account);
+        return userRepository.findByFactoryIdAndPhoneForUpdate(factoryId, account);
     }
 
     private String resolveOpenid(MobileWechatLoginRequest request) {

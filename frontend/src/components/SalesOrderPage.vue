@@ -13,6 +13,9 @@ import {
   type SalesOrderStatus
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
@@ -37,6 +40,8 @@ const statusOptions: Array<{ value: SalesOrderStatus | ''; label: string }> = [
 ]
 
 const loading = ref(false)
+const saving = ref(false)
+const beginLoad = useLatestRequest()
 const orders = ref<SalesOrderInfo[]>([])
 const products = ref<ProductInfo[]>([])
 const total = ref(0)
@@ -71,24 +76,22 @@ function itemUnit(item: SalesOrderFormItem | SalesOrderItemInfo) {
 }
 
 async function loadData() {
+  const isCurrent = beginLoad()
   loading.value = true
   try {
+    const search = { code: filter.code.trim() || undefined, customerName: filter.customerName.trim() || undefined, status: filter.status }
     const [orderRes, productRes] = await Promise.all([
-      fetchSalesOrders(props.token, {
-        code: filter.code.trim() || undefined,
-        customerName: filter.customerName.trim() || undefined,
-        status: filter.status,
-        size: 500
-      }),
-      fetchProducts(props.token, { size: 1000 })
+      fetchAllPages(params => fetchSalesOrders(props.token, { ...search, ...params }), 500, isCurrent),
+      fetchAllPages(params => fetchProducts(props.token, params), 500, isCurrent)
     ])
+    if (!isCurrent()) return
     orders.value = orderRes.items
     total.value = orderRes.total
     products.value = productRes.items
   } catch (e) {
-    emit('notice', e instanceof Error ? e.message : '销售订单加载失败')
+    if (isCurrent()) emit('notice', e instanceof Error ? e.message : '销售订单加载失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -189,8 +192,10 @@ function buildPayload(): SalesOrderPayload | null {
 }
 
 async function saveOrder() {
+  if (saving.value) return
   const payload = buildPayload()
   if (!payload) return
+  saving.value = true
   try {
     if (editing.value) {
       await updateSalesOrder(props.token, editing.value.id, payload)
@@ -203,6 +208,8 @@ async function saveOrder() {
     await loadData()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -218,6 +225,7 @@ async function removeOrder(item: SalesOrderInfo) {
   }
 }
 
+useRefreshOnActivated(loadData)
 onMounted(loadData)
 </script>
 
@@ -378,7 +386,7 @@ onMounted(loadData)
         </div>
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveOrder">保存</button>
+          <button class="primary-btn wide" type="button" @click="saveOrder" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
         </div>
       </div>
     </div>

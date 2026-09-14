@@ -9,7 +9,7 @@
  *
  * Requirements: 10.1-10.8
  */
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated } from 'vue'
 import { fetchHomeRecentReports, type RecentReportItem } from '../api'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
 
@@ -31,6 +31,9 @@ const { handleApiError } = useHomeDashboardErrorHandler()
 const reports = ref<RecentReportItem[]>([])
 const initialLoaded = ref(false)
 let pollingTimer: ReturnType<typeof setInterval> | null = null
+let componentActive = true
+let disposed = false
+let requestInFlight = false
 
 // --- Helpers ---
 
@@ -53,27 +56,34 @@ function getLastCreatedAt(): string | undefined {
 // --- Data loading ---
 
 async function loadInitial() {
+  if (disposed || requestInFlight) return
+  requestInFlight = true
   try {
     const result = await fetchHomeRecentReports(props.token, {})
+    if (disposed) return
     reports.value = result.items.slice(0, MAX_ITEMS)
   } catch (error) {
-    if (!handleApiError(error)) {
+    if (!disposed && !handleApiError(error)) {
       // Non-401/403 error: silently ignore, keep current list
     }
   } finally {
-    initialLoaded.value = true
+    requestInFlight = false
+    if (!disposed) initialLoaded.value = true
   }
 }
 
 async function pollNewReports() {
+  if (disposed || !componentActive || !props.active || requestInFlight) return
   const since = getLastCreatedAt()
   if (!since) {
     // If list is empty, do a full load
     await loadInitial()
     return
   }
+  requestInFlight = true
   try {
     const result = await fetchHomeRecentReports(props.token, { since })
+    if (disposed) return
     if (result.items.length > 0) {
       // Protect the list from duplicate rows if a server cursor is ever rounded.
       const knownIds = new Set(reports.value.map(item => item.id))
@@ -81,9 +91,11 @@ async function pollNewReports() {
       reports.value = [...newItems, ...reports.value].slice(0, MAX_ITEMS)
     }
   } catch (error) {
-    if (!handleApiError(error)) {
+    if (!disposed && !handleApiError(error)) {
       // Non-401/403 error: silently ignore, keep current list
     }
+  } finally {
+    requestInFlight = false
   }
 }
 
@@ -91,6 +103,7 @@ async function pollNewReports() {
 
 function startPolling() {
   stopPolling()
+  if (disposed || !componentActive || !props.active) return
   pollingTimer = setInterval(pollNewReports, POLL_INTERVAL_MS)
 }
 
@@ -120,6 +133,20 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
+  stopPolling()
+})
+
+onActivated(() => {
+  componentActive = true
+  if (initialLoaded.value && props.active) {
+    void pollNewReports()
+    startPolling()
+  }
+})
+
+onDeactivated(() => {
+  componentActive = false
   stopPolling()
 })
 </script>

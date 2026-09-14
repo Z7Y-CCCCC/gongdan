@@ -2,27 +2,24 @@
  * 主页仪表盘全局错误处理 composable
  *
  * 处理逻辑：
- * - 任一接口返回 401 时调用 useAuth().logout() 清除 token 并跳转登录页
+ * - 401 由 API 层按请求 token 统一清理会话；组件不重复退出或刷新页面
  * - 任一接口返回 403 时隐藏所有数据区块，尝试显示"无权限访问主页"提示
  *
  * Requirements: 12.1, 12.2
  */
-import { ref } from 'vue'
+import { getCurrentInstance, inject, provide, ref, type InjectionKey, type Ref } from 'vue'
 import { ApiError } from '../api'
-import { useAuth } from './useAuth'
+
+const dashboardErrorsKey: InjectionKey<{ forbidden: Ref<boolean>; forbiddenMessage: Ref<string> }> = Symbol('dashboard-errors')
 
 export function useHomeDashboardErrorHandler() {
-  const { logout } = useAuth()
-
-  /** 当为 true 时，所有数据区块应被隐藏 */
-  const forbidden = ref(false)
-
-  /** 403 时的提示文字 */
-  const forbiddenMessage = ref('')
+  const inherited = getCurrentInstance() ? inject(dashboardErrorsKey, null) : null
+  const { forbidden, forbiddenMessage } = inherited || { forbidden: ref(false), forbiddenMessage: ref('') }
+  if (!inherited && getCurrentInstance()) provide(dashboardErrorsKey, { forbidden, forbiddenMessage })
 
   /**
    * 处理 API 调用中的错误。
-   * 如果是 401，清除 token 并跳转登录页。
+   * 如果是 401，API 层已按请求所属会话处理，无需再次退出或重载。
    * 如果是 403，设置 forbidden 标志隐藏所有数据区块。
    *
    * @param error - 捕获到的错误对象
@@ -35,11 +32,6 @@ export function useHomeDashboardErrorHandler() {
     }
 
     if (error.status === 401) {
-      // 清除本地登录态并跳转登录页
-      // useAuth().logout() 清除 localStorage 中的 token 和 user
-      logout()
-      // 强制刷新页面以确保 App.vue 重新从 localStorage 读取状态（为空），显示登录页
-      window.location.reload()
       return true
     }
 

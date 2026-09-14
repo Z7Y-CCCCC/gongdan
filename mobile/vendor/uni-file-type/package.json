@@ -1,0 +1,15 @@
+{
+  "name": "@gongdan/uni-file-type-adapter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal CommonJS fromBuffer bridge from the pinned Jimp API to the maintained file-type parser",
+  "main": "index.cjs",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "file-type-modern": "npm:file-type@21.3.4"
+  },
+  "license": "UNLICENSED"
+}

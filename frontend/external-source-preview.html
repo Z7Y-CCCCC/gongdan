@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>外部数据源 · 隔离 UI 验证</title>
+</head>
+<body>
+  <aside style="padding:10px 24px;background:#fff5df;color:#72551d;font-size:13px">
+    隔离 UI 验证：全部数据仅在本页内存中模拟，不连接真实数据库或 API。刷新即重置；健康路径 /fail 模拟 HTTP 401。
+  </aside>
+  <div id="app"></div>
+  <script type="module">
+    import { createApp, h } from 'vue'
+    import Page from '/src/components/ExternalDataSourcePage.vue'
+    import '/src/styles.css'
+
+    // Development-only component fixture; it is not part of Vite's production entry.
+    // This exercises UI contracts, not backend policy, encryption, or connectivity.
+    const originalFetch = window.fetch.bind(window)
+    const config = {
+      code: 'workshop_mes', name: '车间设备采集服务', description: '用于后续工单详情的批次温度展示',
+      kind: 'HTTP', driver: 'SQLITE', baseUrl: 'https://mes.example.com/api/v1', healthPath: '/health',
+      authType: 'BEARER', headerName: '', username: '', host: '', port: 3306, database: '', schema: '',
+      fileId: '', tls: true, timeoutSeconds: 5, secretValue: '', secretAction: 'KEEP'
+    }
+    let nextId = 3
+    let nextCheckId = 10
+    function check(c, version = 1) {
+      const stamp = new Date().toISOString()
+      const failed = c.kind === 'HTTP' && c.healthPath === '/fail'
+      const unknown = c.kind === 'HTTP' && !c.healthPath
+      return {
+        id: nextCheckId++, configVersion: version, status: unknown ? 'UNKNOWN' : failed ? 'FAILED' : 'UP',
+        errorCode: unknown ? 'NO_HEALTH_PATH' : failed ? 'HTTP_AUTH' : undefined,
+        httpStatus: c.kind === 'DATABASE' || unknown ? undefined : failed ? 401 : 200,
+        durationMs: unknown ? 0 : 126, startedAt: stamp, finishedAt: stamp,
+        message: unknown ? '未配置健康检查路径' : failed ? '认证或权限失败（隔离模拟）' :
+          c.kind === 'DATABASE' ? '数据库连接可达；只读权限需由数据库授权保证' : '健康接口可达；未验证业务数据与业务鉴权',
+        traceId: 'preview-only-' + nextCheckId
+      }
+    }
+    const sqliteConfig = { ...config, code: 'equipment_snapshot', name: '设备只读快照', kind: 'DATABASE',
+      driver: 'SQLITE', authType: 'NONE', baseUrl: '', healthPath: '', fileId: 'equipment_snapshot' }
+    const sources = [config, sqliteConfig].map((c, index) => ({
+      id: index + 1, version: 1, config: { ...c }, enabled: false, archived: false,
+      secretConfigured: c.authType !== 'NONE', health: 'UP', lastCheck: check(c), updatedAt: new Date().toISOString()
+    }))
+    const checks = new Map(sources.map(s => [s.id, [s.lastCheck]]))
+    function json(value, status = 200) {
+      return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
+    }
+    function save(body, source) {
+      if (body.kind === 'DATABASE' && body.driver !== 'SQLITE') return json({ message: '数据库驱动待真实环境验收，暂未开放' }, 400)
+      if (!body.name?.trim() || !body.code?.trim()) return json({ message: '请填写名称和编码' }, 400)
+      if (source && source.version !== body.version) return json({ message: '配置已更新，请刷新' }, 409)
+      if (!source && sources.some(s => s.config.code === body.code)) return json({ message: '编码已存在' }, 409)
+      const needsSecret = body.kind === 'HTTP' && body.authType !== 'NONE'
+      const secretConfigured = needsSecret && (body.secretAction === 'KEEP' ? Boolean(source?.secretConfigured) : Boolean(body.secretValue))
+      if (needsSecret && !secretConfigured) return json({ message: '请设置凭据' }, 400)
+      const clean = { ...body, baseUrl: body.baseUrl.trim().replace(/\/+$/, ''), secretValue: '', secretAction: 'KEEP' }
+      delete clean.sourceId
+      delete clean.version
+      if (!source) {
+        source = { id: nextId++, version: 0, enabled: false, archived: false }
+        sources.push(source)
+        checks.set(source.id, [])
+      }
+      Object.assign(source, { config: clean, version: source.version + 1, secretConfigured,
+        health: source.lastCheck ? 'STALE' : 'UNKNOWN', updatedAt: new Date().toISOString() })
+      return json(source)
+    }
+    window.fetch = async (input, options = {}) => {
+      const url = new URL(typeof input === 'string' ? input : input.url, location.href)
+      const prefix = '/api/external-data-sources'
+      if (!url.pathname.startsWith(prefix)) {
+        if (url.pathname.startsWith('/api/')) return json({ message: '隔离预览禁止访问真实后端' }, 403)
+        return originalFetch(input, options)
+      }
+      const path = url.pathname.slice(prefix.length)
+      const method = options.method || 'GET'
+      const body = options.body ? JSON.parse(options.body) : {}
+      if (path === '/capabilities') return json({ secretsReady: true, sqliteFiles: ['equipment_snapshot'],
+        databaseDrivers: ['SQLITE'], pendingDatabaseDrivers: ['MYSQL', 'POSTGRESQL', 'SQLSERVER'] })
+      if (path === '/test-config') return json(check(body))
+      if (!path) {
+        if (method === 'POST') return save(body)
+        const filtered = sources.filter(s => s.archived === (url.searchParams.get('archived') === 'true'))
+        return json({ items: filtered, total: filtered.length, hasMore: false })
+      }
+      const [, id, action] = path.split('/')
+      const source = sources.find(s => s.id === Number(id))
+      if (!source) return json({ message: '数据源不存在' }, 404)
+      if (method === 'PUT' && !action) return save(body, source)
+      if (action === 'test') {
+        const result = check(source.config, source.version)
+        source.lastCheck = result
+        source.health = result.status
+        checks.get(source.id).unshift(result)
+        return json(result)
+      }
+      if (action === 'checks') {
+        const page = Number(url.searchParams.get('page') || 0)
+        const all = checks.get(source.id)
+        return json({ content: all.slice(page * 2, page * 2 + 2), last: (page + 1) * 2 >= all.length })
+      }
+      if (action === 'schema') {
+        const table = url.searchParams.get('table')
+        const items = table ? [
+          { column: 'order_no', type: 'TEXT', nullable: false, primaryKey: true },
+          { column: 'temperature', type: 'REAL', nullable: true, primaryKey: false },
+          { column: 'sampled_at', type: 'TEXT', nullable: false, primaryKey: false }
+        ] : [{ table: 'equipment_readings', type: 'TABLE' }, { table: 'recent_readings', type: 'VIEW' }]
+        return json({ items, hasMore: false, message: '隔离模拟元数据；未读取真实业务记录。' })
+      }
+      if (['enable', 'disable', 'archive', 'restore'].includes(action)) {
+        if (body.version !== source.version) return json({ message: '配置已更新，请刷新' }, 409)
+        source.enabled = action === 'enable'
+        if (action === 'archive' || action === 'restore') source.archived = action === 'archive'
+        source.version++
+        source.health = source.lastCheck ? 'STALE' : 'UNKNOWN'
+        return json(source)
+      }
+      return json({ message: '隔离预览未实现此操作' }, 404)
+    }
+    createApp({ render: () => h(Page, { token: 'isolated-ui-fixture' }) }).mount('#app')
+  </script>
+</body>
+</html>

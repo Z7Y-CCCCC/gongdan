@@ -15,9 +15,6 @@ export default defineConfig({
           if (id.includes('/exceljs/') || id.includes('/file-saver/')) {
             return 'export-vendor';
           }
-          if (id.includes('/qrcode/')) {
-            return 'qrcode-vendor';
-          }
           return 'vendor';
         }
       }
@@ -29,7 +26,7 @@ export default defineConfig({
     }
   },
   server: {
-    host: '0.0.0.0',
+    host: '127.0.0.1',
     port: 5173,
     strictPort: true,
     proxy: {

@@ -12,6 +12,9 @@ import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
 import com.heihu.workorder.repository.WorkOrderCategoryRepository;
 import com.heihu.workorder.repository.WorkOrderReportRepository;
+import com.heihu.workorder.util.DateTimeParser;
+import com.heihu.workorder.util.WorkOrderStates;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.cache.annotation.CacheEvict;
@@ -22,7 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -99,18 +105,20 @@ public class WorkOrderService {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
-        if (request.getVersion() != null) {
-            workOrder.setVersion(request.getVersion());
+        if (request == null) {
+            throw new IllegalArgumentException("请填写工单信息");
+        }
+        if (request.getVersion() != null && !request.getVersion().equals(workOrder.getVersion())) {
+            throw new ObjectOptimisticLockingFailureException(WorkOrder.class, id);
         }
         workOrder.setUpdatedAt(LocalDateTime.now());
         applyRequest(factoryId, workOrder, request, false);
-        return toResponse(workOrderRepository.save(workOrder));
+        return toResponse(workOrderRepository.saveAndFlush(workOrder));
     }
 
     @CacheEvict(cacheNames = {"workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public void delete(Long factoryId, Long id) {
-        WorkOrder workOrder = workOrderRepository.findById(id)
-                .filter(item -> item.getFactory().getId().equals(factoryId))
+        WorkOrder workOrder = workOrderRepository.findByIdAndFactoryIdForUpdate(id, factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("工单不存在"));
         if (reportRepository.existsByFactoryIdAndWorkOrderId(factoryId, id)) {
             throw new IllegalArgumentException("工单已有报工记录，不能删除");
@@ -119,6 +127,9 @@ public class WorkOrderService {
     }
 
     private void applyRequest(Long factoryId, WorkOrder workOrder, WorkOrderRequest request, boolean creating) {
+        if (request == null) {
+            throw new IllegalArgumentException("请填写工单信息");
+        }
         if (request.getProductId() == null) {
             throw new IllegalArgumentException("产品不能为空");
         }
@@ -129,6 +140,15 @@ public class WorkOrderService {
         Product product = productRepository.findById(request.getProductId())
                 .filter(item -> item.getFactory().getId().equals(factoryId))
                 .orElseThrow(() -> new IllegalArgumentException("产品不存在"));
+
+        requireNonNegative(request.getGoodQuantity(), "良品数");
+        requireNonNegative(request.getDefectQuantity(), "不良品数");
+        validateTasks(request.getTasks());
+        LocalDateTime planStart = DateTimeParser.parse(request.getPlanStart());
+        LocalDateTime planEnd = DateTimeParser.parse(request.getPlanEnd());
+        if (planStart != null && planEnd != null && planEnd.isBefore(planStart)) {
+            throw new IllegalArgumentException("计划结束时间不能早于开始时间");
+        }
 
         String nextCode = normalize(request.getCode());
         if (creating && nextCode == null) {
@@ -148,9 +168,9 @@ public class WorkOrderService {
         workOrder.setCode(codeToUse);
         
         if (request.getCategoryId() != null) {
-            categoryRepository.findById(request.getCategoryId())
+            workOrder.setCategory(categoryRepository.findById(request.getCategoryId())
                 .filter(c -> c.getFactory().getId().equals(factoryId))
-                .ifPresent(workOrder::setCategory);
+                .orElseThrow(() -> new IllegalArgumentException("工单分类不存在")));
         } else {
             workOrder.setCategory(null);
         }
@@ -166,18 +186,21 @@ public class WorkOrderService {
 
         String previousStatus = creating ? null : workOrder.getStatus();
         String nextStatus = normalize(request.getStatus()) != null ? request.getStatus().trim() : "NOT_STARTED";
+        if (!WorkOrderStates.isKnown(nextStatus)) {
+            throw new IllegalArgumentException("无效的工单状态");
+        }
         workOrder.setStatus(nextStatus);
 
-        if (!"COMPLETED".equals(previousStatus) && "COMPLETED".equals(nextStatus)) {
+        if (!WorkOrderStates.isFinished(previousStatus) && WorkOrderStates.isFinished(nextStatus)) {
             workOrder.setCompletedAt(LocalDateTime.now());
         }
-        if (!"COMPLETED".equals(nextStatus)) {
+        if (!WorkOrderStates.isFinished(nextStatus)) {
             workOrder.setCompletedAt(null);
         }
 
         workOrder.setPriority(normalize(request.getPriority()) != null ? request.getPriority().trim() : "NORMAL");
-        workOrder.setPlanStart(parseDateTime(request.getPlanStart()));
-        workOrder.setPlanEnd(parseDateTime(request.getPlanEnd()));
+        workOrder.setPlanStart(planStart);
+        workOrder.setPlanEnd(planEnd);
         workOrder.setRelatedOrderCode(normalize(request.getRelatedOrderCode()));
         workOrder.setRemark(normalize(request.getRemark()));
         workOrder.setCustomDataJson(writeJson(request.getCustomValues()));
@@ -228,8 +251,8 @@ public class WorkOrderService {
 
     private Integer calculateProgress(List<WorkOrderRequest.TaskItem> tasks) {
         if (tasks.isEmpty()) return 0;
-        int planned = 0;
-        int completed = 0;
+        long planned = 0;
+        long completed = 0;
         for (WorkOrderRequest.TaskItem task : tasks) {
             if (task.getEnabled() != null && !task.getEnabled()) {
                 continue;
@@ -238,20 +261,28 @@ public class WorkOrderService {
             completed += task.getCompletedQuantity() == null ? 0 : Math.max(task.getCompletedQuantity(), 0);
         }
         if (planned <= 0) return 0;
-        return (int) Math.round(completed * 100.0 / planned);
+        return (int) Math.min(Integer.MAX_VALUE, Math.round(completed * 100.0 / planned));
     }
 
-    private LocalDateTime parseDateTime(String value) {
-        String normalized = normalize(value);
-        if (normalized == null) return null;
-        try {
-            return LocalDateTime.parse(normalized.replace(" ", "T"));
-        } catch (Exception ignore) {
-            try {
-                return LocalDateTime.parse(normalized, FMT);
-            } catch (Exception ex) {
-                return null;
+    private void validateTasks(List<WorkOrderRequest.TaskItem> tasks) {
+        if (tasks == null) return;
+        Set<Integer> sequences = new HashSet<>();
+        for (WorkOrderRequest.TaskItem task : tasks) {
+            if (task == null || task.getSequenceNo() == null || task.getSequenceNo() <= 0
+                    || !sequences.add(task.getSequenceNo()) || normalize(task.getProcessName()) == null) {
+                throw new IllegalArgumentException("工序不能为空，序号必须为不重复的正整数且工序名称必填");
             }
+            requireNonNegative(task.getPlannedQuantity(), "工序计划数");
+            requireNonNegative(task.getCompletedQuantity(), "工序完成数");
+            requireNonNegative(task.getDefectQuantity(), "工序不良数");
+            requireNonNegative(task.getApprovedQuantity(), "工序已审批数");
+            requireNonNegative(task.getUnapprovedQuantity(), "工序待审批数");
+        }
+    }
+
+    private void requireNonNegative(Integer quantity, String label) {
+        if (quantity != null && quantity < 0) {
+            throw new IllegalArgumentException(label + "不能为负数");
         }
     }
 
@@ -284,14 +315,16 @@ public class WorkOrderService {
 
     private List<WorkOrderRequest.TaskItem> normalizeTasks(List<WorkOrderRequest.TaskItem> tasks) {
         if (tasks == null) return Collections.emptyList();
+        List<WorkOrderRequest.TaskItem> result = new ArrayList<>();
         for (WorkOrderRequest.TaskItem task : tasks) {
             if (task == null) continue;
             String permission = normalize(task.getReportPermission());
             if (permission != null && "all".equalsIgnoreCase(permission)) {
                 task.setReportPermission("所有人");
             }
+            result.add(task);
         }
-        return tasks;
+        return result;
     }
 
     private List<WorkOrderRequest.MaterialItem> readMaterials(String json) {

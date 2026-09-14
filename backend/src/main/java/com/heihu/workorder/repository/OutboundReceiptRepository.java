@@ -4,17 +4,23 @@ import com.heihu.workorder.model.OutboundReceipt;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
+import javax.persistence.LockModeType;
 
 public interface OutboundReceiptRepository extends JpaRepository<OutboundReceipt, Long> {
 
     Page<OutboundReceipt> findByFactoryId(Long factoryId, Pageable pageable);
 
     Optional<OutboundReceipt> findByFactoryIdAndCode(Long factoryId, String code);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from OutboundReceipt r where r.id = :id and r.factory.id = :factoryId")
+    Optional<OutboundReceipt> findByIdAndFactoryIdForUpdate(@Param("id") Long id, @Param("factoryId") Long factoryId);
 
     @Query("SELECT CASE WHEN COUNT(r) > 0 THEN true ELSE false END FROM OutboundReceipt r JOIN r.items i " +
             "WHERE r.factory.id = :factoryId AND i.product.id = :productId")

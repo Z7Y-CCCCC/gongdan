@@ -9,6 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -65,12 +67,32 @@ public class SmsService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void sendCode(String phone, String clientIp) {
         LocalDateTime now = LocalDateTime.now();
-        checkPhoneRateLimit(phone, now);
-        recordIpRateLimit(clientIp, now);
-
         String code = generateCode();
-        storeCode(phone, code, now);
-        phoneLastSendTime.put(phone, now);
+
+        if (smsCodeRepository != null) {
+            // Always acquire the phone row before the IP row. A new phone is inserted
+            // and flushed first so concurrent first sends cannot both reach the provider.
+            SmsCode reservation = reservePhoneForSend(phone, code);
+            recordIpRateLimit(clientIp, LocalDateTime.now());
+            // Time spent waiting for the IP lock must not consume the phone's cooldown or code lifetime.
+            reservation.setCreatedAt(LocalDateTime.now());
+            smsCodeRepository.flush();
+        } else {
+            // The no-database fallback needs an atomic first-send reservation as well.
+            phoneLastSendTime.compute(phone, (key, previous) -> {
+                if (previous != null && previous.plusSeconds(PHONE_RATE_LIMIT_SECONDS).isAfter(now)) {
+                    throw phoneRateLimitExceeded();
+                }
+                return now;
+            });
+            try {
+                recordIpRateLimit(clientIp, now);
+            } catch (RuntimeException exception) {
+                phoneLastSendTime.remove(phone, now);
+                throw exception;
+            }
+            codeStore.put(phone, new SmsCodeEntry(code, now, false));
+        }
 
         try {
             smsSender.sendVerificationCode(phone, code);
@@ -81,18 +103,28 @@ public class SmsService {
         log.info("SMS code sent [phone={}]", phone);
     }
 
-    private void checkPhoneRateLimit(String phone, LocalDateTime now) {
-        if (smsCodeRepository != null) {
-            SmsCode lastCode = smsCodeRepository.findByPhone(phone).orElse(null);
-            if (lastCode != null && lastCode.getCreatedAt().plusSeconds(PHONE_RATE_LIMIT_SECONDS).isAfter(now)) {
-                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "发送过于频繁，请稍后再试");
+    private SmsCode reservePhoneForSend(String phone, String code) {
+        try {
+            SmsCode entry = smsCodeRepository.findByPhoneForUpdate(phone).orElse(null);
+            LocalDateTime now = LocalDateTime.now();
+            if (entry != null && entry.getCreatedAt().plusSeconds(PHONE_RATE_LIMIT_SECONDS).isAfter(now)) {
+                throw phoneRateLimitExceeded();
             }
-            return;
+            if (entry == null) entry = new SmsCode();
+            entry.setPhone(phone);
+            entry.setCode(code);
+            entry.setCreatedAt(now);
+            entry.setVerified(false);
+            return smsCodeRepository.saveAndFlush(entry);
+        } catch (DataIntegrityViolationException | PessimisticLockingFailureException exception) {
+            // The unique phone constraint arbitrates the missing-row race. Do not retry
+            // the whole send operation: provider calls are external, non-transactional effects.
+            throw phoneRateLimitExceeded();
         }
-        LocalDateTime lastSend = phoneLastSendTime.get(phone);
-        if (lastSend != null && lastSend.plusSeconds(PHONE_RATE_LIMIT_SECONDS).isAfter(now)) {
-            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "发送过于频繁，请稍后再试");
-        }
+    }
+
+    private ApiException phoneRateLimitExceeded() {
+        return new ApiException(HttpStatus.TOO_MANY_REQUESTS, "发送过于频繁，请稍后再试");
     }
 
     private void recordIpRateLimit(String clientIp, LocalDateTime now) {
@@ -152,7 +184,7 @@ public class SmsService {
         while (phoneIterator.hasNext()) {
             Map.Entry<String, LocalDateTime> entry = phoneIterator.next();
             if (entry.getValue().plusSeconds(PHONE_RATE_LIMIT_SECONDS).isBefore(now)) {
-                phoneIterator.remove();
+                phoneLastSendTime.remove(entry.getKey(), entry.getValue());
             }
         }
 
@@ -160,7 +192,7 @@ public class SmsService {
         while (ipIterator.hasNext()) {
             Map.Entry<String, IpRateEntry> entry = ipIterator.next();
             if (entry.getValue().getWindowStart().plusMinutes(IP_RATE_LIMIT_WINDOW_MINUTES).isBefore(now)) {
-                ipIterator.remove();
+                ipRateStore.remove(entry.getKey(), entry.getValue());
             }
         }
     }
@@ -179,19 +211,15 @@ public class SmsService {
         if (entry == null) {
             return false;
         }
-        if (entry.isVerified()) {
-            return false;
+        synchronized (entry) {
+            if (entry.isVerified()
+                    || !entry.getCreatedAt().plusMinutes(CODE_EXPIRY_MINUTES).isAfter(LocalDateTime.now())
+                    || !entry.getCode().equals(code)) {
+                return false;
+            }
+            if (consume) entry.setVerified(true);
+            return true;
         }
-        if (entry.getCreatedAt().plusMinutes(CODE_EXPIRY_MINUTES).isBefore(LocalDateTime.now())) {
-            return false;
-        }
-        if (!entry.getCode().equals(code)) {
-            return false;
-        }
-        if (consume) {
-            entry.setVerified(true);
-        }
-        return true;
     }
 
     SmsCodeEntry getCodeEntry(String phone) {
@@ -206,20 +234,12 @@ public class SmsService {
         return sb.toString();
     }
 
-    private void storeCode(String phone, String code, LocalDateTime now) {
-        if (smsCodeRepository == null) {
-            codeStore.put(phone, new SmsCodeEntry(code, now, false));
-            return;
-        }
-        SmsCode smsCode = smsCodeRepository.findByPhone(phone).orElseGet(SmsCode::new);
-        smsCode.setPhone(phone);
-        smsCode.setCode(code);
-        smsCode.setCreatedAt(now);
-        smsCode.setVerified(false);
-        smsCodeRepository.save(smsCode);
-    }
-
     private boolean verifyCodeInDatabase(String phone, String code, boolean consume) {
+        if (consume) {
+            // A single compare-and-set lets only one concurrent request consume a code.
+            return smsCodeRepository.consumeValidCode(phone, code,
+                    LocalDateTime.now().minusMinutes(CODE_EXPIRY_MINUTES)) == 1;
+        }
         SmsCode entry = smsCodeRepository.findByPhone(phone).orElse(null);
         if (entry == null) {
             return false;
@@ -227,15 +247,11 @@ public class SmsService {
         if (entry.isVerified()) {
             return false;
         }
-        if (entry.getCreatedAt().plusMinutes(CODE_EXPIRY_MINUTES).isBefore(LocalDateTime.now())) {
+        if (!entry.getCreatedAt().plusMinutes(CODE_EXPIRY_MINUTES).isAfter(LocalDateTime.now())) {
             return false;
         }
         if (!entry.getCode().equals(code)) {
             return false;
-        }
-        if (consume) {
-            entry.setVerified(true);
-            smsCodeRepository.save(entry);
         }
         return true;
     }

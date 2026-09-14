@@ -7,8 +7,8 @@ import com.heihu.workorder.service.PluginControlService;
 import com.heihu.workorder.service.PluginControlService.PluginTarget;
 import com.heihu.workorder.service.TokenService;
 import com.heihu.workorder.exception.ApiException;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.HttpURLConnection;
 import java.net.URI;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -16,9 +16,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Enumeration;
+import javax.annotation.PreDestroy;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.servlet.http.HttpServletRequest;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -26,9 +29,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -54,6 +56,8 @@ public class PluginProxyController {
     private final int readTimeoutMs;
     private final int maxRequestBytes;
     private final String gatewaySecret;
+    private final CloseableHttpClient httpClient;
+    private final RestTemplate restTemplate;
 
     /** Kept for lightweight unit tests; production uses the Spring-injected constructor below. */
     public PluginProxyController(
@@ -88,6 +92,13 @@ public class PluginProxyController {
         this.readTimeoutMs = readTimeoutMs;
         this.maxRequestBytes = maxRequestBytes;
         this.gatewaySecret = gatewaySecret == null ? "" : gatewaySecret.trim();
+        if (connectTimeoutMs <= 0 || readTimeoutMs <= 0 || maxRequestBytes <= 0) {
+            throw new IllegalArgumentException("Plugin proxy timeouts and request limit must be positive");
+        }
+        this.httpClient = HttpClients.custom().disableRedirectHandling().disableAutomaticRetries()
+                .disableCookieManagement().disableContentCompression()
+                .setMaxConnTotal(40).setMaxConnPerRoute(10).build();
+        this.restTemplate = createRestTemplate();
     }
 
     @RequestMapping(value = "/{pluginKey}/**", method = {
@@ -97,16 +108,18 @@ public class PluginProxyController {
     public ResponseEntity<byte[]> proxy(
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @PathVariable String pluginKey,
-            HttpServletRequest request,
-            @RequestBody(required = false) byte[] body
+            HttpServletRequest request
     ) throws IOException {
         if (HttpMethod.OPTIONS.matches(request.getMethod())) {
             return ResponseEntity.noContent().build();
         }
-        if (body != null && body.length > maxRequestBytes) {
+        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
+        // Read at most the configured limit; @RequestBody byte[] would allocate the
+        // entire untrusted payload before a controller-level size check could run.
+        byte[] body = readBoundedBody(request);
+        if (body == null) {
             return errorResponse(HttpStatus.PAYLOAD_TOO_LARGE, "插件请求内容过大");
         }
-        AuthenticatedUser currentUser = tokenService.requireUser(authorization);
         PluginTarget target = pluginControlService.resolveBackendTarget(
                 currentUser.getFactoryId(), currentUser.getUserId(), currentUser.getRole().name(), pluginKey);
         String breakerKey = currentUser.getFactoryId() + ":" + pluginKey;
@@ -132,7 +145,7 @@ public class PluginProxyController {
         HttpEntity<byte[]> entity = new HttpEntity<>(body == null ? new byte[0] : body, headers);
 
         try {
-            ResponseEntity<byte[]> upstream = createRestTemplate().exchange(
+            ResponseEntity<byte[]> upstream = restTemplate.exchange(
                     targetUri, HttpMethod.valueOf(request.getMethod()), entity, byte[].class);
             if (upstream.getStatusCode().is3xxRedirection()) {
                 circuitBreaker.recordFailure(breakerKey);
@@ -152,14 +165,10 @@ public class PluginProxyController {
     }
 
     private RestTemplate createRestTemplate() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
-            @Override
-            protected void prepareConnection(HttpURLConnection connection, String httpMethod) throws IOException {
-                super.prepareConnection(connection, httpMethod);
-                connection.setInstanceFollowRedirects(false);
-            }
-        };
+        // HttpURLConnection rejects PATCH even though the gateway exposes that method.
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
         factory.setConnectTimeout(connectTimeoutMs);
+        factory.setConnectionRequestTimeout(connectTimeoutMs);
         factory.setReadTimeout(readTimeoutMs);
         RestTemplate restTemplate = new RestTemplate(factory);
         restTemplate.setErrorHandler(new DefaultResponseErrorHandler() {
@@ -171,8 +180,26 @@ public class PluginProxyController {
         return restTemplate;
     }
 
+    @PreDestroy
+    public void close() throws IOException {
+        httpClient.close();
+    }
+
+    private byte[] readBoundedBody(HttpServletRequest request) throws IOException {
+        if (request.getContentLengthLong() > maxRequestBytes) return null;
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        byte[] buffer = new byte[4096];
+        int read;
+        java.io.InputStream input = request.getInputStream();
+        while ((read = input.read(buffer)) != -1) {
+            if (read > maxRequestBytes - output.size()) return null;
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
+    }
+
     private URI buildTargetUri(String backendUrl, String pluginKey, HttpServletRequest request) {
-        String prefix = "/api/plugins/" + pluginKey;
+        String prefix = request.getContextPath() + "/api/plugins/" + pluginKey;
         String requestUri = request.getRequestURI();
         String suffix = requestUri.startsWith(prefix) ? requestUri.substring(prefix.length()) : "/";
         if (suffix.isEmpty()) suffix = "/";
@@ -251,7 +278,8 @@ public class PluginProxyController {
         String path = targetUri.getRawPath() + (query == null ? "" : "?" + query);
         String canonical = String.join("\n", request.getMethod(), path, target.getPluginKey(),
                 target.getVersion(), String.valueOf(currentUser.getFactoryId()),
-                String.valueOf(currentUser.getUserId()), currentUser.getRole().name(), timestamp, bodyHash);
+                String.valueOf(currentUser.getUserId()), currentUser.getRole().name(), timestamp, bodyHash,
+                Base64.getEncoder().encodeToString(target.getConfigJson().getBytes(StandardCharsets.UTF_8)));
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));

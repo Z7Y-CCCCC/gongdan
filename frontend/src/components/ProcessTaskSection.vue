@@ -11,6 +11,8 @@ import { ref, provide, watch, onMounted, inject, type Ref } from 'vue'
 import type { HomeRange, ProcessCardItem } from '../api'
 import { fetchHomeProcessCards } from '../api'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import ProcessTaskCard from './ProcessTaskCard.vue'
 import ProcessCardSettingsModal, { type ProcessCardSetting } from './ProcessCardSettingsModal.vue'
 
@@ -23,6 +25,7 @@ const range = ref<HomeRange>('today')
 const includeNotStarted = ref(false)
 const cards = ref<ProcessCardItem[]>([])
 const loading = ref(false)
+const beginLoad = useLatestRequest()
 const errorMessage = ref('')
 const showSettings = ref(false)
 
@@ -48,10 +51,12 @@ const { handleApiError } = useHomeDashboardErrorHandler()
 let hasLoadedOnce = false
 
 async function loadCards() {
+  const isCurrent = beginLoad()
   loading.value = true
   errorMessage.value = ''
   try {
     const response = await fetchHomeProcessCards(props.token, range.value, includeNotStarted.value)
+    if (!isCurrent()) return
     cards.value = response.items
     hasLoadedOnce = true
     // Update modal settings from loaded cards
@@ -62,6 +67,7 @@ async function loadCards() {
       visible: true
     }))
   } catch (error) {
+    if (!isCurrent()) return
     // Check if it's a 401/403 handled globally
     if (handleApiError(error)) {
       return
@@ -75,7 +81,7 @@ async function loadCards() {
       errorMessage.value = '加载失败，请重试'
     }
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -108,6 +114,8 @@ function onSettingsSaved(_newSettings: Array<{ processId: number; color: string;
 }
 
 // --- Initial load ---
+useRefreshOnActivated(loadCards)
+
 onMounted(() => {
   loadCards()
 })

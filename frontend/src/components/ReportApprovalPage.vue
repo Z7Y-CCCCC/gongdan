@@ -10,6 +10,9 @@ import {
 } from '../api'
 import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -18,6 +21,7 @@ const status = ref<ReportStatus>('PENDING')
 const allReports = ref<WorkOrderReportInfo[]>([])
 const reports = computed(() => allReports.value.filter(item => item.status === status.value))
 const loading = ref(false)
+const beginLoad = useLatestRequest()
 const detail = ref<WorkOrderReportInfo | null>(null)
 const imageObjectUrls = ref<Record<number, string>>({})
 const rejectTarget = ref<WorkOrderReportInfo | null>(null)
@@ -35,19 +39,17 @@ const tabs = computed(() => [
 ])
 
 async function loadReports() {
+  const isCurrent = beginLoad()
   loading.value = true
   try {
-    const res = await fetchReports(props.token, {
-      workOrderCode: filters.workOrderCode,
-      reporterName: filters.reporterName,
-      period: filters.period,
-      size: 500
-    })
+    const search = { ...filters }
+    const res = await fetchAllPages(params => fetchReports(props.token, { ...search, ...params }), 500, isCurrent)
+    if (!isCurrent()) return
     allReports.value = res.items
   } catch (e) {
-    emit('notice', e instanceof Error ? e.message : '报工列表加载失败')
+    if (isCurrent()) emit('notice', e instanceof Error ? e.message : '报工列表加载失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -120,6 +122,7 @@ function revokeImageObjectUrls() {
   imageObjectUrls.value = {}
 }
 
+useRefreshOnActivated(loadReports)
 onMounted(loadReports)
 onBeforeUnmount(revokeImageObjectUrls)
 </script>

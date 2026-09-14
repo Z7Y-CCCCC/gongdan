@@ -8,6 +8,14 @@ import org.springframework.http.HttpStatus;
 
 import java.lang.reflect.Field;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -131,5 +139,46 @@ class SmsServiceTest {
                 smsService.sendCode("13900000000", ip));
 
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, exception.getStatus());
+    }
+
+    @Test
+    void concurrentInMemoryFirstSendsCallProviderOnce() throws Exception {
+        AtomicInteger deliveries = new AtomicInteger();
+        SmsService service = new SmsService(null, null, (phone, code) -> deliveries.incrementAndGet());
+        ExecutorService executor = Executors.newFixedThreadPool(8);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Boolean>> sends = new ArrayList<>();
+        try {
+            for (int i = 0; i < 8; i++) {
+                final int index = i;
+                sends.add(executor.submit(() -> {
+                    start.await();
+                    try {
+                        service.sendCode("13912345670", "192.0.2." + index);
+                        return true;
+                    } catch (ApiException exception) {
+                        assertEquals(HttpStatus.TOO_MANY_REQUESTS, exception.getStatus());
+                        return false;
+                    }
+                }));
+            }
+            start.countDown();
+            int successes = 0;
+            for (Future<Boolean> send : sends) if (send.get(10, TimeUnit.SECONDS)) successes++;
+            assertEquals(1, successes);
+            assertEquals(1, deliveries.get());
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void ipRejectionDoesNotReserveAnUnsentPhoneInMemory() {
+        SmsService service = new SmsService(null, null, (phone, code) -> { });
+        for (int i = 0; i < 10; i++) service.sendCode("1391234500" + i, "192.0.2.1");
+        assertThrows(ApiException.class, () -> service.sendCode("13912345671", "192.0.2.1"));
+        assertDoesNotThrow(() -> service.sendCode("13912345671", "192.0.2.2"));
     }
 }

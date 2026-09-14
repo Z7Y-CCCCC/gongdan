@@ -3,6 +3,9 @@ import { computed, onMounted, ref } from 'vue'
 import { fetchWorkOrders, type WorkOrderInfo, type WorkOrderTaskPayload } from '../api'
 import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -32,6 +35,7 @@ interface TaskRow {
 }
 
 const loading = ref(false)
+const beginLoad = useLatestRequest()
 const workOrders = ref<WorkOrderInfo[]>([])
 const keyword = ref('')
 const stateFilter = ref<'all' | TaskState>('all')
@@ -68,14 +72,16 @@ const summary = computed(() => {
 })
 
 async function loadData() {
+  const isCurrent = beginLoad()
   loading.value = true
   try {
-    const res = await fetchWorkOrders(props.token, { size: 500 })
+    const res = await fetchAllPages(params => fetchWorkOrders(props.token, params), 500, isCurrent)
+    if (!isCurrent()) return
     workOrders.value = res.items || []
   } catch (e) {
-    emit('notice', e instanceof Error ? e.message : '任务列表加载失败')
+    if (isCurrent()) emit('notice', e instanceof Error ? e.message : '任务列表加载失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
@@ -116,7 +122,7 @@ function buildTaskRows(order: WorkOrderInfo): TaskRow[] {
 }
 
 function taskState(task: WorkOrderTaskPayload, order: WorkOrderInfo, progress: number, enabled: boolean): TaskState {
-  if (!enabled || ['CANCELED', 'CLOSED'].includes(order.status)) return 'disabled'
+  if (!enabled || ['CANCELED', 'CANCELLED', 'CLOSED'].includes(order.status)) return 'disabled'
   if (progress >= 100 || ['COMPLETED', 'FINISHED'].includes(order.status)) return 'completed'
   const deadline = task.planDeadline || order.planEnd
   if (deadline && new Date(deadline).getTime() < Date.now()) return 'overdue'
@@ -147,6 +153,7 @@ function formatDateTime(value?: string) {
   return value.replace('T', ' ').slice(0, 16)
 }
 
+useRefreshOnActivated(loadData)
 onMounted(loadData)
 </script>
 

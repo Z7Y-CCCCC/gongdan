@@ -26,7 +26,7 @@
     <!-- 表单主体 -->
     <view class="form-list">
       <!-- 生产人员 -->
-      <view class="form-item" @click="showReporterPicker = true">
+      <view class="form-item" @click="!loading && !reporterLoading && (showReporterPicker = true)">
         <view class="label"><text class="required">*</text>生产人员</view>
         <view class="value-row">
           <text>{{ selectedReporterName }}</text>
@@ -80,14 +80,26 @@
 
       <!-- 开始时间 / 结束时间 -->
       <view class="time-range-box">
-        <view class="time-item" @click="pickStartTime">
+        <view class="time-item">
           <text class="tl">开始时间 <text class="required">*</text></text>
-          <text class="tv">{{ form.startTime || '请选择' }}</text>
+          <!-- #ifdef H5 -->
+          <input type="datetime-local" aria-label="开始时间" class="datetime-input" :value="form.startTime.replace(' ', 'T').slice(0, 16)" @change="changeH5Time('startTime', $event)" />
+          <!-- #endif -->
+          <!-- #ifndef H5 -->
+          <picker mode="date" :value="form.startTime.slice(0, 10)" @change="changeTime('startTime', 'date', $event.detail.value)"><text class="tv">{{ form.startTime.slice(0, 10) || '选择日期' }}</text></picker>
+          <picker mode="time" :value="form.startTime.slice(11, 16)" @change="changeTime('startTime', 'time', $event.detail.value)"><text class="tv">{{ form.startTime.slice(11, 16) || '选择时间' }}</text></picker>
+          <!-- #endif -->
         </view>
         <view class="time-divider"></view>
-        <view class="time-item" @click="pickEndTime">
+        <view class="time-item">
           <text class="tl">结束时间 <text class="required">*</text></text>
-          <text class="tv">{{ form.endTime || '请选择' }}</text>
+          <!-- #ifdef H5 -->
+          <input type="datetime-local" aria-label="结束时间" class="datetime-input" :value="form.endTime.replace(' ', 'T').slice(0, 16)" @change="changeH5Time('endTime', $event)" />
+          <!-- #endif -->
+          <!-- #ifndef H5 -->
+          <picker mode="date" :value="form.endTime.slice(0, 10)" @change="changeTime('endTime', 'date', $event.detail.value)"><text class="tv">{{ form.endTime.slice(0, 10) || '选择日期' }}</text></picker>
+          <picker mode="time" :value="form.endTime.slice(11, 16)" @change="changeTime('endTime', 'time', $event.detail.value)"><text class="tv">{{ form.endTime.slice(11, 16) || '选择时间' }}</text></picker>
+          <!-- #endif -->
         </view>
       </view>
 
@@ -110,20 +122,26 @@
         <view class="label">报废/次品照片</view>
         <view class="image-grid">
           <view v-for="(img, idx) in uploadedImages" :key="idx" class="img-box">
-            <image :src="img.previewPath || img.accessPath" mode="aspectFill" class="uploaded-img" />
+            <!-- #ifdef H5 -->
+            <img :src="img.previewPath || ''" alt="报工附件" class="uploaded-img" />
+            <!-- #endif -->
+            <!-- #ifndef H5 -->
+            <image :src="img.previewPath || ''" mode="aspectFill" class="uploaded-img" />
+            <!-- #endif -->
             <view class="img-delete" @click="removeImage(idx)"><uni-icons type="closeempty" size="12" color="#fff" /></view>
           </view>
           <view class="add-box" @click="chooseImage" v-if="uploadedImages.length < 9">
             <uni-icons type="camera-filled" size="24" color="#8a9693" />
           </view>
         </view>
+        <text v-if="uploading" class="tl">图片上传中，请稍候…</text>
       </view>
     </view>
 
     <!-- 底部按钮 -->
     <view class="footer">
-      <view class="btn outline" @click="handleSubmit(true)">继续报工</view>
-      <view class="btn solid" @click="handleSubmit(false)">提交</view>
+      <button class="btn outline" :disabled="loading || uploading || reporterLoading" @click="handleSubmit(true)">继续报工</button>
+      <button class="btn solid" :loading="loading" :disabled="loading || uploading || reporterLoading" @click="handleSubmit(false)">提交</button>
     </view>
 
     <!-- 生产人员选择弹窗 -->
@@ -149,11 +167,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onBeforeUnmount, onMounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
-import { createReport, uploadReportImage, fetchWorkOrderReporters } from '../../services/api'
+import { createReport, downloadReportImage, ensureLogin, fetchWorkOrder, uploadReportImage, fetchWorkOrderReporters } from '../../services/api'
 import type { ReportImage } from '../../types/api'
 import { usePageDraft } from '../../composables/usePageDraft'
+import { formatDateTime, updateDateTime, validateReportValues } from '../../utils/report'
 
 // URL 参数
 let paramOrderId = ''
@@ -162,7 +181,6 @@ let paramProcessName = ''
 let paramPlannedQty = ''
 let paramCompletedQty = ''
 let paramDefectQty = ''
-let paramReportPermission = ''
 
 function safeDecode(value: string) {
   try {
@@ -179,7 +197,6 @@ function applyRouteOptions(options: Record<string, any> = {}) {
   paramPlannedQty = String(options.plannedQty || '0')
   paramCompletedQty = String(options.completedQty || '0')
   paramDefectQty = String(options.defectQty || '0')
-  paramReportPermission = safeDecode(String(options.reportPermission || ''))
 }
 
 function readH5RouteOptions() {
@@ -198,11 +215,6 @@ function readH5RouteOptions() {
   return result
 }
 
-function formatDateTime(date: Date) {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:00`
-}
-
 onLoad((options) => {
   applyRouteOptions(options || {})
 })
@@ -214,7 +226,11 @@ const completedQty = ref(0)
 const defectQtyDisplay = ref(0)
 const productUnit = ref('个')
 const loading = ref(false)
+const uploading = ref(false)
+const reporterLoading = ref(true)
 const showReporterPicker = ref(false)
+let navigationTimer: ReturnType<typeof setTimeout> | undefined
+onBeforeUnmount(() => { if (navigationTimer) clearTimeout(navigationTimer) })
 
 // 报工人员列表
 const reporterList = ref<Array<{ id: number; name: string; username: string }>>([])
@@ -245,6 +261,7 @@ const form = reactive({
 })
 
 onMounted(async () => {
+  if (!ensureLogin()) return
   if (!paramOrderId) {
     applyRouteOptions(readH5RouteOptions())
   }
@@ -275,26 +292,40 @@ onMounted(async () => {
   // 加载有报工权限的用户列表
   if (form.workOrderId) {
     try {
-      const users = await fetchWorkOrderReporters(form.workOrderId)
-      
-      // 根据工序的报工权限过滤人员列表
-      if (paramReportPermission && paramReportPermission !== '所有人' && paramReportPermission !== 'ALL') {
-        const allowedList = paramReportPermission.split(',').map((s: string) => s.trim())
-        const currentUserAllowedByDepartment = Boolean(user?.departmentName && allowedList.includes(user.departmentName))
-        reporterList.value = currentUserAllowedByDepartment ? users : users.filter(u =>
-          allowedList.includes(u.name) ||
-          allowedList.includes(u.username) ||
-          allowedList.includes(String(u.id))
-        )
-      } else {
-        reporterList.value = users
+      const [order, users] = await Promise.all([
+        fetchWorkOrder(form.workOrderId),
+        fetchWorkOrderReporters(form.workOrderId, form.processSequenceNo)
+      ])
+      const task = order.tasks.find(item => item.sequenceNo === form.processSequenceNo)
+      if (!task || task.enabled === false) throw new Error('工序不存在或已停用')
+      form.processName = task.processName
+      processName.value = task.processName
+      plannedQty.value = task.plannedQuantity ?? order.plannedQuantity
+      completedQty.value = task.completedQuantity || 0
+      defectQtyDisplay.value = task.defectQuantity || 0
+      reporterList.value = users
+      const selected = users.find(item => item.id === selectedReporterId.value) || users.find(item => item.id === user?.id)
+      selectedReporterId.value = selected?.id || 0
+      selectedReporterName.value = selected?.name || '请选择生产人员'
+      for (const image of [...uploadedImages.value]) {
+        if (image.previewPath) continue
+        try {
+          image.previewPath = await downloadReportImage(image.id)
+        } catch (e: any) {
+          uploadedImages.value = uploadedImages.value.filter(item => item.id !== image.id)
+          uni.showToast({ title: e.message || '草稿图片已失效，请重新上传', icon: 'none' })
+        }
       }
-    } catch (e) {
-      // 如果接口不存在，用当前用户作为默认
-      if (user) {
-        reporterList.value = [{ id: user.id, name: user.name || user.username, username: user.username }]
-      }
+    } catch (e: any) {
+      reporterList.value = []
+      selectedReporterId.value = 0
+      selectedReporterName.value = '人员加载失败，请返回重试'
+      uni.showToast({ title: e.message || '报工人员加载失败', icon: 'none' })
+    } finally {
+      reporterLoading.value = false
     }
+  } else {
+    reporterLoading.value = false
   }
 })
 
@@ -306,15 +337,21 @@ const { clearDraft: clearReportDraft } = usePageDraft({
     durationMinutes: durationMinutes.value,
     selectedReporterId: selectedReporterId.value,
     selectedReporterName: selectedReporterName.value,
-    uploadedImages: uploadedImages.value
+    uploadedImages: uploadedImages.value.map(({ previewPath, ...image }) => image)
   }),
   restore: (draft) => {
-    if (draft.form) Object.assign(form, draft.form)
+    if (draft.form) {
+      for (const key of ['reportQuantity', 'goodQuantity', 'defectQuantity', 'defectItemName', 'startTime', 'endTime', 'materialName', 'remark'] as const) {
+        if (typeof draft.form[key] === 'string') form[key] = draft.form[key]
+      }
+    }
     durationHours.value = draft.durationHours ?? '0'
     durationMinutes.value = draft.durationMinutes ?? '0'
     selectedReporterId.value = Number(draft.selectedReporterId || 0)
     selectedReporterName.value = draft.selectedReporterName || ''
-    uploadedImages.value = Array.isArray(draft.uploadedImages) ? draft.uploadedImages : []
+    uploadedImages.value = Array.isArray(draft.uploadedImages)
+      ? draft.uploadedImages.filter(image => Number.isInteger(image.id) && image.id > 0).slice(0, 9).map(({ previewPath, ...image }: ReportImage) => image)
+      : []
   }
 })
 
@@ -324,56 +361,41 @@ const selectReporter = (user: any) => {
   showReporterPicker.value = false
 }
 
-const pickStartTime = () => {
-  if (typeof document !== 'undefined') {
-    const input = document.createElement('input')
-    input.type = 'datetime-local'
-    input.onchange = () => {
-      if (input.value) {
-        const d = new Date(input.value)
-        form.startTime = formatDateTime(d)
-      }
-    }
-    input.click()
-    return
-  }
-  uni.showToast({ title: '请在小程序中选择时间', icon: 'none' })
+function changeTime(field: 'startTime' | 'endTime', part: 'date' | 'time', value: string) {
+  form[field] = updateDateTime(form[field], part, value)
 }
 
-const pickEndTime = () => {
-  if (typeof document !== 'undefined') {
-    const input = document.createElement('input')
-    input.type = 'datetime-local'
-    input.onchange = () => {
-      if (input.value) {
-        const d = new Date(input.value)
-        form.endTime = formatDateTime(d)
-      }
-    }
-    input.click()
-    return
-  }
-  uni.showToast({ title: '请在小程序中选择时间', icon: 'none' })
+function changeH5Time(field: 'startTime' | 'endTime', event: Event) {
+  const value = (event.target as HTMLInputElement)?.value || ''
+  form[field] = value ? `${value.slice(0, 16).replace('T', ' ')}:00` : ''
 }
 
 const chooseImage = () => {
+  if (loading.value || uploading.value || reporterLoading.value || uploadedImages.value.length >= 9) return
+  uploading.value = true
   uni.chooseImage({
     count: 9 - uploadedImages.value.length,
     success: async (res) => {
-      for (const path of res.tempFilePaths) {
-        try {
-          const img = await uploadReportImage(path)
-          img.previewPath = path
-          uploadedImages.value.push(img)
-        } catch (e) {
-          uni.showToast({ title: '图片上传失败', icon: 'none' })
+      try {
+        for (const path of res.tempFilePaths.slice(0, 9 - uploadedImages.value.length)) {
+          try {
+            const img = await uploadReportImage(path)
+            img.previewPath = path
+            uploadedImages.value.push(img)
+          } catch (e: any) {
+            uni.showToast({ title: e.message || '图片上传失败', icon: 'none' })
+          }
         }
+      } finally {
+        uploading.value = false
       }
-    }
+    },
+    fail: () => { uploading.value = false }
   })
 }
 
 const removeImage = (idx: number) => {
+  if (loading.value || uploading.value) return
   uploadedImages.value.splice(idx, 1)
 }
 
@@ -400,30 +422,36 @@ function goAfterSubmit() {
 }
 
 const handleSubmit = async (isContinue: boolean) => {
+  if (loading.value || reporterLoading.value) return
+  if (uploading.value) {
+    uni.showToast({ title: '请等待图片上传完成', icon: 'none' })
+    return
+  }
+  if (!ensureLogin()) return
   if (!form.workOrderId || !form.processSequenceNo) {
     uni.showToast({ title: '工单或工序信息未加载，请返回重进', icon: 'none' })
     return
   }
-  if (!selectedReporterId.value) {
+  if (!reporterList.value.some(user => user.id === selectedReporterId.value)) {
     uni.showToast({ title: '请选择生产人员', icon: 'none' })
     return
   }
-  if (!form.reportQuantity || Number(form.reportQuantity) <= 0) {
-    uni.showToast({ title: '请填写报工数', icon: 'none' })
-    return
-  }
-  if (!form.startTime || !form.endTime) {
-    uni.showToast({ title: '请选择开始和结束时间', icon: 'none' })
-    return
-  }
-  if ((Number(form.goodQuantity) || 0) + (Number(form.defectQuantity) || 0) !== Number(form.reportQuantity)) {
-    uni.showToast({ title: '良品数与不良数之和必须等于报工数', icon: 'none' })
+  const error = validateReportValues(form, durationHours.value, durationMinutes.value)
+  if (error) {
+    uni.showToast({ title: error, icon: 'none' })
     return
   }
 
-  const totalMinutes = (parseInt(durationHours.value) || 0) * 60 + (parseInt(durationMinutes.value) || 0)
+  const totalMinutes = Number(durationHours.value) * 60 + Number(durationMinutes.value)
 
+  loading.value = true
+  let submitted = false
   uni.showLoading({ title: '提交中...' })
+  let loadingVisible = true
+  const hideSubmitLoading = () => {
+    if (loadingVisible) uni.hideLoading()
+    loadingVisible = false
+  }
   try {
     await createReport({
       workOrderId: form.workOrderId,
@@ -441,11 +469,12 @@ const handleSubmit = async (isContinue: boolean) => {
       imageIds: uploadedImages.value.map(img => img.id),
       reporterUserId: selectedReporterId.value || undefined
     })
-    uni.hideLoading()
+    submitted = true
+    hideSubmitLoading()
     uni.showToast({ title: '提交成功', icon: 'success' })
     clearReportDraft()
     if (!isContinue) {
-      setTimeout(() => goAfterSubmit(), 1500)
+      navigationTimer = setTimeout(() => goAfterSubmit(), 1500)
     } else {
       // 继续报工：清空表单
       form.reportQuantity = ''
@@ -457,14 +486,20 @@ const handleSubmit = async (isContinue: boolean) => {
       uploadedImages.value = []
       durationHours.value = '0'
       durationMinutes.value = '0'
+      form.startTime = formatDateTime(new Date())
+      form.endTime = form.startTime
     }
   } catch (e: any) {
-    uni.hideLoading()
+    hideSubmitLoading()
     uni.showToast({ title: e.message || '提交失败', icon: 'none' })
+  } finally {
+    hideSubmitLoading()
+    if (!submitted || isContinue) loading.value = false
   }
 }
 
 const handleClose = () => {
+  if (loading.value || uploading.value) return
   goBack()
 }
 </script>
@@ -585,7 +620,8 @@ const handleClose = () => {
   border-bottom: 1px solid #f8f8f8;
 }
 
-.time-item { flex: 1; display: flex; flex-direction: column; }
+.time-item { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.datetime-input { display: block; width: 100%; min-width: 0; height: 72rpx; font-size: 23rpx; color: #202926; }
 .tl { font-size: 22rpx; color: #999; margin-bottom: 8rpx; }
 .tv { font-size: 28rpx; color: #333; }
 .time-divider {
@@ -611,6 +647,7 @@ const handleClose = () => {
   width: 120rpx;
   height: 120rpx;
   border-radius: 8rpx;
+  object-fit: cover;
 }
 
 .img-delete {
@@ -668,6 +705,7 @@ const handleClose = () => {
 
 .btn.outline { border: 1px solid #00b889; color: #00b889; }
 .btn.solid { background: #00b889; color: white; }
+.btn[disabled] { opacity: 0.6; }
 
 /* 人员选择弹窗 */
 .picker-mask {

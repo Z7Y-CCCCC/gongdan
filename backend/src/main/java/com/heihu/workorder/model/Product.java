@@ -53,6 +53,10 @@ public class Product {
     @Column(nullable = false)
     private Integer inventoryQty = 0;
 
+    @Version
+    @Column(nullable = false)
+    private Long version = 0L;
+
     @Column(length = 32)
     private String costPrice;
 
@@ -122,6 +126,9 @@ public class Product {
 
     public Integer getInventoryQty() { return inventoryQty; }
     public void setInventoryQty(Integer inventoryQty) { this.inventoryQty = inventoryQty; }
+
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
 
     public String getCostPrice() { return costPrice; }
     public void setCostPrice(String costPrice) { this.costPrice = costPrice; }

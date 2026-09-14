@@ -71,7 +71,7 @@ if ($Mode -eq "Commercial") {
     $adminPassword = Get-Value $config "APP_SEED_ADMIN_PASSWORD" ""
     $superPassword = Get-Value $config "APP_SEED_SUPER_ADMIN_PASSWORD" ""
     foreach ($passwordItem in @(@("APP_SEED_ADMIN_PASSWORD", $adminPassword), @("APP_SEED_SUPER_ADMIN_PASSWORD", $superPassword))) {
-        if (Is-Placeholder $passwordItem[1] -or $passwordItem[1].Length -lt 12) {
+        if ((Is-Placeholder $passwordItem[1]) -or $passwordItem[1].Length -lt 12) {
             Add-Failure "$($passwordItem[0]) must be a non-placeholder value of at least 12 characters"
         }
     }
@@ -150,18 +150,18 @@ if ($Mode -eq "Commercial") {
 
     $backupUser = Get-Value $config "BACKUP_MYSQL_USER" ""
     $backupPassword = Get-Value $config "BACKUP_MYSQL_PASSWORD" ""
-    if (Is-Placeholder $backupUser -or $backupUser.Trim().ToLowerInvariant() -eq "root") {
+    if ((Is-Placeholder $backupUser) -or $backupUser.Trim().ToLowerInvariant() -eq "root") {
         Add-Failure "BACKUP_MYSQL_USER must be a dedicated non-root backup account"
     }
-    if (Is-Placeholder $backupPassword -or $backupPassword.Length -lt 16) {
+    if ((Is-Placeholder $backupPassword) -or $backupPassword.Length -lt 16) {
         Add-Failure "BACKUP_MYSQL_PASSWORD must be a non-placeholder value of at least 16 characters"
     }
     $restoreUser = Get-Value $config "RESTORE_MYSQL_USER" ""
     $restorePassword = Get-Value $config "RESTORE_MYSQL_PASSWORD" ""
-    if (Is-Placeholder $restoreUser -or $restoreUser.Trim().ToLowerInvariant() -eq "root") {
+    if ((Is-Placeholder $restoreUser) -or $restoreUser.Trim().ToLowerInvariant() -eq "root") {
         Add-Failure "RESTORE_MYSQL_USER must be a dedicated non-root recovery account"
     }
-    if (Is-Placeholder $restorePassword -or $restorePassword.Length -lt 16) {
+    if ((Is-Placeholder $restorePassword) -or $restorePassword.Length -lt 16) {
         Add-Failure "RESTORE_MYSQL_PASSWORD must be a non-placeholder value of at least 16 characters"
     }
 

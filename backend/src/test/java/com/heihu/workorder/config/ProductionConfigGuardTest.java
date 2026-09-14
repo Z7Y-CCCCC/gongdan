@@ -122,6 +122,26 @@ class ProductionConfigGuardTest {
     }
 
     @Test
+    void rejectsMockWechatEvenIfItOverridesTheProductionProfile() {
+        ProductionConfigGuard guard = prodGuard();
+        setValidValues(guard);
+        ReflectionTestUtils.setField(guard, "wechatMockEnabled", true);
+        assertThat(assertThrows(IllegalStateException.class, guard::validate).getMessage())
+                .contains("app.wechat.mock-enabled");
+    }
+
+    @Test
+    void productionDefaultProfileAlsoEnforcesProductionChecks() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setDefaultProfiles("prod");
+        ProductionConfigGuard guard = new ProductionConfigGuard(environment);
+        setValidValues(guard);
+        ReflectionTestUtils.setField(guard, "seedAdminPassword", "change-admin");
+        assertThat(assertThrows(IllegalStateException.class, guard::validate).getMessage())
+                .contains("app.seed.admin-password");
+    }
+
+    @Test
     void skipsValidationOutsideProd() {
         MockEnvironment environment = new MockEnvironment();
         environment.setActiveProfiles("test");

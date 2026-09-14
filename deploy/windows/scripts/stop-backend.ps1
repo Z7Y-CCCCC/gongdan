@@ -4,6 +4,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'backend-process.ps1')
 
 $pidFile = Join-Path $ReleaseRoot "runtime\backend.pid"
 if (-not (Test-Path -LiteralPath $pidFile)) {
@@ -12,9 +13,11 @@ if (-not (Test-Path -LiteralPath $pidFile)) {
 }
 
 $backendPid = [int](Get-Content -LiteralPath $pidFile -Raw)
-$process = Get-Process -Id $backendPid -ErrorAction SilentlyContinue
+$process = Get-VerifiedBackendProcess $backendPid (Join-Path $ReleaseRoot 'server\app.jar')
 if ($process) {
-    & taskkill.exe /PID $backendPid /T /F | Out-Null
+    Stop-Process -InputObject $process -Force -ErrorAction Stop
+} else {
+    Write-Warning 'The recorded PID is absent or belongs to another application; no process was stopped.'
 }
 Remove-Item -LiteralPath $pidFile -Force
 Write-Host "Backend stopped." -ForegroundColor Green

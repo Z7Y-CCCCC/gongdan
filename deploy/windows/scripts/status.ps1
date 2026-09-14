@@ -4,6 +4,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot 'backend-process.ps1')
 
 $envFile = Join-Path $ReleaseRoot "config\gongdan.env"
 $port = "18080"
@@ -28,7 +29,7 @@ $pidFile = Join-Path $ReleaseRoot "runtime\backend.pid"
 $backendState = "stopped"
 if (Test-Path -LiteralPath $pidFile) {
     $backendPid = [int](Get-Content -LiteralPath $pidFile -Raw)
-    if (Get-Process -Id $backendPid -ErrorAction SilentlyContinue) {
+    if (Get-VerifiedBackendProcess $backendPid (Join-Path $ReleaseRoot 'server\app.jar')) {
         $backendState = "running (PID=$backendPid)"
     }
 }

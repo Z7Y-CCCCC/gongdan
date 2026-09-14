@@ -19,6 +19,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -78,7 +80,7 @@ class InboundReceiptServiceTest {
         receipt.getItems().add(item);
 
         Product currentProduct = product(10L, 2);
-        when(inboundReceiptRepository.findById(99L)).thenReturn(Optional.of(receipt));
+        when(inboundReceiptRepository.findByIdAndFactoryIdForUpdate(99L, 1L)).thenReturn(Optional.of(receipt));
         when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(currentProduct));
 
         assertThatThrownBy(() -> service.delete(1L, 99L))
@@ -87,6 +89,55 @@ class InboundReceiptServiceTest {
 
         verify(productRepository, never()).save(currentProduct);
         verify(inboundReceiptRepository, never()).delete(receipt);
+    }
+
+    @Test
+    void createRejectsStockOverflowInsteadOfWrappingToNegative() {
+        InboundReceiptRequest request = request(10L, 1);
+        Product product = product(10L, Integer.MAX_VALUE);
+        when(factoryRepository.findById(1L)).thenReturn(Optional.of(factory(1L)));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
+        assertThatThrownBy(() -> service.create(1L, null, request))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("库存数量");
+        assertThat(product.getInventoryQty()).isEqualTo(Integer.MAX_VALUE);
+        verify(inboundReceiptRepository, never()).save(any());
+    }
+
+    @Test
+    void createRejectsNullLineWithClientError() {
+        InboundReceiptRequest request = request(10L, 1);
+        request.setItems(Collections.singletonList(null));
+        when(factoryRepository.findById(1L)).thenReturn(Optional.of(factory(1L)));
+        assertThatThrownBy(() -> service.create(1L, null, request))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("产品");
+        verifyNoInteractions(productRepository);
+    }
+
+    @Test
+    void autoNumbersDoNotDependOnRecordCountAndRemainUnique() {
+        InboundReceiptRequest request = request(10L, 1);
+        request.setCode(null);
+        Product product = product(10L, 0);
+        when(factoryRepository.findById(1L)).thenReturn(Optional.of(factory(1L)));
+        when(productRepository.findByIdAndFactoryIdForUpdate(10L, 1L)).thenReturn(Optional.of(product));
+        when(inboundReceiptRepository.save(any(InboundReceipt.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        String first = service.create(1L, null, request).getCode();
+        String second = service.create(1L, null, request).getCode();
+        assertThat(first).startsWith("RK").isNotEqualTo(second);
+        assertThat(first.length()).isLessThanOrEqualTo(64);
+        verify(inboundReceiptRepository, never()).findByFactoryId(any(), any());
+    }
+
+    private InboundReceiptRequest request(Long productId, int quantity) {
+        InboundReceiptRequest request = new InboundReceiptRequest();
+        request.setCode("RK001");
+        request.setInboundType("采购入库");
+        request.setInboundTime("2026-09-11 12:00:00");
+        InboundReceiptRequest.InboundReceiptItemRequest item = new InboundReceiptRequest.InboundReceiptItemRequest();
+        item.setProductId(productId);
+        item.setQuantity(quantity);
+        request.setItems(Collections.singletonList(item));
+        return request;
     }
 
     private Factory factory(Long id) {

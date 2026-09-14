@@ -8,6 +8,10 @@ import com.heihu.workorder.dto.WorkOrderReportImageResponse;
 import com.heihu.workorder.dto.WorkOrderReportRequest;
 import com.heihu.workorder.dto.WorkOrderReportResponse;
 import com.heihu.workorder.dto.WorkOrderRequest;
+import com.heihu.workorder.dto.WorkOrderReporterResponse;
+import com.heihu.workorder.util.DateTimeParser;
+import com.heihu.workorder.util.ReportPermission;
+import com.heihu.workorder.util.WorkOrderStates;
 import com.heihu.workorder.exception.ApiException;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.ReportStatus;
@@ -27,6 +31,8 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -38,6 +44,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 import org.slf4j.Logger;
@@ -97,6 +105,7 @@ public class WorkOrderReportService {
         FactoryUser uploader = requireUser(factoryId, userId);
         String storedName = UUID.randomUUID().toString().replace("-", "") + "." + ext;
         reportImageStorage.store(storedName, file);
+        boolean transactionOwnsCleanup = cleanupImageOnRollback(storedName);
 
         WorkOrderReportImage image = new WorkOrderReportImage();
         image.setFactory(uploader.getFactory());
@@ -107,9 +116,35 @@ public class WorkOrderReportService {
         image.setFileSize(file.getSize());
         image.setContentType(StringUtils.hasText(contentType) ? contentType : resolvedContentType(ext));
         image.setCreatedAt(LocalDateTime.now());
-        WorkOrderReportImage saved = imageRepository.save(image);
-        saved.setAccessPath("/api/mobile/reports/images/" + saved.getId() + "/file");
-        return WorkOrderReportImageResponse.from(imageRepository.save(saved));
+        try {
+            WorkOrderReportImage saved = imageRepository.save(image);
+            saved.setAccessPath("/api/mobile/reports/images/" + saved.getId() + "/file");
+            return WorkOrderReportImageResponse.from(imageRepository.save(saved));
+        } catch (RuntimeException ex) {
+            if (!transactionOwnsCleanup) deleteUncommittedImage(storedName);
+            throw ex;
+        }
+    }
+
+    private boolean cleanupImageOnRollback(String storedName) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return false;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == STATUS_ROLLED_BACK) deleteUncommittedImage(storedName);
+            }
+        });
+        return true;
+    }
+
+    private void deleteUncommittedImage(String storedName) {
+        try {
+            if (!reportImageStorage.delete(storedName)) {
+                log.warn("Unable to remove rolled-back report image: {}", storedName);
+            }
+        } catch (RuntimeException ex) {
+            log.warn("Unable to remove rolled-back report image: {}", storedName, ex);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -133,21 +168,32 @@ public class WorkOrderReportService {
         if (request.getProcessSequenceNo() == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "请选择工序");
         }
-        int reportQty = nonNegative(request.getReportQuantity());
-        int goodQty = nonNegative(request.getGoodQuantity());
-        int defectQty = nonNegative(request.getDefectQuantity());
+        int reportQty = requireNonNegative(request.getReportQuantity(), "报工数");
+        int goodQty = requireNonNegative(request.getGoodQuantity(), "良品数");
+        int defectQty = requireNonNegative(request.getDefectQuantity(), "不良数");
+        int duration = requireNonNegative(request.getReportDurationMinutes(), "报工时长");
         if (reportQty <= 0 && goodQty <= 0 && defectQty <= 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "请填写报工数量");
         }
-        if (reportQty != goodQty + defectQty) {
+        if (reportQty != (long) goodQty + defectQty) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "良品数与不良数之和必须等于报工数");
         }
         if (request.getImageIds() != null && request.getImageIds().size() > 9) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "单次报工最多上传9张图片");
         }
-        WorkOrder workOrder = workOrderRepository.findById(request.getWorkOrderId())
-                .filter(item -> item.getFactory().getId().equals(factoryId))
+        WorkOrder workOrder = workOrderRepository.findByIdAndFactoryIdForUpdate(request.getWorkOrderId(), factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "工单不存在"));
+
+        requireReportableOrder(workOrder);
+        WorkOrderRequest.TaskItem task = requireTask(workOrder, request.getProcessSequenceNo());
+        if (!ReportPermission.allows(task, currentUser) || !ReportPermission.allows(task, reporter)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "没有该工序的报工权限");
+        }
+        LocalDateTime startTime = DateTimeParser.parse(request.getStartTime());
+        LocalDateTime endTime = DateTimeParser.parse(request.getEndTime());
+        if (startTime != null && endTime != null && endTime.isBefore(startTime)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "结束时间不能早于开始时间");
+        }
 
         WorkOrderReport report = new WorkOrderReport();
         LocalDateTime now = LocalDateTime.now();
@@ -158,16 +204,16 @@ public class WorkOrderReportService {
         report.setProductName(workOrder.getProductName());
         report.setProductSpec(workOrder.getProductSpec());
         report.setProcessSequenceNo(request.getProcessSequenceNo());
-        report.setProcessName(resolveProcessName(workOrder, request));
+        report.setProcessName(task.getProcessName());
         report.setReporter(reporter);
         report.setReporterName(reporter.getName());
         report.setReportQuantity(reportQty);
         report.setGoodQuantity(goodQty);
         report.setDefectQuantity(defectQty);
         report.setDefectItemName(normalize(request.getDefectItemName()));
-        report.setReportDurationMinutes(nonNegative(request.getReportDurationMinutes()));
-        report.setStartTime(parseDateTime(request.getStartTime()));
-        report.setEndTime(parseDateTime(request.getEndTime()));
+        report.setReportDurationMinutes(duration);
+        report.setStartTime(startTime);
+        report.setEndTime(endTime);
         report.setMaterialName(normalize(request.getMaterialName()));
         report.setRemark(normalize(request.getRemark()));
         report.setStatus(ReportStatus.PENDING);
@@ -195,6 +241,7 @@ public class WorkOrderReportService {
                 normalizeToEmpty(workOrderCode),
                 normalizeToEmpty(reporterName),
                 periodStart(period),
+                periodEnd(period),
                 pageable
         ).map(this::toResponse);
     }
@@ -202,7 +249,7 @@ public class WorkOrderReportService {
     @Transactional(readOnly = true)
     @Cacheable(cacheNames = "reports.mobile.list", key = "#factoryId + ':' + #userId + ':' + #status + ':' + #period + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<WorkOrderReportResponse> listMobile(Long factoryId, Long userId, String status, String period, Pageable pageable) {
-        return reportRepository.searchMobile(factoryId, userId, parseStatus(status), periodStart(period), pageable)
+        return reportRepository.searchMobile(factoryId, userId, parseStatus(status), periodStart(period), periodEnd(period), pageable)
                 .map(this::toResponse);
     }
 
@@ -285,35 +332,29 @@ public class WorkOrderReportService {
     }
 
     private void applyApprovedReport(WorkOrderReport report, LocalDateTime now) {
-        WorkOrder workOrder = report.getWorkOrder();
+        WorkOrder workOrder = workOrderRepository.findByIdAndFactoryIdForUpdate(
+                        report.getWorkOrder().getId(), report.getFactory().getId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "工单不存在"));
         List<WorkOrderRequest.TaskItem> tasks = readTasks(workOrder.getTaskDataJson());
         boolean matched = false;
         for (WorkOrderRequest.TaskItem task : tasks) {
-            if (task.getSequenceNo() != null && task.getSequenceNo().equals(report.getProcessSequenceNo())) {
-                task.setCompletedQuantity(nonNegative(task.getCompletedQuantity()) + nonNegative(report.getGoodQuantity()));
-                task.setApprovedQuantity(nonNegative(task.getApprovedQuantity()) + nonNegative(report.getGoodQuantity()));
-                task.setDefectQuantity(nonNegative(task.getDefectQuantity()) + nonNegative(report.getDefectQuantity()));
+            if (task.getSequenceNo() != null && task.getSequenceNo().equals(report.getProcessSequenceNo())
+                    && normalize(task.getProcessName()).equals(normalize(report.getProcessName()))) {
+                task.setCompletedQuantity(addQuantity(task.getCompletedQuantity(), report.getGoodQuantity()));
+                task.setApprovedQuantity(addQuantity(task.getApprovedQuantity(), report.getGoodQuantity()));
+                task.setDefectQuantity(addQuantity(task.getDefectQuantity(), report.getDefectQuantity()));
                 task.setLastReportTime(now.format(FMT));
                 matched = true;
                 break;
             }
         }
         if (!matched) {
-            WorkOrderRequest.TaskItem task = new WorkOrderRequest.TaskItem();
-            task.setSequenceNo(report.getProcessSequenceNo());
-            task.setProcessName(report.getProcessName());
-            task.setPlannedQuantity(workOrder.getPlannedQuantity());
-            task.setCompletedQuantity(nonNegative(report.getGoodQuantity()));
-            task.setApprovedQuantity(nonNegative(report.getGoodQuantity()));
-            task.setDefectQuantity(nonNegative(report.getDefectQuantity()));
-            task.setEnabled(true);
-            task.setLastReportTime(now.format(FMT));
-            tasks.add(task);
+            throw new ApiException(HttpStatus.BAD_REQUEST, "报工工序已移除或变更，不能审批");
         }
         workOrder.setTaskDataJson(writeJson(tasks));
-        workOrder.setGoodQuantity(nonNegative(workOrder.getGoodQuantity()) + nonNegative(report.getGoodQuantity()));
-        workOrder.setDefectQuantity(nonNegative(workOrder.getDefectQuantity()) + nonNegative(report.getDefectQuantity()));
-        int total = nonNegative(workOrder.getGoodQuantity()) + nonNegative(workOrder.getDefectQuantity());
+        workOrder.setGoodQuantity(addQuantity(workOrder.getGoodQuantity(), report.getGoodQuantity()));
+        workOrder.setDefectQuantity(addQuantity(workOrder.getDefectQuantity(), report.getDefectQuantity()));
+        long total = (long) nonNegative(workOrder.getGoodQuantity()) + nonNegative(workOrder.getDefectQuantity());
         if (total > 0) {
             workOrder.setDefectRate(String.format(Locale.US, "%.2f%%", workOrder.getDefectQuantity() * 100.0 / total));
         }
@@ -322,8 +363,7 @@ public class WorkOrderReportService {
     }
 
     private WorkOrderReport requirePending(Long factoryId, Long reportId) {
-        WorkOrderReport report = reportRepository.findById(reportId)
-                .filter(item -> item.getFactory().getId().equals(factoryId))
+        WorkOrderReport report = reportRepository.findByIdAndFactoryIdForUpdate(reportId, factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "报工记录不存在"));
         if (report.getStatus() != ReportStatus.PENDING) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "只能审批未审批的报工记录");
@@ -333,6 +373,7 @@ public class WorkOrderReportService {
 
     private FactoryUser requireUser(Long factoryId, Long userId) {
         return userRepository.findByIdAndFactoryId(userId, factoryId)
+                .filter(FactoryUser::isEnabled)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "用户不存在"));
     }
 
@@ -353,16 +394,34 @@ public class WorkOrderReportService {
         return WorkOrderReportResponse.from(report, images);
     }
 
-    private String resolveProcessName(WorkOrder workOrder, WorkOrderReportRequest request) {
-        if (StringUtils.hasText(request.getProcessName())) {
-            return request.getProcessName().trim();
+    @Transactional(readOnly = true)
+    public List<WorkOrderReporterResponse> listReporters(Long factoryId, Long workOrderId, Integer sequenceNo) {
+        WorkOrder workOrder = workOrderRepository.findById(workOrderId)
+                .filter(item -> item.getFactory().getId().equals(factoryId))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "工单不存在"));
+        requireReportableOrder(workOrder);
+        List<WorkOrderRequest.TaskItem> tasks = sequenceNo == null ? readTasks(workOrder.getTaskDataJson())
+                : Collections.singletonList(requireTask(workOrder, sequenceNo));
+        return userRepository.findByFactoryIdAndEnabledTrue(factoryId).stream()
+                .filter(user -> tasks.stream().anyMatch(task -> ReportPermission.allows(task, user)))
+                .map(WorkOrderReporterResponse::new)
+                .collect(Collectors.toList());
+    }
+
+    private void requireReportableOrder(WorkOrder workOrder) {
+        if (!WorkOrderStates.isReportable(workOrder.getStatus())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "已暂停、结束或取消的工单不能报工");
         }
+    }
+
+    private WorkOrderRequest.TaskItem requireTask(WorkOrder workOrder, Integer sequenceNo) {
         for (WorkOrderRequest.TaskItem task : readTasks(workOrder.getTaskDataJson())) {
-            if (task.getSequenceNo() != null && task.getSequenceNo().equals(request.getProcessSequenceNo())) {
-                return task.getProcessName();
+            if (task.getSequenceNo() != null && task.getSequenceNo().equals(sequenceNo)
+                    && !Boolean.FALSE.equals(task.getEnabled()) && StringUtils.hasText(task.getProcessName())) {
+                return task;
             }
         }
-        return "工序" + request.getProcessSequenceNo();
+        throw new ApiException(HttpStatus.BAD_REQUEST, "工序不存在或已停用");
     }
 
     private ReportStatus parseStatus(String value) {
@@ -384,18 +443,8 @@ public class WorkOrderReportService {
         return null;
     }
 
-    private LocalDateTime parseDateTime(String value) {
-        String normalized = normalize(value);
-        if (!StringUtils.hasText(normalized)) return null;
-        try {
-            return LocalDateTime.parse(normalized.replace(" ", "T"));
-        } catch (Exception ex) {
-            try {
-                return LocalDateTime.parse(normalized, FMT);
-            } catch (Exception ignore) {
-                return null;
-            }
-        }
+    private LocalDateTime periodEnd(String period) {
+        return "lastMonth".equalsIgnoreCase(normalize(period)) ? LocalDate.now().withDayOfMonth(1).atStartOfDay() : null;
     }
 
     private String writeJson(Object value) {
@@ -409,7 +458,8 @@ public class WorkOrderReportService {
     private List<WorkOrderRequest.TaskItem> readTasks(String json) {
         if (!StringUtils.hasText(json)) return new java.util.ArrayList<>();
         try {
-            return objectMapper.readValue(json, new TypeReference<List<WorkOrderRequest.TaskItem>>() {});
+            List<WorkOrderRequest.TaskItem> tasks = objectMapper.readValue(json, new TypeReference<List<WorkOrderRequest.TaskItem>>() {});
+            return tasks == null ? new ArrayList<>() : tasks.stream().filter(Objects::nonNull).collect(Collectors.toList());
         } catch (JsonProcessingException e) {
             return new java.util.ArrayList<>();
         }
@@ -530,6 +580,19 @@ public class WorkOrderReportService {
 
     private int nonNegative(Integer value) {
         return value == null || value < 0 ? 0 : value;
+    }
+
+    private int requireNonNegative(Integer value, String label) {
+        if (value != null && value < 0) throw new ApiException(HttpStatus.BAD_REQUEST, label + "不能为负数");
+        return value == null ? 0 : value;
+    }
+
+    private int addQuantity(Integer current, Integer increment) {
+        try {
+            return Math.addExact(nonNegative(current), nonNegative(increment));
+        } catch (ArithmeticException ex) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "累计报工数量超出系统支持范围");
+        }
     }
 
     private String normalize(String value) {

@@ -83,4 +83,10 @@ describe('buildWorkshopDashboard', () => {
     expect(result.metrics.todayOutput).toBe(0)
     expect(result.metrics.defectRate).toBe(0)
   })
+
+  it.each(['FINISHED', 'CLOSED', 'CANCELLED'])('does not treat the persisted terminal status %s as running', (status) => {
+    const result = buildWorkshopDashboard([workOrder({ status })], [], new Date(2026, 6, 22))
+    expect(result.metrics.inProcessOrderCount).toBe(0)
+    expect(result.metrics.inProcessTaskCount).toBe(0)
+  })
 })

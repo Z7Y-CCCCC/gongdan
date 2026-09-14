@@ -28,20 +28,21 @@
       </view>
 
       <view class="tab-row">
-        <view class="tab" :class="{ active: statusFilter === '' }" @click="statusFilter = ''; loadReports()">
+        <view class="tab" :class="{ active: statusFilter === '' }" @click="statusFilter = ''">
           全部 {{ reports.length }}
           <view v-if="statusFilter === ''" class="line"></view>
         </view>
-        <view class="tab" :class="{ active: statusFilter === 'PENDING' }" @click="statusFilter = 'PENDING'; loadReports()">
+        <view class="tab" :class="{ active: statusFilter === 'PENDING' }" @click="statusFilter = 'PENDING'">
           未审批 {{ pendingCount }}
           <view v-if="statusFilter === 'PENDING'" class="line"></view>
         </view>
-        <view class="tab" :class="{ active: statusFilter === 'APPROVED' }" @click="statusFilter = 'APPROVED'; loadReports()">
+        <view class="tab" :class="{ active: statusFilter === 'APPROVED' }" @click="statusFilter = 'APPROVED'">
           已审批 {{ approvedCount }}
           <view v-if="statusFilter === 'APPROVED'" class="line"></view>
         </view>
       </view>
     </view>
+    <ListLimitNotice :total="reportTotal" :loaded="reports.length" />
 
     <!-- 记录列表 -->
     <scroll-view scroll-y class="list-content">
@@ -90,7 +91,7 @@
       </view>
       
       <view v-if="filteredReports.length === 0 && !loading" class="no-more">暂无报工记录</view>
-      <view v-if="filteredReports.length > 0" class="no-more">没有更多了</view>
+      <view v-if="filteredReports.length > 0" class="no-more">{{ reportTotal > reports.length ? '已显示当前加载记录' : '没有更多了' }}</view>
     </scroll-view>
 
     <!-- 加载中 -->
@@ -109,11 +110,15 @@ import { onShow } from '@dcloudio/uni-app'
 import { fetchReports, ensureLogin } from '../../services/api'
 import type { WorkOrderReport } from '../../types/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
+import ListLimitNotice from '../../components/ListLimitNotice.vue'
 
 const reports = ref<WorkOrderReport[]>([])
 const loading = ref(false)
 const statusFilter = ref('')
 const period = ref('')
+const reportTotal = ref(0)
+let loadSequence = 0
+let pendingPeriod: string | undefined
 
 const filteredReports = computed(() => {
   if (!statusFilter.value) return reports.value
@@ -135,16 +140,26 @@ function isCurrentH5Route() {
 }
 
 const loadReports = async () => {
+  if (loading.value && pendingPeriod === period.value) return
+  const sequence = ++loadSequence
+  pendingPeriod = period.value
   loading.value = true
   try {
     // 加载所有状态的报工记录
-    const res = await fetchReports(statusFilter.value as any, period.value)
+    const res = await fetchReports('', period.value)
+    if (sequence !== loadSequence) return
     reports.value = res.items || []
-  } catch (e) {
-    console.error('加载报工记录失败', e)
+    reportTotal.value = res.total
+  } catch (e: any) {
+    if (sequence !== loadSequence) return
+    uni.showToast({ title: e.message || '加载报工记录失败', icon: 'none' })
     reports.value = []
+    reportTotal.value = 0
   } finally {
-    loading.value = false
+    if (sequence === loadSequence) {
+      loading.value = false
+      pendingPeriod = undefined
+    }
   }
 }
 
@@ -172,6 +187,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  loadSequence += 1
   if (typeof window !== 'undefined') {
     window.removeEventListener('hashchange', reloadWhenCurrentRoute)
   }

@@ -16,8 +16,17 @@ let lastSentTheme = ''
 
 const frontendEntry = computed(() => {
   const value = props.plugin?.manifest?.frontendEntry
-  return typeof value === 'string' ? value.trim() : ''
+  if (typeof value !== 'string' || !value.trim()) return ''
+  try {
+    const url = new URL(value.trim(), window.location.href)
+    // Same-origin scripts can access the parent and defeat this iframe sandbox.
+    if (!['http:', 'https:'].includes(url.protocol) || url.origin === window.location.origin) return ''
+    return url.href
+  } catch {
+    return ''
+  }
 })
+const invalidFrontendEntry = computed(() => Boolean(props.plugin?.manifest?.frontendEntry) && !frontendEntry.value)
 
 const targetOrigin = computed(() => {
   if (!frontendEntry.value) return ''
@@ -132,8 +141,9 @@ onBeforeUnmount(() => {
     </div>
     <div v-else class="plugin-runtime-empty">
       <UiIcon name="activity" :size="30" />
-      <strong>插件页面尚未接入</strong>
-      <span>当前插件已经进入运行清单，但还没有配置 frontendEntry。请在插件中心登记页面地址后重新打开。</span>
+      <strong>{{ invalidFrontendEntry ? '插件页面地址不安全' : '插件页面尚未接入' }}</strong>
+      <span v-if="invalidFrontendEntry">插件必须使用与管理端不同源的 HTTP(S) 地址，以保持运行隔离。请在插件中心修改页面地址。</span>
+      <span v-else>当前插件已经进入运行清单，但还没有配置 frontendEntry。请在插件中心登记页面地址后重新打开。</span>
     </div>
   </section>
 </template>

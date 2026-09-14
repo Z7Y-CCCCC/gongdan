@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { onLaunch } from '@dcloudio/uni-app'
+import { ensureLogin } from './services/api'
 
 onLaunch(() => {
-  const token = uni.getStorageSync('token')
-  if (!token) {
-    uni.reLaunch({ url: '/pages/bind/index' })
-  }
+  ensureLogin()
 })
 </script>
 

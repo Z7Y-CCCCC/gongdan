@@ -107,7 +107,8 @@ public class DataInitializer implements ApplicationRunner {
         FactoryUser admin = userRepository.findByFactoryIdAndUsername(targetFactory.getId(), adminUsername)
                 .orElseGet(() -> createDefaultAdmin(targetFactory));
 
-        syncAdmin(admin);
+        // Seed only missing data. Existing account status and permissions belong to
+        // administrators and must not be restored or overwritten on every restart.
         seedWorkOrderCustomFields(targetFactory, admin);
     }
 
@@ -124,11 +125,6 @@ public class DataInitializer implements ApplicationRunner {
                     item.setCreatedAt(LocalDateTime.now());
                     return factoryRepository.save(item);
                 });
-
-        if (!adminFactory.isEnabled()) {
-            adminFactory.setEnabled(true);
-            factoryRepository.save(adminFactory);
-        }
 
         userRepository.findByFactoryIdAndUsername(adminFactory.getId(), username)
                 .orElseGet(() -> {
@@ -196,26 +192,6 @@ public class DataInitializer implements ApplicationRunner {
         admin.setCreatedAt(LocalDateTime.now());
         admin.setUpdatedAt(LocalDateTime.now());
         return userRepository.save(admin);
-    }
-
-    private void syncAdmin(FactoryUser admin) {
-        boolean changed = false;
-        if (!adminName.equals(admin.getName())) {
-            admin.setName(adminName);
-            changed = true;
-        }
-        if (admin.getRole() != Role.ADMIN) {
-            admin.setRole(Role.ADMIN);
-            changed = true;
-        }
-        if (!admin.isEnabled()) {
-            admin.setEnabled(true);
-            changed = true;
-        }
-        if (changed) {
-            admin.setUpdatedAt(LocalDateTime.now());
-            userRepository.save(admin);
-        }
     }
 
     private void seedDefaultUnits(Factory factory) {

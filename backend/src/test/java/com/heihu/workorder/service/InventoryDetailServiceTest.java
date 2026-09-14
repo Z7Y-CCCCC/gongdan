@@ -46,4 +46,12 @@ class InventoryDetailServiceTest {
 
         assertThat(result).isInstanceOf(ArrayList.class).isEmpty();
     }
+
+    @Test
+    void largePageCannotOverflowIntoANegativeSubListIndex() {
+        assertThat(service.list(1L, null, null, null, null, null, null, null, null,
+                null, null, Integer.MAX_VALUE, 100)).isEmpty();
+        assertThat(service.list(1L, null, null, null, null, null, null, null, null,
+                null, null, 3, Integer.MAX_VALUE)).isEmpty();
+    }
 }

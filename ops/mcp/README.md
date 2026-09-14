@@ -23,6 +23,11 @@ Every tool is annotated as read-only and non-destructive. The gateway rejects
 non-allowlisted paths and unknown query parameters before making a backend
 request.
 
+Configured Host/Origin allowlists are enforced by the transport. Backend
+redirects are reported without being followed; response bodies are capped while
+streaming, and non-JSON bodies are omitted because they cannot be field-redacted.
+Concurrent expired-session responses share a single backend sign-in refresh.
+
 ## Local run
 
 Use Node.js 20 or newer:

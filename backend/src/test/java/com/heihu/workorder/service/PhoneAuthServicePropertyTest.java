@@ -36,7 +36,7 @@ class PhoneAuthServicePropertyTest {
         TokenService tokenService = mock(TokenService.class);
         SmsService smsService = mock(SmsService.class);
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.emptyList());
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.emptyList());
 
         PhoneAuthService service = new PhoneAuthService(userRepository, passwordEncoder, tokenService, smsService);
 
@@ -66,7 +66,7 @@ class PhoneAuthServicePropertyTest {
         SmsService smsService = mock(SmsService.class);
 
         FactoryUser user = createEnabledUser(1L, phone, "hashedPwd", 1L);
-        when(userRepository.findAllByPhone(phone)).thenReturn(Collections.singletonList(user));
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(Collections.singletonList(user));
         when(passwordEncoder.matches(password, "hashedPwd")).thenReturn(false);
 
         PhoneAuthService service = new PhoneAuthService(userRepository, passwordEncoder, tokenService, smsService);
@@ -102,7 +102,7 @@ class PhoneAuthServicePropertyTest {
             enabledUsers.add(user);
         }
 
-        when(userRepository.findAllByPhone(phone)).thenReturn(enabledUsers);
+        when(userRepository.findAllByPhoneForUpdate(phone)).thenReturn(enabledUsers);
         // All passwords match
         for (FactoryUser u : enabledUsers) {
             when(passwordEncoder.matches(password, u.getPasswordHash())).thenReturn(true);

@@ -4,6 +4,15 @@ This is a standalone plugin used to verify the platform lifecycle. It is intenti
 small and stores demo records in memory; a production plugin should own its database,
 migrations, business permissions and observability.
 
+The core service and this plugin must use the same non-empty gateway secret and be
+deployed together. The HMAC-SHA256 canonical request joins method, raw path/query,
+plugin key, version, factory ID, user ID, role, timestamp, body SHA-256, and the exact
+`X-Plugin-Config-Base64` value (empty if absent) with newlines. Configuration is signed
+as well as identity and payload; legacy signatures that omit that final line are rejected.
+API authentication uses the normalized application path, including requests with matrix
+parameters. Demo records are isolated by the authenticated factory ID but remain in memory
+and are lost on restart.
+
 ## Run locally
 
 ```powershell

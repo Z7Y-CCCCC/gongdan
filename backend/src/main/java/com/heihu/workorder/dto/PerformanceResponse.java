@@ -1,17 +1,17 @@
 package com.heihu.workorder.dto;
 
 public class PerformanceResponse {
-    private int plannedQuantity;
-    private int completedQuantity;
-    private int workOrderCount;
+    private long plannedQuantity;
+    private long completedQuantity;
+    private long workOrderCount;
     private double defectRatePercent;
     private double averageCycleDays;
-    private int overdueUnfinishedCount;
+    private long overdueUnfinishedCount;
 
     public PerformanceResponse() {
     }
 
-    public PerformanceResponse(int plannedQuantity, int completedQuantity, int workOrderCount, double defectRatePercent, double averageCycleDays, int overdueUnfinishedCount) {
+    public PerformanceResponse(long plannedQuantity, long completedQuantity, long workOrderCount, double defectRatePercent, double averageCycleDays, long overdueUnfinishedCount) {
         this.plannedQuantity = plannedQuantity;
         this.completedQuantity = completedQuantity;
         this.workOrderCount = workOrderCount;
@@ -20,14 +20,14 @@ public class PerformanceResponse {
         this.overdueUnfinishedCount = overdueUnfinishedCount;
     }
 
-    public int getPlannedQuantity() { return plannedQuantity; }
-    public void setPlannedQuantity(int plannedQuantity) { this.plannedQuantity = plannedQuantity; }
+    public long getPlannedQuantity() { return plannedQuantity; }
+    public void setPlannedQuantity(long plannedQuantity) { this.plannedQuantity = plannedQuantity; }
 
-    public int getCompletedQuantity() { return completedQuantity; }
-    public void setCompletedQuantity(int completedQuantity) { this.completedQuantity = completedQuantity; }
+    public long getCompletedQuantity() { return completedQuantity; }
+    public void setCompletedQuantity(long completedQuantity) { this.completedQuantity = completedQuantity; }
 
-    public int getWorkOrderCount() { return workOrderCount; }
-    public void setWorkOrderCount(int workOrderCount) { this.workOrderCount = workOrderCount; }
+    public long getWorkOrderCount() { return workOrderCount; }
+    public void setWorkOrderCount(long workOrderCount) { this.workOrderCount = workOrderCount; }
 
     public double getDefectRatePercent() { return defectRatePercent; }
     public void setDefectRatePercent(double defectRatePercent) { this.defectRatePercent = defectRatePercent; }
@@ -35,6 +35,6 @@ public class PerformanceResponse {
     public double getAverageCycleDays() { return averageCycleDays; }
     public void setAverageCycleDays(double averageCycleDays) { this.averageCycleDays = averageCycleDays; }
 
-    public int getOverdueUnfinishedCount() { return overdueUnfinishedCount; }
-    public void setOverdueUnfinishedCount(int overdueUnfinishedCount) { this.overdueUnfinishedCount = overdueUnfinishedCount; }
+    public long getOverdueUnfinishedCount() { return overdueUnfinishedCount; }
+    public void setOverdueUnfinishedCount(long overdueUnfinishedCount) { this.overdueUnfinishedCount = overdueUnfinishedCount; }
 }

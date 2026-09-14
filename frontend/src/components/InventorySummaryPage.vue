@@ -2,6 +2,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchInventoryDetails, type InventoryDetailInfo } from '../api'
 import TableConfigButton from './TableConfigButton.vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
+import { resolveInventoryTimeRange } from '../utils/inventoryTimeRange'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -23,6 +27,7 @@ interface SummaryRow {
 const rows = ref<SummaryRow[]>([])
 const sourceTotal = ref(0)
 const loading = ref(false)
+const beginLoad = useLatestRequest()
 const sortKey = ref<keyof SummaryRow>('netQty')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 
@@ -60,78 +65,32 @@ const sortedRows = computed(() => {
   })
 })
 
-function formatDateTime(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  const h = String(date.getHours()).padStart(2, '0')
-  const min = String(date.getMinutes()).padStart(2, '0')
-  const s = String(date.getSeconds()).padStart(2, '0')
-  return `${y}-${m}-${d} ${h}:${min}:${s}`
-}
-
-function resolveTimeRange() {
-  const now = new Date()
-  if (filterForm.timeRange === 'today') {
-    return {
-      start: formatDateTime(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)),
-      end: formatDateTime(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59))
-    }
-  }
-  if (filterForm.timeRange === 'week') {
-    const day = now.getDay() || 7
-    const monday = new Date(now)
-    monday.setDate(now.getDate() - day + 1)
-    return {
-      start: formatDateTime(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), 0, 0, 0)),
-      end: formatDateTime(now)
-    }
-  }
-  if (filterForm.timeRange === 'month') {
-    return {
-      start: formatDateTime(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0)),
-      end: formatDateTime(now)
-    }
-  }
-  if (filterForm.timeRange === 'custom') {
-    return {
-      start: filterForm.startTime ? `${filterForm.startTime} 00:00:00` : undefined,
-      end: filterForm.endTime ? `${filterForm.endTime} 23:59:59` : undefined
-    }
-  }
-  return { start: undefined, end: undefined }
-}
-
 async function loadData() {
+  const isCurrent = beginLoad()
   loading.value = true
   try {
-    const range = resolveTimeRange()
-    const res = await fetchInventoryDetails(props.token, {
+    const filter = {
       productCode: filterForm.productCode.trim() || undefined,
       productName: filterForm.productName.trim() || undefined,
       productSpec: filterForm.productSpec.trim() || undefined,
       productAttribute: filterForm.productAttribute || undefined,
-      startTime: range.start,
-      endTime: range.end,
-      page: 1,
-      size: 1000
-    })
+      ...resolveInventoryTimeRange(filterForm)
+    }
+    const res = await fetchAllPages(params => fetchInventoryDetails(props.token, { ...filter, ...params }), 500, isCurrent)
+    if (!isCurrent()) return
     sourceTotal.value = res.total
     rows.value = buildSummary(res.items)
-    if (res.total > res.items.length) {
-      emit('notice', `当前只汇总前 ${res.items.length} 条收发明细，请缩小筛选范围`)
-    }
   } catch (e: any) {
-    emit('notice', e.message || '加载进销存汇总失败')
+    if (isCurrent()) emit('notice', e.message || '加载进销存汇总失败')
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
 function buildSummary(items: InventoryDetailInfo[]) {
   const map = new Map<string, SummaryRow>()
   items.forEach(item => {
-    const key = `${item.productCode || ''}|${item.productName || ''}|${item.productSpec || ''}|${item.unitName || ''}`
+    const key = JSON.stringify([item.productCode, item.productName, item.productSpec, item.productAttribute, item.unitName])
     const row = map.get(key) || {
       key,
       productCode: item.productCode || '',
@@ -213,6 +172,7 @@ function exportCSV() {
   emit('notice', '导出成功')
 }
 
+useRefreshOnActivated(loadData)
 onMounted(loadData)
 </script>
 
