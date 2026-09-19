@@ -8,7 +8,7 @@ on:
 
 jobs:
   frontend-build:
-    name: 前端编译与类型检查
+    name: 前端编译与打包
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -27,8 +27,15 @@ jobs:
           npm ci
           npm run build
 
+      - name: 上传前端产物包 (dist)
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 7
+
   backend-build:
-    name: 后端 Java 8 编译检查
+    name: 后端 Java 8 编译与打包
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -41,7 +48,14 @@ jobs:
           java-version: '8'
           cache: 'maven'
 
-      - name: Maven 编译与单测构建
+      - name: Maven 打包 Jar
         working-directory: ./backend
         run: |
-          mvn clean test-compile
+          mvn clean package -DskipTests
+
+      - name: 上传后端产物包 (Jar)
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: backend/target/*.jar
+          retention-days: 7
