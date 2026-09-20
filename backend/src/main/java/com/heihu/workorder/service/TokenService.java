@@ -9,6 +9,7 @@ import com.heihu.workorder.repository.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -104,7 +105,7 @@ public class TokenService {
             session.setDisplayName(user.getName());
             session.setKicked(false);
             session.setExpiresAt(Instant.now().plus(ttl));
-            LocalDateTime issuedAt = LocalDateTime.now();
+            LocalDateTime issuedAt = LocalDateTime.now(ZoneId.of("Asia/Shanghai"));
             session.setCreatedAt(issuedAt);
             session.setLastActiveAt(issuedAt);
             session.setIpAddress(ipAddress == null ? "-" : ipAddress);
@@ -217,7 +218,7 @@ public class TokenService {
     }
 
     private void touchSession(UserSession session) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZoneId.of("Asia/Shanghai"));
         LocalDateTime lastActiveAt = session.getLastActiveAt();
         if (lastActiveAt == null || lastActiveAt.plusSeconds(30).isBefore(now)) {
             sessionRepository.updateLastActiveAt(session.getId(), now, Instant.now());

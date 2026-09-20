@@ -7,6 +7,7 @@ RUN mvn -q -DskipTests package
 
 FROM eclipse-temurin:8-jre
 WORKDIR /app
+ENV TZ=Asia/Shanghai
 ENV SPRING_PROFILES_ACTIVE=prod
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
