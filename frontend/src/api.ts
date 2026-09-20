@@ -127,16 +127,10 @@ export interface ResetPasswordResponse {
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
 
-export interface AnalyticsConfig {
+export interface UReportSession {
   enabled: boolean
-  provider: 'apache-superset' | string
-  supersetDomain?: string
-  dashboardId?: string
-}
-
-export interface AnalyticsGuestToken {
-  token: string
-  expiresInSeconds: number
+  path: string
+  factoryCode: string
 }
 
 export class ApiError extends Error {
@@ -158,15 +152,8 @@ function sessionGuard(options: RequestInit) {
   }
 }
 
-export function fetchAnalyticsConfig(token: string) {
-  return request<AnalyticsConfig>('/analytics/config', {
-    headers: { Authorization: `Bearer ${token}` }
-  })
-}
-
-export function fetchAnalyticsGuestToken(token: string) {
-  return request<AnalyticsGuestToken>('/analytics/guest-token', {
-    method: 'POST',
+export function establishUReportSession(token: string) {
+  return request<UReportSession>('/ureport/session', {
     headers: { Authorization: `Bearer ${token}` }
   })
 }

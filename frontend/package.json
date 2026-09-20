@@ -14,7 +14,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@superset-ui/embedded-sdk": "^0.4.0",
     "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "qrcode": "^1.5.4",

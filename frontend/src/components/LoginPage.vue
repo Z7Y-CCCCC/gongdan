@@ -23,6 +23,7 @@ const loginForm = reactive({
   username: '',
   password: ''
 })
+const showLoginPassword = ref(false)
 
 // Phone login state
 const loginTab = ref<'phone' | 'factory'>('factory')
@@ -55,6 +56,7 @@ const phoneForm = reactive({
   password: '',
   code: ''
 })
+const showPhonePassword = ref(false)
 const smsCountdown = ref(0)
 let smsTimer: ReturnType<typeof setInterval> | null = null
 const phoneError = ref('')
@@ -291,7 +293,19 @@ async function handleSelectFactory(factoryId: number) {
           </label>
           <label v-if="phoneLoginMode === 'password'">
             <span>密码</span>
-            <input v-model="phoneForm.password" autocomplete="current-password" placeholder="请输入密码" type="password" />
+            <div class="password-input-wrap">
+              <input v-model="phoneForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showPhonePassword ? 'text' : 'password'" />
+              <button
+                class="password-toggle"
+                type="button"
+                :aria-label="showPhonePassword ? '隐藏密码' : '显示密码'"
+                :title="showPhonePassword ? '隐藏密码' : '显示密码'"
+                @click="showPhonePassword = !showPhonePassword"
+              >
+                <svg v-if="showPhonePassword" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0"/><path d="M6 12v3"/><path d="M10 13.5v3.5"/><path d="M14 13.5v3.5"/><path d="M18 12v3"/></svg>
+              </button>
+            </div>
           </label>
           <label v-else class="sms-label">
             <span>验证码</span>
@@ -320,7 +334,19 @@ async function handleSelectFactory(factoryId: number) {
           </label>
           <label>
             <span>密码</span>
-            <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" type="password" />
+            <div class="password-input-wrap">
+              <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showLoginPassword ? 'text' : 'password'" />
+              <button
+                class="password-toggle"
+                type="button"
+                :aria-label="showLoginPassword ? '隐藏密码' : '显示密码'"
+                :title="showLoginPassword ? '隐藏密码' : '显示密码'"
+                @click="showLoginPassword = !showLoginPassword"
+              >
+                <svg v-if="showLoginPassword" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0"/><path d="M6 12v3"/><path d="M10 13.5v3.5"/><path d="M14 13.5v3.5"/><path d="M18 12v3"/></svg>
+              </button>
+            </div>
           </label>
           <div class="remember-me-row">
             <label class="remember-me-label">

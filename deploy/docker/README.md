@@ -6,10 +6,9 @@ same-origin `/api` access and QR links pointing at the deployed mobile entry.
 The Dockerfile-specific ignore list excludes environment files, node_modules,
 build outputs, browser sessions and unrelated workspace data from the context.
 
-The optional Superset analysis page adds `APP_ANALYTICS_ALLOWED_ORIGINS` to the
-same frontend build-time CSP allow-list. The backend-only Superset credentials
-(`APP_ANALYTICS_SUPERSET_USERNAME` and `APP_ANALYTICS_SUPERSET_PASSWORD`) are
-passed only to the backend container.
+The advanced report designer is embedded in the Spring Boot backend through
+UReport2. Docker deployment remains optional; the same backend and frontend
+artifacts can be deployed with the existing Windows/bare-metal scripts.
 
 Both asset build stages use Node.js 22. The mobile dependency lock also references
 the small local adapters in `mobile/vendor/`; these source files must be copied

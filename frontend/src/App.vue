@@ -97,7 +97,7 @@ const WarehousePage = defineAsyncComponent(() => import('./components/WarehouseP
 const SupplierPage = defineAsyncComponent(() => import('./components/SupplierPage.vue'))
 const CustomerPage = defineAsyncComponent(() => import('./components/CustomerPage.vue'))
 const ReportCenterPage = defineAsyncComponent(() => import('./components/ReportCenterPage.vue'))
-const AnalyticsReportPage = defineAsyncComponent(() => import('./components/AnalyticsReportPage.vue'))
+const UReportPage = defineAsyncComponent(() => import('./components/UReportPage.vue'))
 const AdvancedOperationsPage = defineAsyncComponent(() => import('./components/AdvancedOperationsPage.vue'))
 const OnlineUsersPage = defineAsyncComponent(() => import('./components/OnlineUsersPage.vue'))
 const CacheMonitorPage = defineAsyncComponent(() => import('./components/CacheMonitorPage.vue'))
@@ -260,7 +260,7 @@ const workspaceLabels: Record<string, string> = {
   dashboard: '车间看板',
   advanced: '高级运营',
   report: '生产报表',
-  analytics: '分析报表',
+  analytics: '高级报表',
   'production-sales': '销售订单',
   'production-workorder': '工单',
   'production-task': '任务',
@@ -1782,6 +1782,7 @@ const loginForm = reactive({
   username: '',
   password: ''
 })
+const showLoginPassword = ref(false)
 
 // Phone login state
 const loginTab = ref<'phone' | 'factory'>('factory')
@@ -1814,6 +1815,7 @@ const phoneForm = reactive({
   password: '',
   code: ''
 })
+const showPhonePassword = ref(false)
 const smsCountdown = ref(0)
 const sendingSms = ref(false)
 let smsTimer: ReturnType<typeof setInterval> | null = null
@@ -2062,7 +2064,7 @@ function handleSearch() {
     { label: '缓存监控', mainMenu: 'monitor', subMenu: 'cache', expandedMenu: 'monitor' },
     { label: '缓存列表', mainMenu: 'monitor', subMenu: 'cacheList', expandedMenu: 'monitor' },
     { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' },
-    { label: '分析报表', mainMenu: 'analytics', subMenu: '', expandedMenu: 'report' },
+    { label: '高级报表', mainMenu: 'analytics', subMenu: '', expandedMenu: 'report' },
     { label: 'SOP', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '文档库', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '消息推送', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
@@ -2761,7 +2763,9 @@ function resetAuthenticatedWorkspace() {
   resetPasswordForm.password = ''
   resetPasswordForm.confirmPassword = ''
   loginForm.password = ''
+  showLoginPassword.value = false
   phoneForm.password = ''
+  showPhonePassword.value = false
   phoneForm.code = ''
   pendingPhoneCredential.credential = ''
   runtimePlugins.value = []
@@ -2976,7 +2980,19 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </label>
           <label v-if="phoneLoginMode === 'password'">
             <span>密码</span>
-            <input v-model="phoneForm.password" autocomplete="current-password" placeholder="请输入密码" type="password" />
+            <div class="password-input-wrap">
+              <input v-model="phoneForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showPhonePassword ? 'text' : 'password'" />
+              <button
+                class="password-toggle"
+                type="button"
+                :aria-label="showPhonePassword ? '隐藏密码' : '显示密码'"
+                :title="showPhonePassword ? '隐藏密码' : '显示密码'"
+                @click="showPhonePassword = !showPhonePassword"
+              >
+                <svg v-if="showPhonePassword" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0"/><path d="M6 12v3"/><path d="M10 13.5v3.5"/><path d="M14 13.5v3.5"/><path d="M18 12v3"/></svg>
+              </button>
+            </div>
           </label>
           <label v-else class="sms-label">
             <span>验证码</span>
@@ -3005,7 +3021,19 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </label>
           <label>
             <span>密码</span>
-            <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" type="password" />
+            <div class="password-input-wrap">
+              <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showLoginPassword ? 'text' : 'password'" />
+              <button
+                class="password-toggle"
+                type="button"
+                :aria-label="showLoginPassword ? '隐藏密码' : '显示密码'"
+                :title="showLoginPassword ? '隐藏密码' : '显示密码'"
+                @click="showLoginPassword = !showLoginPassword"
+              >
+                <svg v-if="showLoginPassword" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0"/><path d="M6 12v3"/><path d="M10 13.5v3.5"/><path d="M14 13.5v3.5"/><path d="M18 12v3"/></svg>
+              </button>
+            </div>
           </label>
           <div class="remember-me-row">
             <label class="remember-me-label">
@@ -3155,7 +3183,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
               <a class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'"><UiIcon name="activity" :size="15" />生产报表</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'analytics' }" @click="activeMainMenu = 'analytics'"><UiIcon name="table-columns" :size="15" />分析报表</a>
+              <a class="sub-item" :class="{ selected: activeMainMenu === 'analytics' }" @click="activeMainMenu = 'analytics'"><UiIcon name="table-columns" :size="15" />高级报表</a>
             </div>
           </Transition>
         </div>
@@ -3275,7 +3303,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             报表 <span>></span> 生产报表
           </template>
           <template v-else-if="activeMainMenu === 'analytics'">
-            报表 <span>></span> 分析报表
+            报表 <span>></span> 高级报表
           </template>
           <template v-else-if="activeMainMenu === 'super-admin'">
             授权码管理
@@ -3532,7 +3560,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             :token="token"
             @notice="showAction"
           />
-          <AnalyticsReportPage
+          <UReportPage
             v-else-if="activeMainMenu === 'analytics'"
             key="analytics"
             :token="token"

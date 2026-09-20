@@ -21,6 +21,7 @@
         <java.version>1.8</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <ureport2.version>2.2.9</ureport2.version>
         <mysql-connector-j.version>9.2.0</mysql-connector-j.version>
         <aws-java-sdk-s3.version>1.12.782</aws-java-sdk-s3.version>
     </properties>
@@ -68,6 +69,12 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Embedded Chinese-style report designer/renderer; runs in the existing JVM. -->
+        <dependency>
+            <groupId>com.bstek.ureport</groupId>
+            <artifactId>ureport2-console</artifactId>
+            <version>${ureport2.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.security</groupId>

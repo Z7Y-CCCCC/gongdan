@@ -123,9 +123,9 @@ docker compose --profile mcp up --build -d mcp
 
 当前插件平台是受控的独立服务底座，不是可以从互联网下载并自动执行任意代码的插件商店。制品签名、漏洞扫描、自动部署和插件独立持久化仍需要在上线前继续建设。
 
-## 分析报表
+## 高级报表
 
-系统保留内置生产报表，并提供可选的 Apache Superset 分析报表入口。它通过后端签发短期 guest token，并按当前工厂附加行级过滤；配置和验收步骤见 [`docs/REPORTING_INTEGRATION.md`](docs/REPORTING_INTEGRATION.md)。
+系统保留内置生产报表，并提供直接嵌入 Spring Boot 的 UReport2 高级报表入口，不依赖 Docker 或独立报表服务。配置、权限和工厂隔离验收步骤见 [`docs/REPORTING_INTEGRATION.md`](docs/REPORTING_INTEGRATION.md)。
 
 ## 外部数据源
 

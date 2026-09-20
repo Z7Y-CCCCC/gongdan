@@ -1,73 +1,48 @@
-# 分析报表集成
+# 高级报表集成
 
 ## 方案
 
-当前系统保留原有“生产报表”和“车间看板”，新增可选的“报表 > 分析报表”入口，使用 Apache Superset 的 Embedded SDK 展示一个经过工厂级行权限过滤的 Dashboard。
+系统保留原有“生产报表”和“车间看板”，新增“报表 > 高级报表”。高级报表使用 UReport2，直接嵌入现有 Spring Boot JVM，不依赖 Docker、独立 BI 服务或独立元数据库。
 
-- 本系统负责登录、工厂切换和权限判断。
-- 后端通过 Superset 服务账号换取 guest token，Superset 密钥和服务账号密码不下发浏览器。
-- guest token 只授权配置的一个 Dashboard，并附带 `factory_id = 当前工厂 ID` 规则。
-- Superset 是独立服务，建议连接专用的只读报表账号或只读视图；不让它使用核心应用写账号。
-- 工单审批、报工和库存写入仍走本系统 API，不通过 Superset 操作。
+UReport2 是纯 Java/Spring 报表引擎，支持浏览器设计器、预览、打印以及 Excel/PDF 导出。官方项目和许可说明见 <https://github.com/youseries/ureport>。
 
-Superset 的嵌入能力和 guest token 由官方 Embedded SDK 提供，guest token 支持 RLS；本集成使用的是 view-only guest embed。需要完整 Superset 自助查询、用户组权限或更细的行列权限时，应单独评估 SSO/商业嵌入能力。
+后端通过 `/api/ureport/session` 将当前系统的管理员 Bearer 会话换成仅限 `/ureport` 路径的 HttpOnly Cookie；UReport2 Servlet 的所有请求都经过现有管理员会话校验。
 
-## 配置
+## 本地启动
 
-在 `.env` 或 Windows 部署配置中设置：
+启动后端和前端即可：
 
-```dotenv
-APP_ANALYTICS_SUPERSET_URL=https://analytics.example.com
-APP_ANALYTICS_SUPERSET_USERNAME=workorder-embed
-APP_ANALYTICS_SUPERSET_PASSWORD=replace-with-a-real-secret
-APP_ANALYTICS_DASHBOARD_ID=the-dashboard-id
-APP_ANALYTICS_TIMEOUT_SECONDS=5
+```powershell
+cd backend
+mvn spring-boot:run
 
-# 这是前端镜像构建期的 CSP 白名单，不是运行时后端地址配置。
-APP_ANALYTICS_ALLOWED_ORIGINS=https://analytics.example.com
+cd ..\frontend
+npm run dev
 ```
 
-只配置了部分值时，入口保持停用。修改 `APP_ANALYTICS_ALLOWED_ORIGINS` 后必须重建 frontend 镜像：
+登录系统后打开“报表 > 高级报表”。直接访问 `/ureport/designer` 但没有通过系统登录时应返回未授权，而不是打开设计器。
 
-```sh
-docker compose build frontend
-docker compose up -d backend frontend
+## 报表模板存储
+
+默认模板目录为应用工作目录下的 `ureportfiles`。生产环境应让运行 Java 进程的账号拥有该目录的读写权限，并把目录纳入备份。也可以通过 JVM 参数覆盖：
+
+```text
+-Dureport.fileStoreDir=C:\\www\\gongdan\\data\\ureportfiles
 ```
 
-本地验证可以使用空配置启动；页面会显示“分析报表尚未启用”。
+## 工厂数据隔离
 
-## Superset 数据准备
+UReport2 本身不会自动理解本系统的 `factory_id` 权限。上线前必须完成以下约束：
 
-首次接入不要直接把全部业务表开放给分析服务。建议创建只读报表视图，所有 Dashboard 数据集统一包含 `factory_id` 字段，例如：
+1. 报表 SQL 明确使用当前工厂参数，或只查询已经按工厂隔离的只读视图。
+2. 不允许工厂管理员把任意业务库连接配置到报表数据源。
+3. 使用两个工厂账号分别预览同一模板，确认不能看到对方数据。
+4. 报表模板变更需要保留审计记录并纳入备份。
 
-```sql
-CREATE OR REPLACE VIEW reporting_work_order_output AS
-SELECT
-  wo.factory_id,
-  wo.code AS work_order_code,
-  wo.product_name,
-  wo.status,
-  wo.planned_quantity,
-  wo.good_quantity,
-  wo.defect_quantity,
-  wo.created_at
-FROM work_orders wo;
-```
+当前集成先保护 UReport2 设计器和预览入口为管理员功能；复杂的工厂参数注入应在确定模板字段后继续封装，不能依赖前端隐藏字段。
 
-然后给 Superset 使用的数据库账号只授予这些视图的 `SELECT` 权限。嵌入 Dashboard 中的每个数据集都要能够安全应用 `factory_id = N` 规则；不要把没有该字段的全局数据集混入同一个带工厂 RLS 的 Dashboard。
+## 部署
 
-推荐先制作一个最小 Dashboard：工单数、计划数、良品数、不良率、按产品产出、按人员产出和最近报工。确认两个工厂账号互相看不到数据后，再增加库存和外部数据源。
+裸机部署只需按现有方式启动 Java 后端、前端静态站点、MySQL 和 Redis。无需安装或启动 Docker，也无需填写 Superset 地址、账号或 Dashboard ID。
 
-## 许可与边界
-
-Apache Superset 主仓库采用 Apache-2.0；本项目通过独立服务和前端 SDK 对接，不把 Superset 源码并入后端。部署时仍要保留 Superset 及其依赖的许可证和 NOTICE 文件，并由发布方完成依赖许可证审查。
-
-JimuReport 更偏中国式复杂报表、套打和打印，但其当前仓库 README 同时声明 GPL-3.0 与补充条款，并包含同类竞争限制；因此没有直接把它放进本项目。若后续重点变成送货单/工资单/套打，应先做法律和商业授权评估，再考虑将 UReport2 或其他 Apache-2.0 报表引擎作为单独模块。
-
-## 安全检查清单
-
-1. Superset 服务账号只授予 Dashboard 所需数据集的读取权限，并关闭不需要的 SQL Lab/下载能力。
-2. Superset 的允许嵌入域名只填写本系统实际域名；不要使用空白允许列表或通配符。
-3. `APP_ANALYTICS_SUPERSET_PASSWORD` 只存在于后端运行环境，不能写入 frontend build args、日志或浏览器存储。
-4. Dashboard 的所有数据集完成跨工厂隔离验收后，才在生产配置中填写 `APP_ANALYTICS_DASHBOARD_ID`。
-5. guest token 只通过 `/api/analytics/guest-token` 由当前管理员会话换取，不能做成公开 URL。
+原先的 Superset 适配代码已从默认集成中移除；如果以后需要跨系统自助分析，可以作为独立可选服务再次接入，但不作为本系统的运行前提。

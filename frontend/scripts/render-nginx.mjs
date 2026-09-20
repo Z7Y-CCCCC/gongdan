@@ -3,7 +3,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const DEFAULT_PLUGIN_ORIGINS = 'http://localhost:9101,http://localhost:9102'
-export const DEFAULT_ANALYTICS_ORIGINS = ''
 const marker = '# __PLUGIN_FRAME_SOURCE_MAP__'
 
 export function parsePluginOrigins(value = DEFAULT_PLUGIN_ORIGINS) {
@@ -62,20 +61,16 @@ export function frameSourcesForHost(origins, host) {
 
 export function renderNginx(
   template,
-  configuredOrigins = DEFAULT_PLUGIN_ORIGINS,
-  configuredAnalyticsOrigins = DEFAULT_ANALYTICS_ORIGINS
+  configuredOrigins = DEFAULT_PLUGIN_ORIGINS
 ) {
   if (template.split(marker).length !== 2) throw new Error('Nginx template must contain exactly one plugin frame-source marker')
-  const origins = [...new Set([
-    ...parsePluginOrigins(configuredOrigins),
-    ...parsePluginOrigins(configuredAnalyticsOrigins)
-  ])]
+  const origins = parsePluginOrigins(configuredOrigins)
   const quoted = sources => JSON.stringify(sources.length ? sources.join(' ') : "'none'")
   // Even valid single-label DNS names can be Nginx map keywords. Escape them as
   // literal keys, not directives, before the config parser processes them.
   const quotedHost = host => JSON.stringify(/^(default|include|hostnames|volatile)$/.test(host) ? `\\${host}` : host)
   const lines = [
-    '# Generated from APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS and APP_ANALYTICS_ALLOWED_ORIGINS. Rebuild after changing them.',
+    '# Generated from APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS. Rebuild after changing it.',
     'map_hash_bucket_size 512;',
     'map $http_host $plugin_frame_src {',
     `    default ${quoted(origins)};`,
@@ -90,8 +85,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (!input || !output) throw new Error('Usage: node render-nginx.mjs <template.conf> <output.conf|--stdout>')
   const rendered = renderNginx(
     readFileSync(input, 'utf8'),
-    process.env.APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS ?? DEFAULT_PLUGIN_ORIGINS,
-    process.env.APP_ANALYTICS_ALLOWED_ORIGINS ?? DEFAULT_ANALYTICS_ORIGINS
+    process.env.APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS ?? DEFAULT_PLUGIN_ORIGINS
   )
   if (output === '--stdout') process.stdout.write(rendered)
   else writeFileSync(output, rendered, 'utf8')
