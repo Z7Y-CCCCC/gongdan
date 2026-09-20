@@ -9,6 +9,7 @@ import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.Role;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.util.IpAddressUtils;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -26,6 +27,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
     private final AuthAttemptLimiter authAttemptLimiter;
+    private final IpLocationService ipLocationService;
 
     @Autowired
     public AuthService(
@@ -33,13 +35,25 @@ public class AuthService {
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             TokenService tokenService,
-            AuthAttemptLimiter authAttemptLimiter
+            AuthAttemptLimiter authAttemptLimiter,
+            IpLocationService ipLocationService
     ) {
         this.factoryRepository = factoryRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
         this.authAttemptLimiter = authAttemptLimiter;
+        this.ipLocationService = ipLocationService;
+    }
+
+    public AuthService(
+            FactoryRepository factoryRepository,
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            TokenService tokenService,
+            AuthAttemptLimiter authAttemptLimiter
+    ) {
+        this(factoryRepository, userRepository, passwordEncoder, tokenService, authAttemptLimiter, new IpLocationService());
     }
 
     public AuthService(
@@ -48,7 +62,7 @@ public class AuthService {
             PasswordEncoder passwordEncoder,
             TokenService tokenService
     ) {
-        this(factoryRepository, userRepository, passwordEncoder, tokenService, new AuthAttemptLimiter());
+        this(factoryRepository, userRepository, passwordEncoder, tokenService, new AuthAttemptLimiter(), new IpLocationService());
     }
 
     @Transactional
@@ -87,10 +101,12 @@ public class AuthService {
 
         authAttemptLimiter.recordSuccess(limitKey);
         String userAgent = httpRequest == null ? null : httpRequest.getHeader("User-Agent");
+        String ipAddress = httpRequest == null ? null : IpAddressUtils.getClientIp(httpRequest);
+        String loginLocation = ipLocationService == null ? "内网IP" : ipLocationService.searchLocation(ipAddress);
         String token = tokenService.issue(
                 user,
-                httpRequest == null ? null : httpRequest.getRemoteAddr(),
-                "内网IP",
+                ipAddress,
+                loginLocation,
                 detectOperatingSystem(userAgent),
                 detectBrowser(userAgent)
         );
