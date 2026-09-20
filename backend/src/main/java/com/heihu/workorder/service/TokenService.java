@@ -31,35 +31,50 @@ public class TokenService {
     private final Duration ttl;
     private final UserSessionRepository sessionRepository;
     private final UserRepository userRepository;
+    private final IpLocationService ipLocationService;
 
     public TokenService() {
-        this(Duration.ofMinutes(720L), null, null);
+        this(Duration.ofMinutes(720L), null, null, null);
     }
 
     @Autowired
     public TokenService(
             @Value("${app.session.ttl-minutes:720}") long ttlMinutes,
             UserSessionRepository sessionRepository,
+            UserRepository userRepository,
+            IpLocationService ipLocationService
+    ) {
+        this(Duration.ofMinutes(ttlMinutes), sessionRepository, userRepository, ipLocationService);
+    }
+
+    public TokenService(
+            long ttlMinutes,
+            UserSessionRepository sessionRepository,
             UserRepository userRepository
     ) {
-        this(Duration.ofMinutes(ttlMinutes), sessionRepository, userRepository);
+        this(Duration.ofMinutes(ttlMinutes), sessionRepository, userRepository, new IpLocationService());
     }
 
     TokenService(Duration ttl) {
-        this(ttl, null, null);
+        this(ttl, null, null, null);
     }
 
     TokenService(Duration ttl, UserSessionRepository sessionRepository) {
-        this(ttl, sessionRepository, null);
+        this(ttl, sessionRepository, null, null);
     }
 
     TokenService(Duration ttl, UserSessionRepository sessionRepository, UserRepository userRepository) {
+        this(ttl, sessionRepository, userRepository, new IpLocationService());
+    }
+
+    TokenService(Duration ttl, UserSessionRepository sessionRepository, UserRepository userRepository, IpLocationService ipLocationService) {
         if (ttl == null || ttl.isZero() || ttl.isNegative()) {
             throw new IllegalArgumentException("session ttl must be greater than 0");
         }
         this.ttl = ttl;
         this.sessionRepository = sessionRepository;
         this.userRepository = userRepository;
+        this.ipLocationService = ipLocationService != null ? ipLocationService : new IpLocationService();
     }
 
     @Transactional
@@ -140,11 +155,12 @@ public class TokenService {
     public void refreshSessionMetadata(String authorization, HttpServletRequest request) {
         if (sessionRepository == null || request == null) return;
         String token = extractToken(authorization);
-        String remoteAddress = request.getRemoteAddr();
+        String remoteAddress = com.heihu.workorder.util.IpAddressUtils.getClientIp(request);
         String userAgent = request.getHeader("User-Agent");
+        String location = ipLocationService == null ? "内网IP" : ipLocationService.searchLocation(remoteAddress);
         // Update only metadata: merging a previously read session can undo a concurrent kick.
         sessionRepository.updateMetadata(hashToken(token), StringUtils.hasText(remoteAddress) ? remoteAddress : "-",
-                "\u5185\u7f51IP", detectOperatingSystem(userAgent), detectBrowser(userAgent), Instant.now());
+                location, detectOperatingSystem(userAgent), detectBrowser(userAgent), Instant.now());
     }
 
     public AuthenticatedUser requireUser(String authorization) {

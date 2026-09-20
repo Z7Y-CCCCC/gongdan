@@ -10,6 +10,8 @@ import com.heihu.workorder.model.Role;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
 import com.heihu.workorder.util.IpAddressUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -21,6 +23,8 @@ import javax.servlet.http.HttpServletRequest;
 
 @Service
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     private final FactoryRepository factoryRepository;
     private final UserRepository userRepository;
@@ -103,6 +107,8 @@ public class AuthService {
         String userAgent = httpRequest == null ? null : httpRequest.getHeader("User-Agent");
         String ipAddress = httpRequest == null ? null : IpAddressUtils.getClientIp(httpRequest);
         String loginLocation = ipLocationService == null ? "内网IP" : ipLocationService.searchLocation(ipAddress);
+        log.info("用户 [{}] 于工厂 [{}] 登录成功，解析客户端真实IP: [{}], 归属地: [{}]", account, factoryCode, ipAddress, loginLocation);
+
         String token = tokenService.issue(
                 user,
                 ipAddress,

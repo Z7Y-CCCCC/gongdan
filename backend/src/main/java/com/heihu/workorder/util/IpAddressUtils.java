@@ -1,10 +1,13 @@
 package com.heihu.workorder.util;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import javax.servlet.http.HttpServletRequest;
 import java.util.regex.Pattern;
 
 public final class IpAddressUtils {
 
+    private static final Logger log = LoggerFactory.getLogger(IpAddressUtils.class);
     private static final String UNKNOWN = "unknown";
     private static final Pattern IPV4_PATTERN = Pattern.compile("^([0-9]{1,3}\\.){3}[0-9]{1,3}$");
 
@@ -13,24 +16,27 @@ public final class IpAddressUtils {
 
     /**
      * 从 HTTP 请求中提取客户端真实 IP 地址。
-     * 支持穿透 Cloudflare CDN/Tunnel、Nginx、负载均衡等多层反向代理。
+     * 优先解析 CF-Connecting-IP，其次解析 X-Forwarded-For 第一个客户端 IP，
+     * 再次解析 X-Real-IP 等代理头，最后兜底 getRemoteAddr。
      */
     public static String getClientIp(HttpServletRequest request) {
         if (request == null) {
             return null;
         }
 
-        // 1. 优先获取 Cloudflare 注入的客户端真实 IP（在 Cloudflare 代理链路下最权威且最不可伪造）
+        // 1. 优先获取 Cloudflare 注入的客户端真实 IP
         String cfIp = cleanIp(request.getHeader("CF-Connecting-IP"));
-        if (isValidIp(cfIp)) {
+        if (isValidIp(cfIp) && !isInternalIp(cfIp)) {
+            log.info("从 CF-Connecting-IP 解析到公网客户端IP: {}", cfIp);
             return cfIp;
         }
 
-        // 2. 从 X-Forwarded-For 中提取（可能经过多层反代，格式如：client, proxy1, proxy2）
+        // 2. 从 X-Forwarded-For 中提取：标准格式为 client, proxy1, proxy2
         String xForwardedFor = request.getHeader("X-Forwarded-For");
         if (xForwardedFor != null && !xForwardedFor.trim().isEmpty()) {
-            String bestIp = extractBestFromForwardedFor(xForwardedFor);
+            String bestIp = extractClientFromForwardedFor(xForwardedFor);
             if (isValidIp(bestIp)) {
+                log.info("从 X-Forwarded-For 解析到客户端IP: {} (原始值: {})", bestIp, xForwardedFor);
                 return bestIp;
             }
         }
@@ -46,14 +52,42 @@ public final class IpAddressUtils {
 
         for (String header : candidateHeaders) {
             String ip = cleanIp(request.getHeader(header));
-            if (isValidIp(ip)) {
+            if (isValidIp(ip) && !isInternalIp(ip)) {
+                log.info("从标头 {} 解析到公网客户端IP: {}", header, ip);
                 return ip;
             }
         }
 
+        if (isValidIp(cfIp)) {
+            log.info("采用 CF-Connecting-IP: {}", cfIp);
+            return cfIp;
+        }
+
         // 4. 兜底获取底层连接地址
-        String remoteAddr = cleanIp(request.getRemoteAddr());
-        return normalizeLocalhost(remoteAddr);
+        String remoteAddr = normalizeLocalhost(cleanIp(request.getRemoteAddr()));
+        log.info("兜底采用 remoteAddr: {}", remoteAddr);
+        return remoteAddr;
+    }
+
+    /**
+     * 从 X-Forwarded-For 提取客户端真实 IP。
+     */
+    private static String extractClientFromForwardedFor(String forwardedFor) {
+        String[] rawList = forwardedFor.split(",");
+        String firstValid = null;
+
+        for (String raw : rawList) {
+            String ip = cleanIp(raw);
+            if (isValidIp(ip)) {
+                if (!isInternalIp(ip)) {
+                    return ip;
+                }
+                if (firstValid == null) {
+                    firstValid = ip;
+                }
+            }
+        }
+        return firstValid;
     }
 
     /**
@@ -77,52 +111,21 @@ public final class IpAddressUtils {
             int second = Integer.parseInt(parts[1]);
 
             // 10.0.0.0/8
-            if (first == 10) {
-                return true;
-            }
+            if (first == 10) return true;
             // 172.16.0.0/12
-            if (first == 172 && (second >= 16 && second <= 31)) {
-                return true;
-            }
+            if (first == 172 && (second >= 16 && second <= 31)) return true;
             // 192.168.0.0/16
-            if (first == 192 && second == 168) {
-                return true;
-            }
-            // 169.254.0.0/16 (Link-Local)
-            if (first == 169 && second == 254) {
-                return true;
-            }
+            if (first == 192 && second == 168) return true;
+            // 169.254.0.0/16
+            if (first == 169 && second == 254) return true;
             // 127.0.0.0/8
-            if (first == 127) {
-                return true;
-            }
+            if (first == 127) return true;
             // 0.0.0.0/8
-            if (first == 0) {
-                return true;
-            }
+            if (first == 0) return true;
         } catch (NumberFormatException ignored) {
             return false;
         }
         return false;
-    }
-
-    private static String extractBestFromForwardedFor(String forwardedFor) {
-        String[] rawList = forwardedFor.split(",");
-        String fallbackValid = null;
-
-        for (String raw : rawList) {
-            String ip = cleanIp(raw);
-            if (isValidIp(ip)) {
-                // 如果发现真实外网公网 IP，优先采用第一个公网 IP
-                if (!isInternalIp(ip)) {
-                    return ip;
-                }
-                if (fallbackValid == null) {
-                    fallbackValid = ip;
-                }
-            }
-        }
-        return fallbackValid;
     }
 
     private static String cleanIp(String ip) {
@@ -133,7 +136,6 @@ public final class IpAddressUtils {
         if (cleaned.isEmpty()) {
             return null;
         }
-        // 如果携带逗号，取第一个
         int commaIndex = cleaned.indexOf(',');
         if (commaIndex >= 0) {
             cleaned = cleaned.substring(0, commaIndex).trim();
