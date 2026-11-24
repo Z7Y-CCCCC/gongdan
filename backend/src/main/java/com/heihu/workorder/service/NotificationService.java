@@ -19,11 +19,9 @@ import com.heihu.workorder.repository.WorkOrderReportRepository;
 import com.heihu.workorder.repository.WorkOrderRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -40,7 +38,6 @@ public class NotificationService {
     private static final String TYPE_APPROVAL = "REPORT_PENDING_APPROVAL";
     private static final String TYPE_OVERDUE = "WORK_ORDER_OVERDUE";
     private static final String TYPE_REPORT = "REPORT_SUBMITTED";
-    private static final List<String> SNAPSHOT_TYPES = Arrays.asList(TYPE_APPROVAL, TYPE_OVERDUE);
 
     private final NotificationEventRepository eventRepository;
     private final NotificationRecipientRepository recipientRepository;
@@ -235,9 +232,12 @@ public class NotificationService {
                 now.plusDays(14)
         );
         resolveEvent(report.getFactory().getId(), "report-approval:" + report.getId(), now);
-        List<FactoryUser> recipients = report.getReporter().isEnabled()
-                ? Collections.singletonList(report.getReporter())
-                : Collections.emptyList();
+        List<FactoryUser> recipients = new ArrayList<>();
+        if (report.getReporter().isEnabled()) recipients.add(report.getReporter());
+        if (report.getSubmitterId() != null && !Objects.equals(report.getSubmitterId(), report.getReporter().getId())) {
+            userRepository.findByIdAndFactoryId(report.getSubmitterId(), report.getFactory().getId())
+                    .filter(FactoryUser::isEnabled).ifPresent(recipients::add);
+        }
         ensureRecipients(event, recipients, now);
     }
 
@@ -245,6 +245,7 @@ public class NotificationService {
             fixedDelayString = "${app.notifications.snapshot-delay-ms:300000}",
             initialDelayString = "${app.notifications.snapshot-initial-delay-ms:60000}"
     )
+    @Transactional
     public void synchronizeSnapshotsOnSchedule() {
         for (Factory factory : factoryRepository.findAll()) {
             if (factory.isEnabled()) {
@@ -273,7 +274,6 @@ public class NotificationService {
         }
         Factory factory = recipients.get(0).getFactory();
         LocalDateTime now = LocalDateTime.now();
-        Set<String> activeSnapshotKeys = new HashSet<>();
 
         Page<WorkOrderReport> pendingReports = reportRepository.search(
                 factoryId,
@@ -285,7 +285,6 @@ public class NotificationService {
         );
         for (WorkOrderReport report : pendingReports.getContent()) {
             String dedupeKey = "report-approval:" + report.getId();
-            activeSnapshotKeys.add(dedupeKey);
             NotificationEvent event = upsertEvent(
                     factory,
                     TYPE_APPROVAL,
@@ -311,7 +310,6 @@ public class NotificationService {
         );
         for (WorkOrder order : overdueOrders) {
             String dedupeKey = "workorder-overdue:" + order.getId();
-            activeSnapshotKeys.add(dedupeKey);
             NotificationEvent event = upsertEvent(
                     factory,
                     TYPE_OVERDUE,
@@ -356,7 +354,7 @@ public class NotificationService {
             ensureRecipients(event, recipients, now);
         }
 
-        resolveMissingSnapshotEvents(factoryId, activeSnapshotKeys, now);
+        resolveCompletedSnapshotEvents(factoryId, now);
     }
 
     private NotificationEvent upsertEvent(
@@ -415,12 +413,11 @@ public class NotificationService {
                 .collect(Collectors.toList());
     }
 
-    private void resolveMissingSnapshotEvents(Long factoryId, Set<String> activeKeys, LocalDateTime now) {
-        for (NotificationEvent event : eventRepository.findOpenByFactoryIdAndEventTypeIn(factoryId, SNAPSHOT_TYPES)) {
-            if (!activeKeys.contains(event.getDedupeKey())) {
-                event.setResolvedAt(now);
-                eventRepository.save(event);
-            }
+    private void resolveCompletedSnapshotEvents(Long factoryId, LocalDateTime now) {
+        for (NotificationEvent event : eventRepository.findResolvableSnapshotEvents(factoryId, now)) {
+            event.setResolvedAt(now);
+            eventRepository.save(event);
+            recipientRepository.markHandledByEventId(event.getId(), now, NotificationRecipientState.HANDLED);
         }
     }
 

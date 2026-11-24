@@ -49,16 +49,16 @@ public class InternalChatService {
                 .filter(user -> !user.getId().equals(currentUser.getUserId()))
                 .collect(Collectors.toList());
         List<InternalMessage> recentMessages = messageRepository
-                .findTop5000ByFactoryIdOrderByCreatedAtDesc(currentUser.getFactoryId());
+                .findLatestConversations(currentUser.getFactoryId(), currentUser.getUserId());
         Map<Long, InternalMessage> latestByPeer = new HashMap<>();
         Map<Long, Integer> unreadByPeer = new HashMap<>();
         for (InternalMessage message : recentMessages) {
             boolean sentByCurrent = message.getSender().getId().equals(currentUser.getUserId());
             Long peerId = sentByCurrent ? message.getReceiver().getId() : message.getSender().getId();
             latestByPeer.putIfAbsent(peerId, message);
-            if (!sentByCurrent && message.getReadAt() == null) {
-                unreadByPeer.put(peerId, unreadByPeer.getOrDefault(peerId, 0) + 1);
-            }
+        }
+        for (Object[] count : messageRepository.countUnreadBySender(currentUser.getFactoryId(), currentUser.getUserId())) {
+            unreadByPeer.put(((Number) count[0]).longValue(), (int) Math.min(Integer.MAX_VALUE, ((Number) count[1]).longValue()));
         }
         List<InternalChatContactResponse> result = new ArrayList<>();
         Instant now = Instant.now();

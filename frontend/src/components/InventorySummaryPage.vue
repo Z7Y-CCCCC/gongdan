@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from './UiIcon.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { fetchInventoryDetails, type InventoryDetailInfo } from '../api'
 import TableConfigButton from './TableConfigButton.vue'
@@ -192,14 +193,8 @@ onMounted(loadData)
         <input v-model="filterForm.productSpec" placeholder="请输入产品规格" @keyup.enter="handleSearch" />
       </div>
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="handleSearch">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          查询
-        </button>
-        <button class="toolbar-btn" type="button" @click="handleReset" title="重置条件">
+        <button class="primary-btn query-btn ui-icon-button" type="button" @click="handleSearch" title="查询库存汇总" aria-label="查询库存汇总"><UiIcon name="search" /></button>
+        <button class="toolbar-btn ui-icon-button" type="button" @click="handleReset" title="重置条件" aria-label="重置条件">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
           </svg>
@@ -256,14 +251,7 @@ onMounted(loadData)
     </div>
 
     <div class="toolbar" style="margin-bottom:16px">
-      <button class="toolbar-btn primary-stroke" type="button" @click="exportCSV">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-        导出
-      </button>
+      <button class="toolbar-btn primary-stroke ui-icon-button" type="button" @click="exportCSV" title="导出库存汇总" aria-label="导出库存汇总"><UiIcon name="download" /></button>
       <TableConfigButton table-id="inventory-summary-table" />
     </div>
 

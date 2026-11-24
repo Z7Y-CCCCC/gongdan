@@ -12,6 +12,7 @@
 import { ref, inject, watch, onMounted, type Ref } from 'vue'
 import type { HomeRange, PerformanceResponse } from '../api'
 import { fetchHomePerformance } from '../api'
+import { t } from '../i18n'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
@@ -44,7 +45,7 @@ const kpiTiles: KpiTile[] = [
   { label: '完成数量', key: 'completedQuantity', colorClass: 'kpi-value--green' },
   { label: '工单数量', key: 'workOrderCount' },
   { label: '不良品率', key: 'defectRatePercent', suffix: '%', colorClass: 'kpi-value--red' },
-  { label: '平均工单生产周期', key: 'averageCycleDays', suffix: '天' },
+  { label: '平均工单生产周期', key: 'averageCycleDays' },
   { label: '超期未完成工单', key: 'overdueUnfinishedCount' }
 ]
 
@@ -57,7 +58,7 @@ function formatValue(tile: KpiTile): string {
     return (raw as number).toFixed(2) + (tile.suffix || '')
   }
   if (tile.key === 'averageCycleDays') {
-    return (raw as number).toFixed(1) + (tile.suffix || '')
+    return t('{0}天', [(raw as number).toFixed(1)])
   }
   return String(raw) + (tile.suffix || '')
 }
@@ -95,7 +96,7 @@ onMounted(() => {
 
 <template>
   <div class="performance-section">
-    <h2 class="performance-title">绩效指标</h2>
+    <h2 class="performance-title">绩效</h2>
     <div class="performance-grid">
       <div
         v-for="tile in kpiTiles"
@@ -148,7 +149,7 @@ onMounted(() => {
 }
 
 .kpi-value--green {
-  color: #22c55e;
+  color: var(--accent, #00b889);
 }
 
 .kpi-value--red {

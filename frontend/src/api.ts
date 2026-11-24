@@ -1102,15 +1102,15 @@ export async function deleteProduct(token: string, id: number) {
 // ===== 物料清单 API =====
 export interface BomItemPayload {
   productId: number
-  quantity: number
-  scrapRate?: number
+  quantity: string | number
+  scrapRate?: string | number
   remark?: string
 }
 
 export interface BomPayload {
   code?: string
   productId: number
-  outputQuantity?: number
+  outputQuantity?: string | number
   remark?: string
   enabled?: boolean
   items: BomItemPayload[]
@@ -1123,8 +1123,8 @@ export interface BomItemInfo {
   productName: string
   productSpec?: string
   unitName?: string
-  quantity: number
-  scrapRate: number
+  quantity: string | number
+  scrapRate: string | number
   remark?: string
 }
 
@@ -1136,7 +1136,7 @@ export interface BomInfo {
   productName: string
   productSpec?: string
   unitName?: string
-  outputQuantity: number
+  outputQuantity: string | number
   remark?: string
   enabled: boolean
   createdAt?: string
@@ -1368,6 +1368,12 @@ export async function createWorkOrder(token: string, payload: WorkOrderPayload) 
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload)
+  })
+}
+
+export async function fetchWorkOrder(token: string, id: number) {
+  return request<WorkOrderInfo>(`/work-orders/${id}`, {
+    headers: { Authorization: `Bearer ${token}` }
   })
 }
 
@@ -1880,6 +1886,20 @@ export async function updateAdvancedRecord(token: string, id: number, payload: A
 export async function deleteAdvancedRecord(token: string, id: number) {
   return request<void>(`/advanced-records/${id}`, {
     method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+export interface AdvancedMessageTestResult {
+  success: boolean
+  message: string
+  httpStatus: number | null
+  record: AdvancedRecordInfo
+}
+
+export function sendAdvancedMessageTest(token: string, id: number) {
+  return request<AdvancedMessageTestResult>(`/advanced-records/${id}/send-test`, {
+    method: 'POST',
     headers: { Authorization: `Bearer ${token}` }
   })
 }

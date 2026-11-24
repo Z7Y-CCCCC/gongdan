@@ -19,12 +19,32 @@ describe('home work-order display limit', () => {
   beforeEach(() => { fetchOrders.mockReset() })
   afterEach(() => { wrapper?.unmount() })
 
+  it('shows a retryable error instead of claiming an empty list after a failed tab request', async () => {
+    fetchOrders.mockResolvedValueOnce({ items: orders(1) }).mockRejectedValueOnce(new Error('Offline'))
+    wrapper = shallowMount(WorkOrderProgressSection, { props: { token: 'test-token' } })
+    await flushPromises()
+    ;(wrapper.vm as any).switchTab('in_progress')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('加载失败')
+    expect(wrapper.find('table').exists()).toBe(false)
+    expect((wrapper.vm as any).workOrders).toHaveLength(1)
+    fetchOrders.mockResolvedValueOnce({ items: orders(2) })
+    await wrapper.get('button[aria-label="重试加载工单进度"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect((wrapper.vm as any).workOrders).toHaveLength(2)
+  })
+
   it.each([{ count: 499, warning: false }, { count: 500, warning: true }])
     ('shows an explicit limit notice only when the result reaches the limit ($count rows)', async ({ count, warning }) => {
       fetchOrders.mockResolvedValue({ items: orders(count) })
       wrapper = shallowMount(WorkOrderProgressSection, { props: { token: 'test-token' } })
       await flushPromises()
-      expect(wrapper.text().includes('最多显示500条，完整工单请到工单列表')).toBe(warning)
+      expect(wrapper.find('[role="status"]').exists()).toBe(warning)
+      if (warning) {
+        expect(wrapper.get('[role="status"]').text()).toBe('仅显示前500条')
+        expect(wrapper.get('[role="status"]').attributes('title')).toBe('完整工单请到工单列表')
+      }
       expect(fetchOrders).toHaveBeenCalledTimes(1)
     })
 

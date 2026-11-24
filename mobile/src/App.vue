@@ -11,6 +11,7 @@ onLaunch(() => {
 :root {
   --motion-fast: 140ms;
   --motion-base: 220ms;
+  --motion-change: 180ms;
   --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
@@ -25,6 +26,10 @@ body,
 }
 
 page {
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
+  --motion-change: 180ms;
+  --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   min-height: 100%;
   background: #f3f5f5;
   color: #202926;
@@ -49,10 +54,15 @@ button {
   box-sizing: border-box;
   font: inherit;
 }
+input { min-height: 44px; }
+input, textarea { border: 1rpx solid #dce6e1; border-radius: 16rpx; background: #f7faf8; color: #202926; }
 
 button {
   border: 0;
   padding: 0;
+  margin: 0;
+  min-height: 44px;
+  min-width: 44px;
   transition: transform var(--motion-fast) var(--motion-ease), opacity var(--motion-fast) ease,
     background-color var(--motion-base) ease, color var(--motion-base) ease,
     border-color var(--motion-base) ease, box-shadow var(--motion-base) ease;
@@ -75,27 +85,22 @@ button::after {
 }
 
 .green {
-  color: #00a982;
+  color: #00856b;
 }
 
 .primary {
-  background: #00b889;
+  background: #00856b;
   color: #fff;
 }
 
 .ghost {
   background: #fff;
-  color: #00a982;
+  color: #00856b;
   border: 1rpx solid #9edbd0;
 }
 
 .muted {
-  color: #8a9693;
-}
-
-.page,
-.container {
-  animation: mobile-page-in var(--motion-base) var(--motion-ease) both;
+  color: #64756d;
 }
 
 .card,
@@ -114,7 +119,6 @@ button::after {
 .submit-btn,
 .tab-item,
 .type-pill,
-.form-item,
 .picker-item,
 .scan-fab,
 .icon-button,
@@ -130,7 +134,6 @@ button:active,
 .submit-btn:active,
 .tab-item:active,
 .type-pill:active,
-.form-item:active,
 .picker-item:active,
 .scan-fab:active,
 .icon-button:active,
@@ -148,20 +151,35 @@ button:active,
   animation: mobile-sheet-in var(--motion-base) var(--motion-ease) both;
 }
 
-@keyframes mobile-page-in {
-  from { opacity: 0; transform: translateY(10rpx); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 @keyframes mobile-mask-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 @keyframes mobile-sheet-in {
-  from { opacity: 0; transform: translateY(24rpx); }
+  from { opacity: 0; transform: translateY(16rpx); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.progress-fill,
+.rank-fill { transition: width var(--motion-change) var(--motion-ease), background-color var(--motion-fast) ease; }
+.tab,
+.dropdown { transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease; }
+.button-row { display: flex; align-items: center; justify-content: flex-end; gap: 12rpx; }
+.ui-page-head { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
+.ui-meta { font-size: 24rpx; color: #71847e; line-height: 1.5; }
+.ui-card-button { text-align: left; line-height: 1.4; }
+.order-code { overflow-wrap: anywhere; word-break: break-word; }
+.empty .icon-action, .stats-state .icon-action, .list-state .icon-action { margin: 16rpx auto 0; }
+
+/* #ifdef H5 */
+.task-list, .order-list, .list-content, .process-list, .picker-list { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.status-tabs { overflow-x: auto; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible { outline: 2px solid #00a982; outline-offset: 3px; }
+scroll-view:focus-visible { outline: 2px solid #00856b; outline-offset: -2px; }
+/* #endif */
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -170,6 +188,8 @@ button:active,
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
   }
+  button:active, .btn:active, .tab-item:active, .picker-item:active { transform: none !important; }
 }
 </style>

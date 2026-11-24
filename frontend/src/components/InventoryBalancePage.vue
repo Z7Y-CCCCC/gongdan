@@ -259,14 +259,8 @@ onMounted(() => {
         <input v-model="filterForm.spec" placeholder="请输入产品规格" @keyup.enter="handleSearch" />
       </div>
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="handleSearch">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          查询
-        </button>
-        <button class="toolbar-btn" type="button" @click="handleReset" title="重置条件">
+        <button class="primary-btn query-btn ui-icon-button" type="button" @click="handleSearch" title="查询库存结余" aria-label="查询库存结余"><UiIcon name="search" /></button>
+        <button class="toolbar-btn ui-icon-button" type="button" @click="handleReset" title="重置条件" aria-label="重置条件">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
           </svg>
@@ -276,17 +270,10 @@ onMounted(() => {
 
     <!-- Action Toolbar -->
     <div class="toolbar" style="margin-bottom: 16px;">
-      <button class="toolbar-btn primary-stroke" type="button" @click="handleExport">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-        导出
-      </button>
+      <button class="toolbar-btn primary-stroke ui-icon-button" type="button" @click="handleExport" title="导出库存结余" aria-label="导出库存结余"><UiIcon name="download" /></button>
 
       <div style="margin-left: auto;">
-        <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showColumnModal = true">
+        <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showColumnModal = true">
           <UiIcon name="table-columns" :size="16" />
         </button>
       </div>
@@ -325,8 +312,8 @@ onMounted(() => {
               <td v-else-if="column.key === 'spec'" :style="balanceColumnStyle(column)">{{ item.spec || '-' }}</td>
               <td v-else-if="column.key === 'routeName'" :style="balanceColumnStyle(column)">{{ item.routeName || '-' }}</td>
               <td v-else-if="column.key === 'actions'" class="action-cell" :style="balanceColumnStyle(column)">
-                <button class="action-link" type="button" @click="openDetail(item)">详情</button>
-                <button class="action-link" type="button" @click="navigateToDetail(item)">收发明细</button>
+                <button class="action-link ui-icon-button" type="button" @click="openDetail(item)" title="查看库存详情" aria-label="查看库存详情"><UiIcon name="eye" /></button>
+                <button class="action-link ui-action-button" type="button" @click="navigateToDetail(item)" title="收发明细" aria-label="收发明细"><UiIcon name="list" /><span>收发明细</span></button>
               </td>
             </template>
           </tr>
@@ -352,9 +339,9 @@ onMounted(() => {
     <div class="pagination" v-if="totalProducts > 0" style="margin-top: 16px;">
       <span class="page-info">共{{ totalProducts }}条结果</span>
       <div class="page-controls">
-        <button :disabled="currentPage <= 1" @click="currentPage--; loadData()">&lt;</button>
+        <button :disabled="currentPage <= 1" @click="currentPage--; loadData()" class="ui-icon-button" title="上一页" aria-label="上一页" type="button"><UiIcon name="arrowLeft" /></button>
         <button class="active">{{ currentPage }}</button>
-        <button :disabled="currentPage >= totalPages" @click="currentPage++; loadData()">&gt;</button>
+        <button :disabled="currentPage >= totalPages" @click="currentPage++; loadData()" class="ui-icon-button" title="下一页" aria-label="下一页" type="button"><UiIcon name="arrowRight" /></button>
       </div>
       <select class="page-size-select" v-model="pageSize" @change="currentPage = 1; loadData()">
         <option :value="10">10 条/页</option>
@@ -369,7 +356,7 @@ onMounted(() => {
       <div class="modal workorder-modal" style="width: 600px;">
         <div class="modal-header">
           <h2>产品库存详情</h2>
-          <button class="close-btn" type="button" @click="showDetailModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showDetailModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
         <div style="padding: 24px; max-height: 480px; overflow-y: auto;">
           <div class="detail-grid">
@@ -394,7 +381,7 @@ onMounted(() => {
           </div>
         </div>
         <div class="modal-footer">
-          <button class="primary-btn wide" type="button" @click="showDetailModal = false">关闭</button>
+          <button class="primary-btn wide ui-icon-button" type="button" @click="showDetailModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
       </div>
     </div>
@@ -425,7 +412,7 @@ onMounted(() => {
   border-right: 4px solid transparent;
   border-bottom: 4px solid #8a9693;
   opacity: 0.3;
-  transition: transform 0.2s, opacity 0.2s;
+  transition: transform var(--motion-base), opacity 0.2s;
 }
 .sort-icon.asc {
   transform: rotate(0deg);

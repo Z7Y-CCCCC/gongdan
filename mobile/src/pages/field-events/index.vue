@@ -1,46 +1,47 @@
 <template>
   <view class="container">
-    <view class="page-head">
+    <view class="page-head ui-page-head">
+      <IconButton icon="back" label="返回工作台" @click="navigatePage('/pages/home/index')" />
       <text class="title">现场事件</text>
-      <text class="subtitle">异常、停机、质量、物料、换线都可以快速上报</text>
+      <IconButton icon="refreshempty" label="刷新现场事件" :busy="loading" @click="loadEvents()" />
     </view>
 
     <view class="form-card">
       <view class="type-grid">
-        <view
+        <button
           v-for="item in eventTypes"
           :key="item"
           class="type-pill"
           :class="{ active: form.eventType === item }"
-          @click="form.eventType = item"
+          :aria-pressed="form.eventType === item" :disabled="saving"
+          @click="!saving && (form.eventType = item)"
         >
           {{ item }}
-        </view>
+        </button>
       </view>
 
       <view class="field">
         <text class="label">事件标题</text>
-        <input v-model="form.title" placeholder="例如：A 线贴标机停机" />
+        <input v-model="form.title" :disabled="saving" placeholder="例如：A 线贴标机停机" />
       </view>
       <view class="field">
         <text class="label">工单编号</text>
-        <input v-model="form.workOrderCode" placeholder="可选" />
+        <input v-model="form.workOrderCode" :disabled="saving" placeholder="可选" />
       </view>
       <view class="field">
         <text class="label">工位/设备</text>
-        <input v-model="form.station" placeholder="例如：包装一工位" />
+        <input v-model="form.station" :disabled="saving" placeholder="例如：包装一工位" />
       </view>
       <view class="field">
         <text class="label">详细描述</text>
-        <textarea v-model="form.description" placeholder="描述现场情况、影响数量、需要谁处理" />
+        <textarea v-model="form.description" :disabled="saving" placeholder="描述现场情况、影响数量、需要谁处理" />
       </view>
 
-      <button class="submit-btn" :loading="saving" :disabled="saving" @click="submitEvent">提交上报</button>
+      <button class="submit-btn" :loading="saving" :aria-busy="saving" :disabled="saving" @click="submitEvent">上报</button>
     </view>
 
     <view class="recent-head">
       <text>最近上报</text>
-      <text class="refresh" @click="loadEvents">刷新</text>
     </view>
 
     <view class="event-list">
@@ -49,28 +50,38 @@
           <text class="event-title">{{ event.title }}</text>
           <text class="status" :class="event.status.toLowerCase()">{{ statusLabel(event.status) }}</text>
         </view>
-        <text class="event-desc">{{ payloadOf(event).description || '暂无描述' }}</text>
+        <text v-if="payloadOf(event).description" class="event-desc">{{ payloadOf(event).description }}</text>
         <view class="event-meta">
-          <text>{{ payloadOf(event).eventType || '-' }}</text>
-          <text>{{ payloadOf(event).workOrderCode || '无工单' }}</text>
-          <text>{{ payloadOf(event).station || '无工位' }}</text>
+          <text v-if="payloadOf(event).eventType">{{ payloadOf(event).eventType }}</text>
+          <text v-if="payloadOf(event).workOrderCode">{{ payloadOf(event).workOrderCode }}</text>
+          <text v-if="payloadOf(event).station">{{ payloadOf(event).station }}</text>
+          <text v-if="event.createdAt">{{ event.createdAt.replace('T', ' ').slice(0, 16) }}</text>
         </view>
       </view>
-      <view v-if="events.length === 0 && !loading" class="empty">暂无现场事件</view>
+      <view v-if="errorMessage" class="empty">
+        <text>{{ errorMessage }}</text>
+        <IconButton icon="refreshempty" label="重试现场事件" @click="loadEvents()" />
+      </view>
+      <view v-else-if="events.length === 0 && !loading" class="empty">暂无现场事件</view>
     </view>
   </view>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import { createFieldEvent, ensureLogin, fetchFieldEvents } from '../../services/api'
 import type { FieldEventRecord } from '../../types/api'
 import { usePageDraft } from '../../composables/usePageDraft'
+import IconButton from '../../components/IconButton.vue'
+import { navigatePage } from '../../utils/navigation'
 
 const eventTypes = ['异常', '停机', '质量', '物料', '换线']
 const events = ref<FieldEventRecord[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const errorMessage = ref('')
+let loadSequence = 0
 const form = reactive({
   eventType: '异常',
   title: '',
@@ -85,21 +96,26 @@ const { clearDraft: clearEventDraft } = usePageDraft({
   restore: (draft) => Object.assign(form, draft)
 })
 
-onMounted(() => {
-  if (!ensureLogin()) return
-  loadEvents()
-})
+onMounted(() => loadEvents())
+onShow(() => loadEvents())
+onBeforeUnmount(() => { loadSequence += 1 })
 
-async function loadEvents() {
-  if (loading.value) return
+async function loadEvents(force = false) {
+  if (loading.value && !force) return
+  if (!ensureLogin()) return
+  const requestId = ++loadSequence
   loading.value = true
+  errorMessage.value = ''
   try {
     const result = await fetchFieldEvents()
+    if (requestId !== loadSequence) return
     events.value = result.items || []
   } catch (error) {
-    uni.showToast({ title: error instanceof Error ? error.message : '加载失败', icon: 'none' })
+    if (requestId !== loadSequence) return
+    errorMessage.value = error instanceof Error ? error.message : '加载失败'
+    uni.showToast({ title: errorMessage.value, icon: 'none' })
   } finally {
-    loading.value = false
+    if (requestId === loadSequence) loading.value = false
   }
 }
 
@@ -127,7 +143,8 @@ async function submitEvent() {
     form.workOrderCode = ''
     form.station = ''
     form.description = ''
-    await loadEvents()
+    // A GET started before the POST must not hide the newly submitted event.
+    await loadEvents(true)
   } catch (error) {
     uni.showToast({ title: error instanceof Error ? error.message : '提交失败', icon: 'none' })
   } finally {
@@ -165,20 +182,20 @@ function statusLabel(status: string) {
 
 .page-head {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 10rpx;
   margin-bottom: 24rpx;
 }
 
 .title {
-  font-size: 42rpx;
+  font-size: 36rpx;
   font-weight: 700;
   color: #1f2d2a;
 }
 
 .subtitle {
   font-size: 24rpx;
-  color: #8a9693;
+  color: #64756d;
 }
 
 .form-card,
@@ -202,11 +219,14 @@ function statusLabel(status: string) {
   background: #f1f3f3;
   color: #586360;
   font-size: 24rpx;
+  border: 2rpx solid transparent;
 }
 
 .type-pill.active {
-  background: #00b889;
+  background: #00856b;
   color: #fff;
+  font-weight: 700;
+  border-color: #006b51;
 }
 
 .field {
@@ -243,7 +263,7 @@ textarea {
 }
 
 .submit-btn {
-  background: #00b889;
+  background: #00856b;
   color: #fff;
   border-radius: 14rpx;
   font-size: 30rpx;
@@ -271,7 +291,7 @@ textarea {
 }
 
 .refresh {
-  color: #00b889;
+  color: #00856b;
   font-size: 24rpx;
   font-weight: 400;
 }
@@ -326,7 +346,7 @@ textarea {
 
 .event-meta text {
   background: #f1f3f3;
-  color: #8a9693;
+  color: #64756d;
   border-radius: 8rpx;
   padding: 6rpx 12rpx;
   font-size: 22rpx;
@@ -336,6 +356,12 @@ textarea {
   text-align: center;
   color: #9aa4a1;
   padding: 40rpx 0;
+  font-size: 26rpx;
+}
+
+.retry-btn {
+  margin-top: 20rpx;
+  color: #00856b;
   font-size: 26rpx;
 }
 </style>

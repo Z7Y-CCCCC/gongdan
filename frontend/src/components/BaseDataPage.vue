@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { parseCsvRows } from '../utils/csv'
+import { formatUiDate, t, uiLocale } from '../i18n'
+import { printLabel } from '../utils/printHtml'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import {
   fetchUnits, createUnit, updateUnit, deleteUnit,
@@ -235,50 +238,13 @@ async function handleImportUnits(event: Event) {
     const text = e.target?.result as string
     if (!text) return
     
-    const lines: string[][] = []
-    let row: string[] = []
-    let insideQuote = false
-    let currentToken = ''
-    
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i]
-      const nextChar = text[i + 1]
-      
-      if (insideQuote) {
-        if (char === '"') {
-          if (nextChar === '"') {
-            currentToken += '"'
-            i++
-          } else {
-            insideQuote = false
-          }
-        } else {
-          currentToken += char
-        }
-      } else {
-        if (char === '"') {
-          insideQuote = true
-        } else if (char === ',') {
-          row.push(currentToken.trim())
-          currentToken = ''
-        } else if (char === '\r' || char === '\n') {
-          if (char === '\r' && nextChar === '\n') {
-            i++
-          }
-          row.push(currentToken.trim())
-          lines.push(row)
-          row = []
-          currentToken = ''
-        } else {
-          currentToken += char
-        }
-      }
+    let lines: string[][]
+    try { lines = parseCsvRows(text) }
+    catch (error) {
+      emit('error', error instanceof Error ? error.message : 'CSV 文件格式不正确')
+      return
     }
-    if (currentToken || row.length > 0) {
-      row.push(currentToken.trim())
-      lines.push(row)
-    }
-    
+
     if (lines.length <= 1) {
       emit('error', 'CSV 文件格式不正确或无数据')
       return
@@ -473,50 +439,13 @@ async function handleImportDefects(event: Event) {
     const text = e.target?.result as string
     if (!text) return
     
-    const lines: string[][] = []
-    let row: string[] = []
-    let insideQuote = false
-    let currentToken = ''
-    
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i]
-      const nextChar = text[i + 1]
-      
-      if (insideQuote) {
-        if (char === '"') {
-          if (nextChar === '"') {
-            currentToken += '"'
-            i++
-          } else {
-            insideQuote = false
-          }
-        } else {
-          currentToken += char
-        }
-      } else {
-        if (char === '"') {
-          insideQuote = true
-        } else if (char === ',') {
-          row.push(currentToken.trim())
-          currentToken = ''
-        } else if (char === '\r' || char === '\n') {
-          if (char === '\r' && nextChar === '\n') {
-            i++
-          }
-          row.push(currentToken.trim())
-          lines.push(row)
-          row = []
-          currentToken = ''
-        } else {
-          currentToken += char
-        }
-      }
+    let lines: string[][]
+    try { lines = parseCsvRows(text) }
+    catch (error) {
+      emit('error', error instanceof Error ? error.message : 'CSV 文件格式不正确')
+      return
     }
-    if (currentToken || row.length > 0) {
-      row.push(currentToken.trim())
-      lines.push(row)
-    }
-    
+
     if (lines.length <= 1) {
       emit('error', 'CSV 文件格式不正确或无数据')
       return
@@ -801,7 +730,7 @@ function saveProcessSop() {
 function printProcess(p: ProcessItem) {
   const printWindow = window.open('', '_blank', 'width=760,height=860')
   if (!printWindow) {
-    emit('error', '浏览器阻止打印窗口，请允许弹窗后重试')
+    emit('error', t('浏览器阻止打印窗口，请允许弹窗后重试'))
     return
   }
   const defectNames = p.defectItemIds.length > 0 ? p.defectItemIds.map(getDefectLabel).join('、') : '-'
@@ -810,10 +739,10 @@ function printProcess(p: ProcessItem) {
     : '<tr><td colspan="3">-</td></tr>'
   printWindow.document.write(`
     <!doctype html>
-    <html lang="zh-CN">
+    <html lang="${uiLocale.value}">
       <head>
         <meta charset="UTF-8" />
-        <title>工序资料 - ${escapeHtml(p.name)}</title>
+        <title>${printLabel('工序资料卡')} - ${escapeHtml(p.name)}</title>
         <style>
           body { font-family: "Microsoft YaHei", Arial, sans-serif; padding: 28px; color: #1f2725; }
           h1 { font-size: 22px; margin: 0 0 18px; text-align: center; }
@@ -825,32 +754,32 @@ function printProcess(p: ProcessItem) {
         </style>
       </head>
       <body>
-        <h1>工序资料卡</h1>
-        <div class="meta">打印时间：${new Date().toLocaleString('zh-CN')}</div>
+        <h1>${printLabel('工序资料卡')}</h1>
+        <div class="meta">${printLabel('打印时间：{0}', [formatUiDate(new Date(), true)])}</div>
         <table>
-          <tr><th>工序编号</th><td>${escapeHtml(p.code || '-')}</td></tr>
-          <tr><th>工序名称</th><td>${escapeHtml(p.name || '-')}</td></tr>
-          <tr><th>报工权限</th><td>${escapeHtml((p.reportPermission || []).join('、') || '-')}</td></tr>
-          <tr><th>报工数配比</th><td>${escapeHtml(p.reportRatio)}</td></tr>
-          <tr><th>任务打卡</th><td>${p.taskPunchIn ? '开启' : '关闭'}</td></tr>
-          <tr><th>良品数量字段</th><td>${escapeHtml(p.goodQuantity || '-')}</td></tr>
-          <tr><th>机械/机台</th><td>${escapeHtml(p.machineName || '-')}</td></tr>
-          <tr><th>投料数</th><td>${escapeHtml(p.feedCount || '-')}</td></tr>
-          <tr><th>对应机台</th><td>${escapeHtml(p.correspondingMachine || '-')}</td></tr>
-          <tr><th>不良品项</th><td>${escapeHtml(defectNames)}</td></tr>
-          <tr><th>要求</th><td>${escapeHtml(p.requirements || '-')}</td></tr>
+          <tr><th>${printLabel('工序编号')}</th><td>${escapeHtml(p.code || '-')}</td></tr>
+          <tr><th>${printLabel('工序名称')}</th><td>${escapeHtml(p.name || '-')}</td></tr>
+          <tr><th>${printLabel('报工权限')}</th><td>${escapeHtml((p.reportPermission || []).map(key => key === 'all' ? t('所有人') : getPermLabel(key)).join('、') || '-')}</td></tr>
+          <tr><th>${printLabel('报工数配比')}</th><td>${escapeHtml(p.reportRatio)}</td></tr>
+          <tr><th>${printLabel('任务打卡')}</th><td>${printLabel(p.taskPunchIn ? '已启用' : '已停用')}</td></tr>
+          <tr><th>${printLabel('良品数量字段')}</th><td>${escapeHtml(p.goodQuantity || '-')}</td></tr>
+          <tr><th>${printLabel('机械/机台')}</th><td>${escapeHtml(p.machineName || '-')}</td></tr>
+          <tr><th>${printLabel('投料数')}</th><td>${escapeHtml(p.feedCount || '-')}</td></tr>
+          <tr><th>${printLabel('对应机台')}</th><td>${escapeHtml(p.correspondingMachine || '-')}</td></tr>
+          <tr><th>${printLabel('不良品项')}</th><td>${escapeHtml(defectNames)}</td></tr>
+          <tr><th>${printLabel('要求')}</th><td>${escapeHtml(p.requirements || '-')}</td></tr>
         </table>
-        <div class="section-title">采集数据</div>
+        <div class="section-title">${printLabel('采集数据')}</div>
         <table>
-          <thead><tr><th style="width:60px">序号</th><th>类型</th><th>名称</th></tr></thead>
+          <thead><tr><th style="width:60px">${printLabel('序号')}</th><th>${printLabel('类型')}</th><th>${printLabel('名称')}</th></tr></thead>
           <tbody>${collectRows}</tbody>
         </table>
-        <script>window.print();<\/script>
       </body>
     </html>
   `)
   printWindow.document.close()
   printWindow.focus()
+  printWindow.print()
 }
 
 function saveProcessColumnSettings(settings: ColumnSetting[]) {
@@ -1053,50 +982,13 @@ async function handleImportRoutes(event: Event) {
     const text = e.target?.result as string
     if (!text) return
     
-    const lines: string[][] = []
-    let row: string[] = []
-    let insideQuote = false
-    let currentToken = ''
-    
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i]
-      const nextChar = text[i + 1]
-      
-      if (insideQuote) {
-        if (char === '"') {
-          if (nextChar === '"') {
-            currentToken += '"'
-            i++
-          } else {
-            insideQuote = false
-          }
-        } else {
-          currentToken += char
-        }
-      } else {
-        if (char === '"') {
-          insideQuote = true
-        } else if (char === ',') {
-          row.push(currentToken.trim())
-          currentToken = ''
-        } else if (char === '\r' || char === '\n') {
-          if (char === '\r' && nextChar === '\n') {
-            i++
-          }
-          row.push(currentToken.trim())
-          lines.push(row)
-          row = []
-          currentToken = ''
-        } else {
-          currentToken += char
-        }
-      }
+    let lines: string[][]
+    try { lines = parseCsvRows(text) }
+    catch (error) {
+      emit('error', error instanceof Error ? error.message : 'CSV 文件格式不正确')
+      return
     }
-    if (currentToken || row.length > 0) {
-      row.push(currentToken.trim())
-      lines.push(row)
-    }
-    
+
     if (lines.length <= 1) {
       emit('notice', 'CSV 文件格式不正确或无数据')
       return
@@ -1792,50 +1684,13 @@ async function handleImportProcesses(event: Event) {
     const text = e.target?.result as string
     if (!text) return
     
-    const lines: string[][] = []
-    let row: string[] = []
-    let insideQuote = false
-    let currentToken = ''
-    
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i]
-      const nextChar = text[i + 1]
-      
-      if (insideQuote) {
-        if (char === '"') {
-          if (nextChar === '"') {
-            currentToken += '"'
-            i++
-          } else {
-            insideQuote = false
-          }
-        } else {
-          currentToken += char
-        }
-      } else {
-        if (char === '"') {
-          insideQuote = true
-        } else if (char === ',') {
-          row.push(currentToken.trim())
-          currentToken = ''
-        } else if (char === '\r' || char === '\n') {
-          if (char === '\r' && nextChar === '\n') {
-            i++
-          }
-          row.push(currentToken.trim())
-          lines.push(row)
-          row = []
-          currentToken = ''
-        } else {
-          currentToken += char
-        }
-      }
+    let lines: string[][]
+    try { lines = parseCsvRows(text) }
+    catch (error) {
+      emit('error', error instanceof Error ? error.message : 'CSV 文件格式不正确')
+      return
     }
-    if (currentToken || row.length > 0) {
-      row.push(currentToken.trim())
-      lines.push(row)
-    }
-    
+
     if (lines.length <= 1) {
       emit('notice', 'CSV 文件格式不正确或无数据')
       return
@@ -2038,10 +1893,7 @@ onMounted(() => {
             <input v-model="unitFilterForm.remark" placeholder="请输入备注" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="loadUnits">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadUnits" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
         <div class="toolbar">
@@ -2050,22 +1902,14 @@ onMounted(() => {
             创建单位
           </button>
           
-          <button class="toolbar-btn" type="button" @click="handleExportUnits">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            导出
-          </button>
+          <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportUnits" title="导出" aria-label="导出"><UiIcon name="download" /></button>
           
-          <button class="toolbar-btn" type="button" @click="triggerUnitImport">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            导入
-          </button>
+          <button class="toolbar-btn ui-icon-button" type="button" @click="triggerUnitImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
           <input type="file" ref="unitFileInput" style="display:none" accept=".csv" @change="handleImportUnits" />
 
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
-            <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showUnitColumnConfig = !showUnitColumnConfig; showUnitRowHeightConfig = false; showUnitSortConfig = false" :class="{ 'active-btn': showUnitColumnConfig }">
-              <UiIcon name="table-columns" :size="16" />
-            </button>
+            <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showUnitColumnConfig = !showUnitColumnConfig; showUnitRowHeightConfig = false; showUnitSortConfig = false" :class="{ 'active-btn': showUnitColumnConfig }"><UiIcon name="table-columns" :size="16" /></button>
           </div>
 
           <ColumnSettingsPanel
@@ -2142,10 +1986,7 @@ onMounted(() => {
           </div>
 
           <div style="margin-left:auto">
-            <button class="toolbar-btn" type="button" @click="showUnitImportLogs = true">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-              导入日志
-            </button>
+            <button class="toolbar-btn" type="button" @click="showUnitImportLogs = true" title="导入日志" aria-label="导入日志"><UiIcon name="file" />日志</button>
           </div>
         </div>
         <div class="table-container">
@@ -2169,8 +2010,8 @@ onMounted(() => {
                     <span v-else-if="column.key === 'name'">{{ unit.name }}</span>
                     <span v-else-if="column.key === 'remark'">{{ unit.remark || '-' }}</span>
                     <template v-else-if="column.key === 'action'">
-                      <button class="action-link" type="button" @click="openEditUnit(unit)">编辑</button>
-                      <button class="action-link danger" type="button" @click="handleDeleteUnit(unit)">删除</button>
+                      <button class="action-link ui-icon-button" type="button" @click="openEditUnit(unit)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
+                      <button class="action-link danger ui-icon-button" type="button" @click="handleDeleteUnit(unit)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                     </template>
                   </td>
                 </template>
@@ -2221,10 +2062,7 @@ onMounted(() => {
             <input v-model="defectFilterForm.name" placeholder="请输入不良品项名称" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="loadDefects">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadDefects" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
         <div class="toolbar">
@@ -2233,22 +2071,14 @@ onMounted(() => {
             创建不良品项
           </button>
           
-          <button class="toolbar-btn" type="button" @click="handleExportDefects">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            导出
-          </button>
+          <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportDefects" title="导出" aria-label="导出"><UiIcon name="download" /></button>
           
-          <button class="toolbar-btn" type="button" @click="triggerDefectImport">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            导入
-          </button>
+          <button class="toolbar-btn ui-icon-button" type="button" @click="triggerDefectImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
           <input type="file" ref="defectFileInput" style="display:none" accept=".csv" @change="handleImportDefects" />
 
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
-            <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showDefectColumnConfig = !showDefectColumnConfig; showDefectRowHeightConfig = false; showDefectSortConfig = false" :class="{ 'active-btn': showDefectColumnConfig }">
-              <UiIcon name="table-columns" :size="16" />
-            </button>
+            <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showDefectColumnConfig = !showDefectColumnConfig; showDefectRowHeightConfig = false; showDefectSortConfig = false" :class="{ 'active-btn': showDefectColumnConfig }"><UiIcon name="table-columns" :size="16" /></button>
           </div>
 
           <ColumnSettingsPanel
@@ -2325,10 +2155,7 @@ onMounted(() => {
           </div>
 
           <div style="margin-left:auto">
-            <button class="toolbar-btn" type="button" @click="showDefectImportLogs = true">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-              导入日志
-            </button>
+            <button class="toolbar-btn" type="button" @click="showDefectImportLogs = true" title="导入日志" aria-label="导入日志"><UiIcon name="file" />日志</button>
           </div>
         </div>
         <div class="table-container">
@@ -2352,8 +2179,8 @@ onMounted(() => {
                     <span v-else-if="column.key === 'code'">{{ d.code }}</span>
                     <span v-else-if="column.key === 'name'">{{ d.name }}</span>
                     <template v-else-if="column.key === 'action'">
-                      <button class="action-link" type="button" @click="openEditDefect(d)">编辑</button>
-                      <button class="action-link danger" type="button" @click="handleDeleteDefect(d)">删除</button>
+                      <button class="action-link ui-icon-button" type="button" @click="openEditDefect(d)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
+                      <button class="action-link danger ui-icon-button" type="button" @click="handleDeleteDefect(d)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                     </template>
                   </td>
                 </template>
@@ -2414,10 +2241,7 @@ onMounted(() => {
             </select>
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="loadProcesses">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              查询
-            </button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadProcesses" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
         <div class="toolbar">
@@ -2425,14 +2249,8 @@ onMounted(() => {
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"/></svg>
             创建工序
           </button>
-          <button class="toolbar-btn" type="button" @click="handleExportProcesses">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            导出
-          </button>
-          <button class="toolbar-btn" type="button" @click="triggerProcessImport">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            导入
-          </button>
+          <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportProcesses" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+          <button class="toolbar-btn ui-icon-button" type="button" @click="triggerProcessImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
           <input type="file" ref="processFileInput" style="display:none" accept=".csv" @change="handleImportProcesses" />
 
           <!-- 默认SOP模板配置下拉菜单 -->
@@ -2461,9 +2279,7 @@ onMounted(() => {
 
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
-            <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showProcessColumnConfig = !showProcessColumnConfig; showDefaultSOPConfig = false; showProcessRowHeightConfig = false; showProcessSortConfig = false" :class="{ 'active-btn': showProcessColumnConfig }">
-              <UiIcon name="table-columns" :size="16" />
-            </button>
+            <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showProcessColumnConfig = !showProcessColumnConfig; showDefaultSOPConfig = false; showProcessRowHeightConfig = false; showProcessSortConfig = false" :class="{ 'active-btn': showProcessColumnConfig }"><UiIcon name="table-columns" :size="16" /></button>
           </div>
 
           <ColumnSettingsPanel
@@ -2544,10 +2360,7 @@ onMounted(() => {
           </div>
 
           <div style="margin-left:auto">
-            <button class="toolbar-btn" type="button" @click="showProcessImportLogs = true">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-              导入日志
-            </button>
+            <button class="toolbar-btn" type="button" @click="showProcessImportLogs = true" title="导入日志" aria-label="导入日志"><UiIcon name="file" />日志</button>
           </div>
         </div>
         <div class="table-container">
@@ -2583,10 +2396,10 @@ onMounted(() => {
                     <span v-else-if="column.key === 'reportRatio'">{{ p.reportRatio }}</span>
                     <span v-else-if="column.key === 'taskPunchIn'">{{ p.taskPunchIn ? '开启' : '关闭' }}</span>
                     <template v-else-if="column.key === 'action'">
-                      <button class="action-link" type="button" @click="openEditProcess(p)">编辑</button>
+                      <button class="action-link ui-icon-button" type="button" @click="openEditProcess(p)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
                       <button class="action-link" type="button" @click="printProcess(p)">打印</button>
                       <button class="action-link" type="button" @click="openProcessSop(p)">SOP模版</button>
-                      <button class="action-link danger" type="button" @click="handleDeleteProcess(p)">删除</button>
+                      <button class="action-link danger ui-icon-button" type="button" @click="handleDeleteProcess(p)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                     </template>
                   </td>
                 </template>
@@ -2811,7 +2624,7 @@ onMounted(() => {
                     <tr v-for="(row, idx) in processForm.collectData" :key="idx">
                       <td><input class="collect-input" v-model="row.type" placeholder="请填写" /></td>
                       <td><input class="collect-input" v-model="row.name" placeholder="请填写" /></td>
-                      <td><button type="button" class="collect-del" @click="removeCollectDataRow(idx)">×</button></td>
+                      <td><button type="button" class="collect-del ui-icon-button" @click="removeCollectDataRow(idx)" title="关闭" aria-label="关闭"><UiIcon name="close" /></button></td>
                     </tr>
                   </tbody>
                 </table>
@@ -2824,18 +2637,15 @@ onMounted(() => {
                   </svg>
                   <span>暂无采集数据</span>
                 </div>
-                <button type="button" class="add-collect-row" @click="addCollectDataRow()"
-                  :disabled="processForm.collectData.length >= 50">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-                  添加一行 最多支持添加50个
-                </button>
+                <button type="button" class="add-collect-row ui-icon-button" @click="addCollectDataRow()"
+                  :disabled="processForm.collectData.length >= 50" title="添加一行 最多支持添加50个" aria-label="添加一行 最多支持添加50个"><UiIcon name="plus" /></button>
               </div>
             </div>
           </div>
         </div>
         <!-- 底部按钮 -->
         <div class="process-form-footer">
-          <button class="btn-cancel" type="button" @click="processView = 'list'">取消</button>
+          <button class="btn-cancel ui-icon-button" type="button" @click="processView = 'list'" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="btn-save" type="button" @click="handleSaveProcess()">保存</button>
         </div>
       </section>
@@ -2853,10 +2663,7 @@ onMounted(() => {
             <input v-model="routeFilterForm.name" placeholder="请输入工艺路线名称" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="loadRoutes">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadRoutes" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
         <div class="toolbar">
@@ -2864,21 +2671,13 @@ onMounted(() => {
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             创建工艺路线
           </button>
-          <button class="toolbar-btn" type="button" @click="handleExportRoutes">
-            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            导出
-          </button>
-          <button class="toolbar-btn" type="button" @click="triggerRouteImport">
-            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            导入
-          </button>
+          <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportRoutes" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+          <button class="toolbar-btn ui-icon-button" type="button" @click="triggerRouteImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
           <input type="file" ref="routeFileInput" style="display:none" accept=".csv" @change="handleImportRoutes" />
           
           <!-- 字段配置下拉菜单 -->
           <div class="toolbar-dropdown-container">
-            <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showRouteColumnConfig = !showRouteColumnConfig" :class="{ 'active-btn': showRouteColumnConfig }">
-              <UiIcon name="table-columns" :size="16" />
-            </button>
+            <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showRouteColumnConfig = !showRouteColumnConfig" :class="{ 'active-btn': showRouteColumnConfig }"><UiIcon name="table-columns" :size="16" /></button>
           </div>
 
           <ColumnSettingsPanel
@@ -2890,7 +2689,7 @@ onMounted(() => {
             @cancel="showRouteColumnConfig = false"
           />
 
-          <button class="toolbar-btn" style="margin-left:auto" type="button" @click="showRouteImportLogs = true"><UiIcon name="file" />导入日志</button>
+          <button class="toolbar-btn" style="margin-left:auto" type="button" @click="showRouteImportLogs = true" title="导入日志" aria-label="导入日志"><UiIcon name="file" />日志</button>
         </div>
         <div class="table-container">
           <table class="data-table">
@@ -2916,9 +2715,9 @@ onMounted(() => {
                     <span v-else-if="column.key === 'creator'">{{ r.creator }}</span>
                     <span v-else-if="column.key === 'createdAt'">{{ r.createdAt }}</span>
                     <template v-else-if="column.key === 'action'">
-                      <button class="link-btn" type="button" @click="openEditRoute(r)" style="margin-right:8px">编辑</button>
-                      <button class="link-btn" type="button" style="margin-right:8px">复制</button>
-                      <button class="link-btn danger" type="button" @click="confirmDeleteRoute(r)">删除</button>
+                      <button class="link-btn ui-icon-button" type="button" @click="openEditRoute(r)" style="margin-right:8px" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
+                      <button class="link-btn ui-icon-button" type="button" style="margin-right:8px" title="复制" aria-label="复制"><UiIcon name="copy" /></button>
+                      <button class="link-btn danger ui-icon-button" type="button" @click="confirmDeleteRoute(r)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                     </template>
                   </td>
                 </template>
@@ -2983,10 +2782,7 @@ onMounted(() => {
             <div class="route-steps-header">
               <span class="route-steps-title">工序列表</span>
               <div style="display:flex;gap:8px;margin-top:8px">
-                <button type="button" class="primary-btn" style="height:32px;padding:0 14px;font-size:13px" @click="addRouteStep()">
-                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  添加一行
-                </button>
+                <button type="button" class="primary-btn ui-icon-button" style="height:32px;padding:0 14px;font-size:13px" @click="addRouteStep()" title="添加一行" aria-label="添加一行"><UiIcon name="plus" /></button>
                 <TableConfigButton table-id="base-route-steps-table" />
               </div>
             </div>
@@ -3067,7 +2863,7 @@ onMounted(() => {
                     </td>
                     <!-- 操作 -->
                     <td style="text-align:center">
-                      <button type="button" class="link-btn danger" @click="removeRouteStep(idx)">删除</button>
+                      <button type="button" class="link-btn danger ui-icon-button" @click="removeRouteStep(idx)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                     </td>
                   </tr>
                 </tbody>
@@ -3086,7 +2882,7 @@ onMounted(() => {
         </div>
         <!-- 底部按钮 -->
         <div class="process-form-footer">
-          <button class="btn-cancel" type="button" @click="routeView = 'list'">取消</button>
+          <button class="btn-cancel ui-icon-button" type="button" @click="routeView = 'list'" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="btn-save" type="button" @click="handleSaveRoute()">保存</button>
         </div>
       </section>
@@ -3096,7 +2892,7 @@ onMounted(() => {
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingUnit ? '编辑单位' : '创建单位' }}</h2>
-        <button class="close-btn" type="button" @click="showUnitModal = false">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showUnitModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleSaveUnit">
         <label>
@@ -3108,7 +2904,7 @@ onMounted(() => {
           <input v-model="unitForm.remark" placeholder="请输入备注" />
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showUnitModal = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showUnitModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" type="submit">确定</button>
         </footer>
       </form>
@@ -3120,7 +2916,7 @@ onMounted(() => {
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingDefect ? '编辑不良品项' : '创建不良品项' }}</h2>
-        <button class="close-btn" type="button" @click="showDefectModal = false">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showDefectModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleSaveDefect">
         <label>
@@ -3132,7 +2928,7 @@ onMounted(() => {
           <input v-model="defectForm.code" placeholder="请输入，您略将自动生成" />
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showDefectModal = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showDefectModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" type="submit">确定</button>
         </footer>
       </form>
@@ -3143,7 +2939,7 @@ onMounted(() => {
     <section class="modal">
       <header class="modal-header">
         <h2>SOP模板</h2>
-        <button class="close-btn" type="button" @click="showProcessSopModal = false">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showProcessSopModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="saveProcessSop">
         <label>
@@ -3167,7 +2963,7 @@ onMounted(() => {
           <textarea v-model="processSopForm.content" rows="5" placeholder="填写作业准备、操作步骤、质量检查、安全注意事项"></textarea>
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showProcessSopModal = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showProcessSopModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" type="submit">保存</button>
         </footer>
       </form>

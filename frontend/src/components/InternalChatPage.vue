@@ -10,6 +10,7 @@ import {
   type UserInfo
 } from '../api'
 import UiIcon from './UiIcon.vue'
+import { formatUiDate, t } from '../i18n'
 import { useLatestRequest } from '../composables/useLatestRequest'
 
 const props = defineProps<{
@@ -55,47 +56,47 @@ function initials(name: string) {
 
 function formatTime(value?: string, withDate = false) {
   if (!value) return ''
-  const date = new Date(value.replace(' ', 'T'))
-  if (Number.isNaN(date.getTime())) return value
-  if (withDate) {
-    return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-  }
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  const date = parseDate(value)
+  if (!date) return value
+  const display = formatUiDate(date)
+  return withDate ? display.slice(5) : display.slice(11)
 }
 
 function parseDate(value?: string) {
   if (!value) return null
-  const date = new Date(value.replace(' ', 'T'))
+  const input = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(value) && !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)
+    ? value.replace(' ', 'T') + '+08:00' : value.replace(' ', 'T')
+  const date = new Date(input)
   return Number.isNaN(date.getTime()) ? null : date
 }
 
 function formatElapsed(value?: string) {
   const date = parseDate(value)
-  if (!date) return '暂无活动记录'
+  if (!date) return t('暂无活动记录')
   const seconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000))
-  if (seconds < 10) return '刚刚活跃'
-  if (seconds < 60) return `${seconds}秒前活跃`
+  if (seconds < 10) return t('刚刚活跃')
+  if (seconds < 60) return t('{0}秒前活跃', [seconds])
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}分钟前活跃`
+  if (minutes < 60) return t('{0}分钟前活跃', [minutes])
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}小时前活跃`
+  if (hours < 24) return t('{0}小时前活跃', [hours])
   const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}天前活跃`
+  if (days < 30) return t('{0}天前活跃', [days])
   return formatTime(value, true)
 }
 
 function presenceLabel(contact: InternalChatContactInfo) {
   if (contact.online) {
     const deviceCount = contact.onlineDeviceCount || contact.onlineDevices?.length || 0
-    return deviceCount > 1 ? `在线 · ${deviceCount} 台设备` : '在线'
+    return deviceCount > 1 ? t('在线 · {0} 台设备', [deviceCount]) : t('在线')
   }
-  return contact.lastSeenAt ? `离线 · ${formatElapsed(contact.lastSeenAt)}` : '暂无登录记录'
+  return contact.lastSeenAt ? t('离线 · {0}', [formatElapsed(contact.lastSeenAt)]) : t('暂无登录记录')
 }
 
 function presenceTitle(contact: InternalChatContactInfo) {
-  if (contact.online) return `${presenceLabel(contact)}，点击查看设备详情`
-  if (contact.lastSeenAt) return `${presenceLabel(contact)}，最近登录 ${formatTime(contact.lastLoginAt, true) || '暂无记录'}`
-  return '暂无登录记录'
+  if (contact.online) return t('{0}，点击查看设备详情', [presenceLabel(contact)])
+  if (contact.lastSeenAt) return t('{0}，最近登录 {1}', [presenceLabel(contact), formatTime(contact.lastLoginAt, true) || t('暂无记录')])
+  return t('暂无登录记录')
 }
 
 function isMine(message: InternalChatMessageInfo) {
@@ -237,18 +238,13 @@ onBeforeUnmount(() => {
 <template>
   <section class="internal-chat-page">
     <aside class="internal-chat-rail" aria-label="沟通导航">
-      <button class="internal-chat-rail-btn" :class="{ active: railView === 'messages' }" type="button" title="消息" :aria-current="railView === 'messages' ? 'page' : undefined" @click="openMessages">
-        <UiIcon name="message" :size="19" />
-      </button>
-      <button class="internal-chat-rail-btn" :class="{ active: railView === 'contacts' }" type="button" title="联系人" :aria-current="railView === 'contacts' ? 'page' : undefined" @click="openContacts">
-        <UiIcon name="user" :size="19" />
-      </button>
+      <button class="internal-chat-rail-btn ui-icon-button" :class="{ active: railView === 'messages' }" type="button" title="消息" :aria-current="railView === 'messages' ? 'page' : undefined" @click="openMessages" aria-label="消息"><UiIcon name="message" :size="19" /></button>
+      <button class="internal-chat-rail-btn ui-icon-button" :class="{ active: railView === 'contacts' }" type="button" title="联系人" :aria-current="railView === 'contacts' ? 'page' : undefined" @click="openContacts" aria-label="联系人"><UiIcon name="user" :size="19" /></button>
     </aside>
 
     <aside class="internal-chat-sidebar">
       <header class="internal-chat-sidebar-head">
         <div>
-          <p class="internal-chat-kicker">WORKSPACE</p>
           <h1>消息</h1>
         </div>
         <span class="internal-chat-online-dot" title="内部沟通在线"></span>
@@ -286,7 +282,7 @@ onBeforeUnmount(() => {
               <span class="internal-chat-presence-dot" :class="{ online: contact.online }"></span>
               {{ contact.departmentName || contact.roleLabel }} · {{ contact.online ? '在线' : contact.lastSeenAt ? `离线 ${formatElapsed(contact.lastSeenAt)}` : '离线' }}
             </span>
-            <span class="internal-chat-contact-preview">{{ contact.lastMessage || '开始一段新的沟通' }}</span>
+            <span class="internal-chat-contact-preview">{{ contact.lastMessage || $t('开始一段新的沟通') }}</span>
           </span>
           <span v-if="contact.unreadCount" class="internal-chat-unread">{{ contact.unreadCount > 99 ? '99+' : contact.unreadCount }}</span>
         </button>
@@ -338,7 +334,6 @@ onBeforeUnmount(() => {
         <div v-else-if="messages.length === 0" class="internal-chat-empty">
           <span class="internal-chat-empty-icon"><UiIcon name="message" :size="26" /></span>
           <strong>开始沟通</strong>
-          <p>向 {{ activePeer.name }} 发送第一条消息</p>
         </div>
         <template v-else>
           <div v-for="message in messages" :key="message.id" class="internal-chat-message-row" :class="{ mine: isMine(message) }">
@@ -356,7 +351,7 @@ onBeforeUnmount(() => {
       <div v-else class="internal-chat-empty full">
         <span class="internal-chat-empty-icon"><UiIcon name="message" :size="26" /></span>
         <strong>选择联系人开始沟通</strong>
-        <p>内部消息会按工厂隔离保存，并在这里持续同步</p>
+        <p>消息按工厂隔离保存</p>
       </div>
 
       <footer v-if="activePeer" class="internal-chat-composer">
@@ -369,10 +364,7 @@ onBeforeUnmount(() => {
         ></textarea>
         <div class="internal-chat-composer-foot">
           <span>{{ composer.length }}/2000</span>
-          <button class="internal-chat-send" type="button" :disabled="sending || !composer.trim()" @click="sendMessage">
-            <UiIcon name="send" :size="15" />
-            {{ sending ? '发送中...' : '发送' }}
-          </button>
+          <button class="internal-chat-send ui-icon-button" type="button" title="发送" aria-label="发送" :aria-busy="sending" :disabled="sending || !composer.trim()" @click="sendMessage"><UiIcon name="send" :size="15" /></button>
         </div>
       </footer>
     </main>

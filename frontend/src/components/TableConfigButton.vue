@@ -40,7 +40,7 @@ function collectColumns() {
   const saved = readSavedColumns()
   const next = Array.from(headerRow.children).map((cell, index) => {
     const element = cell as HTMLElement
-    const label = element.innerText.replace(/\s+/g, ' ').trim() || `第 ${index + 1} 列`
+    const label = element.getAttribute('data-ui-label')?.trim() || element.innerText.replace(/\s+/g, ' ').trim() || `第 ${index + 1} 列`
     const key = `column-${index}`
     const previous = saved.find(item => item.key === key || item.label === label)
     const fixed = previous?.fixed === 'left' || previous?.fixed === 'none' || previous?.fixed === 'right'
@@ -159,7 +159,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="table-config-control">
     <button
-      class="table-config-trigger"
+      class="table-config-trigger ui-icon-button"
       type="button"
       :title="title || '字段配置'"
       :aria-label="title || '字段配置'"

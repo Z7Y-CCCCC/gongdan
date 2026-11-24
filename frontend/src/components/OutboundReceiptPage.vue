@@ -15,6 +15,7 @@ import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import { fetchAllPages } from '../utils/pagination'
 import { resolveInventoryTimeRange } from '../utils/inventoryTimeRange'
+import { missingRequiredCustomField } from '../utils/customFieldValidation'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
@@ -179,10 +180,10 @@ async function loadCustomFieldConfigs() {
   try {
     const resHeader = await fetchCustomFields(props.token, 'receipt')
     customFields.value = resHeader.items
-    
+
     const resDetail = await fetchCustomFields(props.token, 'receipt_detail')
     itemCustomFields.value = resDetail.items
-    
+
     // 合并单头自定义字段到 columns
     const baseCols = allColumns.map(c => ({ ...c }))
     const customCols: ReceiptTableColumn[] = customFields.value.map(f => ({
@@ -441,6 +442,11 @@ async function submitCreate() {
     // Stock shown in the form is only a snapshot. The server validates it atomically.
   }
 
+  const missingHeader = missingRequiredCustomField(customFields.value, createForm.customValues)
+  const missingDetail = formItems.value.map(item => missingRequiredCustomField(itemCustomFields.value, item.customValues || [])).find(Boolean)
+  const missing = missingHeader || missingDetail
+  if (missing) { emit('notice', `请填写必填字段「${missing.name}」`); return }
+
   saving.value = true
   try {
     const payload = {
@@ -560,14 +566,8 @@ onMounted(() => {
           />
         </div>
         <div class="filter-actions">
-          <button class="primary-btn query-btn" type="button" @click="handleSearch">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-            查询
-          </button>
-          <button class="toolbar-btn" type="button" @click="handleReset" title="重置条件">
+          <button class="primary-btn query-btn ui-icon-button" type="button" @click="handleSearch" title="查询出库单" aria-label="查询出库单"><UiIcon name="search" /></button>
+          <button class="toolbar-btn ui-icon-button" type="button" @click="handleReset" title="重置条件" aria-label="重置条件">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
             </svg>
@@ -577,21 +577,12 @@ onMounted(() => {
 
       <!-- Action Toolbar -->
       <div class="toolbar" style="margin-bottom:16px">
-        <button class="primary-btn" type="button" @click="handleCreate">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          创建出库单
-        </button>
+        <button class="primary-btn ui-icon-button" type="button" @click="handleCreate" title="创建出库单" aria-label="创建出库单"><UiIcon name="plus" /></button>
 
-        <button class="toolbar-btn" type="button" disabled style="color:#c9cfcd; cursor:not-allowed">
-          <UiIcon name="layers" />
-          批量操作
-        </button>
+
 
         <div style="margin-left: auto; display:flex; gap: 8px;">
-          <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true">
+          <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true">
             <UiIcon name="table-columns" :size="16" />
           </button>
         </div>
@@ -620,8 +611,8 @@ onMounted(() => {
                 <td v-else-if="col.key === 'createdAt'" :style="outboundColumnStyle(col, visibleColumns)">{{ item.createdAt }}</td>
                 <td v-else-if="col.key === 'creator'" :style="outboundColumnStyle(col, visibleColumns)">{{ item.creator || '-' }}</td>
                 <td v-else-if="col.key === 'actions'" class="action-cell" :style="outboundColumnStyle(col, visibleColumns)">
-                  <a class="link-btn" style="font-size:12px;cursor:pointer;margin-right:12px" @click="showReceiptDetail(item)">详情</a>
-                  <a class="link-btn" style="font-size:12px;cursor:pointer;color:#ff5a5a" @click="handleDelete(item)">删除</a>
+                  <button class="link-btn ui-icon-button" style="font-size:12px;cursor:pointer;margin-right:12px" @click="showReceiptDetail(item)" type="button" title="查看出库单详情" aria-label="查看出库单详情"><UiIcon name="eye" /></button>
+                  <button class="link-btn ui-icon-button" style="font-size:12px;cursor:pointer;color:#ff5a5a" @click="handleDelete(item)" type="button" title="删除出库单" aria-label="删除出库单"><UiIcon name="trash" /></button>
                 </td>
                 <td v-else-if="col.isCustom" :style="outboundColumnStyle(col, visibleColumns)">
                   {{ getReceiptCustomValue(item, col.fieldId) }}
@@ -641,9 +632,9 @@ onMounted(() => {
       <div class="pagination" v-if="totalReceipts > 0" style="margin-top:16px">
         <span class="page-info">共{{ totalReceipts }}条结果</span>
         <div class="page-controls">
-          <button :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">&lt;</button>
+          <button :disabled="currentPage <= 1" @click="goPage(currentPage - 1)" class="ui-icon-button" title="上一页" aria-label="上一页" type="button"><UiIcon name="arrowLeft" /></button>
           <button class="active">{{ currentPage }}</button>
-          <button :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">&gt;</button>
+          <button :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)" class="ui-icon-button" title="下一页" aria-label="下一页" type="button"><UiIcon name="arrowRight" /></button>
         </div>
         <select class="page-size-select" v-model="pageSize" @change="currentPage = 1; loadReceipts()">
           <option :value="10">10 条/页</option>
@@ -680,7 +671,7 @@ onMounted(() => {
         <!-- 自定义单头字段 -->
         <div v-for="(field, fIdx) in customFields" :key="field.id" class="form-row">
           <label class="form-label" :class="{ required: field.required }">{{ field.name }}</label>
-          
+
           <select 
             v-if="field.fieldType === 'single_select' && createForm.customValues[fIdx]" 
             class="form-input" 
@@ -689,14 +680,14 @@ onMounted(() => {
             <option value="">请选择</option>
             <option v-for="opt in field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
-          
+
           <div v-else-if="field.fieldType === 'multiple_select' && createForm.customValues[fIdx]" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; min-height:34px;">
             <label v-for="opt in field.options" :key="opt.value" style="display:flex; align-items:center; gap:4px; font-size:13px; cursor:pointer">
               <input type="checkbox" :value="opt.value" v-model="createForm.customValues[fIdx].value" style="accent-color:var(--accent)" />
               {{ opt.label }}
             </label>
           </div>
-          
+
           <input 
             v-else-if="field.fieldType === 'number' && createForm.customValues[fIdx]" 
             class="form-input" 
@@ -704,14 +695,14 @@ onMounted(() => {
             v-model.number="createForm.customValues[fIdx].value" 
             :placeholder="field.placeholder || '请输入数字'" 
           />
-          
+
           <input 
             v-else-if="field.fieldType === 'date' && createForm.customValues[fIdx]" 
             class="form-input" 
             type="date" 
             v-model="createForm.customValues[fIdx].value" 
           />
-          
+
           <input 
             v-else-if="createForm.customValues[fIdx]" 
             class="form-input" 
@@ -727,16 +718,10 @@ onMounted(() => {
       <h4 style="margin:0 0 16px;font-size:14px;font-weight:600">出库明细</h4>
 
       <div class="toolbar" style="margin-bottom:16px">
-        <button class="primary-btn" type="button" @click="openAddProduct">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          添加产品
-        </button>
+        <button class="primary-btn ui-icon-button" type="button" @click="openAddProduct" title="添加产品" aria-label="添加产品"><UiIcon name="plus" /></button>
 
         <div style="margin-left: auto">
-          <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showItemColumnConfig = true">
+          <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showItemColumnConfig = true">
             <UiIcon name="table-columns" :size="16" />
           </button>
         </div>
@@ -774,7 +759,7 @@ onMounted(() => {
                   <span v-if="item.quantity > (item.inventoryQty || 0)" class="inline-err">不足</span>
                 </td>
                 <td v-else-if="col.key === 'actions'" class="action-cell" :style="outboundColumnStyle(col, visibleItemColumns)">
-                  <a class="link-btn" style="font-size:12px;cursor:pointer;color:#ff5a5a" @click="removeFormItem(idx)">删除</a>
+                  <button class="link-btn ui-icon-button" style="font-size:12px;cursor:pointer;color:#ff5a5a" @click="removeFormItem(idx)" type="button" title="删除产品明细" aria-label="删除产品明细"><UiIcon name="trash" /></button>
                 </td>
                 <td v-else-if="col.isCustom" :style="outboundColumnStyle(col, visibleItemColumns)">
                   <template v-if="getItemCustomValueObj(item, col.fieldId)">
@@ -787,14 +772,14 @@ onMounted(() => {
                       <option value="">请选择</option>
                       <option v-for="opt in col.field.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
                     </select>
-                    
+
                     <div v-else-if="col.field.fieldType === 'multiple_select'" style="display:flex; gap:6px; align-items:center;">
                       <label v-for="opt in col.field.options" :key="opt.value" style="display:flex; align-items:center; gap:2px; font-size:11px; cursor:pointer">
                         <input type="checkbox" :value="opt.value" v-model="getItemCustomValueObj(item, col.fieldId).value" />
                         {{ opt.label }}
                       </label>
                     </div>
-                    
+
                     <input 
                       v-else-if="col.field.fieldType === 'number'" 
                       type="number" 
@@ -803,7 +788,7 @@ onMounted(() => {
                       style="width: 80px; padding: 2px 4px; height: 28px; text-align:center;"
                       :placeholder="col.field.placeholder || '数字'"
                     />
-                    
+
                     <input 
                       v-else-if="col.field.fieldType === 'date'" 
                       type="date" 
@@ -811,7 +796,7 @@ onMounted(() => {
                       class="form-input table-input-sm"
                       style="width: 120px; padding: 2px 4px; height: 28px;"
                     />
-                    
+
                     <input 
                       v-else 
                       v-model="getItemCustomValueObj(item, col.fieldId).value" 
@@ -834,7 +819,7 @@ onMounted(() => {
 
       <div class="form-actions" style="margin-top:24px; display:flex; justify-content: flex-end; gap: 12px;">
         <button class="ghost-btn" style="width: 90px;" type="button" @click="cancelCreate">取消</button>
-        <button class="primary-btn" style="width: 90px;" type="button" @click="submitCreate" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
+        <button class="primary-btn" style="width: 90px;" type="button" @click="submitCreate" :disabled="saving" title="保存出库单" aria-label="保存出库单">{{ saving ? '保存中...' : '保存' }}</button>
       </div>
     </template>
 
@@ -843,7 +828,7 @@ onMounted(() => {
       <div class="modal workorder-modal" style="width: 900px;">
         <div class="modal-header">
           <h2>出库单明细详情</h2>
-          <button class="close-btn" type="button" @click="showDetailModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showDetailModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
         <div style="padding: 24px; max-height: 520px; overflow-y: auto;">
           <div class="detail-top-summary" style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:16px; margin-bottom: 24px">
@@ -853,7 +838,7 @@ onMounted(() => {
             <div><span class="label" style="color:#8a9693">创建人:</span> <span style="color:#1e2724">{{ activeReceipt?.creator || '-' }}</span></div>
             <div><span class="label" style="color:#8a9693">创建时间:</span> <span style="color:#1e2724">{{ activeReceipt?.createdAt }}</span></div>
             <div><span class="label" style="color:#8a9693">备注:</span> <span style="color:#1e2724" :title="activeReceipt?.remark">{{ activeReceipt?.remark || '-' }}</span></div>
-            
+
             <!-- 单头只读自定义字段 -->
             <div v-for="field in customFields" :key="field.id">
               <span class="label" style="color:#8a9693">{{ field.name }}:</span>
@@ -875,7 +860,7 @@ onMounted(() => {
                   <th>属性</th>
                   <th>单位</th>
                   <th>出库数量</th>
-                  
+
                   <!-- 明细只读自定义字段标题 -->
                   <th v-for="col in itemCustomFields" :key="col.id">{{ col.name }}</th>
                 </tr>
@@ -889,7 +874,7 @@ onMounted(() => {
                   <td>{{ item.productAttribute || '-' }}</td>
                   <td>{{ item.unitName || '-' }}</td>
                   <td style="font-weight:bold;color:#00b889">{{ item.quantity }}</td>
-                  
+
                   <!-- 明细只读自定义字段值 -->
                   <td v-for="col in itemCustomFields" :key="col.id">
                     {{ getDetailItemCustomValue(item, col.id) }}
@@ -900,7 +885,7 @@ onMounted(() => {
           </div>
         </div>
         <div class="modal-footer">
-          <button class="primary-btn wide" type="button" @click="showDetailModal = false">关闭</button>
+          <button class="primary-btn wide ui-icon-button" type="button" @click="showDetailModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
       </div>
     </div>
@@ -929,7 +914,7 @@ onMounted(() => {
       <div class="modal workorder-modal" style="width: 480px; overflow:visible;">
         <div class="modal-header">
           <h2>添加产品</h2>
-          <button class="close-btn" type="button" @click="showAddProduct = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showAddProduct = false" title="关闭产品选择" aria-label="关闭产品选择"><UiIcon name="close" /></button>
         </div>
         <div style="padding: 24px; display:flex; flex-direction:column; gap:16px;">
           <div class="form-row" style="position:relative">
@@ -1051,7 +1036,7 @@ onMounted(() => {
   justify-content: space-between;
   cursor: pointer;
   font-size: 13px;
-  transition: background 0.2s;
+  transition: background var(--motion-base);
 }
 .dropdown-item:hover {
   background: #f4fbf9;

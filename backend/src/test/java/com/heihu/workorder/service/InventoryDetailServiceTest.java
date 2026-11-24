@@ -1,57 +1,52 @@
 package com.heihu.workorder.service;
 
-import com.heihu.workorder.dto.InventoryDetailResponse;
-import com.heihu.workorder.repository.InboundReceiptRepository;
-import com.heihu.workorder.repository.OutboundReceiptRepository;
-import java.util.ArrayList;
-import java.util.List;
-import org.junit.jupiter.api.BeforeEach;
+import com.heihu.workorder.dto.InventoryDetailPageResponse;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
 class InventoryDetailServiceTest {
 
-    @Mock
-    private InboundReceiptRepository inboundReceiptRepository;
-
-    @Mock
-    private OutboundReceiptRepository outboundReceiptRepository;
-
-    private InventoryDetailService service;
-
-    @BeforeEach
-    void setUp() {
-        service = new InventoryDetailService(inboundReceiptRepository, outboundReceiptRepository);
-        when(inboundReceiptRepository.findByFactoryId(eq(1L), any(Pageable.class)))
-                .thenReturn(Page.empty());
-        when(outboundReceiptRepository.findByFactoryId(eq(1L), any(Pageable.class)))
-                .thenReturn(Page.empty());
+    @Test
+    void unknownSourceDoesNotQueryTheDatabase() {
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        assertThat(list(new InventoryDetailService(jdbc), "unknown", 1).getTotal()).isZero();
+        verifyNoInteractions(jdbc);
     }
 
     @Test
-    void listReturnsRedisSerializableArrayListInsteadOfSubListView() {
-        List<InventoryDetailResponse> result = service.list(
-                1L, null, null, null, null, null, null, null, null,
-                null, null, 1, 20);
-
-        assertThat(result).isInstanceOf(ArrayList.class).isEmpty();
+    void outOfRangePageOnlyCountsMatchingReceiptLines() {
+        NamedParameterJdbcTemplate jdbc = mock(NamedParameterJdbcTemplate.class);
+        when(jdbc.queryForObject(contains("COUNT(*)"), any(MapSqlParameterSource.class), eq(Long.class)))
+                .thenReturn(3L);
+        InventoryDetailPageResponse result = list(new InventoryDetailService(jdbc), "in", Integer.MAX_VALUE);
+        assertThat(result.getItems()).isEmpty();
+        assertThat(result.getTotal()).isEqualTo(3L);
+        verify(jdbc).queryForObject(contains("FROM inbound_receipts"), any(MapSqlParameterSource.class), eq(Long.class));
+        verifyNoMoreInteractions(jdbc);
     }
 
     @Test
-    void largePageCannotOverflowIntoANegativeSubListIndex() {
-        assertThat(service.list(1L, null, null, null, null, null, null, null, null,
-                null, null, Integer.MAX_VALUE, 100)).isEmpty();
-        assertThat(service.list(1L, null, null, null, null, null, null, null, null,
-                null, null, 3, Integer.MAX_VALUE)).isEmpty();
+    void cacheKeysCannotCollideWhenFilterValuesContainSeparators() {
+        assertThat(InventoryDetailService.cacheKey(new Object[]{1L, "a:b", "c"}))
+                .isNotEqualTo(InventoryDetailService.cacheKey(new Object[]{1L, "a", "b:c"}));
+        assertThat(InventoryDetailService.cacheKey(new Object[]{1L, "null"}))
+                .isNotEqualTo(InventoryDetailService.cacheKey(new Object[]{1L, null}));
+        assertThat(InventoryDetailService.cacheKey(new Object[]{1L, " In "}))
+                .isEqualTo(InventoryDetailService.cacheKey(new Object[]{1L, "in"}));
+    }
+
+    private InventoryDetailPageResponse list(InventoryDetailService service, String source, int page) {
+        return service.list(1L, null, null, source, null, null, null, null, null, null, null, page, 20);
     }
 }

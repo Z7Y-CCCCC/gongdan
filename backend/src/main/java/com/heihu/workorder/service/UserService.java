@@ -17,6 +17,7 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
@@ -31,6 +32,7 @@ public class UserService {
 
     private static final String PASSWORD_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     private static final int GENERATED_PASSWORD_LENGTH = 12;
+    private static final Pattern BCRYPT_HASH = Pattern.compile("\\$2[aby]\\$(0[4-9]|[12][0-9]|3[01])\\$[./A-Za-z0-9]{53}");
 
     private final FactoryRepository factoryRepository;
     private final UserRepository userRepository;
@@ -247,8 +249,10 @@ public class UserService {
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "工厂不存在"));
 
-        String[] lines = csvContent.split("\\r?\\n");
-        if (lines.length < 2) {
+        // Parse the entire document before writing any row. Physical newlines may
+        // occur inside quoted fields exported by this service.
+        List<String[]> records = parseCsvRecords(csvContent);
+        if (records.size() < 2) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "CSV文件格式不正确，至少需要表头和一行数据");
         }
 
@@ -256,12 +260,8 @@ public class UserService {
         int failCount = 0;
         List<String> errors = new java.util.ArrayList<>();
 
-        for (int i = 1; i < lines.length; i++) {
-            String line = lines[i].trim();
-            if (line.isEmpty()) {
-                continue;
-            }
-            String[] cols = parseCsvLine(line);
+        for (int i = 1; i < records.size(); i++) {
+            String[] cols = records.get(i);
             if (cols.length < 6) {
                 failCount++;
                 errors.add("第 " + (i + 1) + " 行：列数不足，已跳过");
@@ -283,9 +283,21 @@ public class UserService {
                 continue;
             }
 
+            if (username.length() > 64 || name.length() > 64 || phone.length() > 32) {
+                failCount++;
+                errors.add("第 " + (i + 1) + " 条记录：账号、姓名或手机号超出长度限制，已跳过");
+                continue;
+            }
+
             if (!StringUtils.hasText(passwordOrHash)) {
                 failCount++;
                 errors.add("第 " + (i + 1) + " 行「" + username + "」：密码为空，已跳过");
+                continue;
+            }
+
+            if (passwordOrHash.startsWith("$2") && !BCRYPT_HASH.matcher(passwordOrHash).matches()) {
+                failCount++;
+                errors.add("第 " + (i + 1) + " 条记录「" + username + "」：密码哈希格式不正确，已跳过");
                 continue;
             }
 
@@ -325,7 +337,8 @@ public class UserService {
                 user.setRole(role);
                 String normalizedDeptName = normalizeNullable(department);
                 if (normalizedDeptName != null) {
-                    user.setDepartment(departmentRepository.findByFactoryIdAndName(factoryId, normalizedDeptName).orElse(null));
+                    user.setDepartment(departmentRepository.findByFactoryIdAndName(factoryId, normalizedDeptName)
+                            .orElseThrow(() -> new IllegalArgumentException("部门不存在，已跳过")));
                 }
                 user.setVirtualUser(isVirtual);
                 user.setEnabled(isEnabled);
@@ -339,7 +352,7 @@ public class UserService {
             }
         }
 
-        return new ImportResult(lines.length - 1, successCount, failCount, errors);
+        return new ImportResult(records.size() - 1, successCount, failCount, errors);
     }
 
     private Role parseImportRole(String value) {
@@ -353,34 +366,64 @@ public class UserService {
         if (value == null) {
             return "";
         }
-        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+        if (value.contains(",") || value.contains("\"") || value.contains("\n") || value.contains("\r")) {
             return "\"" + value.replace("\"", "\"\"") + "\"";
         }
         return value;
     }
 
-    private String[] parseCsvLine(String line) {
-        List<String> result = new java.util.ArrayList<>();
+    private List<String[]> parseCsvRecords(String content) {
+        if (content == null) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CSV文件内容不能为空");
+        }
+        List<String[]> records = new java.util.ArrayList<>();
+        List<String> fields = new java.util.ArrayList<>();
         boolean inQuotes = false;
+        boolean afterQuote = false;
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < line.length(); i++) {
-            char c = line.charAt(i);
-            if (c == '"') {
-                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (inQuotes) {
+                if (c == '"' && i + 1 < content.length() && content.charAt(i + 1) == '"') {
                     sb.append('"');
                     i++;
+                } else if (c == '"') {
+                    inQuotes = false;
+                    afterQuote = true;
                 } else {
-                    inQuotes = !inQuotes;
+                    sb.append(c);
                 }
-            } else if (c == ',' && !inQuotes) {
-                result.add(sb.toString());
+            } else if (c == ',') {
+                fields.add(sb.toString());
                 sb.setLength(0);
-            } else {
+                afterQuote = false;
+            } else if (c == '\n' || c == '\r') {
+                fields.add(sb.toString());
+                addCsvRecord(records, fields);
+                fields = new java.util.ArrayList<>();
+                sb.setLength(0);
+                afterQuote = false;
+                if (c == '\r' && i + 1 < content.length() && content.charAt(i + 1) == '\n') i++;
+            } else if (c == '"' && !afterQuote && sb.length() == 0) {
+                inQuotes = true;
+            } else if (c == '"' || (afterQuote && !Character.isWhitespace(c))) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "CSV引号格式不正确");
+            } else if (!afterQuote) {
                 sb.append(c);
             }
         }
-        result.add(sb.toString());
-        return result.toArray(new String[0]);
+        if (inQuotes) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CSV引号未闭合");
+        }
+        fields.add(sb.toString());
+        addCsvRecord(records, fields);
+        return records;
+    }
+
+    private void addCsvRecord(List<String[]> records, List<String> fields) {
+        if (fields.size() > 1 || fields.stream().anyMatch(StringUtils::hasText)) {
+            records.add(fields.toArray(new String[0]));
+        }
     }
 
     public static class ImportResult {

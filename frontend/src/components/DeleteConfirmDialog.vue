@@ -7,7 +7,9 @@
  *
  * Requirements: 1.1-1.9, 2.1-2.9, 3.1-3.7
  */
-import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
+import UiIcon from './UiIcon.vue'
+import { useDialogFocus } from '../composables/useDialogFocus'
 
 const props = withDefaults(
   defineProps<{
@@ -30,6 +32,8 @@ const emit = defineEmits<{
 
 const titleId = 'delete-confirm-title-' + Math.random().toString(36).slice(2, 9)
 const cancelBtnRef = ref<HTMLButtonElement | null>(null)
+const dialogRef = ref<HTMLElement | null>(null)
+useDialogFocus(dialogRef, () => props.visible, handleDismiss, () => cancelBtnRef.value)
 
 function handleDismiss() {
   if (props.loading) return
@@ -41,30 +45,6 @@ function handleConfirm() {
   emit('confirm')
 }
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && props.visible && !props.loading) {
-    emit('update:visible', false)
-  }
-}
-
-watch(
-  () => props.visible,
-  (val) => {
-    if (val) {
-      nextTick(() => {
-        cancelBtnRef.value?.focus()
-      })
-    }
-  }
-)
-
-onMounted(() => {
-  document.addEventListener('keydown', handleKeydown)
-})
-
-onUnmounted(() => {
-  document.removeEventListener('keydown', handleKeydown)
-})
 </script>
 
 <template>
@@ -78,7 +58,7 @@ onUnmounted(() => {
         :aria-labelledby="titleId"
       >
         <div class="delete-confirm-backdrop__overlay" @click="handleDismiss" />
-        <section class="delete-confirm-dialog modal" @click.stop>
+        <section ref="dialogRef" class="delete-confirm-dialog modal" tabindex="-1" @click.stop>
           <div class="delete-confirm-dialog__header">
             <div class="delete-confirm-dialog__icon">
               <svg
@@ -99,8 +79,8 @@ onUnmounted(() => {
               </svg>
             </div>
             <h2 :id="titleId" class="delete-confirm-dialog__title">{{ title }}</h2>
-            <button class="close-btn" type="button" title="关闭" aria-label="关闭" :disabled="loading" @click="handleDismiss">
-              <span aria-hidden="true">×</span>
+            <button class="close-btn ui-icon-button" type="button" title="关闭" aria-label="关闭" :disabled="loading" @click="handleDismiss">
+              <UiIcon name="close" :size="18" />
             </button>
           </div>
           <p class="delete-confirm-dialog__message">{{ message }}</p>
@@ -115,11 +95,14 @@ onUnmounted(() => {
             </button>
             <button
               class="btn btn--danger"
+              type="button"
+              aria-label="确认删除"
               :disabled="loading"
               @click="handleConfirm"
             >
               <span v-if="loading" class="spinner" aria-hidden="true" />
-              确定
+              <UiIcon v-else name="trash" :size="16" />
+              删除
             </button>
           </footer>
         </section>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
+  ApiError,
   approveReport,
   fetchReportImageBlob,
   fetchReports,
@@ -26,6 +27,8 @@ const detail = ref<WorkOrderReportInfo | null>(null)
 const imageObjectUrls = ref<Record<number, string>>({})
 const rejectTarget = ref<WorkOrderReportInfo | null>(null)
 const rejectRemark = ref('')
+const decisionPending = ref(false)
+let detailRequest = 0
 const filters = reactive({
   workOrderCode: '',
   reporterName: '',
@@ -54,31 +57,55 @@ async function loadReports() {
 }
 
 async function handleApprove(item: WorkOrderReportInfo) {
+  if (decisionPending.value || item.status !== 'PENDING') return
+  decisionPending.value = true
   try {
     const updated = await approveReport(props.token, item.id)
     emit('notice', `报工「${updated.workOrderCode} / ${updated.processName}」已审批通过`)
-    await openDetail(updated)
+    allReports.value = allReports.value.map(report => report.id === updated.id ? updated : report)
+    void openDetail(updated)
     await loadReports()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '审批失败')
+    if (e instanceof ApiError && e.status === 409) {
+      closeDetail()
+      await loadReports()
+    }
+  } finally {
+    decisionPending.value = false
   }
 }
 
 function openReject(item: WorkOrderReportInfo) {
+  if (decisionPending.value || item.status !== 'PENDING') return
   rejectTarget.value = item
   rejectRemark.value = ''
 }
 
 async function submitReject() {
-  if (!rejectTarget.value) return
+  if (!rejectTarget.value || decisionPending.value) return
+  const remark = rejectRemark.value.trim()
+  if (!remark) {
+    emit('notice', '请填写驳回原因')
+    return
+  }
+  decisionPending.value = true
   try {
-    const updated = await rejectReport(props.token, rejectTarget.value.id, rejectRemark.value)
+    const updated = await rejectReport(props.token, rejectTarget.value.id, remark)
     emit('notice', `报工「${updated.workOrderCode} / ${updated.processName}」已驳回`)
     rejectTarget.value = null
-    await openDetail(updated)
+    allReports.value = allReports.value.map(report => report.id === updated.id ? updated : report)
+    void openDetail(updated)
     await loadReports()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '驳回失败')
+    if (e instanceof ApiError && e.status === 409) {
+      rejectTarget.value = null
+      closeDetail()
+      await loadReports()
+    }
+  } finally {
+    decisionPending.value = false
   }
 }
 
@@ -93,22 +120,25 @@ function minutesLabel(value: number) {
 }
 
 async function openDetail(item: WorkOrderReportInfo) {
+  const request = ++detailRequest
   revokeImageObjectUrls()
   detail.value = item
-  for (const image of item.images) {
+  await Promise.all(item.images.map(async (image) => {
     try {
       const blob = await fetchReportImageBlob(props.token, image.id)
+      if (request !== detailRequest) return
       imageObjectUrls.value = {
         ...imageObjectUrls.value,
         [image.id]: URL.createObjectURL(blob)
       }
     } catch (e) {
-      emit('notice', e instanceof Error ? e.message : '图片加载失败')
+      if (request === detailRequest) emit('notice', e instanceof Error ? e.message : '图片加载失败')
     }
-  }
+  }))
 }
 
 function closeDetail() {
+  detailRequest += 1
   detail.value = null
   revokeImageObjectUrls()
 }
@@ -124,7 +154,7 @@ function revokeImageObjectUrls() {
 
 useRefreshOnActivated(loadReports)
 onMounted(loadReports)
-onBeforeUnmount(revokeImageObjectUrls)
+onBeforeUnmount(closeDetail)
 </script>
 
 <template>
@@ -156,23 +186,17 @@ onBeforeUnmount(revokeImageObjectUrls)
         <select v-model="filters.period">
           <option value="">全部</option>
           <option value="today">今天</option>
-          <option value="lastMonth">上月起</option>
+          <option value="lastMonth">上月</option>
         </select>
       </label>
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="loadReports">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          查询
-        </button>
+        <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadReports" title="查询报工" aria-label="查询报工"><UiIcon name="search" /></button>
       </div>
     </div>
 
     <div class="toolbar">
-      <button class="toolbar-btn" type="button" @click="loadReports">
-        <UiIcon name="refresh" />
-        刷新
-      </button>
-      <span class="muted">审批通过后才会同步更新工单工序进度</span>
+      <button class="toolbar-btn ui-icon-button" type="button" @click="loadReports" title="刷新报工" aria-label="刷新报工"><UiIcon name="refresh" /></button>
+      <span class="muted">通过后计入进度</span>
       <TableConfigButton table-id="report-approval-list-table" />
     </div>
 
@@ -208,9 +232,9 @@ onBeforeUnmount(revokeImageObjectUrls)
               <span class="status-badge" :class="{ disabled: item.status === 'REJECTED' }">{{ statusLabel(item.status) }}</span>
             </td>
             <td class="action-cell">
-              <button class="action-link" type="button" @click="openDetail(item)"><UiIcon name="eye" />详情</button>
-              <button v-if="item.status === 'PENDING'" class="action-link" type="button" @click="handleApprove(item)"><UiIcon name="check" />通过</button>
-              <button v-if="item.status === 'PENDING'" class="action-link danger" type="button" @click="openReject(item)"><UiIcon name="close" />驳回</button>
+              <button class="action-link ui-icon-button" type="button" @click="openDetail(item)" title="查看报工详情" aria-label="查看报工详情"><UiIcon name="eye" /></button>
+              <button v-if="item.status === 'PENDING'" class="action-link ui-action-button" type="button" :disabled="decisionPending" @click="handleApprove(item)" title="审批通过" aria-label="审批通过"><UiIcon name="check" />通过</button>
+              <button v-if="item.status === 'PENDING'" class="action-link danger ui-action-button" type="button" :disabled="decisionPending" @click="openReject(item)" title="驳回报工" aria-label="驳回报工"><UiIcon name="close" />驳回</button>
             </td>
           </tr>
           <tr v-if="!loading && reports.length === 0">
@@ -227,7 +251,7 @@ onBeforeUnmount(revokeImageObjectUrls)
       <div class="modal report-detail-modal">
         <div class="modal-header">
           <h2>报工详情</h2>
-          <button class="close-btn" type="button" @click="closeDetail">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="closeDetail" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
         <div class="report-detail">
           <div><span>工单编号</span><strong>{{ detail.workOrderCode }}</strong></div>
@@ -255,8 +279,8 @@ onBeforeUnmount(revokeImageObjectUrls)
           </div>
         </div>
         <div v-if="detail.status === 'PENDING'" class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="openReject(detail)"><UiIcon name="close" />驳回</button>
-          <button class="primary-btn wide" type="button" @click="handleApprove(detail)"><UiIcon name="check" />审批通过</button>
+          <button class="ghost-btn wide ui-action-button" type="button" :disabled="decisionPending" @click="openReject(detail)" title="驳回报工" aria-label="驳回报工"><UiIcon name="close" />驳回</button>
+          <button class="primary-btn wide ui-action-button" type="button" :disabled="decisionPending" @click="handleApprove(detail)" title="审批通过" aria-label="审批通过"><UiIcon name="check" />审批通过</button>
         </div>
       </div>
     </div>
@@ -265,15 +289,14 @@ onBeforeUnmount(revokeImageObjectUrls)
       <div class="modal batch-modal">
         <div class="modal-header">
           <h2>驳回报工</h2>
-          <button class="close-btn" type="button" @click="rejectTarget = null">×</button>
+          <button class="close-btn ui-icon-button" type="button" :disabled="decisionPending" @click="rejectTarget = null" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
         <div style="padding:18px">
-          <p class="muted">请填写驳回原因，手机端会在已驳回列表中看到。</p>
-          <textarea v-model="rejectRemark" class="reject-textarea" placeholder="请输入驳回原因"></textarea>
+          <textarea v-model="rejectRemark" class="reject-textarea" maxlength="500" :disabled="decisionPending" placeholder="驳回原因（必填）" aria-label="驳回原因"></textarea>
         </div>
         <div class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="rejectTarget = null"><UiIcon name="close" />取消</button>
-          <button class="primary-btn wide" type="button" @click="submitReject"><UiIcon name="check" />确定驳回</button>
+          <button class="ghost-btn wide" type="button" :disabled="decisionPending" @click="rejectTarget = null"><UiIcon name="close" />取消</button>
+          <button class="primary-btn wide ui-action-button" type="button" :disabled="decisionPending || !rejectRemark.trim()" @click="submitReject" title="确定驳回" aria-label="确定驳回"><UiIcon name="check" />确定驳回</button>
         </div>
       </div>
     </div>

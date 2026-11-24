@@ -70,8 +70,8 @@ watch(currentPage, () => {
         <h3>{{ title }}</h3>
         <div class="modal-header-actions">
           <TableConfigButton v-if="type === 'import'" :table-id="`system-import-logs-${module}`" />
-          <button class="close-btn" type="button" @click="emit('update:visible', false)">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <button class="close-btn ui-icon-button" type="button" title="关闭" aria-label="关闭" @click="emit('update:visible', false)">
+            <UiIcon name="close" :size="18" />
           </button>
         </div>
       </div>
@@ -152,10 +152,10 @@ watch(currentPage, () => {
         
         <!-- 分页控件栏 -->
         <div v-if="totalItems > pageSize" class="pagination-bar" style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; padding-top:16px; border-top:1px solid #f0f4f3; z-index:10; position:relative;">
-          <span style="font-size:13px; color:#5c6764">共 {{ totalItems }} 条，当前第 {{ currentPage }} 页</span>
+          <span style="font-size:13px; color:#5c6764">{{ totalItems }} 条 · {{ currentPage }}/{{ Math.max(1, Math.ceil(totalItems / pageSize)) }}</span>
           <div style="display:flex; gap:8px">
-            <button class="ghost-btn" style="padding:6px 12px; font-size:12.5px; height:32px; cursor:pointer;" :disabled="currentPage <= 1 || loading" @click="currentPage--"><UiIcon name="arrowLeft" />上一页</button>
-            <button class="ghost-btn" style="padding:6px 12px; font-size:12.5px; height:32px; cursor:pointer;" :disabled="currentPage * pageSize >= totalItems || loading" @click="currentPage++">下一页<UiIcon name="arrowRight" /></button>
+            <button class="ghost-btn ui-icon-button" type="button" title="上一页" aria-label="上一页" :disabled="currentPage <= 1 || loading" @click="currentPage--"><UiIcon name="arrowLeft" /></button>
+            <button class="ghost-btn ui-icon-button" type="button" title="下一页" aria-label="下一页" :disabled="currentPage * pageSize >= totalItems || loading" @click="currentPage++"><UiIcon name="arrowRight" /></button>
           </div>
         </div>
       </div>

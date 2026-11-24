@@ -18,6 +18,7 @@ import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErr
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import TableConfigButton from './TableConfigButton.vue'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{
   token: string
@@ -51,6 +52,7 @@ const activeTab = ref<WorkOrderStatusTab>('not_started')
 // --- 数据 ---
 const workOrders = ref<WorkOrderProgressItem[]>([])
 const loading = ref(false)
+const errorMessage = ref('')
 const reachedDisplayLimit = computed(() => workOrders.value.length >= 500)
 
 // --- 排序 ---
@@ -82,17 +84,19 @@ const sortedWorkOrders = computed(() => {
 // --- 数据加载 ---
 async function loadWorkOrders() {
   const isCurrent = beginLoad()
+  const requestToken = props.token
+  if (!requestToken) { workOrders.value = []; loading.value = false; return }
   loading.value = true
+  errorMessage.value = ''
   try {
-    const result = await fetchHomeWorkOrders(props.token, activeTab.value)
-    if (!isCurrent()) return
+    const result = await fetchHomeWorkOrders(requestToken, activeTab.value)
+    if (!isCurrent() || props.token !== requestToken) return
     if (result) {
       workOrders.value = result.items
     }
   } catch (error) {
     if (!isCurrent() || handleApiError(error)) return
-    // 非 401/403 错误，保留空列表
-    workOrders.value = []
+    errorMessage.value = '加载失败，请重试'
   } finally {
     if (isCurrent()) loading.value = false
   }
@@ -108,6 +112,11 @@ function switchTab(tab: WorkOrderStatusTab) {
 
 watch(activeTab, () => {
   loadWorkOrders()
+})
+watch(() => props.token, () => {
+  workOrders.value = []
+  errorMessage.value = ''
+  void loadWorkOrders()
 })
 
 useRefreshOnActivated(loadWorkOrders)
@@ -138,7 +147,7 @@ const columns: ColumnDef[] = [
 <template>
   <section class="work-order-progress">
     <div class="work-order-progress__title-row">
-      <h3 class="work-order-progress__title">工单进度报表</h3>
+      <h3 class="work-order-progress__title">工单进度</h3>
       <TableConfigButton table-id="home-work-order-progress-table" />
     </div>
 
@@ -156,12 +165,16 @@ const columns: ColumnDef[] = [
       </button>
     </div>
 
-    <p v-if="!loading && reachedDisplayLimit" class="work-order-progress__limit-note" role="status">
-      最多显示500条，完整工单请到工单列表
+    <p v-if="errorMessage" role="alert">
+      {{ errorMessage }}
+      <button class="ghost-btn ui-icon-button" type="button" title="重试加载工单进度" aria-label="重试加载工单进度" @click="loadWorkOrders"><UiIcon name="refresh" /></button>
+    </p>
+    <p v-if="!loading && !errorMessage && reachedDisplayLimit" class="work-order-progress__limit-note" role="status" title="完整工单请到工单列表">
+      仅显示前500条
     </p>
 
     <!-- 表格容器 -->
-    <div class="work-order-progress__table-wrapper">
+    <div v-if="!errorMessage" class="work-order-progress__table-wrapper">
       <table id="home-work-order-progress-table" class="work-order-progress__table">
         <thead>
           <tr>
@@ -256,7 +269,7 @@ const columns: ColumnDef[] = [
   color: #666;
   font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--motion-base);
   white-space: nowrap;
 }
 
@@ -347,7 +360,7 @@ const columns: ColumnDef[] = [
 
 .sort-arrows path {
   fill: #c0c4cc;
-  transition: fill 0.2s;
+  transition: fill var(--motion-base);
 }
 
 .sort-arrows path.active {

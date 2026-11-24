@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from './UiIcon.vue'
 /**
  * ProcessTaskSection - 工序任务卡片区
  *
@@ -7,14 +8,16 @@
  *
  * Requirements: 3.1-3.7, 5.1-5.4, 5.8, 5.9
  */
-import { ref, provide, watch, onMounted, inject, type Ref } from 'vue'
-import type { HomeRange, ProcessCardItem } from '../api'
-import { fetchHomeProcessCards } from '../api'
+import { computed, ref, provide, watch, onBeforeUnmount, onMounted, inject, type Ref } from 'vue'
+import type { HomeRange, ProcessCardItem, ProcessInfo } from '../api'
+import { fetchHomeProcessCards, fetchProcesses } from '../api'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import ProcessTaskCard from './ProcessTaskCard.vue'
 import ProcessCardSettingsModal, { type ProcessCardSetting } from './ProcessCardSettingsModal.vue'
+import { useProcessCardSettings, type ProcessCardSettingItem } from '../composables/useProcessCardSettings'
+import { fetchAllPages } from '../utils/pagination'
 
 const props = defineProps<{
   token: string
@@ -24,13 +27,43 @@ const props = defineProps<{
 const range = ref<HomeRange>('today')
 const includeNotStarted = ref(false)
 const cards = ref<ProcessCardItem[]>([])
+const dataLoaded = ref(false)
 const loading = ref(false)
 const beginLoad = useLatestRequest()
 const errorMessage = ref('')
 const showSettings = ref(false)
 
-// Settings for the modal (derived from cards data with default colors)
-const modalSettings = ref<ProcessCardSetting[]>([])
+const processes = ref<ProcessInfo[]>([])
+const cardSettings = ref<ProcessCardSettingItem[]>([])
+const settingsLoaded = ref(false)
+const settingsLoading = ref(false)
+const savingSettings = ref(false)
+const settingsError = ref('')
+const beginSettingsLoad = useLatestRequest()
+let saveGeneration = 0
+
+const modalSettings = computed<ProcessCardSetting[]>(() => {
+  const available = new Map(processes.value.map(process => [process.id, process]))
+  const configured = cardSettings.value.filter(item => available.has(item.processId))
+  const configuredIds = new Set(configured.map(item => item.processId))
+  return [
+    ...configured.map(item => ({ ...item, processName: available.get(item.processId)!.name })),
+    ...processes.value.filter(process => !configuredIds.has(process.id)).map((process, index) => ({
+      processId: process.id, processName: process.name, color: getCardColor(index), visible: false
+    }))
+  ]
+})
+
+const visibleCards = computed(() => {
+  if (!dataLoaded.value) return []
+  if (!settingsLoaded.value) return cards.value.map((card, index) => ({ ...card, color: getCardColor(index) }))
+  const byId = new Map(cards.value.map(card => [card.processId, card]))
+  const available = new Map(processes.value.map(process => [process.id, process]))
+  return cardSettings.value.filter(item => item.visible && available.has(item.processId)).map(item => ({
+    ...(byId.get(item.processId) || { processId: item.processId, processName: available.get(item.processId)!.name,
+      taskCount: 0, plannedQuantity: 0, goodQuantity: 0, defectQuantity: 0 }), color: item.color
+  }))
+})
 
 // Share range with PerformanceSection via provide/inject
 // The parent HomeDashboardPage also provides 'homeRange', we inject it and keep it in sync
@@ -52,20 +85,16 @@ let hasLoadedOnce = false
 
 async function loadCards() {
   const isCurrent = beginLoad()
+  const requestToken = props.token
+  if (!requestToken) { cards.value = []; loading.value = false; return }
   loading.value = true
   errorMessage.value = ''
   try {
-    const response = await fetchHomeProcessCards(props.token, range.value, includeNotStarted.value)
-    if (!isCurrent()) return
+    const response = await fetchHomeProcessCards(requestToken, range.value, includeNotStarted.value)
+    if (!isCurrent() || props.token !== requestToken) return
     cards.value = response.items
+    dataLoaded.value = true
     hasLoadedOnce = true
-    // Update modal settings from loaded cards
-    modalSettings.value = response.items.map((card, index) => ({
-      processId: card.processId,
-      processName: card.processName,
-      color: getCardColor(index),
-      visible: true
-    }))
   } catch (error) {
     if (!isCurrent()) return
     // Check if it's a 401/403 handled globally
@@ -85,6 +114,35 @@ async function loadCards() {
   }
 }
 
+async function loadSettings() {
+  const isCurrent = beginSettingsLoad()
+  const requestToken = props.token
+  if (!requestToken) { settingsLoading.value = false; return }
+  settingsLoading.value = true
+  settingsError.value = ''
+  const current = () => isCurrent() && props.token === requestToken
+  try {
+    const result = await fetchAllPages(params => fetchProcesses(requestToken, params), 500, current)
+    const preference = useProcessCardSettings()
+    await preference.loadSettings(requestToken, result.items)
+    if (!current()) return
+    processes.value = result.items
+    const available = new Set(result.items.map(process => process.id))
+    const used = new Set<number>()
+    cardSettings.value = preference.settings.value.items.filter(item => {
+      if (!available.has(item.processId) || used.has(item.processId)) return false
+      used.add(item.processId)
+      return true
+    }).map((item, index) => ({ ...item, visible: item.visible === true,
+      color: /^#[0-9a-f]{6}$/i.test(item.color) ? item.color : getCardColor(index) }))
+    settingsLoaded.value = true
+  } catch (error) {
+    if (current() && !handleApiError(error)) settingsError.value = '卡片设置加载失败，请重试'
+  } finally {
+    if (current()) settingsLoading.value = false
+  }
+}
+
 // --- Watchers for re-fetching ---
 watch(range, () => {
   loadCards()
@@ -96,29 +154,71 @@ watch(includeNotStarted, () => {
 
 // --- Actions ---
 function handleRefresh() {
-  loadCards()
+  void loadCards()
+  void loadSettings()
 }
 
 function handleRangeChange(newRange: HomeRange) {
   range.value = newRange
 }
 
-function openSettings() {
+async function openSettings() {
+  if (savingSettings.value || settingsLoading.value) return
+  if (!settingsLoaded.value) await loadSettings()
+  if (!settingsLoaded.value) return
+  settingsError.value = ''
   showSettings.value = true
 }
 
-function onSettingsSaved(_newSettings: Array<{ processId: number; color: string; visible: boolean }>) {
-  showSettings.value = false
-  // Reload cards after settings change
-  loadCards()
+async function onSettingsSaved(newSettings: Array<{ processId: number; color: string; visible: boolean }>) {
+  if (savingSettings.value || !settingsLoaded.value || !props.token) return
+  const requestToken = props.token
+  const requestGeneration = ++saveGeneration
+  beginSettingsLoad()
+  settingsLoading.value = false
+  savingSettings.value = true
+  settingsError.value = ''
+  const value = newSettings.map(item => ({ ...item }))
+  try {
+    const preference = useProcessCardSettings()
+    await preference.saveSettings(requestToken, { version: 1, items: value })
+    if (props.token !== requestToken || saveGeneration !== requestGeneration) return
+    cardSettings.value = value
+    showSettings.value = false
+  } catch (error) {
+    if (props.token === requestToken && saveGeneration === requestGeneration && !handleApiError(error)) {
+      settingsError.value = '卡片设置保存失败，请重试'
+    }
+  } finally {
+    if (props.token === requestToken && saveGeneration === requestGeneration) savingSettings.value = false
+  }
 }
 
 // --- Initial load ---
-useRefreshOnActivated(loadCards)
+useRefreshOnActivated(() => { void loadCards(); void loadSettings() })
 
 onMounted(() => {
   loadCards()
+  loadSettings()
 })
+
+watch(() => props.token, () => {
+  saveGeneration++
+  beginLoad()
+  beginSettingsLoad()
+  cards.value = []
+  dataLoaded.value = false
+  processes.value = []
+  cardSettings.value = []
+  settingsLoaded.value = false
+  errorMessage.value = ''
+  settingsError.value = ''
+  savingSettings.value = false
+  showSettings.value = false
+  void loadCards()
+  void loadSettings()
+})
+onBeforeUnmount(() => { saveGeneration++; beginLoad(); beginSettingsLoad() })
 
 // --- Default color palette for cards (used until user preferences are loaded in task 7.4) ---
 const defaultColors = ['#3B82F6', '#9CA3AF', '#FACC15', '#22C55E', '#EF4444', '#8B5CF6', '#F97316', '#06B6D4']
@@ -141,26 +241,18 @@ const rangeTabs: { label: string; value: HomeRange }[] = [
     <div class="process-task-header">
       <div class="process-task-header-left">
         <h2 class="process-task-title">工序任务</h2>
-        <button class="process-task-settings-btn" title="设置" @click="openSettings">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M6.5 1L6.2 2.6C5.8 2.8 5.4 3 5.1 3.3L3.5 2.7L2 5.3L3.4 6.4C3.4 6.6 3.3 6.8 3.3 7C3.3 7.2 3.4 7.4 3.4 7.6L2 8.7L3.5 11.3L5.1 10.7C5.4 11 5.8 11.2 6.2 11.4L6.5 13H9.5L9.8 11.4C10.2 11.2 10.6 11 10.9 10.7L12.5 11.3L14 8.7L12.6 7.6C12.6 7.4 12.7 7.2 12.7 7C12.7 6.8 12.6 6.6 12.6 6.4L14 5.3L12.5 2.7L10.9 3.3C10.6 3 10.2 2.8 9.8 2.6L9.5 1H6.5ZM8 5C9.1 5 10 5.9 10 7C10 8.1 9.1 9 8 9C6.9 9 6 8.1 6 7C6 5.9 6.9 5 8 5Z" fill="#666"/>
-          </svg>
-        </button>
+        <button class="process-task-settings-btn ui-icon-button" title="设置" @click="openSettings" aria-label="设置" type="button" :disabled="settingsLoading || savingSettings"><UiIcon name="settings" /></button>
         <label class="process-task-checkbox-label">
           <input
             type="checkbox"
             v-model="includeNotStarted"
-            class="process-task-checkbox"
+            class="process-task-checkbox" aria-label="包含未开始生产任务" title="包含未开始生产任务"
           />
-          <span>包含未开始生产任务</span>
+          <span>含未开始</span>
         </label>
       </div>
       <div class="process-task-header-right">
-        <button class="process-task-refresh-btn" title="刷新" @click="handleRefresh">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M13.65 2.35A8 8 0 1 0 16 8h-2a6 6 0 1 1-1.76-4.24L10 6h6V0l-2.35 2.35z" fill="#666" transform="scale(0.85) translate(1,1)"/>
-          </svg>
-        </button>
+        <button class="process-task-refresh-btn ui-icon-button" title="刷新" @click="handleRefresh" aria-label="刷新" type="button"><UiIcon name="refresh" /></button>
         <div class="process-task-range-tabs">
           <button
             v-for="tab in rangeTabs"
@@ -175,24 +267,24 @@ const rangeTabs: { label: string; value: HomeRange }[] = [
     </div>
 
     <!-- Error message -->
-    <div v-if="errorMessage" class="process-task-error">
-      {{ errorMessage }}
+    <div v-if="errorMessage || settingsError && !showSettings" class="process-task-error" role="alert">
+      {{ errorMessage || settingsError }}
     </div>
 
     <!-- Cards container with horizontal scroll -->
     <div class="process-task-cards-container">
-      <div v-if="loading && cards.length === 0" class="process-task-loading">
+      <div v-if="loading && visibleCards.length === 0" class="process-task-loading">
         加载中...
       </div>
-      <div v-else-if="cards.length === 0 && !errorMessage" class="process-task-empty">
-        暂无数据
+      <div v-else-if="visibleCards.length === 0 && !errorMessage" class="process-task-empty">
+        {{ settingsLoaded ? '未选择工序' : '暂无数据' }}
       </div>
       <div v-else class="process-task-cards">
         <ProcessTaskCard
-          v-for="(card, index) in cards"
+          v-for="card in visibleCards"
           :key="card.processId"
           :processName="card.processName"
-          :color="getCardColor(index)"
+          :color="card.color"
           :taskCount="card.taskCount"
           :plannedQuantity="card.plannedQuantity"
           :goodQuantity="card.goodQuantity"
@@ -206,6 +298,8 @@ const rangeTabs: { label: string; value: HomeRange }[] = [
       v-model:visible="showSettings"
       :settings="modalSettings"
       :token="props.token"
+      :saving="savingSettings"
+      :error="settingsError"
       @save="onSettingsSaved"
     />
   </div>
@@ -248,7 +342,7 @@ const rangeTabs: { label: string; value: HomeRange }[] = [
   border-radius: 4px;
   background: #fff;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color var(--motion-base);
 }
 
 .process-task-settings-btn:hover {
@@ -287,7 +381,7 @@ const rangeTabs: { label: string; value: HomeRange }[] = [
   border-radius: 4px;
   background: #fff;
   cursor: pointer;
-  transition: border-color 0.2s;
+  transition: border-color var(--motion-base);
 }
 
 .process-task-refresh-btn:hover {
@@ -308,7 +402,7 @@ const rangeTabs: { label: string; value: HomeRange }[] = [
   background: #fff;
   color: #555;
   cursor: pointer;
-  transition: background-color 0.2s, color 0.2s;
+  transition: background-color var(--motion-base), color 0.2s;
   border-right: 1px solid #d9d9d9;
 }
 

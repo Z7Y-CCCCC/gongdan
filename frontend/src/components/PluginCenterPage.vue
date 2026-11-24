@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   activatePluginVersion,
   createPlugin,
@@ -19,6 +19,8 @@ import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 
 const props = defineProps<{ token: string; isSuperAdmin?: boolean }>()
 const emit = defineEmits<{
@@ -33,6 +35,14 @@ const plugins = ref<PluginCatalogInfo[]>([])
 const selectedKey = ref('')
 const showCreateForm = ref(false)
 const showVersionForm = ref(false)
+const loadError = ref('')
+const beginLoad = useLatestRequest()
+let sessionGeneration = 0
+function actionContext() {
+  const token = props.token
+  const generation = sessionGeneration
+  return { token, current: () => props.token === token && sessionGeneration === generation }
+}
 const {
   visible: confirmVisible,
   title: confirmTitle,
@@ -66,33 +76,44 @@ const configJson = ref('{}')
 const selectedPlugin = computed(() => plugins.value.find(item => item.pluginKey === selectedKey.value) || null)
 
 function selectPlugin(plugin: PluginCatalogInfo) {
+  if (saving.value) return
   selectedKey.value = plugin.pluginKey
   configJson.value = plugin.configJson || '{}'
 }
 
 async function loadPlugins(keepSelection = true) {
+  const isCurrent = beginLoad()
+  const token = props.token
+  if (!token) { loading.value = false; return }
   loading.value = true
+  loadError.value = ''
   try {
-    plugins.value = await fetchPlugins(props.token)
+    const result = await fetchPlugins(token)
+    if (!isCurrent() || props.token !== token) return
+    const previousKey = selectedKey.value
+    const dirty = configJson.value !== (selectedPlugin.value?.configJson || '{}')
+    plugins.value = result
     if (!keepSelection || !plugins.value.some(item => item.pluginKey === selectedKey.value)) {
       selectedKey.value = plugins.value[0]?.pluginKey || ''
     }
-    configJson.value = plugins.value.find(item => item.pluginKey === selectedKey.value)?.configJson || '{}'
+    if (!keepSelection || !dirty || selectedKey.value !== previousKey) configJson.value = selectedPlugin.value?.configJson || '{}'
   } catch (error) {
-    emit('error', error instanceof Error ? error.message : '加载插件列表失败')
+    if (isCurrent() && props.token === token) loadError.value = error instanceof Error ? error.message : '加载插件列表失败'
   } finally {
-    loading.value = false
+    if (isCurrent() && props.token === token) loading.value = false
   }
 }
 
 async function submitCreate() {
+  if (saving.value || !props.token) return
+  const context = actionContext()
   if (!createForm.pluginKey.trim() || !createForm.name.trim()) {
     emit('error', '请填写插件标识和插件名称')
     return
   }
   saving.value = true
   try {
-    const created = await createPlugin(props.token, {
+    const created = await createPlugin(context.token, {
       pluginKey: createForm.pluginKey.trim(),
       name: createForm.name.trim(),
       description: createForm.description.trim(),
@@ -101,25 +122,28 @@ async function submitCreate() {
       minCoreVersion: createForm.minCoreVersion.trim(),
       manifestJson: createForm.manifestJson
     })
+    if (!context.current()) return
     showCreateForm.value = false
     selectedKey.value = created.pluginKey
     emit('notice', `插件「${created.name}」已加入目录`)
     await loadPlugins()
   } catch (error) {
-    emit('error', error instanceof Error ? error.message : '创建插件失败')
+    if (context.current()) emit('error', error instanceof Error ? error.message : '创建插件失败')
   } finally {
-    saving.value = false
+    if (context.current()) saving.value = false
   }
 }
 
 async function submitVersion() {
+  if (saving.value || !props.token) return
+  const context = actionContext()
   if (!selectedPlugin.value || !versionForm.version.trim()) {
     emit('error', '请填写插件版本')
     return
   }
   saving.value = true
   try {
-    await registerPluginVersion(props.token, selectedPlugin.value.pluginKey, {
+    await registerPluginVersion(context.token, selectedPlugin.value.pluginKey, {
       version: versionForm.version.trim(),
       imageName: versionForm.imageName.trim(),
       artifactUrl: versionForm.artifactUrl.trim(),
@@ -127,28 +151,31 @@ async function submitVersion() {
       releaseNotes: versionForm.releaseNotes,
       manifestJson: versionForm.manifestJson.trim() || undefined
     })
+    if (!context.current()) return
     showVersionForm.value = false
     emit('notice', '插件版本已登记为 READY')
     await loadPlugins()
   } catch (error) {
-    emit('error', error instanceof Error ? error.message : '登记插件版本失败')
+    if (context.current()) emit('error', error instanceof Error ? error.message : '登记插件版本失败')
   } finally {
-    saving.value = false
+    if (context.current()) saving.value = false
   }
 }
 
 async function runAction(action: () => Promise<unknown>, message: string) {
-  if (!selectedPlugin.value) return
+  if (saving.value || !selectedPlugin.value || !props.token) return
+  const context = actionContext()
   saving.value = true
   try {
     await action()
+    if (!context.current()) return
     emit('notice', message)
     emit('plugins-changed')
     await loadPlugins()
   } catch (error) {
-    emit('error', error instanceof Error ? error.message : '插件操作失败')
+    if (context.current()) emit('error', error instanceof Error ? error.message : '插件操作失败')
   } finally {
-    saving.value = false
+    if (context.current()) saving.value = false
   }
 }
 
@@ -166,24 +193,30 @@ function installSelected() {
 }
 
 async function disableSelected() {
+  if (saving.value || confirmVisible.value) return
+  const context = actionContext()
   const plugin = selectedPlugin.value
   if (!plugin) return
   const accepted = await requestConfirm({ title: '下线插件', message: `确定下线插件「${plugin.name}」吗？下线后只影响当前工厂。` })
   confirmVisible.value = false
-  if (!accepted) return
-  void runAction(() => disablePlugin(props.token, plugin.pluginKey), '插件已下线')
+  if (!accepted || !context.current()) return
+  void runAction(() => disablePlugin(context.token, plugin.pluginKey), '插件已下线')
 }
 
 async function rollbackSelected() {
+  if (saving.value || confirmVisible.value) return
+  const context = actionContext()
   const plugin = selectedPlugin.value
   if (!plugin) return
   const accepted = await requestConfirm({ title: '回滚插件版本', message: `确定将「${plugin.name}」回滚到上一版吗？` })
   confirmVisible.value = false
-  if (!accepted) return
-  void runAction(() => rollbackPlugin(props.token, plugin.pluginKey), '插件已回滚')
+  if (!accepted || !context.current()) return
+  void runAction(() => rollbackPlugin(context.token, plugin.pluginKey), '插件已回滚')
 }
 
 async function uninstallSelected() {
+  if (saving.value || confirmVisible.value) return
+  const context = actionContext()
   const plugin = selectedPlugin.value
   if (!plugin) return
   const accepted = await requestConfirm({
@@ -191,8 +224,8 @@ async function uninstallSelected() {
     message: `确定从当前工厂卸载插件「${plugin.name}」吗？工厂级配置和启用状态会被清除。`
   })
   confirmVisible.value = false
-  if (!accepted) return
-  void runAction(() => uninstallPlugin(props.token, plugin.pluginKey), '插件已从当前工厂卸载')
+  if (!accepted || !context.current()) return
+  void runAction(() => uninstallPlugin(context.token, plugin.pluginKey), '插件已从当前工厂卸载')
 }
 
 function refreshHealthSelected() {
@@ -227,6 +260,20 @@ function statusLabel(status: string) {
 }
 
 onMounted(() => { void loadPlugins(false) })
+useRefreshOnActivated(loadPlugins)
+watch(() => props.token, () => {
+  sessionGeneration++
+  beginLoad()
+  plugins.value = []
+  selectedKey.value = ''
+  configJson.value = '{}'
+  saving.value = false
+  showCreateForm.value = false
+  showVersionForm.value = false
+  handleCancel()
+  void loadPlugins(false)
+})
+onBeforeUnmount(() => { sessionGeneration++; beginLoad(); handleCancel() })
 </script>
 
 <template>
@@ -234,22 +281,23 @@ onMounted(() => { void loadPlugins(false) })
     <div class="plugin-page-header">
       <div>
         <h2>插件中心</h2>
-        <p>按工厂独立启停和切换客户定制功能。插件异常时可先下线，核心工单与库存业务不受影响。</p>
       </div>
       <div class="plugin-header-actions">
-        <button class="ghost-btn" type="button" :disabled="loading" @click="loadPlugins(false)"><UiIcon name="refresh" />刷新</button>
-         <button v-if="props.isSuperAdmin" class="primary-btn" type="button" @click="showCreateForm = true"><UiIcon name="plus" />登记插件</button>
+        <button class="ghost-btn ui-icon-button" type="button" :disabled="loading" @click="loadPlugins()" title="刷新" aria-label="刷新"><UiIcon name="refresh" /></button>
+        <button v-if="props.isSuperAdmin" class="primary-btn ui-icon-button" type="button" title="登记插件" aria-label="登记插件" @click="showCreateForm = true"><UiIcon name="plus" /></button>
       </div>
     </div>
 
+    <p v-if="loadError" role="alert">{{ loadError }}</p>
     <div class="plugin-layout">
       <div class="plugin-list-panel">
-        <div class="plugin-panel-title"><span>插件目录</span><small>{{ plugins.length }} 个</small></div>
+        <div class="plugin-panel-title"><span>插件目录</span><small v-if="!loading && !loadError">{{ plugins.length }} 个</small></div>
         <div v-if="loading" class="plugin-empty">加载中...</div>
         <button
           v-for="plugin in plugins"
           :key="plugin.pluginKey"
           type="button"
+          :disabled="saving"
           class="plugin-list-item"
           :class="{ selected: selectedKey === plugin.pluginKey }"
           @click="selectPlugin(plugin)"
@@ -265,15 +313,15 @@ onMounted(() => { void loadPlugins(false) })
         <div class="plugin-detail-header">
           <div>
             <div class="plugin-title-line"><h3>{{ selectedPlugin.name }}</h3><span class="plugin-key">{{ selectedPlugin.pluginKey }}</span></div>
-            <p>{{ selectedPlugin.description || '暂无插件描述' }}</p>
+            <p v-if="selectedPlugin.description">{{ selectedPlugin.description }}</p>
           </div>
           <div class="plugin-actions">
-            <button class="ghost-btn" type="button" :disabled="saving || selectedPlugin.factoryStatus === 'NOT_INSTALLED'" @click="refreshHealthSelected"><UiIcon name="activity" />健康检查</button>
+            <button class="ghost-btn" type="button" :disabled="saving || selectedPlugin.factoryStatus === 'NOT_INSTALLED'" @click="refreshHealthSelected" title="健康检查" aria-label="健康检查"><UiIcon name="activity" />检查</button>
             <button v-if="selectedPlugin.factoryStatus === 'ENABLED'" class="danger-btn" type="button" :disabled="saving" @click="disableSelected"><UiIcon name="close" />下线</button>
             <button v-else-if="selectedPlugin.factoryStatus === 'NOT_INSTALLED'" class="primary-btn" type="button" :disabled="saving" @click="installSelected"><UiIcon name="download" />安装</button>
             <button v-else class="primary-btn" type="button" :disabled="saving || selectedPlugin.versions.length === 0" @click="enableSelected"><UiIcon name="play" />启用</button>
             <button class="secondary-btn" type="button" :disabled="saving || selectedPlugin.factoryStatus !== 'ENABLED'" @click="rollbackSelected"><UiIcon name="rework" />回滚</button>
-            <button v-if="selectedPlugin.factoryStatus !== 'NOT_INSTALLED'" class="danger-btn" type="button" :disabled="saving" @click="uninstallSelected"><UiIcon name="delete" />卸载</button>
+            <button v-if="selectedPlugin.factoryStatus !== 'NOT_INSTALLED'" class="danger-btn" type="button" :disabled="saving" @click="uninstallSelected"><UiIcon name="trash" />卸载</button>
           </div>
         </div>
 
@@ -285,7 +333,7 @@ onMounted(() => { void loadPlugins(false) })
         </div>
 
         <div class="plugin-section">
-            <div class="plugin-section-heading"><h4>版本管理</h4><div class="plugin-section-heading-actions"><TableConfigButton table-id="plugin-versions-table" /><button v-if="props.isSuperAdmin" class="ghost-btn" type="button" @click="showVersionForm = true"><UiIcon name="plus" />登记版本</button></div></div>
+            <div class="plugin-section-heading"><h4>版本管理</h4><div class="plugin-section-heading-actions"><TableConfigButton table-id="plugin-versions-table" /><button v-if="props.isSuperAdmin" class="ghost-btn ui-icon-button" type="button" title="登记版本" aria-label="登记版本" @click="showVersionForm = true"><UiIcon name="plus" /></button></div></div>
           <div class="plugin-version-table-wrap">
             <table id="plugin-versions-table" class="data-table plugin-version-table">
               <thead><tr><th>版本</th><th>状态</th><th>登记时间</th><th>说明</th><th>操作</th></tr></thead>
@@ -295,7 +343,7 @@ onMounted(() => { void loadPlugins(false) })
                   <td><span class="plugin-status-badge">{{ statusLabel(version.status) }}</span></td>
                   <td>{{ version.createdAt || '-' }}</td>
                   <td class="release-notes">{{ version.releaseNotes || '-' }}</td>
-                  <td><button class="action-link" type="button" :disabled="saving || version.version === selectedPlugin.enabledVersion" @click="activateVersion(version.version)">切换</button></td>
+                  <td><button class="action-link" type="button" :disabled="saving || version.version === selectedPlugin.enabledVersion" @click="activateVersion(version.version)"><UiIcon name="layers" />切换</button></td>
                 </tr>
                 <tr v-if="selectedPlugin.versions.length === 0"><td colspan="5" class="plugin-table-empty">尚未登记版本，登记后才能启用插件。</td></tr>
               </tbody>
@@ -319,7 +367,7 @@ onMounted(() => { void loadPlugins(false) })
 
     <div v-if="showCreateForm" class="plugin-modal-mask modal-backdrop" @click.self="showCreateForm = false">
       <form class="plugin-modal modal" @submit.prevent="submitCreate">
-        <div class="plugin-modal-header modal-header"><h3>登记插件</h3><button type="button" class="icon-btn" @click="showCreateForm = false"><UiIcon name="close" /></button></div>
+        <div class="plugin-modal-header modal-header"><h3>登记插件</h3><button type="button" class="icon-btn ui-icon-button" @click="showCreateForm = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button></div>
         <div class="plugin-form-grid">
           <label><span>插件标识</span><input v-model="createForm.pluginKey" placeholder="例如 quality-management" maxlength="64" /></label>
           <label><span>插件名称</span><input v-model="createForm.name" placeholder="例如质量管理" maxlength="128" /></label>
@@ -328,13 +376,13 @@ onMounted(() => { void loadPlugins(false) })
           <label class="full"><span>描述</span><input v-model="createForm.description" placeholder="说明插件解决的业务问题" maxlength="500" /></label>
           <label class="full"><span>插件清单 JSON</span><textarea v-model="createForm.manifestJson" class="plugin-json-editor" spellcheck="false"></textarea></label>
         </div>
-        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn" type="button" @click="showCreateForm = false">取消</button><button class="primary-btn" type="submit" :disabled="saving">登记</button></div>
+        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn ui-icon-button" type="button" @click="showCreateForm = false" title="取消" aria-label="取消"><UiIcon name="close" /></button><button class="primary-btn" type="submit" :disabled="saving">登记</button></div>
       </form>
     </div>
 
     <div v-if="showVersionForm" class="plugin-modal-mask modal-backdrop" @click.self="showVersionForm = false">
       <form class="plugin-modal modal" @submit.prevent="submitVersion">
-        <div class="plugin-modal-header modal-header"><h3>登记插件版本</h3><button type="button" class="icon-btn" @click="showVersionForm = false"><UiIcon name="close" /></button></div>
+        <div class="plugin-modal-header modal-header"><h3>登记插件版本</h3><button type="button" class="icon-btn ui-icon-button" @click="showVersionForm = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button></div>
         <div class="plugin-form-grid">
           <label><span>版本号</span><input v-model="versionForm.version" placeholder="例如 1.0.0" maxlength="64" /></label>
           <label><span>镜像名称</span><input v-model="versionForm.imageName" placeholder="quality-management:1.0.0" /></label>
@@ -343,7 +391,7 @@ onMounted(() => { void loadPlugins(false) })
           <label class="full"><span>发布说明</span><textarea v-model="versionForm.releaseNotes" placeholder="本次版本变更内容"></textarea></label>
           <label class="full"><span>版本清单 JSON</span><textarea v-model="versionForm.manifestJson" class="plugin-json-editor" spellcheck="false" placeholder="留空则沿用插件目录清单"></textarea></label>
         </div>
-        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn" type="button" @click="showVersionForm = false">取消</button><button class="primary-btn" type="submit" :disabled="saving">登记并设为可上线</button></div>
+        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn ui-icon-button" type="button" @click="showVersionForm = false" title="取消" aria-label="取消"><UiIcon name="close" /></button><button class="primary-btn" type="submit" :disabled="saving">登记并设为可上线</button></div>
       </form>
     </div>
 

@@ -82,19 +82,16 @@ onMounted(load)
     <div class="monitor-page-header">
       <div>
         <h1>在线用户</h1>
-        <p>查看当前工厂登录会话，并在需要时强制结束异常会话。</p>
       </div>
-      <button class="toolbar-btn" type="button" title="刷新" @click="load">
-        <UiIcon name="refresh" :size="15" />刷新
-      </button>
+      <button class="toolbar-btn ui-icon-button" type="button" title="刷新" @click="load" aria-label="刷新"><UiIcon name="refresh" /></button>
     </div>
 
     <div class="filters monitor-filters">
       <label><span>登录地址</span><input v-model="filters.ipAddress" placeholder="请输入登录地址" @keydown.enter="search" /></label>
       <label><span>用户名称</span><input v-model="filters.loginName" placeholder="请输入用户名称" @keydown.enter="search" /></label>
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="search"><UiIcon name="search" :size="14" />查询</button>
-        <button class="ghost-btn query-btn" type="button" @click="reset"><UiIcon name="reset" :size="14" />重置</button>
+        <button class="primary-btn query-btn ui-icon-button" type="button" @click="search" title="查询" aria-label="查询"><UiIcon name="search" /></button>
+        <button class="ghost-btn query-btn ui-icon-button" type="button" @click="reset" title="重置" aria-label="重置"><UiIcon name="reset" /></button>
       </div>
     </div>
 
@@ -130,8 +127,8 @@ onMounted(load)
 
     <div class="monitor-pagination">
       <span>第 {{ page }} / {{ totalPages }} 页</span>
-      <button type="button" :disabled="page === 1" @click="changePage(page - 1)"><UiIcon name="arrowLeft" :size="14" />上一页</button>
-      <button type="button" :disabled="page === totalPages" @click="changePage(page + 1)">下一页<UiIcon name="arrowRight" :size="14" /></button>
+      <button type="button" :disabled="page === 1" @click="changePage(page - 1)" title="上一页" aria-label="上一页" class="ui-icon-button"><UiIcon name="arrowLeft" /></button>
+      <button type="button" :disabled="page === totalPages" @click="changePage(page + 1)" title="下一页" aria-label="下一页" class="ui-icon-button"><UiIcon name="arrowRight" /></button>
     </div>
 
     <DeleteConfirmDialog

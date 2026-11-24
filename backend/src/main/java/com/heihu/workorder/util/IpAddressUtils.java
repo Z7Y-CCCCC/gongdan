@@ -2,6 +2,7 @@ package com.heihu.workorder.util;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.http.conn.util.InetAddressUtils;
 import javax.servlet.http.HttpServletRequest;
 import java.util.regex.Pattern;
 
@@ -36,7 +37,7 @@ public final class IpAddressUtils {
         if (xForwardedFor != null && !xForwardedFor.trim().isEmpty()) {
             String bestIp = extractClientFromForwardedFor(xForwardedFor);
             if (isValidIp(bestIp)) {
-                log.info("从 X-Forwarded-For 解析到客户端IP: {} (原始值: {})", bestIp, xForwardedFor);
+                log.debug("从 X-Forwarded-For 解析到客户端IP: {}", bestIp);
                 return bestIp;
             }
         }
@@ -154,6 +155,6 @@ public final class IpAddressUtils {
     }
 
     private static boolean isValidIp(String ip) {
-        return ip != null && !ip.isEmpty() && !UNKNOWN.equalsIgnoreCase(ip);
+        return ip != null && (InetAddressUtils.isIPv4Address(ip) || InetAddressUtils.isIPv6Address(ip));
     }
 }

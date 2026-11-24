@@ -38,6 +38,7 @@ export interface WorkOrderInfo {
   productCode: string
   productName: string
   productSpec?: string
+  unitName?: string | null
   plannedQuantity: number
   goodQuantity: number
   defectQuantity: number
@@ -56,6 +57,22 @@ export interface ListResponse<T> {
   items: T[]
   total: number
   truncated?: boolean
+}
+
+export interface MobileDashboard {
+  workOrderTotal: number
+  totalPlanned: number
+  totalGood: number
+  activeOrderCount: number
+  reportTotal: number
+  pendingReportCount: number
+  todayReportCount: number
+  totalDefect: number
+  todayGood: number
+  todayDefect: number
+  todayPending: number
+  recentOrders: WorkOrderInfo[]
+  rankings: Array<{ name: string; value: number }>
 }
 
 export interface FieldEventRecord {
@@ -96,6 +113,7 @@ export interface WorkOrderReport {
   productSpec?: string
   processSequenceNo: number
   processName: string
+  reporterId?: number
   reporterName: string
   reportQuantity: number
   goodQuantity: number
@@ -107,6 +125,8 @@ export interface WorkOrderReport {
   materialName?: string
   remark?: string
   status: ReportStatus
+  approverName?: string
+  approvedAt?: string
   approvalRemark?: string
   createdAt: string
   images: ReportImage[]

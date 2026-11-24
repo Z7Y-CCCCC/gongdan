@@ -34,7 +34,7 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 @ActiveProfiles("test")
 class ApiRouteSmokeTest {
 
-    private static final int EXPECTED_ROUTE_METHODS = 177;
+    private static final int EXPECTED_ROUTE_METHODS = 191;
 
     @Autowired
     private MockMvc mockMvc;
@@ -100,7 +100,7 @@ class ApiRouteSmokeTest {
         for (Map.Entry<RequestMappingInfo, HandlerMethod> entry : handlerMapping.getHandlerMethods().entrySet()) {
             HandlerMethod handler = entry.getValue();
             Package owner = handler.getBeanType().getPackage();
-            if (owner == null || !owner.getName().startsWith("com.heihu.workorder.controller")) continue;
+            if (owner == null || !owner.getName().startsWith("com.heihu.workorder")) continue;
 
             Set<String> patterns = entry.getKey().getPatternsCondition() == null
                     ? entry.getKey().getPathPatternsCondition().getPatternValues()
@@ -132,6 +132,7 @@ class ApiRouteSmokeTest {
                 .replace("{peerId}", "999999999")
                 .replace("{imageId}", "999999999")
                 .replace("{attachmentId}", "999999999");
+        path = path.replace("{action:enable|disable|archive|restore}", "enable");
         path = path.replaceAll("\\{[^/]+}", "999999999");
         return path.replace("**", "api/plugin/equipment-inspection/ping");
     }

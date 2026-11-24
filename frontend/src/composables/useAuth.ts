@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue'
+import { t } from '../i18n'
 import type { UserInfo, LoginResponse } from '../api'
 
 function readStoredUser(): UserInfo | null {
@@ -109,7 +110,7 @@ export function handleKickedOut() {
 
   // 标题
   const title = document.createElement('h3')
-  title.innerText = '下线通知'
+  title.innerText = t('下线通知')
   Object.assign(title.style, {
     margin: '0 0 12px',
     fontSize: '20px',
@@ -119,7 +120,7 @@ export function handleKickedOut() {
 
   // 详情信息
   const content = document.createElement('p')
-  content.innerText = '您的账号已在其他地方登录，您已被挤下线。'
+  content.innerText = t('您的账号已在其他地方登录，您已被挤下线。')
   Object.assign(content.style, {
     margin: '0 0 28px',
     fontSize: '15px',
@@ -129,7 +130,7 @@ export function handleKickedOut() {
 
   // 精致的渐变色交互按钮
   const button = document.createElement('button')
-  button.innerText = '重新登录'
+  button.innerText = t('重新登录')
   Object.assign(button.style, {
     background: 'linear-gradient(135deg, #00b889 0%, #00966f 100%)',
     color: '#ffffff',

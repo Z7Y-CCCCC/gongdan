@@ -10,6 +10,7 @@ public class WorkOrderResponse {
     private String productCode;
     private String productName;
     private String productSpec;
+    private String unitName;
     private Integer plannedQuantity;
     private Integer goodQuantity;
     private Integer defectQuantity;
@@ -78,6 +79,14 @@ public class WorkOrderResponse {
 
     public void setProductSpec(String productSpec) {
         this.productSpec = productSpec;
+    }
+
+    public String getUnitName() {
+        return unitName;
+    }
+
+    public void setUnitName(String unitName) {
+        this.unitName = unitName;
     }
 
     public Integer getPlannedQuantity() {

@@ -10,6 +10,8 @@
  * Requirements: 6.1-6.8
  */
 import { ref, watch } from 'vue'
+import UiIcon from './UiIcon.vue'
+import { useDialogFocus } from '../composables/useDialogFocus'
 
 export interface ProcessCardSetting {
   processId: number
@@ -22,6 +24,8 @@ const props = defineProps<{
   visible: boolean
   settings: ProcessCardSetting[]
   token: string
+  saving?: boolean
+  error?: string
 }>()
 
 const emit = defineEmits<{
@@ -31,6 +35,8 @@ const emit = defineEmits<{
 
 // Local editable copy of settings
 const localSettings = ref<ProcessCardSetting[]>([])
+const dialogRef = ref<HTMLElement | null>(null)
+useDialogFocus(dialogRef, () => props.visible, handleCancel)
 
 // Sync local copy when modal opens
 watch(
@@ -44,6 +50,7 @@ watch(
 )
 
 function moveUp(index: number) {
+  if (props.saving) return
   if (index <= 0) return
   const items = [...localSettings.value]
   const temp = items[index]
@@ -53,6 +60,7 @@ function moveUp(index: number) {
 }
 
 function moveDown(index: number) {
+  if (props.saving) return
   const items = [...localSettings.value]
   if (index >= items.length - 1) return
   const temp = items[index]
@@ -62,16 +70,17 @@ function moveDown(index: number) {
 }
 
 function handleSave() {
+  if (props.saving) return
   const newSettings = localSettings.value.map((s) => ({
     processId: s.processId,
     color: s.color,
     visible: s.visible
   }))
   emit('save', newSettings)
-  emit('update:visible', false)
 }
 
 function handleCancel() {
+  if (props.saving) return
   emit('update:visible', false)
 }
 </script>
@@ -79,11 +88,11 @@ function handleCancel() {
 <template>
   <teleport to="body">
     <div v-if="visible" class="modal-overlay modal-backdrop" @click.self="handleCancel">
-      <div class="modal-card modal" role="dialog" aria-labelledby="settings-modal-title">
+      <div ref="dialogRef" class="modal-card modal" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="settings-modal-title">
         <div class="modal-header">
           <h3 id="settings-modal-title" class="modal-title">工序任务卡片设置</h3>
-          <button class="close-btn" type="button" title="关闭" aria-label="关闭" @click="handleCancel">
-            <span aria-hidden="true">×</span>
+          <button class="close-btn" type="button" title="关闭" aria-label="关闭" :disabled="saving" @click="handleCancel">
+            <UiIcon name="close" :size="18" />
           </button>
         </div>
 
@@ -97,6 +106,7 @@ function handleCancel() {
               <input
                 type="checkbox"
                 v-model="item.visible"
+                :disabled="saving"
                 :aria-label="`显示 ${item.processName}`"
               />
             </label>
@@ -106,6 +116,7 @@ function handleCancel() {
             <input
               type="color"
               v-model="item.color"
+              :disabled="saving"
               class="setting-color"
               :title="`选择 ${item.processName} 的颜色`"
               :aria-label="`${item.processName} 颜色`"
@@ -114,21 +125,21 @@ function handleCancel() {
             <div class="setting-actions">
               <button
                 class="btn-move"
-                :disabled="index === 0"
+                :disabled="saving || index === 0"
                 title="上移"
                 :aria-label="`上移 ${item.processName}`"
                 @click="moveUp(index)"
               >
-                ↑
+                <UiIcon name="chevronUp" :size="16" />
               </button>
               <button
                 class="btn-move"
-                :disabled="index === localSettings.length - 1"
+                :disabled="saving || index === localSettings.length - 1"
                 title="下移"
                 :aria-label="`下移 ${item.processName}`"
                 @click="moveDown(index)"
               >
-                ↓
+                <UiIcon name="chevronDown" :size="16" />
               </button>
             </div>
           </div>
@@ -138,9 +149,10 @@ function handleCancel() {
           </div>
         </div>
 
+        <p v-if="error" role="alert">{{ error }}</p>
         <div class="modal-footer">
-          <button class="btn btn-cancel" @click="handleCancel">取消</button>
-          <button class="btn btn-save" @click="handleSave">保存</button>
+          <button class="btn btn-cancel" :disabled="saving" @click="handleCancel">取消</button>
+          <button class="btn btn-save ui-icon-button" title="保存" aria-label="保存" :disabled="saving" :aria-busy="saving" @click="handleSave"><UiIcon name="save" :size="18" /></button>
         </div>
       </div>
     </div>

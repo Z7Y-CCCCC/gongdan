@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { ApiError, proxyPluginRequest, type PluginRuntimeManifestInfo } from '../api'
 import UiIcon from './UiIcon.vue'
+import { t, uiLocale } from '../i18n'
 
 const props = defineProps<{
   token: string
@@ -13,6 +14,10 @@ const allowedMethods = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
 const maxBridgeBodyBytes = 1024 * 1024
 let themeObserver: MutationObserver | null = null
 let lastSentTheme = ''
+let active = true
+let contextVersion = 0
+const frameGeneration = ref(0)
+const pendingRequests = new Set<string>()
 
 const frontendEntry = computed(() => {
   const value = props.plugin?.manifest?.frontendEntry
@@ -45,13 +50,14 @@ function currentTheme() {
 
 function sendContextToPlugin() {
   const plugin = props.plugin
-  if (!plugin || !frameRef.value?.contentWindow || !targetOrigin.value) return
+  if (!active || !props.token || !plugin || !frameRef.value?.contentWindow || !targetOrigin.value) return
   const theme = currentTheme()
   frameRef.value.contentWindow.postMessage({
     type: 'platform-context',
     pluginKey: plugin.pluginKey,
     theme,
-    context: {}
+    locale: uiLocale.value,
+    context: { locale: uiLocale.value }
   }, targetOrigin.value)
   lastSentTheme = theme
 }
@@ -71,20 +77,17 @@ function safePluginPath(path: unknown, pluginKey: string) {
   return path
 }
 
-function postPluginResponse(requestId: string, payload: Record<string, unknown>) {
-  if (!frameRef.value?.contentWindow || !targetOrigin.value || !props.plugin) return
-  frameRef.value.contentWindow.postMessage({
-    type: 'plugin-api-response',
-    pluginKey: props.plugin.pluginKey,
-    requestId,
-    ...payload
-  }, targetOrigin.value)
-}
-
 async function handlePluginMessage(event: MessageEvent) {
   const plugin = props.plugin
-  if (!plugin || !frameRef.value?.contentWindow || !targetOrigin.value) return
-  if (event.source !== frameRef.value.contentWindow || event.origin !== targetOrigin.value) return
+  const frame = frameRef.value
+  const sender = frame?.contentWindow
+  const origin = targetOrigin.value
+  const token = props.token
+  const version = contextVersion
+  if (!active || !token || !plugin || !frame || !sender || !origin) return
+  if (event.source !== sender || event.origin !== origin) return
+  const current = () => active && props.token === token && contextVersion === version && props.plugin?.pluginKey === plugin.pluginKey
+    && props.plugin?.version === plugin.version && frameRef.value === frame && frame.contentWindow === sender && targetOrigin.value === origin
   const data = event.data
   if (!data || typeof data !== 'object' || data.pluginKey !== plugin.pluginKey) return
   if (data.type === 'plugin-ready') {
@@ -94,25 +97,44 @@ async function handlePluginMessage(event: MessageEvent) {
   if (data.type !== 'plugin-api-request') return
 
   const requestId = typeof data.requestId === 'string' ? data.requestId : ''
+  const respond = (payload: Record<string, unknown>) => {
+    if (!current()) return
+    sender.postMessage({ type: 'plugin-api-response', pluginKey: plugin.pluginKey, requestId, ...payload }, origin)
+  }
   const method = typeof data.method === 'string' ? data.method.toUpperCase() : 'GET'
   const path = safePluginPath(data.path, plugin.pluginKey)
   if (!requestId || requestId.length > 128 || !allowedMethods.has(method) || !path) {
-    if (requestId) postPluginResponse(requestId, { ok: false, status: 400, body: { message: '插件请求参数不合法' } })
+    if (requestId) respond({ ok: false, status: 400, body: { message: t('插件请求参数不合法') } })
     return
   }
+  const requestKey = `${version}:${requestId}`
+  if (pendingRequests.has(requestKey)) return
+  if (pendingRequests.size >= 32) { respond({ ok: false, status: 429, body: { message: t('插件请求过多，请稍后重试') } }); return }
+  pendingRequests.add(requestKey)
 
   try {
     if (data.body != null && new Blob([JSON.stringify(data.body)]).size > maxBridgeBodyBytes) {
       throw new ApiError('插件请求内容过大', 413)
     }
-    const body = await proxyPluginRequest(props.token, plugin.pluginKey, path, method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', data.body)
-    postPluginResponse(requestId, { ok: true, status: 200, body })
+    const body = await proxyPluginRequest(token, plugin.pluginKey, path, method as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', data.body)
+    respond({ ok: true, status: 200, body })
   } catch (error) {
     const status = error instanceof ApiError ? error.status : 500
     const message = error instanceof Error ? error.message : '插件请求失败'
-    postPluginResponse(requestId, { ok: false, status, body: { message } })
+    respond({ ok: false, status, body: { message: t(message) } })
+  } finally {
+    pendingRequests.delete(requestKey)
   }
 }
+watch(uiLocale, sendContextToPlugin)
+watch([() => props.token, () => props.plugin?.pluginKey, () => props.plugin?.version, frontendEntry], () => {
+  contextVersion++
+  pendingRequests.clear()
+  frameGeneration.value++
+  lastSentTheme = ''
+}, { flush: 'sync' })
+onDeactivated(() => { active = false; contextVersion++; pendingRequests.clear() })
+onActivated(() => { active = true; sendContextToPlugin() })
 
 onMounted(() => {
   window.addEventListener('message', handlePluginMessage)
@@ -121,6 +143,9 @@ onMounted(() => {
   if (document.body) themeObserver.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] })
 })
 onBeforeUnmount(() => {
+  active = false
+  contextVersion++
+  pendingRequests.clear()
   window.removeEventListener('message', handlePluginMessage)
   themeObserver?.disconnect()
   themeObserver = null
@@ -132,12 +157,11 @@ onBeforeUnmount(() => {
     <div v-if="plugin" class="plugin-runtime-header">
       <div>
         <div class="plugin-runtime-title"><UiIcon name="layers" /><h2>{{ plugin.name }}</h2><span>v{{ plugin.version }}</span></div>
-        <p>这是独立扩展页面。插件发生异常时，主系统可以单独下线它。</p>
       </div>
     </div>
 
     <div v-if="plugin && frontendEntry" class="plugin-runtime-frame-wrap">
-      <iframe ref="frameRef" class="plugin-runtime-frame" :src="frontendEntry" :title="plugin.name" sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts" referrerpolicy="no-referrer" @load="sendContextToPlugin"></iframe>
+      <iframe :key="frameGeneration" ref="frameRef" class="plugin-runtime-frame" :src="frontendEntry" :title="plugin.name" sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts" referrerpolicy="no-referrer" @load="sendContextToPlugin"></iframe>
     </div>
     <div v-else class="plugin-runtime-empty">
       <UiIcon name="activity" :size="30" />

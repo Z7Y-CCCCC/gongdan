@@ -251,25 +251,17 @@ onMounted(() => {
       </div>
 
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="handleSearch">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-          查询
-        </button>
-        <button class="toolbar-btn" type="button" @click="handleReset" title="重置条件">
+        <button class="primary-btn query-btn ui-icon-button" type="button" @click="handleSearch" title="查询库存明细" aria-label="查询库存明细"><UiIcon name="search" /></button>
+        <button class="toolbar-btn ui-icon-button" type="button" @click="handleReset" title="重置条件" aria-label="重置条件">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
             <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
           </svg>
         </button>
-        <button class="toolbar-btn" type="button" @click="showAdvancedFilter = !showAdvancedFilter"
+        <button class="toolbar-btn ui-action-button" type="button" @click="showAdvancedFilter = !showAdvancedFilter"
           :title="showAdvancedFilter ? '收起高级筛选' : '展开高级筛选'"
-          style="font-size:12px; display:flex; align-items:center; gap:4px;">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
+          style="font-size:12px; display:flex; align-items:center; gap:4px;" :aria-label="showAdvancedFilter ? '收起高级筛选' : '展开高级筛选'"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
             <polyline :points="showAdvancedFilter ? '18 15 12 9 6 15' : '6 9 12 15 18 9'"></polyline>
-          </svg>
-        </button>
+          </svg><span>高级筛选</span></button>
       </div>
     </div>
 
@@ -344,16 +336,9 @@ onMounted(() => {
 
     <!-- Action Toolbar -->
     <div class="toolbar" style="margin-bottom:16px">
-      <button class="toolbar-btn" type="button" @click="exportCSV">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-        导出
-      </button>
+      <button class="toolbar-btn ui-icon-button" type="button" @click="exportCSV" title="导出库存明细" aria-label="导出库存明细"><UiIcon name="download" /></button>
 
-      <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true">
+      <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true">
         <UiIcon name="table-columns" :size="16" />
       </button>
     </div>
@@ -405,9 +390,9 @@ onMounted(() => {
     <div class="pagination" v-if="totalItems > 0" style="margin-top:16px">
       <span class="page-info">共{{ totalItems }}条结果</span>
       <div class="page-controls">
-        <button :disabled="currentPage <= 1" @click="goPage(currentPage - 1)">&lt;</button>
+        <button :disabled="currentPage <= 1" @click="goPage(currentPage - 1)" class="ui-icon-button" title="上一页" aria-label="上一页" type="button"><UiIcon name="arrowLeft" /></button>
         <button class="active">{{ currentPage }}</button>
-        <button :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)">&gt;</button>
+        <button :disabled="currentPage >= totalPages" @click="goPage(currentPage + 1)" class="ui-icon-button" title="下一页" aria-label="下一页" type="button"><UiIcon name="arrowRight" /></button>
       </div>
       <select class="page-size-select" v-model="pageSize" @change="currentPage = 1; loadData()">
         <option :value="10">10 条/页</option>

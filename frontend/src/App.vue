@@ -71,7 +71,11 @@ import LoadingProgressOverlay from './components/LoadingProgressOverlay.vue'
 import WorkspaceTabs, { type WorkspaceTabItem } from './components/WorkspaceTabs.vue'
 import UiIcon from './components/UiIcon.vue'
 import { useAuth } from './composables/useAuth'
+import { useLatestRequest } from './composables/useLatestRequest'
 import { buildWorkshopDashboard } from './utils/workshopDashboard'
+import { setUiLocale, uiLocale, t, uiTimezone, setUiTimezone, formatUiDate } from './i18n'
+import { buildWorkspaceUrl, readWorkspaceRoute } from './utils/workspaceRoute'
+import { notificationHeading, notificationBody } from './utils/notificationLocale'
 
 const ProductDefinitionPage = defineAsyncComponent(() => import('./components/ProductDefinitionPage.vue'))
 const BomPage = defineAsyncComponent(() => import('./components/BomPage.vue'))
@@ -166,6 +170,12 @@ const activeConfigMenu = ref('department') // default to department based on use
 const activeMainMenu = ref('home') // 'home' | 'sysconfig' | 'basedata' | 'super-admin' | ...
 const activeBasedataMenu = ref('unit') // default to unit
 const activeProductionMenu = ref('workorder')
+const workOrderFocusTarget = ref<{ id: number } | null>(null)
+watch([activeMainMenu, activeProductionMenu], () => {
+  if (activeMainMenu.value !== 'production' || activeProductionMenu.value !== 'workorder') {
+    workOrderFocusTarget.value = null
+  }
+}, { flush: 'sync' })
 const activeCustomMenu = ref('workorder')
 const activeInventoryMenu = ref('inbound') // 'inbound' | 'outbound' | 'detail' | 'balance' | 'summary'
 const activeMonitorMenu = ref<'online' | 'cache' | 'cacheList'>('online')
@@ -183,6 +193,7 @@ const activePageCacheKey = computed(() => {
   return activeMainMenu.value
 })
 const pageMotionStage = ref<HTMLElement | null>(null)
+let restoredWorkspaceRoute = false
 
 type WorkspaceLoadingStageStatus = 'pending' | 'loading' | 'done' | 'error'
 interface WorkspaceLoadingStage {
@@ -226,7 +237,7 @@ type WorkspaceTab = WorkspaceTabItem & {
 }
 
 const workspaceTabs = ref<WorkspaceTab[]>([
-  { id: 'home', label: '分析页', main: 'home', closable: false, pinned: true }
+  { id: 'home', label: '主页', main: 'home', closable: false, pinned: true }
 ])
 const activeWorkspaceTabId = ref('home')
 const tabContextMenu = reactive({ show: false, x: 0, y: 0, tabId: '' })
@@ -247,7 +258,7 @@ const timezoneOptions = [
   { value: 'Asia/Tokyo', label: 'Asia/Tokyo (GMT+9)' },
   { value: 'Asia/Seoul', label: 'Asia/Seoul (GMT+9)' }
 ]
-const selectedTimezone = ref(localStorage.getItem('heihu_timezone') || 'Asia/Shanghai')
+const selectedTimezone = uiTimezone
 const timezoneDraft = ref(selectedTimezone.value)
 
 watch(isDarkTheme, value => {
@@ -256,7 +267,8 @@ watch(isDarkTheme, value => {
 }, { immediate: true })
 
 const workspaceLabels: Record<string, string> = {
-  home: '分析页',
+  home: '主页',
+  notifications: '通知中心',
   dashboard: '车间看板',
   advanced: '高级运营',
   report: '生产报表',
@@ -264,7 +276,8 @@ const workspaceLabels: Record<string, string> = {
   'production-sales': '销售订单',
   'production-workorder': '工单',
   'production-task': '任务',
-  'production-reporting': '报工工作台',
+  'production-reporting': '报工',
+  'production-workbench': '报工工作台',
   'inventory-inbound': '入库单',
   'inventory-outbound': '出库单',
   'inventory-detail': '库存收发明细',
@@ -412,7 +425,14 @@ function refreshWorkspace() {
 }
 
 function openCurrentTabInNewWindow() {
-  window.open(window.location.href, '_blank', 'noopener,noreferrer')
+  const target = workspaceTabs.value.find(tab => tab.id === tabContextMenu.tabId) || captureWorkspaceTab()
+  let href = ''
+  try { href = buildWorkspaceUrl(window.location.href, target.id) }
+  catch { showAction('当前页面不能在新窗口打开'); return }
+  const opened = window.open('about:blank', '_blank')
+  if (!opened) { showAction('浏览器阻止了窗口，请允许弹窗后重试'); return }
+  opened.opener = null
+  opened.location.href = href
   closeTabContextMenu()
 }
 
@@ -421,10 +441,23 @@ function jumpFromQuickApp(main: string, sub = '') {
   if (main === 'production' && sub) activeProductionMenu.value = sub
   if (main === 'inventory' && sub) activeInventoryMenu.value = sub
   if (main === 'basedata' && sub) activeBasedataMenu.value = sub
+  if (main === 'custom' && sub) activeCustomMenu.value = sub
   if (main === 'sysconfig' && sub) activeConfigMenu.value = sub
   if (main === 'monitor' && sub) activeMonitorMenu.value = sub as 'online' | 'cache' | 'cacheList'
   if (main === 'plugin' && sub) activePluginKey.value = sub
   showQuickApps.value = false
+}
+
+function viewHomeWorkOrder(id: number) {
+  if (!token.value || !Number.isSafeInteger(id) || id <= 0) {
+    showAction('工单编号无效，请刷新后重试')
+    return
+  }
+  activeMainMenu.value = 'production'
+  activeProductionMenu.value = 'workorder'
+  expandedMenus.production = true
+  // A fresh target also refreshes the same order when its KeepAlive page is reused.
+  workOrderFocusTarget.value = { id }
 }
 
 function openRuntimePlugin(pluginKey: string) {
@@ -435,8 +468,7 @@ function openRuntimePlugin(pluginKey: string) {
 
 function selectLanguage(language: string) {
   showLanguageMenu.value = false
-  if (language === 'zh-CN') showAction('当前界面已是简体中文')
-  else showAction('英文界面将在多语言资源配置后启用')
+  setUiLocale(language)
 }
 
 function toggleChromeQuickMenu() {
@@ -469,11 +501,13 @@ function toggleTheme() {
 function openInternalChat() {
   const url = new URL(window.location.href)
   url.hash = '#/im-chat'
-  const messageWindow = window.open(url.toString(), '_blank', 'noopener,noreferrer')
+  const messageWindow = window.open('about:blank', '_blank')
   if (!messageWindow) {
     errorMessage.value = '浏览器阻止了内部沟通窗口，请允许弹窗后重试'
     return
   }
+  messageWindow.opener = null
+  messageWindow.location.href = url.toString()
 }
 
 function openTimezoneDialog() {
@@ -489,8 +523,7 @@ function closeTimezoneDialog() {
 }
 
 function confirmTimezone() {
-  selectedTimezone.value = timezoneDraft.value
-  localStorage.setItem('heihu_timezone', selectedTimezone.value)
+  if (!setUiTimezone(timezoneDraft.value)) return
   showTimezoneDialog.value = false
   const selected = timezoneOptions.find(option => option.value === selectedTimezone.value)
   showAction(`时区已切换为 ${selected?.label || selectedTimezone.value}`)
@@ -552,8 +585,8 @@ watch(activePageCacheKey, async () => {
   await nextTick()
   const stage = pageMotionStage.value
   if (!stage || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  stage.getAnimations().forEach(animation => animation.cancel())
-  stage.animate(
+  stage.getAnimations?.().forEach(animation => animation.cancel())
+  stage.animate?.(
     [
       { opacity: 0.45, transform: 'translateY(7px)' },
       { opacity: 1, transform: 'translateY(0)' }
@@ -564,10 +597,11 @@ watch(activePageCacheKey, async () => {
 
 // ======== 车间看板数据 ========
 const isDashboardFullscreen = ref(false)
-const dashboardTime = ref(new Date().toLocaleString('zh-CN'))
+const dashboardTime = ref(formatUiDate(new Date(), true))
 const currentMonth = ref(new Date().getFullYear() + '.' + (new Date().getMonth() + 1))
 
-setInterval(() => { dashboardTime.value = new Date().toLocaleString('zh-CN') }, 60000)
+const dashboardClock = setInterval(() => { dashboardTime.value = formatUiDate(new Date(), true) }, 60000)
+watch([uiLocale, uiTimezone], () => { dashboardTime.value = formatUiDate(new Date(), true) })
 
 function toggleDashboardFullscreen() {
   const el = document.querySelector('.dashboard-fullscreen') as HTMLElement
@@ -728,6 +762,10 @@ const notificationItems = ref<NotificationInfo[]>([])
 const notificationUnreadCount = ref(0)
 const notificationCount = computed(() => notificationUnreadCount.value)
 const notificationPreview = computed(() => notificationItems.value.slice(0, 8))
+const beginNotificationLoad = useLatestRequest()
+const beginNotificationCountLoad = useLatestRequest()
+const notificationsUpdating = ref(false)
+const notificationOpening = ref(new Set<number>())
 let notificationPollTimer: ReturnType<typeof setInterval> | null = null
 
 function normalizeDate(value?: string) {
@@ -750,14 +788,19 @@ function normalizeDate(value?: string) {
 }
 
 async function loadNotificationCount(): Promise<boolean> {
-  if (!token.value) {
+  const requestToken = token.value
+  const isCurrent = beginNotificationCountLoad()
+  if (!requestToken) {
     notificationUnreadCount.value = 0
     return true
   }
   try {
-    notificationUnreadCount.value = await fetchNotificationUnreadCount(token.value)
+    const count = await fetchNotificationUnreadCount(requestToken)
+    if (!isCurrent() || token.value !== requestToken) return false
+    notificationUnreadCount.value = count
     return true
   } catch (error) {
+    if (!isCurrent() || token.value !== requestToken) return false
     notificationUnreadCount.value = 0
     notificationError.value = error instanceof Error ? error.message : '通知数量加载失败'
     return false
@@ -765,7 +808,10 @@ async function loadNotificationCount(): Promise<boolean> {
 }
 
 async function loadNotifications(): Promise<boolean> {
-  if (!token.value) {
+  const requestToken = token.value
+  const isCurrent = beginNotificationLoad()
+  const isCountCurrent = beginNotificationCountLoad()
+  if (!requestToken) {
     notificationItems.value = []
     notificationUnreadCount.value = 0
     return true
@@ -773,16 +819,18 @@ async function loadNotifications(): Promise<boolean> {
   notificationsLoading.value = true
   notificationError.value = ''
   try {
-    const result = await fetchNotifications(token.value, { scope: 'active', page: 1, size: 8 })
+    const result = await fetchNotifications(requestToken, { scope: 'active', page: 1, size: 8 })
+    if (!isCurrent() || token.value !== requestToken) return false
     notificationItems.value = result.items || []
-    notificationUnreadCount.value = result.unreadCount || 0
+    if (isCountCurrent()) notificationUnreadCount.value = result.unreadCount || 0
     return true
   } catch (error) {
+    if (!isCurrent() || token.value !== requestToken) return false
     notificationItems.value = []
     notificationError.value = error instanceof Error ? error.message : '通知加载失败'
     return false
   } finally {
-    notificationsLoading.value = false
+    if (isCurrent() && token.value === requestToken) notificationsLoading.value = false
   }
 }
 
@@ -790,8 +838,8 @@ function startNotificationPolling() {
   if (notificationPollTimer) clearInterval(notificationPollTimer)
   notificationPollTimer = setInterval(() => {
     if (!token.value || isInternalChatWindow.value) return
-    void loadNotificationCount()
     if (showNotificationDropdown.value) void loadNotifications()
+    else void loadNotificationCount()
   }, 60000)
 }
 
@@ -823,16 +871,17 @@ async function toggleNotifications() {
 }
 
 async function markAllNotificationsAsRead() {
-  if (!token.value || notificationUnreadCount.value === 0) return
+  if (!token.value || notificationUnreadCount.value === 0 || notificationsUpdating.value || notificationOpening.value.size) return
+  const requestToken = token.value
+  notificationsUpdating.value = true
   try {
-    await markAllNotificationsRead(token.value)
-    notificationItems.value.forEach(item => {
-      item.unread = false
-      if (item.state === 'UNREAD') item.state = 'READ'
-    })
-    notificationUnreadCount.value = 0
+    await markAllNotificationsRead(requestToken)
+    if (token.value !== requestToken) return
+    await loadNotifications()
   } catch (error) {
-    notificationError.value = error instanceof Error ? error.message : '全部已读失败'
+    if (token.value === requestToken) notificationError.value = error instanceof Error ? error.message : '全部已读失败'
+  } finally {
+    if (token.value === requestToken) notificationsUpdating.value = false
   }
 }
 
@@ -843,22 +892,38 @@ function openNotificationCenter() {
 }
 
 async function openNotification(item: NotificationInfo) {
-  if (item.unread && token.value) {
-    try {
-      await markNotificationRead(token.value, item.id)
-      item.unread = false
-      item.state = 'READ'
-      notificationUnreadCount.value = Math.max(0, notificationUnreadCount.value - 1)
-    } catch {
-      // Navigation remains available even when the read-state update is temporarily unavailable.
+  if (!token.value || notificationsUpdating.value || notificationOpening.value.has(item.id)) return
+  const requestToken = token.value
+  const pending = notificationOpening.value
+  pending.add(item.id)
+  try {
+    if (item.unread) {
+      try {
+        await markNotificationRead(requestToken, item.id)
+        if (token.value !== requestToken) return
+        item.unread = false
+        item.state = 'READ'
+        await loadNotificationCount()
+      } catch {
+        // Navigation remains available even when the read-state update is temporarily unavailable.
+      }
     }
+    if (token.value !== requestToken) return
+    activeMainMenu.value = item.targetMain || 'home'
+    if (item.targetMain === 'production') {
+      activeProductionMenu.value = item.targetSub || 'workorder'
+      expandedMenus.production = true
+    }
+    showNotificationDropdown.value = false
+  } finally {
+    pending.delete(item.id)
   }
-  activeMainMenu.value = item.targetMain || 'home'
-  if (item.targetMain === 'production') {
-    activeProductionMenu.value = item.targetSub || 'workorder'
-    expandedMenus.production = true
-  }
-  showNotificationDropdown.value = false
+}
+
+function updateNotificationUnreadCount(count: number) {
+  // A refreshed full-center count supersedes an older poll/dropdown count request.
+  beginNotificationCountLoad()
+  notificationUnreadCount.value = count
 }
 
 const displayReports = computed(() => {
@@ -1993,6 +2058,13 @@ async function bootstrapWorkspace(): Promise<boolean> {
         : '当前工厂没有启用插件'
     })
     await runWorkspaceLoadingStage(runId, 'prepare-workspace', async () => {
+      if (!restoredWorkspaceRoute) {
+        restoredWorkspaceRoute = true
+        const route = readWorkspaceRoute(window.location.href)
+        if (route && (route.main !== 'plugin' || runtimePlugins.value.some(plugin => plugin.pluginKey === route.sub))) {
+          jumpFromQuickApp(route.main, route.sub)
+        }
+      }
       await nextTick()
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       return '工作区已准备完成'
@@ -2086,7 +2158,7 @@ function handleSearch() {
     return
   }
 
-  const match = menuMap.find(m => m.label.includes(query))
+  const match = menuMap.find(m => m.label.toLowerCase().includes(query) || t(m.label).toLowerCase().includes(query))
   if (match) {
     activeMainMenu.value = match.mainMenu
     if (match.expandedMenu) {
@@ -2745,7 +2817,7 @@ function resetAuthenticatedWorkspace() {
   tableData.value = []
   taskProgressData.value = []
   dashboardReports.value = []
-  workspaceTabs.value = [{ id: 'home', label: '分析页', main: 'home', closable: false, pinned: true }]
+  workspaceTabs.value = [{ id: 'home', label: '主页', main: 'home', closable: false, pinned: true }]
   activeWorkspaceTabId.value = 'home'
   for (const modal of [showCreateModal, showEditModal, showPermissionModal, showImportLogModal,
     showResetPasswordModal, showEditPrintTemplateModal, showUnitModal, showDefectModal,
@@ -2770,8 +2842,14 @@ function resetAuthenticatedWorkspace() {
   pendingPhoneCredential.credential = ''
   runtimePlugins.value = []
   activePluginKey.value = ''
+  workOrderFocusTarget.value = null
   notificationItems.value = []
   notificationUnreadCount.value = 0
+  beginNotificationLoad()
+  beginNotificationCountLoad()
+  notificationsLoading.value = false
+  notificationsUpdating.value = false
+  notificationOpening.value = new Set()
   notificationError.value = ''
   if (notificationPollTimer) {
     clearInterval(notificationPollTimer)
@@ -2791,6 +2869,27 @@ function logout() {
   sharedAuth.logout()
 }
 
+function handleShellClick(e: MouseEvent) {
+  const target = e.target instanceof Element ? e.target : null
+  if (!target) return
+  if (!target.closest('.user-profile')) showUserDropdown.value = false
+  if (!target.closest('.notification-wrap')) showNotificationDropdown.value = false
+  if (!target.closest('.custom-multiselect')) showUserSelectDropdown.value = false
+  if (!target.closest('.perm-dropdown-wrap')) showProcessPermDropdown.value = false
+  if (!target.closest('.defect-dropdown-wrap')) showProcessDefectDropdown.value = false
+  if (!target.closest('.route-step-select, .route-step-dropdown')) closeAllRouteStepDropdowns()
+  if (!target.closest('.chrome-quick-wrap')) showChromeQuickMenu.value = false
+  if (!target.closest('.chrome-dropdown-wrap')) { showQuickApps.value = false; showLanguageMenu.value = false }
+  if (!target.closest('.tab-context-menu, .workspace-tabs')) closeTabContextMenu()
+}
+
+function handleShellKeydown(event: KeyboardEvent) {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    focusWorkspaceSearch()
+  }
+}
+
 onMounted(() => {
   document.addEventListener('fullscreenchange', syncNativeFullscreenState)
 
@@ -2803,54 +2902,15 @@ onMounted(() => {
     workspaceLoadingVisible.value = false
   }
 
-  window.addEventListener('click', (e) => {
-    const target = e.target as HTMLElement
-    if (!target.closest('.user-profile')) {
-      showUserDropdown.value = false
-    }
-    if (!target.closest('.notification-wrap')) {
-      showNotificationDropdown.value = false
-    }
-    if (!target.closest('.custom-multiselect')) {
-      showUserSelectDropdown.value = false
-    }
-    // 报工权限下拉：点击非其内部区域时收起
-    if (!target.closest('.perm-dropdown-wrap')) {
-      showProcessPermDropdown.value = false
-    }
-    // 不良品项下拉：点击非其内部区域时收起
-    if (!target.closest('.defect-dropdown-wrap')) {
-      showProcessDefectDropdown.value = false
-    }
-    // 工序下拉框：点击非其内部区域时收起
-    if (!target.closest('.route-step-select') && !target.closest('.route-step-dropdown')) {
-      closeAllRouteStepDropdowns()
-    }
-    if (!target.closest('.chrome-quick-wrap')) {
-      showChromeQuickMenu.value = false
-    }
-    if (!target.closest('.chrome-dropdown-wrap')) {
-      showQuickApps.value = false
-      showLanguageMenu.value = false
-    }
-    if (!target.closest('.tab-context-menu') && !target.closest('.workspace-tabs')) {
-      closeTabContextMenu()
-    }
-  })
-
-  window.addEventListener('keydown', (event) => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-      event.preventDefault()
-      focusWorkspaceSearch()
-    }
-  })
-  document.addEventListener('fullscreenchange', () => {
-    isAppFullscreen.value = Boolean(document.fullscreenElement)
-  })
+  window.addEventListener('click', handleShellClick)
+  window.addEventListener('keydown', handleShellKeydown)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncNativeFullscreenState)
+  window.removeEventListener('click', handleShellClick)
+  window.removeEventListener('keydown', handleShellKeydown)
+  clearInterval(dashboardClock)
   if (notificationPollTimer) clearInterval(notificationPollTimer)
   if (smsTimer) clearInterval(smsTimer)
   if (errorTimer) clearTimeout(errorTimer)
@@ -2890,73 +2950,46 @@ function handleNavigate(menu: { main: string; sub: string }) {
     activeInventoryMenu.value = menu.sub
   }
 }
+
+function activateSidebarItem(event: KeyboardEvent) {
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  const target = event.target as HTMLElement | null
+  if (!target?.matches('a.nav-item, a.sub-item')) return
+  event.preventDefault()
+  target.click()
+}
 </script>
 
 <template>
   <main v-if="!isLoggedIn" class="login-page">
-    <section class="login-hero">
-      <div class="brand">
-        <span class="brand-mark"><img class="logo-mark" src="/logo.jpg" alt="数字工单通" /></span>
-        <span class="brand-name">
-          <strong>数字工单通</strong>
-          <small>生产现场协同平台</small>
-        </span>
-      </div>
-      <div class="hero-copy">
-        <p class="hero-kicker">轻量化生产执行与现场协同</p>
-        <h1>让每一张工单<br />都清楚、及时、可追溯</h1>
-        <p class="hero-description">从计划下达到移动报工，把人员、设备、物料和质量信息沉淀在同一条生产链路中。</p>
-        <div class="feature-grid">
-          <div class="feature-item">
-            <span class="feature-icon">01</span>
-            <div>
-              <strong>扫码接单，移动作业</strong>
-              <p>一线工人手机扫码，无纸化生产</p>
-            </div>
-          </div>
-          <div class="feature-item">
-            <span class="feature-icon">02</span>
-            <div>
-              <strong>计时计件薪资实时核算</strong>
-              <p>解放财务劳动力，绩效薪资实时核算</p>
-            </div>
-          </div>
-          <div class="feature-item">
-            <span class="feature-icon">03</span>
-            <div>
-              <strong>工厂全局大屏监控</strong>
-              <p>一站式数据管理驱动生产</p>
-            </div>
-          </div>
-        </div>
-        <div class="hero-assurance"><span></span> 本地部署可用 · 数据留在企业内部</div>
-      </div>
-    </section>
     <section class="login-panel">
       <div class="login-box">
+        <div class="login-brand">
+          <img src="/logo.jpg" alt="" />
+          <strong>数字工单通</strong>
+          <button class="login-language-switch" type="button" :title="uiLocale === 'zh-CN' ? 'English' : '简体中文'" :aria-label="uiLocale === 'zh-CN' ? 'Switch to English' : '切换简体中文'" @click="selectLanguage(uiLocale === 'zh-CN' ? 'en-US' : 'zh-CN')"><UiIcon name="language" :size="18" /></button>
+        </div>
         <div class="login-heading">
-          <span>账号登录</span>
-          <h2>进入生产工作台</h2>
-          <p class="login-sub">使用工厂账号或已绑定的手机号登录</p>
+          <h2>登录</h2>
         </div>
 
         <!-- Tab switcher -->
-        <div v-if="!showBindFactory && !showFactorySelect" class="login-tabs">
-          <span class="login-tab" :class="{ active: loginTab === 'factory' }" @click="loginTab = 'factory'">工厂账号登录</span>
-          <span class="login-tab" :class="{ active: loginTab === 'phone' }" @click="loginTab = 'phone'">手机号登录</span>
+        <div v-if="!showBindFactory && !showFactorySelect" class="login-tabs" role="tablist" aria-label="登录方式">
+          <button type="button" role="tab" class="login-tab" :aria-selected="loginTab === 'factory'" :class="{ active: loginTab === 'factory' }" @click="loginTab = 'factory'">工厂账号</button>
+          <button type="button" role="tab" class="login-tab" :aria-selected="loginTab === 'phone'" :class="{ active: loginTab === 'phone' }" @click="loginTab = 'phone'">手机号</button>
         </div>
 
         <!-- Factory select overlay -->
         <div v-if="showFactorySelect" class="factory-select-panel">
           <h3>请选择工厂</h3>
           <div class="factory-list">
-            <div v-for="f in factoryList" :key="f.factoryId" class="factory-item" @click="handleSelectFactory(f.factoryId)">
+            <button type="button" v-for="f in factoryList" :key="f.factoryId" class="factory-item" @click="handleSelectFactory(f.factoryId)">
               <span class="factory-name-label">{{ f.factoryName }}</span>
               <span class="factory-code-label">{{ f.factoryCode }}</span>
-            </div>
+            </button>
           </div>
           <p v-if="phoneError" class="form-error">{{ phoneError }}</p>
-          <button class="text-btn" type="button" @click="showFactorySelect = false">返回</button>
+          <button class="text-btn ui-icon-button" type="button" title="返回" aria-label="返回" @click="showFactorySelect = false"><UiIcon name="arrowLeft" :size="18" /></button>
         </div>
 
         <!-- Bind factory overlay -->
@@ -2970,9 +3003,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
         <!-- Phone login form -->
         <form v-if="loginTab === 'phone' && !showFactorySelect && !showBindFactory" class="login-form" @submit.prevent="handlePhoneLogin">
           <div class="phone-mode-switch">
-            <span :class="{ active: phoneLoginMode === 'password' }" @click="phoneLoginMode = 'password'">密码登录</span>
-            <span class="mode-divider">|</span>
-            <span :class="{ active: phoneLoginMode === 'sms' }" @click="phoneLoginMode = 'sms'">验证码登录</span>
+            <button type="button" :class="{ active: phoneLoginMode === 'password' }" :aria-pressed="phoneLoginMode === 'password'" @click="phoneLoginMode = 'password'">密码</button>
+            <button type="button" :class="{ active: phoneLoginMode === 'sms' }" :aria-pressed="phoneLoginMode === 'sms'" @click="phoneLoginMode = 'sms'">验证码</button>
           </div>
           <label>
             <span>手机号</span>
@@ -2981,7 +3013,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <label v-if="phoneLoginMode === 'password'">
             <span>密码</span>
             <div class="password-input-wrap">
-              <input v-model="phoneForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showPhonePassword ? 'text' : 'password'" />
+              <input aria-label="密码" v-model="phoneForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showPhonePassword ? 'text' : 'password'" />
               <button
                 class="password-toggle"
                 type="button"
@@ -3022,7 +3054,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <label>
             <span>密码</span>
             <div class="password-input-wrap">
-              <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showLoginPassword ? 'text' : 'password'" />
+              <input aria-label="密码" v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showLoginPassword ? 'text' : 'password'" />
               <button
                 class="password-toggle"
                 type="button"
@@ -3046,7 +3078,6 @@ function handleNavigate(menu: { main: string; sub: string }) {
             {{ loading ? '登录中...' : '登录' }}
           </button>
         </form>
-        <p v-if="!showFactorySelect && !showBindFactory" class="login-help">账号由工厂管理员统一创建与维护</p>
       </div>
     </section>
   </main>
@@ -3060,168 +3091,168 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
   <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'app-fullscreen': isAppFullscreen, 'dark-theme': isDarkTheme }">
     <aside class="sidebar">
-      <button class="collapse-toggle" type="button" @click="isSidebarCollapsed = !isSidebarCollapsed">
+      <button class="collapse-toggle" type="button" :title="isSidebarCollapsed ? '展开侧栏' : '收起侧栏'" :aria-label="isSidebarCollapsed ? '展开侧栏' : '收起侧栏'" :aria-expanded="!isSidebarCollapsed" @click="isSidebarCollapsed = !isSidebarCollapsed">
         <svg v-if="!isSidebarCollapsed" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
         <svg v-else viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 18l6-6-6-6"/></svg>
       </button>
       <div class="factory-name" v-show="!isSidebarCollapsed" :title="currentFactoryCode">{{ currentFactoryCode }}</div>
-      <nav v-if="hasAdminAccess">
-        <a v-if="currentUser && currentUser.role === 'ADMIN'" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'home' }" :title="isSidebarCollapsed ? '主页' : ''" @click="activeMainMenu = 'home'">
+      <nav v-if="hasAdminAccess" @keydown="activateSidebarItem">
+        <a v-if="currentUser && currentUser.role === 'ADMIN'" role="button" tabindex="0" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'home' }" :title="isSidebarCollapsed ? '主页' : ''" @click="activeMainMenu = 'home'">
           <UiIcon name="home" :size="18" />
           <span v-show="!isSidebarCollapsed">主页</span>
         </a>
 
         <div class="nav-group">
-          <a class="nav-item" :title="isSidebarCollapsed ? '生产管理' : ''" @click.stop="toggleMenu('production')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '生产管理' : ''" @click.stop="toggleMenu('production')">
             <UiIcon name="file" :size="18" />
             <span v-show="!isSidebarCollapsed">生产管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.production }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.production" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'"><UiIcon name="file" :size="15" />销售订单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'"><UiIcon name="calendar" :size="15" />任务</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'"><UiIcon name="check" :size="15" />报工工作台</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'"><UiIcon name="file" :size="15" />销售订单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'"><UiIcon name="calendar" :size="15" />任务</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'"><UiIcon name="check" :size="15" />报工工作台</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a class="nav-item" :title="isSidebarCollapsed ? '上下游管理' : ''" @click.stop="toggleMenu('upstream')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '上下游管理' : ''" @click.stop="toggleMenu('upstream')">
             <UiIcon name="share" :size="18" />
             <span v-show="!isSidebarCollapsed">上下游管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.upstream }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.upstream" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true"><UiIcon name="user" :size="15" />客户</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true"><UiIcon name="share" :size="15" />供应商</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true"><UiIcon name="user" :size="15" />客户</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true"><UiIcon name="share" :size="15" />供应商</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a class="nav-item" :title="isSidebarCollapsed ? '库存管理' : ''" @click.stop="toggleMenu('inventory')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '库存管理' : ''" @click.stop="toggleMenu('inventory')">
             <UiIcon name="layers" :size="18" />
             <span v-show="!isSidebarCollapsed">库存管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.inventory }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.inventory" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'"><UiIcon name="download" :size="15" />入库单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'"><UiIcon name="upload" :size="15" />出库单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'"><UiIcon name="list" :size="15" />库存收发明细</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'"><UiIcon name="layers" :size="15" />库存余额</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'"><UiIcon name="activity" :size="15" />进销存汇总</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'"><UiIcon name="download" :size="15" />入库单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'"><UiIcon name="upload" :size="15" />出库单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'"><UiIcon name="list" :size="15" />库存收发明细</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'"><UiIcon name="layers" :size="15" />库存余额</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'"><UiIcon name="activity" :size="15" />进销存汇总</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a class="nav-item" :title="isSidebarCollapsed ? '基础数据' : ''" @click.stop="toggleMenu('basedata')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '基础数据' : ''" @click.stop="toggleMenu('basedata')">
             <UiIcon name="list" :size="18" />
             <span v-show="!isSidebarCollapsed">基础数据</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.basedata }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.basedata" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'"><UiIcon name="package" :size="15" />产品定义</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'"><UiIcon name="table-columns" :size="15" />单位</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'"><UiIcon name="warning" :size="15" />不良品项</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'"><UiIcon name="settings" :size="15" />工序</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'"><UiIcon name="share" :size="15" />工艺路线</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'"><UiIcon name="home" :size="15" />仓库</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'"><UiIcon name="share" :size="15" />供应商</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'"><UiIcon name="package" :size="15" />产品定义</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'"><UiIcon name="table-columns" :size="15" />单位</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'"><UiIcon name="warning" :size="15" />不良品项</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'"><UiIcon name="settings" :size="15" />工序</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'"><UiIcon name="share" :size="15" />工艺路线</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'"><UiIcon name="home" :size="15" />仓库</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'"><UiIcon name="share" :size="15" />供应商</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a class="nav-item" :title="isSidebarCollapsed ? '自定义配置' : ''" @click.stop="toggleMenu('custom')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '自定义配置' : ''" @click.stop="toggleMenu('custom')">
             <UiIcon name="table-columns" :size="18" />
             <span v-show="!isSidebarCollapsed">自定义配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.custom }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.custom" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'"><UiIcon name="package" :size="15" />产品</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'"><UiIcon name="settings" :size="15" />工序</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'"><UiIcon name="archive" :size="15" />出入库单</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'"><UiIcon name="list" :size="15" />出入库明细</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'"><UiIcon name="package" :size="15" />产品</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'"><UiIcon name="settings" :size="15" />工序</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'"><UiIcon name="archive" :size="15" />出入库单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'"><UiIcon name="list" :size="15" />出入库明细</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a class="nav-item" :title="isSidebarCollapsed ? '高级运营' : ''" @click.stop="toggleMenu('advanced')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '高级运营' : ''" @click.stop="toggleMenu('advanced')">
             <UiIcon name="file" :size="18" />
             <span v-show="!isSidebarCollapsed">高级运营</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.advanced }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.advanced" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="settings" :size="15" />SOP / 推送 / 质检 / 设备</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="activity" :size="15" />排产 / 绩效 / 现场</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="settings" :size="15" />SOP / 推送 / 质检 / 设备</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="activity" :size="15" />排产 / 绩效 / 现场</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a class="nav-item" :title="isSidebarCollapsed ? '报表' : ''" @click.stop="toggleMenu('report')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '报表' : ''" @click.stop="toggleMenu('report')">
             <UiIcon name="activity" :size="18" />
             <span v-show="!isSidebarCollapsed">报表</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.report }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'"><UiIcon name="activity" :size="15" />生产报表</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'analytics' }" @click="activeMainMenu = 'analytics'"><UiIcon name="table-columns" :size="15" />高级报表</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'"><UiIcon name="activity" :size="15" />生产报表</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'analytics' }" @click="activeMainMenu = 'analytics'"><UiIcon name="table-columns" :size="15" />高级报表</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a class="nav-item expanded" :title="isSidebarCollapsed ? '系统配置' : ''" @click.stop="toggleMenu('sysconfig')">
+          <a role="button" tabindex="0" class="nav-item expanded" :title="isSidebarCollapsed ? '系统配置' : ''" :aria-expanded="expandedMenus.sysconfig" @click.stop="toggleMenu('sysconfig')">
             <UiIcon name="settings" :size="18" />
             <span v-show="!isSidebarCollapsed">系统配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.sysconfig }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
-              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'"><UiIcon name="share" :size="15" />部门</a>
-              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'"><UiIcon name="user" :size="15" />用户</a>
-              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'"><UiIcon name="home" :size="15" />工厂</a>
-              <a class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'plugin-center'"><UiIcon name="layers" :size="15" />插件中心</a>
-              <a v-if="hasAdminAccess" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'external-data-sources' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'external-data-sources'"><UiIcon name="layers" :size="15" />外部数据源</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'"><UiIcon name="share" :size="15" />部门</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'"><UiIcon name="user" :size="15" />用户</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'"><UiIcon name="home" :size="15" />工厂</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'plugin-center'"><UiIcon name="layers" :size="15" />插件中心</a>
+              <a v-if="hasAdminAccess" role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'external-data-sources' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'external-data-sources'"><UiIcon name="layers" :size="15" />外部数据源</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a class="nav-item expanded" :title="isSidebarCollapsed ? '系统监控' : ''" @click.stop="toggleMenu('monitor')">
+          <a role="button" tabindex="0" class="nav-item expanded" :title="isSidebarCollapsed ? '系统监控' : ''" :aria-expanded="expandedMenus.monitor" @click.stop="toggleMenu('monitor')">
             <UiIcon name="activity" :size="18" />
             <span v-show="!isSidebarCollapsed">系统监控</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.monitor }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.monitor" class="sub-items-container">
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'online' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'online'"><UiIcon name="user" :size="15" />在线用户</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cache'"><UiIcon name="activity" :size="15" />缓存监控</a>
-              <a class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cacheList'"><UiIcon name="list" :size="15" />缓存列表</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'online' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'online'"><UiIcon name="user" :size="15" />在线用户</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cache'"><UiIcon name="activity" :size="15" />缓存监控</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cacheList'"><UiIcon name="list" :size="15" />缓存列表</a>
             </div>
           </Transition>
         </div>
 
         <div v-if="runtimePlugins.length > 0" class="nav-group">
-          <a class="nav-item expanded" :title="isSidebarCollapsed ? '插件扩展' : ''" @click.stop="toggleMenu('plugins')">
+          <a role="button" tabindex="0" class="nav-item expanded" :title="isSidebarCollapsed ? '插件扩展' : ''" :aria-expanded="expandedMenus.plugins" @click.stop="toggleMenu('plugins')">
             <UiIcon name="layers" :size="18" />
             <span v-show="!isSidebarCollapsed">插件扩展</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.plugins }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
@@ -3231,6 +3262,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <a
                 v-for="plugin in runtimePlugins"
                 :key="plugin.pluginKey"
+                role="button"
+                tabindex="0"
                 class="sub-item"
                 :class="{ selected: activeMainMenu === 'plugin' && activePluginKey === plugin.pluginKey }"
                 @click="openRuntimePlugin(plugin.pluginKey)"
@@ -3240,14 +3273,14 @@ function handleNavigate(menu: { main: string; sub: string }) {
         </div>
 
         <div class="nav-group">
-          <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'dashboard' }" :title="isSidebarCollapsed ? '车间看板' : ''" @click.stop="activeMainMenu = 'dashboard'">
+          <a role="button" tabindex="0" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'dashboard' }" :title="isSidebarCollapsed ? '车间看板' : ''" @click.stop="activeMainMenu = 'dashboard'">
             <UiIcon name="table-columns" :size="18" />
             <span v-show="!isSidebarCollapsed">车间看板</span>
           </a>
         </div>
 
         <div v-if="isSuperAdmin" class="nav-group">
-          <a class="nav-item" :class="{ 'active-parent': activeMainMenu === 'super-admin' }" :title="isSidebarCollapsed ? '授权码管理' : ''" @click.stop="activeMainMenu = 'super-admin'">
+          <a role="button" tabindex="0" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'super-admin' }" :title="isSidebarCollapsed ? '授权码管理' : ''" @click.stop="activeMainMenu = 'super-admin'">
             <UiIcon name="lock" :size="18" />
             <span v-show="!isSidebarCollapsed">授权码管理</span>
           </a>
@@ -3319,7 +3352,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         <div class="top-actions">
           <div class="chrome-actions" aria-label="工作台工具">
             <div class="chrome-dropdown-wrap">
-              <button class="topbar-icon-btn" type="button" title="应用中心" @click.stop="toggleQuickApps">
+              <button aria-label="应用中心" class="topbar-icon-btn" type="button" title="应用中心" @click.stop="toggleQuickApps">
                 <UiIcon name="grid" :size="17" />
               </button>
               <Transition name="dropdown-motion">
@@ -3332,17 +3365,15 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 </div>
               </Transition>
             </div>
-            <button class="topbar-icon-btn" type="button" title="展开或收起侧栏" @click="isSidebarCollapsed = !isSidebarCollapsed">
+            <button aria-label="展开或收起侧栏" class="topbar-icon-btn" type="button" title="展开或收起侧栏" @click="isSidebarCollapsed = !isSidebarCollapsed">
               <UiIcon name="menu" :size="18" />
             </button>
-            <button class="topbar-icon-btn" type="button" title="刷新当前页面" @click="refreshWorkspace">
+            <button aria-label="刷新当前页面" class="topbar-icon-btn" type="button" title="刷新当前页面" @click="refreshWorkspace">
               <UiIcon name="refresh" :size="17" />
             </button>
             <div class="workspace-search-wrap">
-              <button v-if="!showWorkspaceSearch" class="header-search-trigger" type="button" title="搜索（Ctrl K）" @click="focusWorkspaceSearch">
+              <button v-if="!showWorkspaceSearch" class="header-search-trigger ui-icon-button" type="button" title="搜索（Ctrl K）" aria-label="搜索菜单" @click="focusWorkspaceSearch">
                 <UiIcon name="search" :size="15" />
-                <span>搜索</span>
-                <kbd>Ctrl K</kbd>
               </button>
               <input
                 v-else
@@ -3356,7 +3387,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
               />
             </div>
             <div class="chrome-quick-wrap">
-              <button class="topbar-icon-btn" type="button" title="工作台设置" @click.stop="toggleChromeQuickMenu">
+              <button aria-label="工作台设置" class="topbar-icon-btn" type="button" title="工作台设置" @click.stop="toggleChromeQuickMenu">
                 <UiIcon name="settings" :size="17" />
               </button>
               <Transition name="dropdown-motion">
@@ -3380,14 +3411,14 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <UiIcon :key="isDarkTheme ? 'moon' : 'sun'" :name="isDarkTheme ? 'moon' : 'sun'" :size="17" />
             </button>
             <div class="chrome-dropdown-wrap">
-              <button class="topbar-icon-btn" type="button" title="语言" @click.stop="toggleLanguageMenu">
+              <button aria-label="语言" class="topbar-icon-btn" type="button" title="语言" @click.stop="toggleLanguageMenu">
                 <UiIcon name="languages" :size="17" />
               </button>
               <Transition name="dropdown-motion">
                 <div v-if="showLanguageMenu" class="chrome-quick-menu chrome-language-menu" @click.stop>
                   <div class="chrome-menu-title">界面语言</div>
-                  <button type="button" @click="selectLanguage('zh-CN')">简体中文</button>
-                  <button type="button" @click="selectLanguage('en-US')">English</button>
+                  <button type="button" role="menuitemradio" :aria-checked="uiLocale === 'zh-CN'" @click="selectLanguage('zh-CN')">简体中文</button>
+                  <button type="button" role="menuitemradio" :aria-checked="uiLocale === 'en-US'" @click="selectLanguage('en-US')">English</button>
                 </div>
               </Transition>
             </div>
@@ -3396,7 +3427,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 <UiIcon name="timezone" :size="17" />
               </button>
             </div>
-            <button class="topbar-icon-btn" type="button" :title="isAppFullscreen ? '退出全屏' : '全屏工作区'" @click="toggleAppFullscreen">
+            <button :aria-label="isAppFullscreen ? '退出全屏' : '全屏工作区'" class="topbar-icon-btn" type="button" :title="isAppFullscreen ? '退出全屏' : '全屏工作区'" @click="toggleAppFullscreen">
               <UiIcon :name="isAppFullscreen ? 'minimize' : 'fullscreen'" :size="17" />
             </button>
             <div class="chrome-dropdown-wrap">
@@ -3414,7 +3445,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           </template>
 
           <div class="notification-wrap">
-            <button class="topbar-icon-btn notification-btn" type="button" title="通知" @click.stop="toggleNotifications">
+            <button aria-label="通知" class="topbar-icon-btn notification-btn" type="button" title="通知" @click.stop="toggleNotifications">
               <UiIcon name="bell" :size="18" />
               <span v-if="notificationCount" class="notification-badge">{{ notificationCount > 99 ? '99+' : notificationCount }}</span>
             </button>
@@ -3426,7 +3457,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
                     <span>{{ notificationUnreadCount ? `${notificationUnreadCount} 条未读` : '暂无未读通知' }}</span>
                   </div>
                   <div class="notification-head-actions">
-                    <button v-if="notificationUnreadCount" type="button" class="notification-text-action" @click.stop="markAllNotificationsAsRead">全部已读</button>
+                    <button v-if="notificationUnreadCount" type="button" class="notification-text-action" :disabled="notificationsUpdating || notificationOpening.size > 0" @click.stop="markAllNotificationsAsRead">全部已读</button>
                     <button type="button" class="notification-refresh" title="刷新通知" aria-label="刷新通知" @click.stop="loadNotifications">
                       <UiIcon name="refresh" :size="15" />
                     </button>
@@ -3442,12 +3473,13 @@ function handleNavigate(menu: { main: string; sub: string }) {
                     type="button"
                     class="notification-item"
                     :class="{ unread: item.unread }"
+                    :disabled="notificationsUpdating || notificationOpening.has(item.id)"
                     @click.stop="openNotification(item)"
                   >
                     <span class="notification-dot" :class="item.priority.toLowerCase()"></span>
                     <span class="notification-content">
-                      <strong>{{ item.title }}</strong>
-                      <span>{{ item.content }}</span>
+                      <strong>{{ notificationHeading(item) }}</strong>
+                      <span>{{ notificationBody(item) }}</span>
                     </span>
                     <time :title="normalizeDate(item.createdAt)">{{ normalizeDate(item.createdAt) || '-' }}</time>
                   </button>
@@ -3459,10 +3491,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
             </Transition>
           </div>
           <div class="topbar-divider"></div>
-          <div class="user-profile" @click="showUserDropdown = !showUserDropdown">
+          <div class="user-profile">
+            <button class="user-profile-trigger" type="button" aria-label="账户菜单" :aria-expanded="showUserDropdown" aria-haspopup="menu" @click.stop="showUserDropdown = !showUserDropdown" @keydown.esc="showUserDropdown = false">
             <UiIcon name="user" :size="18" />
             <span class="username">{{ currentUser?.name }}</span>
             <svg class="dropdown-arrow" :class="{ 'open': showUserDropdown }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
             <Transition name="dropdown-motion">
               <div v-if="showUserDropdown" class="user-dropdown">
                 <button type="button" @click.stop="logout">
@@ -3534,12 +3568,14 @@ function handleNavigate(menu: { main: string; sub: string }) {
             key="notifications"
             :token="token"
             @open="openNotification"
+            @unread-count="updateNotificationUnreadCount"
             @notice="showAction"
           />
           <HomeDashboardPage
             v-else-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
             key="home"
             :token="token"
+            @view-work-order="viewHomeWorkOrder"
           />
           <SuperAdminAuthCodesPage v-else-if="activeMainMenu === 'super-admin'" key="super-admin" />
           <PluginRuntimePage
@@ -3600,6 +3636,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
             v-else-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
             key="production-workorder"
             :token="token"
+            :focus-target="workOrderFocusTarget"
+            @clear-focus="workOrderFocusTarget = null"
             @notice="showAction"
           />
           <SalesOrderPage
@@ -3799,17 +3837,11 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <input v-model="unitFilterForm.remark" placeholder="请输入备注" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="loadUnits">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button aria-label="查询" title="查询" class="primary-btn query-btn ui-icon-button" type="button" @click="loadUnits"><UiIcon name="search" :size="17" /></button>
           </div>
         </div>
         <div class="toolbar">
-          <button class="primary-btn" type="button" @click="openCreateUnit">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-            创建单位
-          </button>
+          <button aria-label="创建单位" title="创建单位" class="primary-btn ui-icon-button" type="button" @click="openCreateUnit"><UiIcon name="plus" :size="17" /></button>
         </div>
         <div class="table-container">
           <table class="data-table">
@@ -3829,8 +3861,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 <td>{{ unit.name }}</td>
                 <td>{{ unit.remark || '-' }}</td>
                 <td class="action-cell">
-                  <button class="action-link" type="button" @click="openEditUnit(unit)">编辑</button>
-                  <button class="action-link danger" type="button" @click="handleDeleteUnit(unit)">删除</button>
+                  <button aria-label="编辑" title="编辑" class="action-link ui-icon-button" type="button" @click="openEditUnit(unit)"><UiIcon name="edit" :size="17" /></button>
+                  <button aria-label="删除" title="删除" class="action-link danger ui-icon-button" type="button" @click="handleDeleteUnit(unit)"><UiIcon name="trash" :size="17" /></button>
                 </td>
               </tr>
               <tr v-if="unitFilteredList.length === 0">
@@ -3853,17 +3885,11 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <input v-model="defectFilterForm.name" placeholder="请输入不良品项名称" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button aria-label="查询" title="查询" class="primary-btn query-btn ui-icon-button" type="button"><UiIcon name="search" :size="17" /></button>
           </div>
         </div>
         <div class="toolbar">
-          <button class="primary-btn" type="button" @click="openCreateDefect">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-            创建不良品项
-          </button>
+          <button aria-label="创建不良品项" title="创建不良品项" class="primary-btn ui-icon-button" type="button" @click="openCreateDefect"><UiIcon name="plus" :size="17" /></button>
         </div>
         <div class="table-container">
           <table class="data-table">
@@ -3883,8 +3909,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 <td>{{ d.code }}</td>
                 <td>{{ d.name }}</td>
                 <td class="action-cell">
-                  <button class="action-link" type="button" @click="openEditDefect(d)">编辑</button>
-                  <button class="action-link danger" type="button" @click="handleDeleteDefect(d)">删除</button>
+                  <button aria-label="编辑" title="编辑" class="action-link ui-icon-button" type="button" @click="openEditDefect(d)"><UiIcon name="edit" :size="17" /></button>
+                  <button aria-label="删除" title="删除" class="action-link danger ui-icon-button" type="button" @click="handleDeleteDefect(d)"><UiIcon name="trash" :size="17" /></button>
                 </td>
               </tr>
               <tr v-if="defectFilteredList.length === 0">
@@ -3917,46 +3943,19 @@ function handleNavigate(menu: { main: string; sub: string }) {
             </select>
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              查询
-            </button>
+            <button aria-label="查询" title="查询" class="primary-btn query-btn ui-icon-button" type="button"><UiIcon name="search" :size="17" /></button>
           </div>
         </div>
         <div class="toolbar">
-          <button class="primary-btn create-btn" type="button" @click="openCreateProcess()">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            创建工序
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            导出
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            导入
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-            默认SOP模板
-          </button>
-          <button class="toolbar-btn" type="button">
-            <UiIcon name="table-columns" :size="14" />
-            字段配置
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
-            排序
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
-            行高
-          </button>
+          <button aria-label="创建工序" title="创建工序" class="primary-btn create-btn ui-icon-button" type="button" @click="openCreateProcess()"><UiIcon name="plus" :size="17" /></button>
+          <button aria-label="导出" title="导出" class="toolbar-btn ui-icon-button" type="button"><UiIcon name="download" :size="17" /></button>
+          <button aria-label="导入" title="导入" class="toolbar-btn ui-icon-button" type="button"><UiIcon name="upload" :size="17" /></button>
+          <button aria-label="默认SOP模板" title="默认SOP模板" class="toolbar-btn ui-action-button" type="button"><UiIcon name="file" :size="17" /><span>SOP</span></button>
+          <button aria-label="字段配置" title="字段配置" class="toolbar-btn ui-icon-button" type="button"><UiIcon name="table-columns" :size="17" /></button>
+          <button aria-label="排序" title="排序" class="toolbar-btn ui-icon-button" type="button"><UiIcon name="list" :size="17" /></button>
+          <button aria-label="行高" title="行高" class="toolbar-btn ui-icon-button" type="button"><UiIcon name="rows" :size="17" /></button>
           <div style="margin-left:auto">
-            <button class="toolbar-btn" type="button">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              导入日志
-            </button>
+            <button aria-label="导入日志" title="导入日志" class="toolbar-btn ui-action-button" type="button"><UiIcon name="clock" :size="17" /><span>日志</span></button>
           </div>
         </div>
         <div class="table-container">
@@ -3992,10 +3991,10 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 <td>{{ p.reportRatio }}</td>
                 <td>{{ p.taskPunchIn ? '开启' : '关闭' }}</td>
                 <td class="action-cell">
-                  <button class="action-link" type="button" @click="openEditProcess(p)">编辑</button>
-                  <button class="action-link" type="button">打印</button>
-                  <button class="action-link" type="button">SOP模版</button>
-                  <button class="action-link danger" type="button" @click="handleDeleteProcess(p)">删除</button>
+                  <button aria-label="编辑" title="编辑" class="action-link ui-icon-button" type="button" @click="openEditProcess(p)"><UiIcon name="edit" :size="17" /></button>
+                  <button aria-label="打印" title="打印" class="action-link ui-icon-button" type="button"><UiIcon name="print" :size="17" /></button>
+                  <button aria-label="SOP模版" title="SOP模版" class="action-link ui-action-button" type="button"><UiIcon name="file" :size="17" /><span>SOP</span></button>
+                  <button aria-label="删除" title="删除" class="action-link danger ui-icon-button" type="button" @click="handleDeleteProcess(p)"><UiIcon name="trash" :size="17" /></button>
                 </td>
               </tr>
               <tr v-if="processFilteredList.length === 0">
@@ -4084,10 +4083,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <label class="process-label required">计划数默认值</label>
             <div class="process-input-wrap">
               <div class="formula-box">
-                <button class="formula-edit-btn" type="button">
-                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  修改
-                </button>
+                <button aria-label="修改" title="修改" class="formula-edit-btn ui-icon-button" type="button"><UiIcon name="edit" :size="17" /></button>
                 <div class="formula-text">
                   <span class="formula-fx">fx</span>
                   <span>$(任务.工单计划数) * $(任务.报工效配比)</span>
@@ -4192,7 +4188,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
                     <tr v-for="(row, idx) in processForm.collectData" :key="idx">
                       <td><input class="collect-input" v-model="row.type" placeholder="请填写" /></td>
                       <td><input class="collect-input" v-model="row.name" placeholder="请填写" /></td>
-                      <td><button type="button" class="collect-del" @click="removeCollectDataRow(idx)">×</button></td>
+                      <td><button type="button" class="collect-del ui-icon-button" title="删除采集项" aria-label="删除采集项" @click="removeCollectDataRow(idx)"><UiIcon name="trash" :size="16" /></button></td>
                     </tr>
                   </tbody>
                 </table>
@@ -4205,11 +4201,11 @@ function handleNavigate(menu: { main: string; sub: string }) {
                   </svg>
                   <span>暂无采集数据</span>
                 </div>
-                <button type="button" class="add-collect-row" @click="addCollectDataRow()"
+                <button type="button" class="add-collect-row ui-icon-button" title="添加采集项（最多50项）" aria-label="添加采集项" @click="addCollectDataRow()"
                   :disabled="processForm.collectData.length >= 50">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-                  添加一行 最多支持添加50个
+                  <UiIcon name="plus" :size="17" />
                 </button>
+                <span class="compact-count">{{ processForm.collectData.length }}/50</span>
               </div>
             </div>
           </div>
@@ -4217,7 +4213,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         <!-- 底部按钮 -->
         <div class="process-form-footer">
           <button class="btn-cancel" type="button" @click="processView = 'list'">取消</button>
-          <button class="btn-save" type="button" @click="handleSaveProcess()">保存</button>
+          <button aria-label="保存" title="保存" class="btn-save ui-icon-button" type="button" @click="handleSaveProcess()"><UiIcon name="save" :size="17" /></button>
         </div>
       </section>
 
@@ -4233,30 +4229,15 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <input v-model="routeFilterForm.name" placeholder="请输入工艺路线名称" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button aria-label="查询" title="查询" class="primary-btn query-btn ui-icon-button" type="button"><UiIcon name="search" :size="17" /></button>
           </div>
         </div>
         <div class="toolbar">
-          <button class="primary-btn create-btn" type="button" @click="openCreateRoute()">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-            创建工艺路线
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            导出
-          </button>
-          <button class="toolbar-btn" type="button">
-            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            导入
-          </button>
-          <button class="toolbar-btn" type="button">
-            <UiIcon name="table-columns" :size="13" />
-            字段配置
-          </button>
-          <button class="toolbar-btn" style="margin-left:auto" type="button">导入日志</button>
+          <button aria-label="创建工艺路线" title="创建工艺路线" class="primary-btn create-btn ui-icon-button" type="button" @click="openCreateRoute()"><UiIcon name="plus" :size="17" /></button>
+          <button aria-label="导出" title="导出" class="toolbar-btn ui-icon-button" type="button"><UiIcon name="download" :size="17" /></button>
+          <button aria-label="导入" title="导入" class="toolbar-btn ui-icon-button" type="button"><UiIcon name="upload" :size="17" /></button>
+          <button aria-label="字段配置" title="字段配置" class="toolbar-btn ui-icon-button" type="button"><UiIcon name="table-columns" :size="17" /></button>
+          <button aria-label="导入日志" title="导入日志" class="toolbar-btn ui-action-button" style="margin-left:auto" type="button"><UiIcon name="clock" :size="17" /><span>日志</span></button>
         </div>
         <div class="table-container">
           <table class="data-table">
@@ -4284,9 +4265,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
               <td>{{ r.creator }}</td>
               <td>{{ r.createdAt }}</td>
               <td>
-                <button class="link-btn" type="button" @click="openEditRoute(r)">编辑</button>
-                <button class="link-btn" type="button">复制</button>
-                <button class="link-btn danger" type="button" @click="confirmDeleteRoute(r)">删除</button>
+                <button aria-label="编辑" title="编辑" class="link-btn ui-icon-button" type="button" @click="openEditRoute(r)"><UiIcon name="edit" :size="17" /></button>
+                <button aria-label="复制" title="复制" class="link-btn ui-icon-button" type="button"><UiIcon name="copy" :size="17" /></button>
+                <button aria-label="删除" title="删除" class="link-btn danger ui-icon-button" type="button" @click="confirmDeleteRoute(r)"><UiIcon name="trash" :size="17" /></button>
               </td>
             </tr>
             <tr v-if="routeFilteredList.length === 0">
@@ -4323,14 +4304,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <div class="route-steps-header">
               <span class="route-steps-title">工序列表</span>
               <div style="display:flex;gap:8px;margin-top:8px">
-                <button type="button" class="primary-btn" style="height:32px;padding:0 14px;font-size:13px" @click="addRouteStep()">
-                  <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  添加一行
-                </button>
-                <button type="button" class="toolbar-btn" style="height:32px;font-size:13px">
-                  <UiIcon name="table-columns" :size="13" />
-                  字段配置
-                </button>
+                <button aria-label="添加一行" title="添加一行" type="button" class="primary-btn ui-icon-button" style="height:32px;padding:0 14px;font-size:13px" @click="addRouteStep()"><UiIcon name="plus" :size="17" /></button>
+                <button aria-label="字段配置" title="字段配置" type="button" class="toolbar-btn ui-icon-button" style="height:32px;font-size:13px"><UiIcon name="table-columns" :size="17" /></button>
               </div>
             </div>
 
@@ -4410,7 +4385,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
                     </td>
                     <!-- 操作 -->
                     <td style="text-align:center">
-                      <button type="button" class="link-btn danger" @click="removeRouteStep(idx)">删除</button>
+                      <button aria-label="删除" title="删除" type="button" class="link-btn danger ui-icon-button" @click="removeRouteStep(idx)"><UiIcon name="trash" :size="17" /></button>
                     </td>
                   </tr>
                 </tbody>
@@ -4430,7 +4405,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
         <!-- 底部按钮 -->
         <div class="process-form-footer">
           <button class="btn-cancel" type="button" @click="routeView = 'list'">取消</button>
-          <button class="btn-save" type="button" @click="handleSaveRoute()">保存</button>
+          <button aria-label="保存" title="保存" class="btn-save ui-icon-button" type="button" @click="handleSaveRoute()"><UiIcon name="save" :size="17" /></button>
         </div>
       </section>
 
@@ -4477,23 +4452,14 @@ function handleNavigate(menu: { main: string; sub: string }) {
             </select>
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="loadUsers">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button aria-label="查询" title="查询" class="primary-btn query-btn ui-icon-button" type="button" @click="loadUsers"><UiIcon name="search" :size="17" /></button>
           </div>
         </div>
 
         <div class="toolbar">
           <div class="toolbar-left">
-            <button class="primary-btn" type="button" @click="showCreateModal = true">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-              新增用户
-            </button>
-            <button class="ghost-btn" type="button" @click="handleExport">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              导出
-            </button>
+            <button aria-label="新增用户" title="新增用户" class="primary-btn ui-icon-button" type="button" @click="showCreateModal = true"><UiIcon name="plus" :size="17" /></button>
+            <button aria-label="导出" title="导出" class="ghost-btn ui-icon-button" type="button" @click="handleExport"><UiIcon name="download" :size="17" /></button>
             <label class="ghost-btn" style="cursor:pointer">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               导入
@@ -4534,12 +4500,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 <td>{{ user.virtualUser ? '是' : '否' }}</td>
                 <td>{{ formatDateTime(user.createdAt) }}</td>
                 <td>
-                  <button class="action-link" type="button" @click="openResetPassword(user)">重置密码</button>
-                  <button class="action-link" type="button" @click="confirmUnbindPhone(user)">解绑手机号</button>
-                  <button class="action-link" type="button" @click="handlePrintUser(user)">打印</button>
-                  <button class="action-link" type="button" @click="openEditUser(user)">编辑</button>
+                  <button aria-label="重置密码" title="重置密码" class="action-link ui-action-button" type="button" @click="openResetPassword(user)"><UiIcon name="reset" :size="17" /><span>重置密码</span></button>
+                  <button aria-label="解绑手机号" title="解绑手机号" class="action-link ui-action-button" type="button" @click="confirmUnbindPhone(user)"><UiIcon name="smartphone" :size="17" /><span>解绑</span></button>
+                  <button aria-label="打印" title="打印" class="action-link ui-icon-button" type="button" @click="handlePrintUser(user)"><UiIcon name="print" :size="17" /></button>
+                  <button aria-label="编辑" title="编辑" class="action-link ui-icon-button" type="button" @click="openEditUser(user)"><UiIcon name="edit" :size="17" /></button>
                   <button class="action-link" type="button" @click="confirmToggleEnabled(user)">{{ user.enabled ? '停用' : '启用' }}</button>
-                  <button class="action-link" type="button" @click="openPermissionConfig(user)">权限配置</button>
+                  <button aria-label="权限配置" title="权限配置" class="action-link ui-action-button" type="button" @click="openPermissionConfig(user)"><UiIcon name="lock" :size="17" /><span>权限</span></button>
                 </td>
               </tr>
               <tr v-if="filteredUsers.length === 0">
@@ -4551,13 +4517,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
         <div class="pagination">
           <span class="page-total">共 {{ users.length }} 条结果</span>
-          <button class="page-btn" type="button" :disabled="currentPage <= 1" @click="currentPage--">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
-          </button>
+          <button title="上一页" aria-label="上一页" class="page-btn" type="button" :disabled="currentPage <= 1" @click="currentPage--"><UiIcon name="arrowLeft" :size="17" /></button>
           <span class="page-num">{{ currentPage }}</span>
-          <button class="page-btn" type="button" :disabled="currentPage >= totalPages" @click="currentPage++">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
+          <button title="下一页" aria-label="下一页" class="page-btn" type="button" :disabled="currentPage >= totalPages" @click="currentPage++"><UiIcon name="arrowRight" :size="17" /></button>
           <select class="size-select" v-model="pageSize">
             <option :value="10">10条/页</option>
             <option :value="20">20条/页</option>
@@ -4578,18 +4540,12 @@ function handleNavigate(menu: { main: string; sub: string }) {
             <input v-model="departmentFilterForm.code" placeholder="请输入部门编码" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="loadDepartments">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button aria-label="查询" title="查询" class="primary-btn query-btn ui-icon-button" type="button" @click="loadDepartments"><UiIcon name="search" :size="17" /></button>
           </div>
         </div>
 
         <div class="toolbar">
-          <button class="primary-btn" @click="openCreateDepartmentModal">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-            新建部门
-          </button>
+          <button aria-label="新建部门" title="新建部门" class="primary-btn ui-icon-button" @click="openCreateDepartmentModal"><UiIcon name="plus" :size="17" /></button>
         </div>
 
         <div class="table-container">
@@ -4610,8 +4566,8 @@ function handleNavigate(menu: { main: string; sub: string }) {
                 <td>{{ formatDateTime(dept.createdAt) }}</td>
                 <td>{{ dept.createdBy || '-' }}</td>
                 <td class="action-cell">
-                  <button class="action-link" type="button" @click="openEditDepartmentModal(dept)">编辑</button>
-                  <button class="action-link danger" type="button" @click="confirmDeleteDepartment(dept)">删除</button>
+                  <button aria-label="编辑" title="编辑" class="action-link ui-icon-button" type="button" @click="openEditDepartmentModal(dept)"><UiIcon name="edit" :size="17" /></button>
+                  <button aria-label="删除" title="删除" class="action-link danger ui-icon-button" type="button" @click="confirmDeleteDepartment(dept)"><UiIcon name="trash" :size="17" /></button>
                 </td>
               </tr>
               <tr v-if="departments.length === 0">
@@ -4623,13 +4579,9 @@ function handleNavigate(menu: { main: string; sub: string }) {
 
         <div class="pagination">
           <span class="page-total">共 {{ departmentTotal }} 条结果</span>
-          <button class="page-btn" type="button" :disabled="departmentFilterForm.page <= 1" @click="handleDepartmentPageChange(-1)">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
-          </button>
+          <button title="上一页" aria-label="上一页" class="page-btn" type="button" :disabled="departmentFilterForm.page <= 1" @click="handleDepartmentPageChange(-1)"><UiIcon name="arrowLeft" :size="17" /></button>
           <span class="page-num">{{ departmentFilterForm.page }}</span>
-          <button class="page-btn" type="button" :disabled="departmentFilterForm.page >= Math.ceil(departmentTotal / departmentFilterForm.size) || departmentTotal === 0" @click="handleDepartmentPageChange(1)">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
+          <button title="下一页" aria-label="下一页" class="page-btn" type="button" :disabled="departmentFilterForm.page >= Math.ceil(departmentTotal / departmentFilterForm.size) || departmentTotal === 0" @click="handleDepartmentPageChange(1)"><UiIcon name="arrowRight" :size="17" /></button>
           <select class="size-select" v-model="departmentFilterForm.size" @change="loadDepartments">
             <option :value="10">10条/页</option>
             <option :value="20">20条/页</option>
@@ -4938,7 +4890,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="modal">
       <header class="modal-header">
         <h2>导入结果</h2>
-        <button class="close-btn" type="button" @click="showImportLogModal = false">×</button>
+        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showImportLogModal = false"><UiIcon name="close" :size="18" /></button>
       </header>
       <div style="padding: 22px 44px 24px; min-width: 340px;">
         <p>总计：{{ importResult?.total }} 条</p>
@@ -4956,7 +4908,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="modal">
       <header class="modal-header">
         <h2>新增用户</h2>
-        <button class="close-btn" type="button" @click="showCreateModal = false">×</button>
+        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showCreateModal = false"><UiIcon name="close" :size="18" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleCreateUser">
         <label>
@@ -5006,7 +4958,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="modal">
       <header class="modal-header">
         <h2>编辑用户</h2>
-        <button class="close-btn" type="button" @click="showEditModal = false">×</button>
+        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showEditModal = false"><UiIcon name="close" :size="18" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleUpdateUser">
         <label>
@@ -5052,14 +5004,14 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="modal">
       <header class="modal-header">
         <h2>重置密码</h2>
-        <button class="close-btn" type="button" @click="showResetPasswordModal = false">×</button>
+        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showResetPasswordModal = false"><UiIcon name="close" :size="18" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleResetPassword">
         <label>
           <span><em>*</em> 新密码</span>
           <div style="position:relative">
             <input v-model="resetPasswordForm.password" :type="showNewPassword ? 'text' : 'password'" placeholder="请输入新密码" required />
-            <button type="button" class="password-toggle" @click="showNewPassword = !showNewPassword">
+            <button :title="showNewPassword ? '隐藏密码' : '显示密码'" :aria-label="showNewPassword ? '隐藏密码' : '显示密码'" type="button" class="password-toggle" @click="showNewPassword = !showNewPassword">
               <!-- 睁眼 -->
               <svg v-if="showNewPassword" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <!-- 闭眼 -->
@@ -5071,7 +5023,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
           <span><em>*</em> 确认密码</span>
           <div style="position:relative">
             <input v-model="resetPasswordForm.confirmPassword" :type="showConfirmPassword ? 'text' : 'password'" placeholder="请再次输入密码" required />
-            <button type="button" class="password-toggle" @click="showConfirmPassword = !showConfirmPassword">
+            <button :title="showConfirmPassword ? '隐藏密码' : '显示密码'" :aria-label="showConfirmPassword ? '隐藏密码' : '显示密码'" type="button" class="password-toggle" @click="showConfirmPassword = !showConfirmPassword">
               <!-- 睁眼 -->
               <svg v-if="showConfirmPassword" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <!-- 闭眼 -->
@@ -5092,7 +5044,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="modal">
       <header class="modal-header">
         <h2>权限配置</h2>
-        <button class="close-btn" type="button" @click="showPermissionModal = false">×</button>
+        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showPermissionModal = false"><UiIcon name="close" :size="18" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleUpdatePermission">
         <label>
@@ -5156,7 +5108,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingDepartment ? '编辑部门' : '新建部门' }}</h2>
-        <button class="close-btn" type="button" @click="showDepartmentModal = false">×</button>
+        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showDepartmentModal = false"><UiIcon name="close" :size="18" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleSaveDepartment">
         <label>
@@ -5202,7 +5154,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingUnit ? '编辑单位' : '创建单位' }}</h2>
-        <button class="close-btn" type="button" @click="showUnitModal = false">×</button>
+        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showUnitModal = false"><UiIcon name="close" :size="18" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleSaveUnit">
         <label>
@@ -5226,7 +5178,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingDefect ? '编辑不良品项' : '创建不良品项' }}</h2>
-        <button class="close-btn" type="button" @click="showDefectModal = false">×</button>
+        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showDefectModal = false"><UiIcon name="close" :size="18" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleSaveDefect">
         <label>
@@ -5257,7 +5209,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
     <section class="modal" style="width: 900px; padding: 0;">
       <header class="modal-header" style="padding: 16px 24px; border-bottom: 1px solid #eee;">
         <h2 style="font-size: 16px; margin: 0;">编辑打印模板</h2>
-        <button class="close-btn" type="button" @click="showEditPrintTemplateModal = false">×</button>
+        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showEditPrintTemplateModal = false"><UiIcon name="close" :size="18" /></button>
       </header>
       <div style="display: flex; height: 500px;">
         <!-- 左侧模板列表 -->
@@ -5429,7 +5381,7 @@ function handleNavigate(menu: { main: string; sub: string }) {
       </div>
       <footer class="modal-footer" style="padding: 16px 24px; border-top: 1px solid #eee; background: #fff;">
         <button class="ghost-btn" style="min-width: 80px;" type="button" @click="showEditPrintTemplateModal = false">取消</button>
-        <button class="primary-btn" style="min-width: 80px;" type="button" @click="savePrintTemplates">保存</button>
+        <button aria-label="保存" title="保存" class="primary-btn ui-icon-button" style="min-width: 80px;" type="button" @click="savePrintTemplates"><UiIcon name="save" :size="17" /></button>
       </footer>
     </section>
   </div>

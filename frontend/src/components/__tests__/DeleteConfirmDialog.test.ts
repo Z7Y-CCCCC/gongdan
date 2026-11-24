@@ -60,7 +60,8 @@ describe('DeleteConfirmDialog', () => {
       const closeBtn = document.body.querySelector('.close-btn')
       expect(closeBtn).not.toBeNull()
       expect(cancelBtn?.textContent?.trim()).toBe('取消')
-      expect(confirmBtn?.textContent?.trim()).toContain('确定')
+      expect(confirmBtn?.textContent?.trim()).toContain('删除')
+      expect(confirmBtn?.getAttribute('aria-label')).toBe('确认删除')
     })
   })
 

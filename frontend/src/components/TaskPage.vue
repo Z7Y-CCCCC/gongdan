@@ -190,7 +190,7 @@ onMounted(loadData)
         </svg>
         <input v-model="keyword" placeholder="搜索工单、产品、工序、负责人" />
       </div>
-      <button class="toolbar-btn" type="button" :disabled="loading" @click="loadData"><UiIcon name="refresh" />刷新</button>
+      <button class="toolbar-btn ui-icon-button" type="button" :disabled="loading" @click="loadData" title="刷新任务" aria-label="刷新任务"><UiIcon name="refresh" /></button>
       <TableConfigButton table-id="task-list-table" />
     </div>
 

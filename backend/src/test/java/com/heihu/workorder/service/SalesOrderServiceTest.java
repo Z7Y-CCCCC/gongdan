@@ -17,6 +17,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDate;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +29,17 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class SalesOrderServiceTest {
+
+    @org.junit.jupiter.api.Test
+    void automaticCodesStayUniqueWithinFastBatches() {
+        SalesOrderService generator = new SalesOrderService(null, null, null, null);
+        java.util.Set<String> codes = new java.util.HashSet<>();
+        for (int i = 0; i < 2000; i++) {
+            String code = org.springframework.test.util.ReflectionTestUtils.invokeMethod(generator, "generateCode");
+            assertThat(code).startsWith("SO-").hasSizeLessThanOrEqualTo(64);
+            assertThat(codes.add(code)).as("code must not collide within the same millisecond").isTrue();
+        }
+    }
 
     @Mock
     private SalesOrderRepository salesOrderRepository;
@@ -65,7 +77,53 @@ class SalesOrderServiceTest {
 
         assertThat(response.getCode()).isEqualTo("SO-A");
         assertThat(response.getItems()).hasSize(1);
-        assertThat(response.getTotalQuantity()).isEqualTo(20);
+        assertThat(response.getTotalQuantity()).isEqualTo(20L);
+    }
+
+    @Test
+    void createRejectsMalformedDatesWithoutWritingAnOrder() {
+        when(factoryRepository.findById(1L)).thenReturn(Optional.of(factory()));
+        SalesOrderRequest malformed = request("SO-A", "DRAFT", item(10L));
+        malformed.setDeliveryDate("2026-02-30");
+
+        assertThatThrownBy(() -> service.create(1L, null, malformed))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("交付日期格式不正确");
+        verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+    }
+
+    @Test
+    void updateRejectsDeliveryBeforeOrderDateAndKeepsOldValues() {
+        SalesOrder existing = new SalesOrder();
+        existing.setFactory(factory());
+        existing.setCode("SO-OLD");
+        existing.setDeliveryDate(LocalDate.of(2026, 7, 10));
+        when(salesOrderRepository.findById(99L)).thenReturn(Optional.of(existing));
+        SalesOrderRequest invalid = request("SO-NEW", "CONFIRMED", item(10L));
+        invalid.setDeliveryDate("2026-07-03");
+
+        assertThatThrownBy(() -> service.update(1L, 99L, invalid))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("交付日期不能早于订单日期");
+        assertThat(existing.getCode()).isEqualTo("SO-OLD");
+        assertThat(existing.getDeliveryDate()).isEqualTo(LocalDate.of(2026, 7, 10));
+        verify(salesOrderRepository, never()).save(any(SalesOrder.class));
+    }
+
+    @Test
+    void createReturnsAccurateQuantityWhenTheOrderTotalExceedsAnInteger() {
+        when(factoryRepository.findById(1L)).thenReturn(Optional.of(factory()));
+        when(productRepository.findById(10L)).thenReturn(Optional.of(product(10L)));
+        when(productRepository.findById(11L)).thenReturn(Optional.of(product(11L)));
+        when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        SalesOrderItemRequest first = item(10L);
+        first.setQuantity(Integer.MAX_VALUE);
+        SalesOrderItemRequest second = item(11L);
+        second.setQuantity(Integer.MAX_VALUE);
+
+        SalesOrderResponse response = service.create(1L, null, request("SO-A", "DRAFT", first, second));
+
+        assertThat(response.getTotalQuantity()).isEqualTo(4294967294L);
     }
 
     @Test

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from './UiIcon.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { fetchWorkOrders, fetchReports, fetchSalesOrders } from '../api'
 import { useAuth } from '../composables/useAuth'
@@ -225,11 +226,11 @@ defineExpose({ loadDashboardData })
 <template>
   <section class="dashboard-fullscreen">
     <div class="db-header">
-      <span class="db-time">最近更新: {{ dashboardTime }}</span>
-      <h1 class="db-title">小工单数据看板</h1>
+      <span class="db-time">更新 {{ dashboardTime }}</span>
+      <h1 class="db-title">小工单看板</h1>
       <div style="display: flex; gap: 12px;">
-        <button class="db-fullscreen-btn" @click="toggleDashboardFullscreen">{{ isDashboardFullscreen ? '退出全屏' : '进入全屏' }}</button>
-        <button class="db-fullscreen-btn" @click="exitDashboard">退出看板</button>
+        <button class="db-fullscreen-btn ui-icon-button" @click="toggleDashboardFullscreen" :title="isDashboardFullscreen ? '退出全屏' : '进入全屏'" :aria-label="isDashboardFullscreen ? '退出全屏' : '进入全屏'" type="button"><UiIcon :name="isDashboardFullscreen ? 'minimize' : 'fullscreen'" /></button>
+        <button class="db-fullscreen-btn ui-icon-button" @click="exitDashboard" title="退出看板" aria-label="退出看板" type="button"><UiIcon name="arrowLeft" /></button>
       </div>
     </div>
 
@@ -241,7 +242,6 @@ defineExpose({ loadDashboardData })
           <span class="db-card-tag">近10天</span>
         </div>
         <div class="db-chart-area">
-          <div class="db-sub-title">工单产出趋势图({{ currentMonth }})</div>
           <div class="db-legend">
             <span class="db-legend-item"><i class="dot cyan"></i>报工次数</span>
             <span class="db-legend-item"><i class="dot blue"></i>良品产出</span>
@@ -377,7 +377,6 @@ defineExpose({ loadDashboardData })
           <span class="db-card-title">不良品分析</span>
           <span class="db-card-tag">近10天</span>
         </div>
-        <div class="db-sub-title">不良品趋势图({{ currentMonth }})</div>
         <div class="db-legend">
           <span class="db-legend-item"><i class="dot orange"></i>不良品数</span>
           <span class="db-legend-item"><i class="dot red"></i>不良品率</span>
@@ -405,7 +404,7 @@ defineExpose({ loadDashboardData })
             <span class="db-bar-label">{{ d.day }}</span>
           </div>
         </div>
-        <div class="db-sub-title" style="margin-top:16px">不良品项分布图</div>
+        <div class="db-sub-title" style="margin-top:16px">不良项分布</div>
         <div class="db-pie-container">
           <div class="db-pie">
             <div class="db-pie-ring" :style="{ background: pieBackground }"></div>

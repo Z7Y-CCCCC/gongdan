@@ -69,7 +69,9 @@ public class UnitService {
         return toResponse(unitRepository.save(unit));
     }
 
-    @CacheEvict(cacheNames = {"units.list", "products.list"}, allEntries = true)
+    @CacheEvict(cacheNames = {"units.list", "products.list", "inventory.details",
+            "inbound.receipts.list", "inbound.receipts.detail", "outbound.receipts.list", "outbound.receipts.detail",
+            "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public UnitResponse update(Long factoryId, Long id, UnitRequest req) {
         Unit unit = unitRepository.findById(id)
                 .filter(u -> u.getFactory().getId().equals(factoryId))

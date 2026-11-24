@@ -22,4 +22,14 @@ class InventoryCacheInvalidationTest {
             }
         }
     }
+
+    @Test
+    void renamingAUnitInvalidatesReceiptAndInventoryViews() throws NoSuchMethodException {
+        CacheEvict eviction = UnitService.class.getMethod("update", Long.class, Long.class,
+                com.heihu.workorder.dto.UnitRequest.class).getAnnotation(CacheEvict.class);
+        assertThat(eviction.allEntries()).isTrue();
+        assertThat(eviction.cacheNames()).contains("inventory.details", "inbound.receipts.list",
+                "inbound.receipts.detail", "outbound.receipts.list", "outbound.receipts.detail",
+                "workorders.list", "workorders.detail", "workorders.code");
+    }
 }

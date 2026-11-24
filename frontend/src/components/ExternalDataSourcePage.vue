@@ -257,8 +257,8 @@ async function changeArchive(event: Event) {
 <template>
   <section class="external-sources">
     <header class="source-header">
-      <div><p class="eyebrow">连接与集成</p><h2>外部数据源</h2><p>安全连接外部数据库与 HTTP API，为后续工单数据接入做好准备。</p></div>
-      <button class="primary" :disabled="busy || !capabilitiesLoaded" @click="open()"><UiIcon name="plus" :size="16" />新增数据源</button>
+      <div><h2>外部数据源</h2></div>
+      <button class="primary ui-icon-button" :disabled="busy || !capabilitiesLoaded" @click="open()" title="新增数据源" aria-label="新增数据源" type="button"><UiIcon name="plus" /></button>
     </header>
     <div class="scope-note"><strong>当前阶段：连接管理</strong><span>健康可达 ≠ 业务数据可用。数据接口与字段映射将在后续配置；这里不执行备份或业务同步。</span></div>
     <div v-if="capabilitiesLoaded && !capabilities.secretsReady" class="warning">尚未配置服务端凭据加密密钥。需要密码或 Token 的连接须先由运维配置密钥。</div>
@@ -270,7 +270,7 @@ async function changeArchive(event: Event) {
       <input v-model="query" aria-label="搜索当前页数据源" placeholder="搜索当前页名称 / 编码" />
       <select v-model="enabledFilter" aria-label="启停筛选"><option value="ALL">全部状态</option><option value="ENABLED">已启用</option><option value="DISABLED">已停用</option></select>
       <label><input :checked="archived" type="checkbox" :disabled="busy" @change="changeArchive" />已归档</label>
-      <button :disabled="busy" @click="refresh">刷新</button>
+      <button :disabled="busy" @click="refresh" title="刷新" aria-label="刷新" class="ui-icon-button" type="button"><UiIcon name="refresh" /></button>
     </div>
     <div class="table-scroll"><table>
       <thead><tr><th>名称 / 编码</th><th>类型 / 目标</th><th>状态</th><th>最近连接健康</th><th>耗时 / HTTP</th><th>最后检查</th><th>操作</th></tr></thead>
@@ -284,24 +284,24 @@ async function changeArchive(event: Event) {
           <td>{{ time(source.lastCheck?.finishedAt || source.lastCheck?.startedAt) }}</td>
           <td><div class="actions">
             <template v-if="!source.archived">
-              <button :disabled="busy" @click="open(source)">编辑</button><button :disabled="busy || !supported(source.config)" :title="!supported(source.config) ? pendingDriverMessage : undefined" @click="test(source)">测试连接</button>
-              <button v-if="source.config.kind === 'DATABASE'" :disabled="busy || !supported(source.config)" :title="!supported(source.config) ? pendingDriverMessage : undefined" @click="showSchema(source)">表与字段</button>
+              <button :disabled="busy" @click="open(source)" title="编辑" aria-label="编辑" class="ui-icon-button" type="button"><UiIcon name="edit" /></button><button :disabled="busy || !supported(source.config)" :title="(!supported(source.config) ? pendingDriverMessage : undefined) || '测试连接'" @click="test(source)" aria-label="测试连接"  type="button"><UiIcon name="activity" />测试</button>
+              <button v-if="source.config.kind === 'DATABASE'" :disabled="busy || !supported(source.config)" :title="(!supported(source.config) ? pendingDriverMessage : undefined) || '表与字段'" @click="showSchema(source)" aria-label="表与字段"  type="button"><UiIcon name="table-columns" />结构</button>
               <button :disabled="busy || (!source.enabled && !supported(source.config))" :title="!source.enabled && !supported(source.config) ? pendingDriverMessage : undefined" @click="action(source, source.enabled ? 'disable' : 'enable')">{{ source.enabled ? '停用' : '启用' }}</button>
               <button :disabled="busy" @click="confirmArchive = source">归档</button>
             </template>
             <button v-else :disabled="busy" @click="action(source, 'restore')">恢复为停用</button>
-            <button :disabled="busy" @click="showHistory(source)">记录</button>
+            <button :disabled="busy" @click="showHistory(source)" title="记录" aria-label="记录"  type="button"><UiIcon name="clock" />记录</button>
           </div></td>
         </tr>
-        <tr v-if="!filtered.length"><td colspan="7" class="empty"><UiIcon name="layers" :size="32" /><h3>{{ busy ? '正在加载…' : '暂无数据源' }}</h3><p>添加 ERP 只读数据库或设备采集 API。外部连接不会替换本系统数据库。</p></td></tr>
+        <tr v-if="!filtered.length"><td colspan="7" class="empty"><UiIcon name="layers" :size="32" /><h3>{{ busy ? '正在加载…' : '暂无数据源' }}</h3><p>外部连接不会替换本系统数据库。</p></td></tr>
       </tbody>
     </table></div>
-    <footer class="pagination"><span>共 {{ total }} 个 · 第 {{ page + 1 }} 页</span><button :disabled="busy || page === 0" @click="changePage(-1)">上一页</button><button :disabled="busy || !more" @click="changePage(1)">下一页</button></footer>
+    <footer class="pagination"><span>共 {{ total }} 个 · 第 {{ page + 1 }} 页</span><button :disabled="busy || page === 0" @click="changePage(-1)" title="上一页" aria-label="上一页" class="ui-icon-button" type="button"><UiIcon name="arrowLeft" /></button><button :disabled="busy || !more" @click="changePage(1)" title="下一页" aria-label="下一页" class="ui-icon-button" type="button"><UiIcon name="arrowRight" /></button></footer>
     <div v-if="result && !editing" class="test-result"><p>{{ resultContext }}<template v-if="result.configVersion != null"> · 版本 {{ result.configVersion }}</template></p><strong>{{ healthLabels[result.status] }} · {{ result.message }}</strong><small>HTTP {{ resultKind === 'DATABASE' ? '不适用' : result.httpStatus ?? '—' }} · {{ result.durationMs ?? '—' }} ms · 追踪编号 {{ result.traceId }}</small></div>
 
     <div v-if="editing" class="overlay">
       <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="source-form-title">
-        <header><div><h3 id="source-form-title">{{ selected ? '编辑数据源' : '新增数据源' }}</h3><p>配置由当前工厂隔离保存，外部请求仅从后端发出。</p></div><button :disabled="busy" aria-label="关闭配置" @click="clearSecrets">关闭</button></header>
+        <header><div><h3 id="source-form-title">{{ selected ? '编辑数据源' : '新增数据源' }}</h3><p>配置由当前工厂隔离保存，外部请求仅从后端发出。</p></div><button :disabled="busy" aria-label="关闭配置" @click="clearSecrets" title="关闭配置" class="ui-icon-button" type="button"><UiIcon name="close" /></button></header>
         <form ref="editorForm" @submit.prevent="save(false)" @input="invalidateResult" @change="invalidateResult">
           <fieldset :disabled="busy">
             <div class="form-grid">
@@ -353,26 +353,26 @@ async function changeArchive(event: Event) {
       </section>
     </div>
     <div v-if="history" class="overlay"><section class="dialog" role="dialog" aria-modal="true" aria-label="检查记录">
-      <header><h3>{{ historySource?.config.name }} · 检查记录</h3><button @click="closeHistory">关闭</button></header>
+      <header><h3>{{ historySource?.config.name }} · 检查记录</h3><button @click="closeHistory" title="关闭" aria-label="关闭" class="ui-icon-button" type="button"><UiIcon name="close" /></button></header>
       <p>仅手动检查，健康结果 15 分钟后标记过期。检查记录保留 30 天。</p>
       <p v-if="error" role="alert" class="error">{{ error }}</p>
       <div class="table-scroll"><table><thead><tr><th>时间 / 版本</th><th>结果</th><th>HTTP / 耗时</th><th>说明 / 追踪编号</th></tr></thead><tbody>
         <tr v-for="check in history" :key="check.id"><td>{{ time(check.startedAt) }}<small>版本 {{ check.configVersion }}</small></td><td>{{ healthLabels[check.status] }}</td><td>{{ check.httpStatus ?? '—' }} / {{ check.durationMs ?? '—' }} ms</td><td>{{ check.message }}<small>{{ check.traceId }}</small></td></tr>
         <tr v-if="!history.length"><td colspan="4">暂无检查记录</td></tr>
       </tbody></table></div>
-      <footer><button :disabled="busy || historyPage === 0" @click="historySource && showHistory(historySource, historyPage - 1)">上一页</button><span>第 {{ historyPage + 1 }} 页</span><button :disabled="busy || !historyMore" @click="historySource && showHistory(historySource, historyPage + 1)">下一页</button></footer>
+      <footer><button :disabled="busy || historyPage === 0" @click="historySource && showHistory(historySource, historyPage - 1)" title="上一页" aria-label="上一页" class="ui-icon-button" type="button"><UiIcon name="arrowLeft" /></button><span>第 {{ historyPage + 1 }} 页</span><button :disabled="busy || !historyMore" @click="historySource && showHistory(historySource, historyPage + 1)" title="下一页" aria-label="下一页" class="ui-icon-button" type="button"><UiIcon name="arrowRight" /></button></footer>
     </section></div>
     <div v-if="schemaResult" class="overlay"><section class="dialog" role="dialog" aria-modal="true" aria-label="表与字段">
-      <header><h3>{{ schemaSource?.config.name }} · {{ schemaTable || '表与视图' }}</h3><button @click="closeSchema">关闭</button></header>
+      <header><h3>{{ schemaSource?.config.name }} · {{ schemaTable || '表与视图' }}</h3><button @click="closeSchema" title="关闭" aria-label="关闭" class="ui-icon-button" type="button"><UiIcon name="close" /></button></header>
       <p>{{ schemaResult.message }}</p><p v-if="error" role="alert" class="error">{{ error }}</p>
       <button v-if="schemaTable" :disabled="busy" @click="schemaSource && showSchema(schemaSource)">返回表列表</button>
       <div class="table-scroll"><table><thead><tr><th>Schema</th><th>{{ schemaTable ? '字段名' : '表名' }}</th><th>类型</th><th>{{ schemaTable ? '可空 / 主键' : '操作' }}</th></tr></thead><tbody>
         <tr v-for="(row, i) in schemaResult.items" :key="i"><td>{{ row.schema || '—' }}</td><td>{{ row.column || row.table }}</td><td>{{ row.type }}</td><td><template v-if="schemaTable">{{ row.nullable == null ? '未知' : row.nullable ? '可空' : '不可空' }} / {{ row.primaryKey ? '主键' : '—' }}</template><button v-else :disabled="busy" @click="schemaSource && showSchema(schemaSource, row.table)">查看字段</button></td></tr>
         <tr v-if="!schemaResult.items.length"><td colspan="4">暂无可见{{ schemaTable ? '字段' : '表或视图' }}，可能为空或当前账号无可见权限。</td></tr>
       </tbody></table></div>
-      <footer><button :disabled="busy || schemaPage === 0" @click="schemaSource && showSchema(schemaSource, schemaTable, schemaPage - 1)">上一页</button><span>第 {{ schemaPage + 1 }} 页</span><button :disabled="busy || !schemaResult.hasMore" @click="schemaSource && showSchema(schemaSource, schemaTable, schemaPage + 1)">下一页</button></footer>
+      <footer><button :disabled="busy || schemaPage === 0" @click="schemaSource && showSchema(schemaSource, schemaTable, schemaPage - 1)" title="上一页" aria-label="上一页" class="ui-icon-button" type="button"><UiIcon name="arrowLeft" /></button><span>第 {{ schemaPage + 1 }} 页</span><button :disabled="busy || !schemaResult.hasMore" @click="schemaSource && showSchema(schemaSource, schemaTable, schemaPage + 1)" title="下一页" aria-label="下一页" class="ui-icon-button" type="button"><UiIcon name="arrowRight" /></button></footer>
     </section></div>
-    <div v-if="confirmArchive" class="overlay"><section class="dialog compact" role="dialog" aria-modal="true" aria-label="归档数据源"><h3>归档「{{ confirmArchive.config.name }}」？</h3><p>将停用连接并移入归档列表，保留配置和检查记录。可随时恢复为停用状态。</p><footer><button :disabled="busy" @click="confirmArchive = null">取消</button><button class="primary" :disabled="busy" @click="action(confirmArchive, 'archive')">确认归档</button></footer></section></div>
+    <div v-if="confirmArchive" class="overlay"><section class="dialog compact" role="dialog" aria-modal="true" aria-label="归档数据源"><h3>归档「{{ confirmArchive.config.name }}」？</h3><p>将停用连接并移入归档列表，保留配置和检查记录。可随时恢复为停用状态。</p><footer><button :disabled="busy" @click="confirmArchive = null" title="取消" aria-label="取消" class="ui-icon-button" type="button"><UiIcon name="close" /></button><button class="primary" :disabled="busy" @click="action(confirmArchive, 'archive')">确认归档</button></footer></section></div>
   </section>
 </template>
 

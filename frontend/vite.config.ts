@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
+import { uiI18nTransform } from './scripts/ui-i18n-transform.mjs'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [uiI18nTransform(), vue()],
   build: {
     chunkSizeWarningLimit: 1000,
     rollupOptions: {

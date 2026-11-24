@@ -9,11 +9,13 @@ import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.repository.ExtensionRecordRepository;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.Locale;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -44,6 +46,7 @@ public class ExtensionRecordService {
     private final ExtensionRecordRepository recordRepository;
     private final FactoryRepository factoryRepository;
     private final UserRepository userRepository;
+    private final ObjectMapper objectMapper = new ObjectMapper().enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     public ExtensionRecordService(ExtensionRecordRepository recordRepository,
                                   FactoryRepository factoryRepository,
@@ -59,7 +62,7 @@ public class ExtensionRecordService {
         String normalizedStatus = normalize(status);
         Page<ExtensionRecord> page = normalizedStatus == null
                 ? recordRepository.findByFactoryIdAndModuleName(factoryId, module, pageable)
-                : recordRepository.findByFactoryIdAndModuleNameAndStatus(factoryId, module, normalizedStatus.toUpperCase(), pageable);
+                : recordRepository.findByFactoryIdAndModuleNameAndStatus(factoryId, module, normalizedStatus.toUpperCase(Locale.ROOT), pageable);
         return page.map(this::toResponse);
     }
 
@@ -93,9 +96,25 @@ public class ExtensionRecordService {
     }
 
     private void apply(ExtensionRecord record, ExtensionRecordRequest request, boolean creating) {
+        if (request == null) throw new ApiException(HttpStatus.BAD_REQUEST, "记录内容不能为空");
         String title = normalize(request.getTitle());
         if (title == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "标题不能为空");
+        }
+        requireLength(title, 128, "标题");
+        String businessKey = normalize(request.getBusinessKey());
+        requireLength(businessKey, 128, "业务编号");
+        String status = normalize(request.getStatus());
+        if (status != null) status = status.toUpperCase(Locale.ROOT);
+        requireLength(status, 32, "状态");
+        String payload = normalize(request.getPayloadJson());
+        requireLength(payload, 20000, "记录内容");
+        if (payload != null) {
+            try {
+                if (!objectMapper.readTree(payload).isObject()) throw new IllegalArgumentException();
+            } catch (Exception exception) {
+                throw new ApiException(HttpStatus.BAD_REQUEST, "记录内容必须是有效的 JSON 对象");
+            }
         }
         if (creating) {
             record.setModuleName(normalizeModule(request.getModuleName()));
@@ -103,13 +122,12 @@ public class ExtensionRecordService {
             record.setModuleName(normalizeModule(request.getModuleName()));
         }
         record.setTitle(title);
-        record.setBusinessKey(limit(normalize(request.getBusinessKey()), 128));
-        String status = normalize(request.getStatus());
-        record.setStatus(status == null ? "ACTIVE" : limit(status.toUpperCase(), 32));
-        record.setPayloadJson(limit(request.getPayloadJson(), 20000));
+        record.setBusinessKey(businessKey);
+        record.setStatus(status == null ? "ACTIVE" : status);
+        record.setPayloadJson(payload);
     }
 
-    private ExtensionRecordResponse toResponse(ExtensionRecord record) {
+    ExtensionRecordResponse toResponse(ExtensionRecord record) {
         ExtensionRecordResponse response = new ExtensionRecordResponse();
         response.setId(record.getId());
         response.setModuleName(record.getModuleName());
@@ -129,7 +147,7 @@ public class ExtensionRecordService {
         if (module == null) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "模块不能为空");
         }
-        module = module.toUpperCase();
+        module = module.toUpperCase(Locale.ROOT);
         if (!ALLOWED_MODULES.contains(module)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "不支持的模块：" + module);
         }
@@ -142,8 +160,9 @@ public class ExtensionRecordService {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    private String limit(String value, int max) {
-        if (value == null) return null;
-        return value.length() <= max ? value : value.substring(0, max);
+    private void requireLength(String value, int max, String label) {
+        if (value != null && value.length() > max) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, label + "不能超过" + max + "个字符");
+        }
     }
 }

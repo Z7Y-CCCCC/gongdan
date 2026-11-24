@@ -34,6 +34,8 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class OutboundReceiptService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private CustomFieldValueValidator customFieldValueValidator;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -87,6 +89,7 @@ public class OutboundReceiptService {
     @CacheEvict(cacheNames = {"products.list", "inventory.details", "inbound.receipts.list", "inbound.receipts.detail", "outbound.receipts.list", "outbound.receipts.detail"}, allEntries = true)
     public OutboundReceiptResponse create(Long factoryId, Long userId, OutboundReceiptRequest request) {
         if (request == null) throw new IllegalArgumentException("请填写出库单信息");
+        if (customFieldValueValidator != null) customFieldValueValidator.validate(factoryId, "receipt", request.getCustomValues(), null, false);
         Factory factory = factoryRepository.findById(factoryId)
                 .orElseThrow(() -> new IllegalArgumentException("工厂不存在"));
 
@@ -124,6 +127,7 @@ public class OutboundReceiptService {
             List<Long> productIds = new ArrayList<>();
             for (OutboundReceiptRequest.OutboundReceiptItemRequest itemReq : request.getItems()) {
                 if (itemReq == null || itemReq.getProductId() == null) throw new IllegalArgumentException("产品不能为空");
+                if (customFieldValueValidator != null) customFieldValueValidator.validate(factoryId, "receipt_detail", itemReq.getCustomValues(), null, false);
                 if (itemReq.getQuantity() == null || itemReq.getQuantity() <= 0) throw new IllegalArgumentException("出库数量必须大于0");
                 productIds.add(itemReq.getProductId());
             }

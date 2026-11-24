@@ -1,0 +1,18 @@
+/* The manual H5 bootstrap must load the native API popup styles explicitly. */
+uni-modal .uni-mask,
+uni-actionsheet .uni-mask {
+  position: fixed;
+  z-index: 999;
+  inset: 0;
+  background: rgba(18, 35, 29, .42);
+}
+uni-modal .uni-modal {
+  color: #24372f;
+  background: #fff;
+  border-radius: 10px;
+}
+uni-modal .uni-modal__bd { color: #536b60; }
+uni-modal .uni-modal__ft { min-height: 48px; }
+uni-toast .uni-mask { position: fixed; inset: 0; z-index: 998; }
+.uni-toast .uni-loading { width: 30px; height: 30px; border: 3px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: api-loading-spin 1s linear infinite; }
+@keyframes api-loading-spin { to { transform: rotate(360deg); } }

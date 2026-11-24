@@ -10,6 +10,20 @@ public interface InternalMessageRepository extends JpaRepository<InternalMessage
 
     List<InternalMessage> findTop5000ByFactoryIdOrderByCreatedAtDesc(Long factoryId);
 
+    @Query("select m from InternalMessage m where m.factory.id = :factoryId "
+            + "and (m.sender.id = :userId or m.receiver.id = :userId) "
+            + "and not exists (select newer.id from InternalMessage newer "
+            + "where newer.factory.id = :factoryId "
+            + "and ((newer.sender.id = m.sender.id and newer.receiver.id = m.receiver.id) "
+            + "or (newer.sender.id = m.receiver.id and newer.receiver.id = m.sender.id)) "
+            + "and (newer.createdAt > m.createdAt or (newer.createdAt = m.createdAt and newer.id > m.id))) "
+            + "order by m.createdAt desc, m.id desc")
+    List<InternalMessage> findLatestConversations(@Param("factoryId") Long factoryId, @Param("userId") Long userId);
+
+    @Query("select m.sender.id, count(m) from InternalMessage m "
+            + "where m.factory.id = :factoryId and m.receiver.id = :userId and m.readAt is null group by m.sender.id")
+    List<Object[]> countUnreadBySender(@Param("factoryId") Long factoryId, @Param("userId") Long userId);
+
     @Query("select m from InternalMessage m "
             + "where m.factory.id = :factoryId "
             + "and ((m.sender.id = :userId and m.receiver.id = :peerId) "

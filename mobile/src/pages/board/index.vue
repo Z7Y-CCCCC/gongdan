@@ -1,19 +1,17 @@
 <template>
   <view class="container">
-    <ListLimitNotice :total="orderTotal" :loaded="workOrders.length" label="工单" />
-    <ListLimitNotice :total="reportTotal" :loaded="reports.length" label="个人报工" />
-    <view class="summary-card">
-      <view class="card-head">
-        <view>
-          <text class="title">车间看板</text>
-          <text class="subtitle">工单进度与现场报工</text>
-        </view>
-        <text class="tag">{{ loading ? '刷新中' : '实时' }}</text>
-      </view>
-
+    <view class="ui-page-head board-head">
+      <text class="title">看板</text>
+      <IconButton icon="refreshempty" label="刷新看板" :busy="loading" @click="loadBoard" />
+    </view>
+    <view v-if="errorMessage" class="empty">
+      <text>{{ errorMessage }}</text>
+      <IconButton icon="refreshempty" label="重试看板" @click="loadBoard" />
+    </view>
+    <view v-else-if="dashboard" class="summary-card">
       <view class="gauge">
         <text class="gauge-value">{{ achievementRate }}%</text>
-        <text class="gauge-label">综合达成率</text>
+        <text class="gauge-label">达成率</text>
       </view>
 
       <view class="stat-grid">
@@ -32,11 +30,12 @@
       </view>
     </view>
 
-    <view class="section">
+    <view v-if="dashboard && !errorMessage" class="section">
       <view class="section-head">
         <text class="section-title">工单进度</text>
         <text class="section-sub">良品 {{ totalGood }} / 计划 {{ totalPlanned }}</text>
       </view>
+      <text class="section-sub">最近 {{ orderRows.length }} / 共 {{ dashboard.workOrderTotal }} 工单 · 指标全量</text>
       <view v-if="orderRows.length === 0 && !loading" class="empty">暂无工单数据</view>
       <view v-for="item in orderRows" :key="item.code" class="order-card">
         <view class="order-top">
@@ -53,7 +52,7 @@
       </view>
     </view>
 
-    <view class="section">
+    <view v-if="dashboard && !errorMessage" class="section">
       <view class="section-head">
         <text class="section-title">我的工序产出</text>
         <text class="section-sub">不良 {{ totalDefect }}</text>
@@ -79,39 +78,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { ensureLogin, fetchReports, fetchWorkOrders } from '../../services/api'
-import type { WorkOrderInfo, WorkOrderReport } from '../../types/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
-import ListLimitNotice from '../../components/ListLimitNotice.vue'
+import IconButton from '../../components/IconButton.vue'
+import { useMobileDashboard } from '../../composables/useMobileDashboard'
 
-const loading = ref(false)
-const workOrders = ref<WorkOrderInfo[]>([])
-const reports = ref<WorkOrderReport[]>([])
-const orderTotal = ref(0)
-const reportTotal = ref(0)
-
-const todayKey = computed(() => {
-  const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-})
-
-const totalPlanned = computed(() => workOrders.value.reduce((sum, item) => sum + (item.plannedQuantity || 0), 0))
-const approvedReports = computed(() => reports.value.filter(item => item.status === 'APPROVED'))
-const totalGood = computed(() => workOrders.value.reduce((sum, item) => sum + (item.goodQuantity || 0), 0))
-const totalDefect = computed(() => approvedReports.value.reduce((sum, item) => sum + (item.defectQuantity || 0), 0))
+const { dashboard, loading, errorMessage, day: todayKey, load: loadBoard } = useMobileDashboard()
+const totalPlanned = computed(() => dashboard.value?.totalPlanned || 0)
+const totalGood = computed(() => dashboard.value?.totalGood || 0)
+const totalDefect = computed(() => dashboard.value?.totalDefect || 0)
 const achievementRate = computed(() => {
   if (!totalPlanned.value) return 0
   return Math.min(100, Math.round((totalGood.value / totalPlanned.value) * 100))
 })
-const activeOrderCount = computed(() => workOrders.value.filter(item => !['COMPLETED', 'FINISHED', 'CLOSED', 'CANCELED'].includes(item.status)).length)
-const pendingReportCount = computed(() => reports.value.filter(item => item.status === 'PENDING').length)
-const todayReportCount = computed(() => reports.value.filter(item => (item.createdAt || '').startsWith(todayKey.value)).length)
+const activeOrderCount = computed(() => dashboard.value?.activeOrderCount || 0)
+const pendingReportCount = computed(() => dashboard.value?.pendingReportCount || 0)
+const todayReportCount = computed(() => dashboard.value?.todayReportCount || 0)
 
 const orderRows = computed(() => {
-  return workOrders.value.slice(0, 5).map(item => {
+  return (dashboard.value?.recentOrders || []).slice(0, 5).map(item => {
     const progress = item.plannedQuantity
       ? Math.round(((item.goodQuantity || 0) / item.plannedQuantity) * 100)
       : 0
@@ -123,15 +109,7 @@ const orderRows = computed(() => {
 })
 
 const rankings = computed(() => {
-  const grouped = new Map<string, number>()
-  for (const report of approvedReports.value) {
-    const name = report.processName || '未命名工序'
-    grouped.set(name, (grouped.get(name) || 0) + (report.goodQuantity || 0))
-  }
-  const rows = Array.from(grouped.entries())
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5)
+  const rows = (dashboard.value?.rankings || []).slice(0, 5)
   const max = Math.max(1, ...rows.map(item => item.value))
   return rows.map(item => ({
     ...item,
@@ -148,41 +126,13 @@ function statusLabel(status: string) {
     COMPLETED: '已完成',
     FINISHED: '已结束',
     CLOSED: '已关闭',
-    CANCELED: '已取消'
+    CANCELED: '已取消',
+    CANCELLED: '已取消'
   }[status] || status || '未知'
 }
 
-async function loadBoard() {
-  if (loading.value) return
-  if (!ensureLogin()) return
-  loading.value = true
-  try {
-    const [ordersRes, reportsRes] = await Promise.all([
-      fetchWorkOrders(),
-      fetchReports('', '')
-    ])
-    workOrders.value = ordersRes.items || []
-    reports.value = reportsRes.items || []
-    orderTotal.value = ordersRes.total
-    reportTotal.value = reportsRes.total
-  } catch (e: any) {
-    uni.showToast({ title: e.message || '看板加载失败', icon: 'none' })
-    workOrders.value = []
-    reports.value = []
-    orderTotal.value = 0
-    reportTotal.value = 0
-  } finally {
-    loading.value = false
-  }
-}
-
 onMounted(loadBoard)
-
-onShow(() => {
-  if (uni.getStorageSync('token')) {
-    loadBoard()
-  }
-})
+onShow(loadBoard)
 </script>
 
 <style scoped>
@@ -192,6 +142,7 @@ onShow(() => {
   padding: 24rpx 24rpx 140rpx;
   box-sizing: border-box;
 }
+.board-head { margin-bottom: 24rpx; }
 
 .summary-card,
 .section {
@@ -223,19 +174,19 @@ onShow(() => {
 .stat-label {
   display: block;
   font-size: 24rpx;
-  color: #8a9693;
+  color: #64756d;
 }
 
 .tag {
   padding: 8rpx 18rpx;
   border-radius: 999rpx;
   background: #e6f7f3;
-  color: #00a982;
+  color: #00856b;
   font-size: 22rpx;
 }
 
 .gauge {
-  padding: 38rpx 0 30rpx;
+  padding: 12rpx 0 28rpx;
   text-align: center;
 }
 
@@ -244,14 +195,14 @@ onShow(() => {
   font-size: 76rpx;
   line-height: 1;
   font-weight: bold;
-  color: #00b889;
+  color: #00856b;
 }
 
 .gauge-label {
   display: block;
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #8a9693;
+  color: #64756d;
 }
 
 .stat-grid {
@@ -274,7 +225,7 @@ onShow(() => {
   color: #202926;
 }
 
-.stat-value.green { color: #00b889; }
+.stat-value.green { color: #00856b; }
 .stat-value.orange { color: #fa8c16; }
 
 .section-title {
@@ -299,7 +250,7 @@ onShow(() => {
   padding: 6rpx 14rpx;
   border-radius: 999rpx;
   background: #e6f7f3;
-  color: #00a982;
+  color: #00856b;
   font-size: 22rpx;
 }
 
@@ -321,7 +272,7 @@ onShow(() => {
 .progress-fill,
 .rank-fill {
   height: 100%;
-  background: #00b889;
+  background: #00856b;
   border-radius: 999rpx;
 }
 
@@ -329,7 +280,7 @@ onShow(() => {
   min-width: 72rpx;
   text-align: right;
   font-size: 24rpx;
-  color: #00a982;
+  color: #00856b;
   font-weight: bold;
 }
 
@@ -370,7 +321,7 @@ onShow(() => {
   text-align: right;
   font-size: 26rpx;
   font-weight: bold;
-  color: #00a982;
+  color: #00856b;
 }
 
 .empty,
@@ -378,6 +329,12 @@ onShow(() => {
   text-align: center;
   padding: 48rpx 0;
   color: #99a3a0;
+  font-size: 26rpx;
+}
+
+.retry-btn {
+  margin-top: 20rpx;
+  color: #00856b;
   font-size: 26rpx;
 }
 </style>

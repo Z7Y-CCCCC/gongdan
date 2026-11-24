@@ -30,6 +30,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.ArrayList;
 import java.util.Objects;
@@ -206,6 +207,7 @@ public class WorkOrderReportService {
         report.setProcessSequenceNo(request.getProcessSequenceNo());
         report.setProcessName(task.getProcessName());
         report.setReporter(reporter);
+        report.setSubmitterId(currentUser.getId());
         report.setReporterName(reporter.getName());
         report.setReportQuantity(reportQty);
         report.setGoodQuantity(goodQty);
@@ -235,7 +237,7 @@ public class WorkOrderReportService {
             String period,
             Pageable pageable
     ) {
-        return reportRepository.search(
+        return toPageResponse(factoryId, reportRepository.search(
                 factoryId,
                 parseStatus(status),
                 normalizeToEmpty(workOrderCode),
@@ -243,14 +245,15 @@ public class WorkOrderReportService {
                 periodStart(period),
                 periodEnd(period),
                 pageable
-        ).map(this::toResponse);
+        ));
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(cacheNames = "reports.mobile.list", key = "#factoryId + ':' + #userId + ':' + #status + ':' + #period + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
-    public Page<WorkOrderReportResponse> listMobile(Long factoryId, Long userId, String status, String period, Pageable pageable) {
-        return reportRepository.searchMobile(factoryId, userId, parseStatus(status), periodStart(period), periodEnd(period), pageable)
-                .map(this::toResponse);
+    @Cacheable(cacheNames = "reports.mobile.list", key = "#factoryId + ':' + #userId + ':' + #includeSubmitted + ':' + #workOrderId + ':' + #status + ':' + #period + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
+    public Page<WorkOrderReportResponse> listMobile(Long factoryId, Long userId, boolean includeSubmitted,
+                                                   Long workOrderId, String status, String period, Pageable pageable) {
+        return toPageResponse(factoryId, reportRepository.searchMobile(
+                factoryId, userId, includeSubmitted, workOrderId, parseStatus(status), periodStart(period), periodEnd(period), pageable));
     }
 
     @Transactional(readOnly = true)
@@ -264,6 +267,7 @@ public class WorkOrderReportService {
 
     @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
     public WorkOrderReportResponse approve(Long factoryId, Long approverId, Long reportId, WorkOrderReportApprovalRequest request) {
+        String remark = validateApprovalRemark(request, false);
         WorkOrderReport report = requirePending(factoryId, reportId);
         FactoryUser approver = requireUser(factoryId, approverId);
         LocalDateTime now = LocalDateTime.now();
@@ -271,7 +275,7 @@ public class WorkOrderReportService {
         report.setApprover(approver);
         report.setApproverName(approver.getName());
         report.setApprovedAt(now);
-        report.setApprovalRemark(normalize(request == null ? null : request.getRemark()));
+        report.setApprovalRemark(remark);
         report.setUpdatedAt(now);
         applyApprovedReport(report, now);
         WorkOrderReport saved = reportRepository.save(report);
@@ -281,6 +285,7 @@ public class WorkOrderReportService {
 
     @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail"}, allEntries = true)
     public WorkOrderReportResponse reject(Long factoryId, Long approverId, Long reportId, WorkOrderReportApprovalRequest request) {
+        String remark = validateApprovalRemark(request, true);
         WorkOrderReport report = requirePending(factoryId, reportId);
         FactoryUser approver = requireUser(factoryId, approverId);
         LocalDateTime now = LocalDateTime.now();
@@ -288,11 +293,18 @@ public class WorkOrderReportService {
         report.setApprover(approver);
         report.setApproverName(approver.getName());
         report.setApprovedAt(now);
-        report.setApprovalRemark(normalize(request == null ? null : request.getRemark()));
+        report.setApprovalRemark(remark);
         report.setUpdatedAt(now);
         WorkOrderReport saved = reportRepository.save(report);
         notificationService.publishReportDecision(saved, false);
         return toResponse(saved);
+    }
+
+    private String validateApprovalRemark(WorkOrderReportApprovalRequest request, boolean required) {
+        String remark = normalize(request == null ? null : request.getRemark());
+        if (required && remark.isEmpty()) throw new ApiException(HttpStatus.BAD_REQUEST, "请填写驳回原因");
+        if (remark.length() > 500) throw new ApiException(HttpStatus.BAD_REQUEST, "审批备注不能超过500字");
+        return remark;
     }
 
     @Scheduled(cron = "${app.upload.pending-image-cleanup-cron:0 0 3 * * *}")
@@ -366,7 +378,7 @@ public class WorkOrderReportService {
         WorkOrderReport report = reportRepository.findByIdAndFactoryIdForUpdate(reportId, factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "报工记录不存在"));
         if (report.getStatus() != ReportStatus.PENDING) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "只能审批未审批的报工记录");
+            throw new ApiException(HttpStatus.CONFLICT, "该报工已处理，请刷新列表");
         }
         return report;
     }
@@ -392,6 +404,17 @@ public class WorkOrderReportService {
                 .map(WorkOrderReportImageResponse::from)
                 .collect(Collectors.toList());
         return WorkOrderReportResponse.from(report, images);
+    }
+
+    private Page<WorkOrderReportResponse> toPageResponse(Long factoryId, Page<WorkOrderReport> page) {
+        if (page.isEmpty()) return page.map(report -> WorkOrderReportResponse.from(report, Collections.emptyList()));
+        List<Long> ids = page.stream().map(WorkOrderReport::getId).collect(Collectors.toList());
+        Map<Long, List<WorkOrderReportImageResponse>> images = imageRepository
+                .findByFactoryIdAndReportIdInOrderByCreatedAtAscIdAsc(factoryId, ids).stream()
+                .collect(Collectors.groupingBy(image -> image.getReport().getId(),
+                        Collectors.mapping(WorkOrderReportImageResponse::from, Collectors.toList())));
+        return page.map(report -> WorkOrderReportResponse.from(report,
+                images.getOrDefault(report.getId(), new ArrayList<>())));
     }
 
     @Transactional(readOnly = true)

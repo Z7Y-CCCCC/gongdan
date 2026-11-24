@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import UiIcon from './UiIcon.vue'
+import { formatUiDate, t, uiLocale } from '../i18n'
+import { escapePrintHtml as escapeHtml, printLabel } from '../utils/printHtml'
 import { computed, reactive, ref, watch } from 'vue'
 import {
   createUser, exportUsersCsv, fetchUsers, importUsersCsv,
@@ -358,16 +361,16 @@ async function handleToggleEnabled(user: UserInfo, nextEnabled: boolean, actionN
 function handlePrintUser(user: UserInfo) {
   const printWindow = window.open('', '_blank', 'width=560,height=680')
   if (!printWindow) {
-    errorMessage.value = '浏览器阻止打印窗口，请允许弹窗后重试'
+    errorMessage.value = t('浏览器阻止打印窗口，请允许弹窗后重试')
     return
   }
-  const loginScope = user.role === 'ADMIN' ? '电脑端 + 手机端' : '仅手机端'
+  const loginScope = t(user.role === 'ADMIN' ? '电脑端 + 手机端' : '仅手机端')
   printWindow.document.write(`
     <!doctype html>
-    <html lang="zh-CN">
+    <html lang="${uiLocale.value}">
       <head>
         <meta charset="UTF-8" />
-        <title>用户信息 - ${user.name}</title>
+        <title>${printLabel('小工单用户信息')} - ${escapeHtml(user.name)}</title>
         <style>
           body { font-family: "Microsoft YaHei", Arial, sans-serif; padding: 32px; color: #1f2725; }
           h1 { font-size: 22px; margin: 0 0 24px; }
@@ -377,16 +380,16 @@ function handlePrintUser(user: UserInfo) {
         </style>
       </head>
       <body>
-        <h1>小工单用户信息</h1>
+        <h1>${printLabel('小工单用户信息')}</h1>
         <table>
-          <tr><td>账号</td><td>${user.username}</td></tr>
-          <tr><td>姓名</td><td>${user.name}</td></tr>
-          <tr><td>角色</td><td>${user.roleLabel}</td></tr>
-          <tr><td>登录范围</td><td>${loginScope}</td></tr>
-          <tr><td>手机号</td><td>${user.phone || '-'}</td></tr>
-          <tr><td>部门</td><td>${user.departmentName || '-'}</td></tr>
-          <tr><td>状态</td><td>${user.enabled ? '启用中' : '停用中'}</td></tr>
-          <tr><td>虚拟用户</td><td>${user.virtualUser ? '是' : '否'}</td></tr>
+          <tr><td>${printLabel('账号')}</td><td>${escapeHtml(user.username)}</td></tr>
+          <tr><td>${printLabel('姓名')}</td><td>${escapeHtml(user.name)}</td></tr>
+          <tr><td>${printLabel('角色')}</td><td>${escapeHtml(printUserRole(user))}</td></tr>
+          <tr><td>${printLabel('登录范围')}</td><td>${escapeHtml(loginScope)}</td></tr>
+          <tr><td>${printLabel('手机号')}</td><td>${escapeHtml(user.phone || '-')}</td></tr>
+          <tr><td>${printLabel('部门')}</td><td>${escapeHtml(user.departmentName || '-')}</td></tr>
+          <tr><td>${printLabel('状态')}</td><td>${printLabel(user.enabled ? '启用中' : '停用中')}</td></tr>
+          <tr><td>${printLabel('虚拟用户')}</td><td>${printLabel(user.virtualUser ? '是' : '否')}</td></tr>
         </table>
       </body>
     </html>
@@ -394,6 +397,10 @@ function handlePrintUser(user: UserInfo) {
   printWindow.document.close()
   printWindow.focus()
   printWindow.print()
+}
+
+function printUserRole(user: UserInfo) {
+  return user.role === 'ADMIN' ? t('管理员') : user.role === 'PRODUCTION' ? t('生产人员') : user.roleLabel
 }
 
 async function handleExport() {
@@ -468,31 +475,31 @@ function handlePrintTemplate() {
     ? filteredUsers.value.filter(u => selectedUserIds.value.includes(u.id))
     : filteredUsers.value
   if (dataToprint.length === 0) {
-    errorMessage.value = '当前没有可打印的用户数据'
+    errorMessage.value = t('当前没有可打印的用户数据')
     return
   }
   const printWindow = window.open('', '_blank', 'width=900,height=700')
   if (!printWindow) {
-    errorMessage.value = '浏览器阻止打印窗口，请允许弹窗后重试'
+    errorMessage.value = t('浏览器阻止打印窗口，请允许弹窗后重试')
     return
   }
   const rows = dataToprint.map((u, i) => `
     <tr>
       <td>${i + 1}</td>
-      <td>${u.departmentName || '-'}</td>
-      <td>${u.username}</td>
-      <td>${u.name}</td>
-      <td>${u.roleLabel}</td>
-      <td>${u.phone || '-'}</td>
-      <td>${u.enabled ? '启用' : '停用'}</td>
+      <td>${escapeHtml(u.departmentName || '-')}</td>
+      <td>${escapeHtml(u.username)}</td>
+      <td>${escapeHtml(u.name)}</td>
+      <td>${escapeHtml(printUserRole(u))}</td>
+      <td>${escapeHtml(u.phone || '-')}</td>
+      <td>${printLabel(u.enabled ? '启用中' : '停用中')}</td>
     </tr>
   `).join('')
   printWindow.document.write(`
     <!doctype html>
-    <html lang="zh-CN">
+    <html lang="${uiLocale.value}">
       <head>
         <meta charset="UTF-8" />
-        <title>用户列表打印</title>
+        <title>${printLabel('用户列表打印')}</title>
         <style>
           body { font-family: "Microsoft YaHei", Arial, sans-serif; padding: 24px; color: #1f2725; }
           h1 { font-size: 20px; margin: 0 0 16px; text-align: center; }
@@ -503,20 +510,20 @@ function handlePrintTemplate() {
         </style>
       </head>
       <body>
-        <h1>小工单 - 用户列表</h1>
-        <p class="info">打印时间：${new Date().toLocaleString('zh-CN')}，共 ${dataToprint.length} 人</p>
+        <h1>${printLabel('小工单 - 用户列表')}</h1>
+        <p class="info">${printLabel('打印时间：{0}，共 {1} 人', [formatUiDate(new Date(), true), dataToprint.length])}</p>
         <table>
           <thead>
-            <tr><th>序号</th><th>部门</th><th>账号</th><th>姓名</th><th>角色</th><th>手机号</th><th>状态</th></tr>
+            <tr>${['序号', '部门', '账号', '姓名', '角色', '手机号', '状态'].map(label => `<th>${printLabel(label)}</th>`).join('')}</tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
-        <script>window.print();<\/script>
       </body>
     </html>
   `)
   printWindow.document.close()
   printWindow.focus()
+  printWindow.print()
 }
 </script>
 
@@ -563,23 +570,14 @@ function handlePrintTemplate() {
             </select>
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="$emit('reload-users')">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="$emit('reload-users')" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
 
         <div class="toolbar">
           <div class="toolbar-left">
-            <button class="primary-btn" type="button" @click="showCreateModal = true">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-              新增用户
-            </button>
-            <button class="ghost-btn" type="button" @click="handleExport">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              导出
-            </button>
+            <button class="primary-btn ui-icon-button" type="button" @click="showCreateModal = true" title="新增用户" aria-label="新增用户"><UiIcon name="plus" /></button>
+            <button class="ghost-btn ui-icon-button" type="button" @click="handleExport" title="导出" aria-label="导出"><UiIcon name="download" /></button>
             <label class="ghost-btn" style="cursor:pointer">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               导入
@@ -624,7 +622,7 @@ function handlePrintTemplate() {
                   <button class="action-link" type="button" @click="openResetPassword(user)">重置密码</button>
                   <button class="action-link" type="button" @click="confirmUnbindPhone(user)">解绑手机号</button>
                   <button class="action-link" type="button" @click="handlePrintUser(user)">打印</button>
-                  <button class="action-link" type="button" @click="openEditUser(user)">编辑</button>
+                  <button class="action-link ui-icon-button" type="button" @click="openEditUser(user)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
                   <button class="action-link" type="button" @click="confirmToggleEnabled(user)">{{ user.enabled ? '停用' : '启用' }}</button>
                   <button class="action-link" type="button" @click="openPermissionConfig(user)">权限配置</button>
                 </td>
@@ -638,13 +636,9 @@ function handlePrintTemplate() {
 
         <div class="pagination">
           <span class="page-total">共 {{ filteredUsers.length }} 条结果</span>
-          <button class="page-btn" type="button" :disabled="currentPage <= 1" @click="currentPage--">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
-          </button>
+          <button class="page-btn ui-icon-button" type="button" :disabled="currentPage <= 1" @click="currentPage--" title="上一页" aria-label="上一页"><UiIcon name="arrowLeft" /></button>
           <span class="page-num">{{ currentPage }}</span>
-          <button class="page-btn" type="button" :disabled="currentPage >= totalPages" @click="currentPage++">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
+          <button class="page-btn ui-icon-button" type="button" :disabled="currentPage >= totalPages" @click="currentPage++" title="下一页" aria-label="下一页"><UiIcon name="arrowRight" /></button>
           <select class="size-select" v-model="pageSize">
             <option :value="10">10条/页</option>
             <option :value="20">20条/页</option>
@@ -658,7 +652,7 @@ function handlePrintTemplate() {
     <section class="modal">
       <header class="modal-header">
         <h2>导入结果</h2>
-        <button class="close-btn" type="button" @click="showImportLogModal = false">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showImportLogModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <div style="padding: 22px 44px 24px; min-width: 340px;">
         <p>总计：{{ importResult?.total }} 条</p>
@@ -676,7 +670,7 @@ function handlePrintTemplate() {
     <section class="modal">
       <header class="modal-header">
         <h2>新增用户</h2>
-        <button class="close-btn" type="button" @click="showCreateModal = false">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showCreateModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleCreateUser">
         <label>
@@ -714,7 +708,7 @@ function handlePrintTemplate() {
           <input type="checkbox" v-model="createForm.virtualUser" style="width:auto;justify-self:start" />
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showCreateModal = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showCreateModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
         </footer>
       </form>
@@ -726,7 +720,7 @@ function handlePrintTemplate() {
     <section class="modal">
       <header class="modal-header">
         <h2>编辑用户</h2>
-        <button class="close-btn" type="button" @click="showEditModal = false">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showEditModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleUpdateUser">
         <label>
@@ -760,7 +754,7 @@ function handlePrintTemplate() {
           <input type="checkbox" v-model="editForm.virtualUser" style="width:auto;justify-self:start" />
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showEditModal = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showEditModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
         </footer>
       </form>
@@ -772,35 +766,25 @@ function handlePrintTemplate() {
     <section class="modal">
       <header class="modal-header">
         <h2>重置密码</h2>
-        <button class="close-btn" type="button" @click="showResetPasswordModal = false">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showResetPasswordModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleResetPassword">
         <label>
           <span><em>*</em> 新密码</span>
           <div style="position:relative">
             <input v-model="resetPasswordForm.password" :type="showNewPassword ? 'text' : 'password'" placeholder="请输入新密码" required />
-            <button type="button" class="password-toggle" @click="showNewPassword = !showNewPassword">
-              <!-- 睁眼 -->
-              <svg v-if="showNewPassword" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              <!-- 闭眼 -->
-              <svg v-else viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0" /><path d="M6 12v3" /><path d="M10 13.5v3.5" /><path d="M14 13.5v3.5" /><path d="M18 12v3" /></svg>
-            </button>
+            <button type="button" class="password-toggle ui-icon-button" @click="showNewPassword = !showNewPassword" :title="showNewPassword ? '隐藏密码' : '显示密码'" :aria-label="showNewPassword ? '隐藏密码' : '显示密码'"><UiIcon name="eye" :size="18" /></button>
           </div>
         </label>
         <label>
           <span><em>*</em> 确认密码</span>
           <div style="position:relative">
             <input v-model="resetPasswordForm.confirmPassword" :type="showConfirmPassword ? 'text' : 'password'" placeholder="请再次输入密码" required />
-            <button type="button" class="password-toggle" @click="showConfirmPassword = !showConfirmPassword">
-              <!-- 睁眼 -->
-              <svg v-if="showConfirmPassword" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              <!-- 闭眼 -->
-              <svg v-else viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0" /><path d="M6 12v3" /><path d="M10 13.5v3.5" /><path d="M14 13.5v3.5" /><path d="M18 12v3" /></svg>
-            </button>
+            <button type="button" class="password-toggle ui-icon-button" @click="showConfirmPassword = !showConfirmPassword" :title="showConfirmPassword ? '隐藏密码' : '显示密码'" :aria-label="showConfirmPassword ? '隐藏密码' : '显示密码'"><UiIcon name="eye" :size="18" /></button>
           </div>
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showResetPasswordModal = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showResetPasswordModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
         </footer>
       </form>
@@ -812,7 +796,7 @@ function handlePrintTemplate() {
     <section class="modal">
       <header class="modal-header">
         <h2>权限配置</h2>
-        <button class="close-btn" type="button" @click="showPermissionModal = false">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showPermissionModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleUpdatePermission">
         <label>
@@ -823,7 +807,7 @@ function handlePrintTemplate() {
           </select>
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showPermissionModal = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showPermissionModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
         </footer>
       </form>
@@ -844,8 +828,8 @@ function handlePrintTemplate() {
         <p><span>密码：</span>{{ successUserPassword }}</p>
       </div>
       <footer class="modal-footer">
-        <button class="ghost-btn wide" type="button" @click="copySuccessUser">复制信息</button>
-        <button class="primary-btn wide" type="button" @click="successUser = null">关闭</button>
+        <button class="ghost-btn wide ui-icon-button" type="button" @click="copySuccessUser" title="复制信息" aria-label="复制信息"><UiIcon name="copy" /></button>
+        <button class="primary-btn wide ui-icon-button" type="button" @click="successUser = null" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </footer>
     </section>
   </div>

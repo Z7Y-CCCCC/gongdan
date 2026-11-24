@@ -114,6 +114,22 @@ class CredentialIssuanceConcurrencyIntegrationTest {
         assertResetCannotCommitBetweenCredentialCheckAndIssuance(CredentialFlow.MOBILE_BIND);
     }
 
+    @Test
+    void productionWorkerCanUseH5PasswordLoginWithoutBecomingAWebAdministrator() {
+        user.setRole(Role.PRODUCTION);
+        users.saveAndFlush(user);
+        LoginRequest request = new LoginRequest();
+        request.setFactoryCode(factory.getCode());
+        request.setUsername(user.getUsername());
+        request.setPassword(OLD_PASSWORD);
+        assertThat(assertThrows(ApiException.class, () -> authService.login(request)).getStatus())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        String authorization = "Bearer " + authService.loginMobile(request, null).getToken();
+        assertThat(tokenService.requireUser(authorization).getRole()).isEqualTo(Role.PRODUCTION);
+        assertThat(assertThrows(ApiException.class, () -> tokenService.requireAdmin(authorization)).getStatus())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
     private void assertResetCannotCommitBetweenCredentialCheckAndIssuance(CredentialFlow flow) throws Exception {
         Gate gate = new Gate();
         encoder.gate = gate;
@@ -121,7 +137,9 @@ class CredentialIssuanceConcurrencyIntegrationTest {
         CountDownLatch resetStarted = new CountDownLatch(1);
         try {
             Future<String> login = executor.submit(() -> login(flow));
-            assertThat(gate.checked.await(10, TimeUnit.SECONDS)).as("password was checked").isTrue();
+            boolean checked = gate.checked.await(10, TimeUnit.SECONDS);
+            if (!checked && login.isDone()) login.get(); // Report an early binding/login failure rather than just the timeout.
+            assertThat(checked).as("password was checked").isTrue();
             Future<?> reset = executor.submit(() -> {
                 resetStarted.countDown();
                 return userService.resetPassword(factory.getId(), user.getId(), NEW_PASSWORD);

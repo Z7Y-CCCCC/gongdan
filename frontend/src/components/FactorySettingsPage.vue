@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { fetchCurrentFactory, updateCurrentFactory, type CurrentFactoryInfo } from '../api'
 import UiIcon from './UiIcon.vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 
 const props = defineProps<{
   token: string
@@ -16,40 +18,67 @@ const loading = ref(false)
 const saving = ref(false)
 const factory = ref<CurrentFactoryInfo | null>(null)
 const form = reactive({ name: '' })
+const loadError = ref('')
+const beginLoad = useLatestRequest()
+let sessionGeneration = 0
 
 async function loadFactory() {
+  if (saving.value) return
+  const isCurrent = beginLoad()
+  const requestToken = props.token
+  if (!requestToken) { loading.value = false; return }
+  const previousName = form.name
   loading.value = true
+  loadError.value = ''
   try {
-    const data = await fetchCurrentFactory(props.token)
+    const data = await fetchCurrentFactory(requestToken)
+    if (!isCurrent() || props.token !== requestToken) return
     factory.value = data
-    form.name = data.name
+    if (form.name === previousName) form.name = data.name
   } catch (error) {
-    emit('error', error instanceof Error ? error.message : '加载工厂信息失败')
+    if (isCurrent() && props.token === requestToken) loadError.value = error instanceof Error ? error.message : '加载工厂信息失败'
   } finally {
-    loading.value = false
+    if (isCurrent() && props.token === requestToken) loading.value = false
   }
 }
 
 async function saveFactory() {
+  if (saving.value || !factory.value || !props.token) return
   const name = form.name.trim()
   if (!name) {
     emit('error', '请填写工厂名称')
     return
   }
   saving.value = true
+  beginLoad()
+  loading.value = false
+  const requestToken = props.token
+  const generation = sessionGeneration
+  const current = () => props.token === requestToken && sessionGeneration === generation
   try {
-    const data = await updateCurrentFactory(props.token, { name })
+    const data = await updateCurrentFactory(requestToken, { name })
+    if (!current()) return
     factory.value = data
     form.name = data.name
     emit('notice', '工厂信息已保存')
   } catch (error) {
-    emit('error', error instanceof Error ? error.message : '保存工厂信息失败')
+    if (current()) emit('error', error instanceof Error ? error.message : '保存工厂信息失败')
   } finally {
-    saving.value = false
+    if (current()) saving.value = false
   }
 }
 
 onMounted(loadFactory)
+useRefreshOnActivated(loadFactory)
+watch(() => props.token, () => {
+  sessionGeneration++
+  beginLoad()
+  factory.value = null
+  form.name = ''
+  saving.value = false
+  void loadFactory()
+})
+onBeforeUnmount(() => { sessionGeneration++; beginLoad() })
 </script>
 
 <template>
@@ -57,14 +86,14 @@ onMounted(loadFactory)
     <div class="factory-header">
       <div>
         <h2>工厂设置</h2>
-        <p>维护当前租户的基础信息。工厂代码用于登录和租户隔离，暂不支持在前台修改。</p>
+        <p>工厂代码用于登录与隔离，不可修改。</p>
       </div>
-      <button class="ghost-btn" type="button" :disabled="loading" @click="loadFactory"><UiIcon name="refresh" />刷新</button>
+      <button class="ghost-btn ui-icon-button" type="button" :disabled="loading" @click="loadFactory" title="刷新" aria-label="刷新"><UiIcon name="refresh" /></button>
     </div>
 
     <div v-if="loading && !factory" class="factory-empty">加载中...</div>
-
-    <div v-else class="factory-panel">
+    <p v-if="loadError" role="alert">{{ loadError }}</p>
+    <div v-if="factory" class="factory-panel">
       <div class="factory-summary">
         <div class="summary-item">
           <span>工厂代码</span>
@@ -83,7 +112,7 @@ onMounted(loadFactory)
       <form class="factory-form" @submit.prevent="saveFactory">
         <label>
           <span>工厂名称</span>
-          <input v-model="form.name" maxlength="128" placeholder="请输入工厂名称" />
+          <input v-model="form.name" maxlength="128" placeholder="请输入工厂名称" :disabled="saving" />
         </label>
         <div class="form-actions">
           <button class="primary-btn" type="submit" :disabled="saving">

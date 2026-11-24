@@ -2,11 +2,15 @@ package com.heihu.workorder.service;
 
 import com.heihu.workorder.dto.InboundReceiptRequest;
 import com.heihu.workorder.dto.InboundReceiptResponse;
+import com.heihu.workorder.dto.InventoryDetailPageResponse;
 import com.heihu.workorder.dto.OutboundReceiptRequest;
 import com.heihu.workorder.dto.OutboundReceiptResponse;
 import com.heihu.workorder.dto.ProductRequest;
+import com.heihu.workorder.dto.WorkOrderReportApprovalRequest;
 import com.heihu.workorder.dto.WorkOrderReportRequest;
+import com.heihu.workorder.dto.WorkOrderReportResponse;
 import com.heihu.workorder.dto.WorkOrderRequest;
+import com.heihu.workorder.dto.WorkOrderResponse;
 import com.heihu.workorder.enums.TimeRange;
 import com.heihu.workorder.model.Factory;
 import com.heihu.workorder.model.FactoryUser;
@@ -18,6 +22,8 @@ import com.heihu.workorder.model.WorkOrder;
 import com.heihu.workorder.model.WorkOrderReport;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.InboundReceiptRepository;
+import com.heihu.workorder.repository.NotificationEventRepository;
+import com.heihu.workorder.repository.NotificationRecipientRepository;
 import com.heihu.workorder.repository.OutboundReceiptRepository;
 import com.heihu.workorder.repository.ProductRepository;
 import com.heihu.workorder.repository.UnitRepository;
@@ -43,6 +49,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
@@ -52,7 +59,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Uses a private in-memory database and real service transactions, never the configured business DB. */
 @SpringBootTest(properties = {
-        "spring.datasource.url=jdbc:h2:mem:business_integrity_audit;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=MySQL;LOCK_TIMEOUT=10000",
+        "spring.datasource.url=jdbc:h2:mem:business_integrity_audit;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=MySQL;DATABASE_TO_LOWER=TRUE;LOCK_TIMEOUT=10000",
         "spring.cache.type=none",
         "logging.file.name=output/business-integrity-test.log"
 })
@@ -65,10 +72,13 @@ class BusinessIntegrityIntegrationTest {
     @Autowired private ProductRepository products;
     @Autowired private WorkOrderRepository orders;
     @Autowired private WorkOrderReportRepository reports;
+    @Autowired private NotificationEventRepository notificationEvents;
+    @Autowired private NotificationRecipientRepository notificationRecipients;
     @Autowired private InboundReceiptRepository inbounds;
     @Autowired private OutboundReceiptRepository outbounds;
     @Autowired private InboundReceiptService inboundService;
     @Autowired private OutboundReceiptService outboundService;
+    @Autowired private InventoryDetailService inventoryDetails;
     @Autowired private WorkOrderReportService reportService;
     @Autowired private WorkOrderService orderService;
     @Autowired private ProductService productService;
@@ -82,16 +92,7 @@ class BusinessIntegrityIntegrationTest {
     @BeforeEach
     void fixtures() {
         factory = createFactory();
-        actor = new FactoryUser();
-        actor.setFactory(factory);
-        actor.setUsername("worker");
-        actor.setName("Worker");
-        actor.setRole(Role.ADMIN);
-        actor.setEnabled(true);
-        actor.setPasswordHash("test-only-unused-hash");
-        actor.setCreatedAt(LocalDateTime.now());
-        actor.setUpdatedAt(LocalDateTime.now());
-        actor = users.saveAndFlush(actor);
+        actor = createUser("worker", Role.ADMIN);
         product = createProduct(factory, 0);
         order = createOrder("EXECUTING", 100);
     }
@@ -101,12 +102,49 @@ class BusinessIntegrityIntegrationTest {
         Long id = reportService.createReport(factory.getId(), actor.getId(), reportRequest()).getId();
         List<Throwable> results = together(
                 () -> reportService.approve(factory.getId(), actor.getId(), id, null),
-                () -> reportService.reject(factory.getId(), actor.getId(), id, null));
+                () -> reportService.reject(factory.getId(), actor.getId(), id, rejection("请核对数量")));
         assertThat(results.stream().filter(value -> value == null).count()).isEqualTo(1);
         WorkOrderReport saved = reports.findById(id).get();
         int expected = saved.getStatus() == ReportStatus.APPROVED ? 4 : 0;
         assertThat(orders.findById(order.getId()).get().getGoodQuantity()).isEqualTo(expected);
         assertThat(saved.getStatus()).isIn(ReportStatus.APPROVED, ReportStatus.REJECTED);
+    }
+
+    @Test
+    void rejectedDelegatedReportNotifiesBothUsersAndCanBeCorrectedWithoutChangingOriginal() {
+        FactoryUser reporter = createUser("reporter", Role.PRODUCTION);
+        FactoryUser colleague = createUser("colleague", Role.PRODUCTION);
+        WorkOrderReportRequest request = reportRequest();
+        request.setReporterUserId(reporter.getId());
+        Long factoryId = factory.getId();
+        PageRequest page = PageRequest.of(0, 20);
+        Long original = reportService.createReport(factoryId, actor.getId(), request).getId();
+        assertThatThrownBy(() -> reportService.reject(factoryId, actor.getId(), original, rejection("  ")))
+                .hasMessageContaining("请填写驳回原因");
+        assertThat(reportService.get(factoryId, original).getStatus()).isEqualTo("PENDING");
+
+        reportService.reject(factoryId, actor.getId(), original, rejection(" 核对实际良品数 "));
+        assertThat(reportService.listMobile(factoryId, reporter.getId(), false, order.getId(), "REJECTED", null, page)
+                .getContent()).extracting(WorkOrderReportResponse::getApprovalRemark).containsExactly("核对实际良品数");
+        assertThat(reportService.listMobile(factoryId, actor.getId(), true, order.getId(), "REJECTED", null, page)
+                .getContent()).extracting(WorkOrderReportResponse::getId).containsExactly(original);
+        assertThat(reportService.listMobile(factoryId, actor.getId(), false, order.getId(), null, null, page)).isEmpty();
+        assertThat(reportService.listMobile(factoryId, colleague.getId(), true, order.getId(), null, null, page)).isEmpty();
+        assertThat(reportService.listMobile(factoryId, actor.getId(), true, order.getId() + 1L, null, null, page)).isEmpty();
+        assertThat(reportService.listMobile(createFactory().getId(), actor.getId(), true, null, null, null, page)).isEmpty();
+        Long notificationId = notificationEvents.findByFactoryIdAndDedupeKey(factoryId, "report-rejected:" + original)
+                .get().getId();
+        assertThat(notificationRecipients.existsByEventIdAndUserId(notificationId, actor.getId())).isTrue();
+        assertThat(notificationRecipients.existsByEventIdAndUserId(notificationId, reporter.getId())).isTrue();
+        assertThat(notificationRecipients.existsByEventIdAndUserId(notificationId, colleague.getId())).isFalse();
+        assertThat(orders.findById(order.getId()).get().getGoodQuantity()).isZero();
+
+        Long corrected = reportService.createReport(factoryId, actor.getId(), request).getId();
+        reportService.approve(factoryId, actor.getId(), corrected, null);
+        assertThat(corrected).isNotEqualTo(original);
+        assertThat(reportService.get(factoryId, original).getStatus()).isEqualTo("REJECTED");
+        assertThat(reportService.get(factoryId, corrected).getStatus()).isEqualTo("APPROVED");
+        assertThat(orders.findById(order.getId()).get().getGoodQuantity()).isEqualTo(4);
     }
 
     @Test
@@ -209,10 +247,48 @@ class BusinessIntegrityIntegrationTest {
         WorkOrderReport first = createReport(thisMonth.minusMonths(1));
         WorkOrderReport last = createReport(thisMonth.minusNanos(1000));
         createReport(thisMonth);
-        assertThat(reportService.listMobile(factory.getId(), actor.getId(), null, "lastMonth", PageRequest.of(0, 20)).getContent())
+        assertThat(reportService.listMobile(factory.getId(), actor.getId(), false, null, null, "lastMonth", PageRequest.of(0, 20)).getContent())
                 .extracting("id").containsExactlyInAnyOrder(first.getId(), last.getId());
         assertThat(reportService.listAdmin(factory.getId(), null, null, null, "lastMonth", PageRequest.of(0, 20)).getTotalElements())
                 .isEqualTo(2);
+    }
+
+    @Test
+    void inventoryPagesCountAndSortReceiptLinesAcrossSourcesWithoutMixingFactories() {
+        InboundReceiptRequest incoming = inbound(product.getId(), 10, "IN_%QA");
+        incoming.setRemark("  test:rows ");
+        incoming.setItems(Arrays.asList(incoming.getItems().get(0), incoming.getItems().get(0)));
+        inboundService.create(factory.getId(), null, incoming);
+        outboundService.create(factory.getId(), null, outbound(product.getId(), 3, "OUT-QA"));
+        Factory other = createFactory();
+        inboundService.create(other.getId(), null, inbound(createProduct(other, 0).getId(), 99, "IN_OTHER"));
+
+        LocalDateTime t = LocalDateTime.of(2026, 9, 11, 12, 0);
+        InventoryDetailPageResponse first = inventoryDetails.list(factory.getId(), null, null, null,
+                null, null, null, null, "自制", t, t, 1, 2);
+        assertThat(first.getTotal()).isEqualTo(3);
+        assertThat(first.getItems()).extracting("changeQty").containsExactly(10, 10);
+        assertThat(first.getItems()).extracting("operationTime").containsOnly(t);
+        InventoryDetailPageResponse second = inventoryDetails.list(factory.getId(), null, null, null,
+                null, null, null, null, null, null, null, 2, 2);
+        assertThat(second.getTotal()).isEqualTo(3);
+        assertThat(second.getItems()).extracting("changeQty").containsExactly(-3);
+
+        InventoryDetailPageResponse literal = inventoryDetails.list(factory.getId(), " _%qa ", "采购入库", " in ",
+                "test:rows", product.getCode().toLowerCase(java.util.Locale.ROOT), null, null, null,
+                null, null, 1, 10);
+        assertThat(literal.getTotal()).isEqualTo(2);
+        assertThat(literal.getItems()).extracting("unitName").containsOnly(units.findById(product.getUnit().getId()).get().getName());
+        assertThat(inventoryDetails.list(factory.getId(), "z%", null, null,
+                null, null, null, null, null, null, null, 1, 10).getTotal()).isZero();
+        InventoryDetailPageResponse beyond = inventoryDetails.list(factory.getId(), null, null, "OUT",
+                null, null, null, null, null, null, null, Integer.MAX_VALUE, Integer.MAX_VALUE);
+        assertThat(beyond.getTotal()).isEqualTo(1);
+        assertThat(beyond.getItems()).isEmpty();
+        assertThat(product.getSpec()).isNull();
+        assertThat(productService.list(factory.getId(), product.getCode(), null, null, PageRequest.of(0, 20))
+                .getContent()).extracting("inventoryQty").containsExactly(17);
+        assertThat(productService.list(factory.getId(), product.getCode(), null, "SPEC", PageRequest.of(0, 20))).isEmpty();
     }
 
     @Test
@@ -243,6 +319,45 @@ class BusinessIntegrityIntegrationTest {
     }
 
     @Test
+    void mobileWorkOrderSearchPaginatesLiteralMatchesAcrossStatusAliasesWithoutMixingFactories() {
+        LocalDateTime tied = LocalDateTime.of(2026, 10, 7, 8, 0);
+        order.setCode("WO-needle_%");
+        order.setProductName(null); // Older orders may not have a product name snapshot.
+        order.setCreatedAt(tied);
+        orders.saveAndFlush(order);
+        WorkOrder legacy = createOrder("IN_PROGRESS", 100);
+        legacy.setProductCode("p-NEEDLE_%");
+        legacy.setCreatedAt(tied);
+        orders.saveAndFlush(legacy);
+        WorkOrder paused = createOrder("PAUSED", 100);
+        paused.setProductName("Part needle_%");
+        orders.saveAndFlush(paused);
+        WorkOrder nonLiteral = createOrder("EXECUTING", 100);
+        nonLiteral.setProductName("Part needleXY");
+        orders.saveAndFlush(nonLiteral);
+        Factory other = createFactory();
+        WorkOrder external = createOrder("EXECUTING", 100);
+        external.setFactory(other);
+        external.setProduct(createProduct(other, 0));
+        external.setProductName("Part needle_%");
+        orders.saveAndFlush(external);
+
+        Sort newest = Sort.by(Sort.Direction.DESC, "createdAt", "id");
+        org.springframework.data.domain.Page<WorkOrderResponse> first = orderService.searchMobile(
+                factory.getId(), null, null, "  NEEDLE_% ", "EXECUTING", PageRequest.of(0, 1, newest));
+        assertThat(first.getTotalElements()).isEqualTo(2);
+        assertThat(first.getContent()).extracting(WorkOrderResponse::getId).containsExactly(legacy.getId());
+        assertThat(orderService.searchMobile(factory.getId(), null, null, "needle_%", "IN_PROGRESS",
+                PageRequest.of(1, 1, newest)).getContent()).extracting(WorkOrderResponse::getId).containsExactly(order.getId());
+        assertThat(orderService.searchMobile(factory.getId(), null, null, "needle_%", "PAUSED",
+                PageRequest.of(0, 10, newest)).getContent()).extracting(WorkOrderResponse::getId).containsExactly(paused.getId());
+        assertThat(orderService.list(factory.getId(), "wo-NEEDLE_%", null, PageRequest.of(0, 10))
+                .getContent()).extracting(WorkOrderResponse::getId).containsExactly(order.getId());
+        assertThatThrownBy(() -> orderService.searchMobile(factory.getId(), null, null, null, "unknown",
+                PageRequest.of(0, 10))).hasMessageContaining("状态筛选");
+    }
+
+    @Test
     void closingAnOrderStoresCompletionTimeAndReturnsTheFlushedVersion() {
         WorkOrderRequest request = new WorkOrderRequest();
         request.setProductId(product.getId());
@@ -262,6 +377,25 @@ class BusinessIntegrityIntegrationTest {
         result.setEnabled(true);
         result.setCreatedAt(LocalDateTime.now());
         return factories.saveAndFlush(result);
+    }
+
+    private FactoryUser createUser(String name, Role role) {
+        FactoryUser user = new FactoryUser();
+        user.setFactory(factory);
+        user.setUsername(name);
+        user.setName(name);
+        user.setRole(role);
+        user.setEnabled(true);
+        user.setPasswordHash("test-only-unused-hash");
+        user.setCreatedAt(LocalDateTime.now());
+        user.setUpdatedAt(LocalDateTime.now());
+        return users.saveAndFlush(user);
+    }
+
+    private WorkOrderReportApprovalRequest rejection(String reason) {
+        WorkOrderReportApprovalRequest request = new WorkOrderReportApprovalRequest();
+        request.setRemark(reason);
+        return request;
     }
 
     private Product createProduct(Factory owner, int stock) {

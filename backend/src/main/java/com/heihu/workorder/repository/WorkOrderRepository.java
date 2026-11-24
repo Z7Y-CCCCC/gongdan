@@ -4,8 +4,11 @@ import com.heihu.workorder.model.WorkOrder;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
@@ -13,11 +16,30 @@ import java.util.List;
 import java.util.Optional;
 import javax.persistence.LockModeType;
 
-public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long> {
+public interface WorkOrderRepository extends JpaRepository<WorkOrder, Long>, JpaSpecificationExecutor<WorkOrder> {
 
+    @EntityGraph(attributePaths = {"product", "product.unit", "product.processRoute", "creator", "category"})
     Page<WorkOrder> findByFactoryId(Long factoryId, Pageable pageable);
 
-    Page<WorkOrder> findByFactoryIdAndCodeContainingAndProductNameContaining(Long factoryId, String code, String productName, Pageable pageable);
+    @Override
+    @EntityGraph(attributePaths = {"product", "product.unit", "product.processRoute", "creator", "category"})
+    Page<WorkOrder> findAll(Specification<WorkOrder> spec, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"product", "product.unit", "product.processRoute", "creator", "category"})
+    List<WorkOrder> findFirst5ByFactoryIdOrderByCreatedAtDescIdDesc(Long factoryId);
+
+    @Query("select count(w.id) as workOrderTotal, coalesce(sum(w.plannedQuantity), 0) as totalPlanned, " +
+            "coalesce(sum(w.goodQuantity), 0) as totalGood, " +
+            "coalesce(sum(case when w.status not in ('COMPLETED', 'FINISHED', 'CLOSED', 'CANCELED', 'CANCELLED') " +
+            "then 1 else 0 end), 0) as activeOrderCount from WorkOrder w where w.factory.id = :factoryId")
+    MobileTotals aggregateMobileTotals(@Param("factoryId") Long factoryId);
+
+    interface MobileTotals {
+        long getWorkOrderTotal();
+        long getTotalPlanned();
+        long getTotalGood();
+        long getActiveOrderCount();
+    }
 
     Optional<WorkOrder> findByFactoryIdAndCode(Long factoryId, String code);
 

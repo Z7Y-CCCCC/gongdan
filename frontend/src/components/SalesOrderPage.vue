@@ -214,15 +214,21 @@ async function saveOrder() {
 }
 
 async function removeOrder(item: SalesOrderInfo) {
+  if (visible.value || saving.value || loading.value) return
   const ok = await confirm({ message: `确认删除销售订单「${item.code}」？` })
   if (!ok) return
+  deleteLoading.value = true
   try {
     await deleteSalesOrder(props.token, item.id)
     emit('notice', '销售订单已删除')
-    await loadData()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '删除失败')
+    return
+  } finally {
+    deleteLoading.value = false
+    handleCancel()
   }
+  await loadData()
 }
 
 useRefreshOnActivated(loadData)
@@ -247,13 +253,13 @@ onMounted(loadData)
         </select>
       </label>
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="loadData"><UiIcon name="search" />查询</button>
-        <button class="ghost-btn" type="button" @click="filter.code = ''; filter.customerName = ''; filter.status = ''; loadData()"><UiIcon name="reset" />重置</button>
+        <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadData" title="查询销售订单" aria-label="查询销售订单"><UiIcon name="search" /></button>
+        <button class="ghost-btn ui-icon-button" type="button" @click="filter.code = ''; filter.customerName = ''; filter.status = ''; loadData()" title="重置筛选" aria-label="重置筛选"><UiIcon name="reset" /></button>
       </div>
     </div>
 
     <div class="toolbar">
-      <button class="primary-btn" type="button" @click="openCreate"><UiIcon name="plus" />新建销售订单</button>
+      <button class="primary-btn ui-icon-button" type="button" @click="openCreate" title="新建销售订单" aria-label="新建销售订单"><UiIcon name="plus" /></button>
       <span class="muted">共 {{ total }} 个销售订单</span>
       <TableConfigButton table-id="sales-order-list-table" />
     </div>
@@ -294,8 +300,8 @@ onMounted(loadData)
             </td>
             <td>{{ item.updatedAt || item.createdAt || '-' }}</td>
             <td class="action-cell">
-              <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
-              <button class="action-link danger" type="button" @click="removeOrder(item)">删除</button>
+              <button class="action-link ui-icon-button" type="button" @click="openEdit(item)" title="编辑销售订单" aria-label="编辑销售订单"><UiIcon name="edit" /></button>
+              <button class="action-link danger ui-icon-button" type="button" @click="removeOrder(item)" title="删除销售订单" aria-label="删除销售订单"><UiIcon name="trash" /></button>
             </td>
           </tr>
         </tbody>
@@ -306,7 +312,7 @@ onMounted(loadData)
       <div class="modal workorder-modal sales-order-modal">
         <div class="modal-header">
           <h2>{{ editing ? '编辑销售订单' : '新建销售订单' }}</h2>
-          <button class="close-btn" type="button" @click="showModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
         <div class="modal-body">
           <div class="form-grid two-col">
@@ -345,7 +351,7 @@ onMounted(loadData)
             <h3>订单明细</h3>
             <div class="order-detail-actions">
               <TableConfigButton table-id="sales-order-item-table" />
-              <button class="ghost-btn" type="button" @click="addItem"><UiIcon name="plus" />添加产品</button>
+              <button class="ghost-btn ui-icon-button" type="button" @click="addItem" title="添加产品" aria-label="添加产品"><UiIcon name="plus" /></button>
             </div>
           </div>
           <div class="table-container compact-table">
@@ -377,7 +383,7 @@ onMounted(loadData)
                     <input v-model="item.remark" placeholder="备注" />
                   </td>
                   <td>
-                    <button class="action-link danger" type="button" @click="removeItem(index)">删除</button>
+                    <button class="action-link danger ui-icon-button" type="button" @click="removeItem(index)" title="删除产品明细" aria-label="删除产品明细"><UiIcon name="trash" /></button>
                   </td>
                 </tr>
               </tbody>
@@ -386,7 +392,7 @@ onMounted(loadData)
         </div>
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveOrder" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
+          <button class="primary-btn wide" type="button" @click="saveOrder" :disabled="saving" title="保存销售订单" aria-label="保存销售订单">{{ saving ? '保存中...' : '保存' }}</button>
         </div>
       </div>
     </div>

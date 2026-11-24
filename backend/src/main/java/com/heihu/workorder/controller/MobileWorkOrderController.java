@@ -13,6 +13,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -39,12 +40,26 @@ public class MobileWorkOrderController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam(required = false) String code,
             @RequestParam(required = false) String productName,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "false") boolean reportableOnly,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
         AuthenticatedUser currentUser = tokenService.requireUser(authorization);
-        PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<WorkOrderResponse> result = workOrderService.list(currentUser.getFactoryId(), code, productName, pageRequest);
+        if (page < 1 || size < 1 || size > 100 || (page - 1L) * size > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("工单分页参数无效，每页最多 100 条");
+        }
+        if (keyword != null && keyword.length() > 128) {
+            throw new IllegalArgumentException("搜索关键词不能超过 128 个字符");
+        }
+        if (reportableOnly && StringUtils.hasText(status)) {
+            throw new IllegalArgumentException("可报工筛选不能与状态筛选同时使用");
+        }
+        PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+        Page<WorkOrderResponse> result = StringUtils.hasText(keyword) || StringUtils.hasText(status) || reportableOnly
+                ? workOrderService.searchMobile(currentUser.getFactoryId(), code, productName, keyword, status, reportableOnly, pageRequest)
+                : workOrderService.list(currentUser.getFactoryId(), code, productName, pageRequest);
         Map<String, Object> response = new HashMap<>();
         response.put("items", result.getContent());
         response.put("total", result.getTotalElements());

@@ -60,21 +60,21 @@ const glyphs: Record<string, string> = {
   smartphone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
   pin: '<path d="m15 4 5 5-3 1-4 4v4l-2 2-2-6-6-2 2-2h4l4-4 1-3Z"/>',
   maximize: '<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/>',
-  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>'
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  minus: '<path d="M5 12h14"/>',
+  rows: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18"/>',
+  chevronDown: '<path d="m6 9 6 6 6-6"/>',
+  'pin-left': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M8 4v16M14 9l-3 3 3 3"/>',
+  'pin-right': '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M16 4v16M10 9l3 3-3 3"/>',
+  unpin: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 3l18 18"/>',
+  grip: '<circle cx="9" cy="5" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="19" r="1"/>'
 }
 
 const glyph = computed(() => glyphs[props.name] || glyphs.more)
 </script>
 
 <template>
-  <span
-    v-if="name === 'table-columns'"
-    class="ui-icon vxe-custom-column-icon"
-    :style="{ width: `${size}px`, height: `${size}px`, fontSize: `${size}px` }"
-    aria-hidden="true"
-  ></span>
   <svg
-    v-else
     class="ui-icon"
     :width="size"
     :height="size"
@@ -91,29 +91,9 @@ const glyph = computed(() => glyphs[props.name] || glyphs.more)
 </template>
 
 <style scoped>
-@font-face {
-  font-family: 'vxe-table-iconfont';
-  src: url('../assets/vxe-table-iconfont.woff2') format('woff2');
-  font-display: block;
-}
-
 .ui-icon {
   display: inline-block;
   flex: 0 0 auto;
   vertical-align: -2px;
-}
-
-.vxe-custom-column-icon {
-  font-family: 'vxe-table-iconfont' !important;
-  font-style: normal;
-  font-weight: 400;
-  line-height: 1;
-  text-align: center;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-.vxe-custom-column-icon::before {
-  content: '\e62d';
 }
 </style>

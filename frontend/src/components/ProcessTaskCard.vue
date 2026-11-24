@@ -34,7 +34,7 @@ const progressBarWidth = computed(() =>
     <div class="card-body">
       <div class="card-main">
         <span class="task-count">{{ taskCount }}</span>
-        <span class="task-label">生产任务数</span>
+        <span class="task-label">任务数</span>
       </div>
       <div class="card-metrics">
         <div class="metric-row">
@@ -46,7 +46,7 @@ const progressBarWidth = computed(() =>
           <span class="metric-value">{{ goodQuantity }}</span>
         </div>
         <div class="metric-row">
-          <span class="metric-label">不良品数</span>
+          <span class="metric-label">不良数</span>
           <span class="metric-value">{{ defectQuantity }}</span>
         </div>
       </div>
@@ -181,6 +181,6 @@ const progressBarWidth = computed(() =>
 .progress-bar-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.3s ease;
+  transition: width var(--motion-base) ease;
 }
 </style>

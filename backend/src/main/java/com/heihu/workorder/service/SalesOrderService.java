@@ -23,10 +23,13 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -100,10 +103,9 @@ public class SalesOrderService {
             code = order.getCode();
         }
         ensureUniqueCode(factoryId, code, id);
+        applyRequest(order, factoryId, request);
         order.setCode(code);
         order.setUpdatedAt(LocalDateTime.now());
-        order.getItems().clear();
-        applyRequest(order, factoryId, request);
         return toResponse(salesOrderRepository.save(order));
     }
 
@@ -125,11 +127,18 @@ public class SalesOrderService {
     }
 
     private void applyRequest(SalesOrder order, Long factoryId, SalesOrderRequest request) {
+        LocalDate orderDate = parseDate(request.getOrderDate(), "订单日期");
+        LocalDate deliveryDate = parseDate(request.getDeliveryDate(), "交付日期");
+        if (orderDate != null && deliveryDate != null && deliveryDate.isBefore(orderDate)) {
+            throw new IllegalArgumentException("交付日期不能早于订单日期");
+        }
+        String status = normalizeStatus(request.getStatus());
         order.setCustomerName(request.getCustomerName().trim());
-        order.setOrderDate(parseDate(request.getOrderDate()));
-        order.setDeliveryDate(parseDate(request.getDeliveryDate()));
-        order.setStatus(normalizeStatus(request.getStatus()));
+        order.setOrderDate(orderDate);
+        order.setDeliveryDate(deliveryDate);
+        order.setStatus(status);
         order.setRemark(normalizeText(request.getRemark()));
+        order.getItems().clear();
         applyItems(order, factoryId, request.getItems());
     }
 
@@ -176,7 +185,7 @@ public class SalesOrderService {
         response.setTotalQuantity(response.getItems().stream()
                 .map(SalesOrderItemResponse::getQuantity)
                 .filter(quantity -> quantity != null)
-                .mapToInt(Integer::intValue)
+                .mapToLong(Integer::longValue)
                 .sum());
         return response;
     }
@@ -204,15 +213,26 @@ public class SalesOrderService {
     }
 
     private String generateCode() {
-        return "SO-" + Long.toString(System.currentTimeMillis(), 36).toUpperCase();
+        return "SO-" + UUID.randomUUID().toString().replace("-", "").toUpperCase(Locale.ROOT);
     }
 
-    private LocalDate parseDate(String value) {
-        return StringUtils.hasText(value) ? LocalDate.parse(value.trim()) : null;
+    private LocalDate parseDate(String value, String label) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        try {
+            LocalDate date = LocalDate.parse(value.trim());
+            if (date.getYear() < 1000 || date.getYear() > 9999) {
+                throw new IllegalArgumentException(label + "年份须在1000到9999之间");
+            }
+            return date;
+        } catch (DateTimeParseException exception) {
+            throw new IllegalArgumentException(label + "格式不正确，请填写有效的YYYY-MM-DD日期", exception);
+        }
     }
 
     private String normalizeCode(String value) {
-        return StringUtils.hasText(value) ? value.trim().toUpperCase() : "";
+        return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "";
     }
 
     private String normalizeText(String value) {
@@ -228,7 +248,7 @@ public class SalesOrderService {
     }
 
     private String normalizeStatus(String value) {
-        String status = StringUtils.hasText(value) ? value.trim().toUpperCase() : "DRAFT";
+        String status = StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "DRAFT";
         if (!ALLOWED_STATUS.contains(status)) {
             throw new IllegalArgumentException("销售订单状态不正确");
         }

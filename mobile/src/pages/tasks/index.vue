@@ -1,26 +1,19 @@
 <template>
   <view class="container">
-    <view class="header">
-      <text class="title">我的待办任务</text>
-      <text class="subtitle">共 {{ tasks.length }} 项待处理工序</text>
+    <view class="header ui-page-head">
+      <text class="title">任务</text>
+      <IconButton icon="refreshempty" label="刷新任务" :busy="loading" @click="loadTasks" />
     </view>
-
-    <ListLimitNotice :total="orderTotal" :loaded="loadedOrders" label="工单" />
-
-    <view v-if="loading" class="state">
-      <text>加载中...</text>
+    <view class="search-row">
+      <input v-model="keyword" maxlength="128" placeholder="工单号 / 产品" aria-label="搜索工单或产品" confirm-type="search" @confirm="loadTasks" />
+      <IconButton v-if="keyword" icon="closeempty" label="清空任务搜索" @click="keyword = ''; loadTasks()" />
+      <IconButton icon="search" label="搜索任务" @click="loadTasks" />
     </view>
-
-    <view v-else-if="errorMessage" class="state">
-      <text>{{ errorMessage }}</text>
-      <button class="retry-btn" @click="loadTasks">重试</button>
+    <view class="coverage-notice">
+      可报 {{ tasks.length }} 项 · 已查 {{ loadedOrders }} / {{ orderTotal }} 工单
     </view>
-
-    <scroll-view v-else scroll-y class="task-list">
-      <view v-for="task in tasks" :key="task.id" class="task-card" @click="handleTask(task)">
-        <view class="task-icon">
-          <uni-icons type="paperplane-filled" size="24" color="#00b889"></uni-icons>
-        </view>
+    <scroll-view scroll-y class="task-list" role="region" aria-label="任务列表" tabindex="0" @scrolltolower="loadMore">
+      <button v-for="task in tasks" :key="task.id" class="task-card ui-card-button" :aria-label="task.processName + '，' + task.workOrderCode + '，报工'" @click="handleTask(task)">
         <view class="task-info">
           <text class="task-name">{{ task.processName }}</text>
           <text class="task-order">{{ task.workOrderCode }} | {{ task.productName }}</text>
@@ -31,11 +24,19 @@
             <text class="progress-text">{{ task.completedQuantity + task.defectQuantity }}/{{ task.plannedQuantity }}</text>
           </view>
         </view>
-        <uni-icons type="right" size="16" color="#ccc"></uni-icons>
-      </view>
+        <uni-icons type="right" size="16" color="#ccc" aria-hidden="true"></uni-icons>
+      </button>
 
-      <view v-if="tasks.length === 0" class="empty">
-        <text class="empty-text">当前暂无指派给您的任务</text>
+      <view v-if="tasks.length === 0 && !loading && !errorMessage" class="empty">
+        <text class="empty-text">{{ hasMore ? '暂无可报工序，可继续加载' : '暂无可报工序' }}</text>
+      </view>
+      <view v-if="errorMessage" class="state">
+        <text>{{ errorMessage }}</text>
+        <IconButton icon="refreshempty" label="重试任务列表" @click="retryPage" />
+      </view>
+      <view v-else-if="loading" class="state"><text>加载中...</text></view>
+      <view v-else-if="hasMore" class="load-more">
+        <IconButton icon="arrow-down" label="加载更多工单" @click="loadMore" />
       </view>
     </scroll-view>
     <!-- #ifdef H5 -->
@@ -45,13 +46,15 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
-import { ensureLogin, fetchWorkOrders, fetchWorkOrderReporters } from '../../services/api'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onHide, onShow } from '@dcloudio/uni-app'
+import { ensureLogin, fetchWorkOrderPage, fetchWorkOrderReporters } from '../../services/api'
 import type { WorkOrderInfo, WorkOrderTask } from '../../types/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
-import ListLimitNotice from '../../components/ListLimitNotice.vue'
+import IconButton from '../../components/IconButton.vue'
 import { canReportTask } from '../../utils/report-permission'
+import { mobileSessionKey } from '../../utils/session-key'
+import { navigatePage } from '../../utils/navigation'
 
 interface TaskCard {
   id: string
@@ -72,37 +75,83 @@ const loading = ref(false)
 const orderTotal = ref(0)
 const loadedOrders = ref(0)
 const errorMessage = ref('')
+const keyword = ref('')
+const hasMore = ref(false)
+const pageSize = 20
+type TaskQuery = { keyword: string; session: string }
+let activeQuery: TaskQuery | undefined
+let nextPage = 1
+const seen = new Set<number>()
 let checkingPermission = false
 
-onShow(() => {
-  if (!ensureLogin()) return
-  loadTasks()
-})
-
-onMounted(() => {
-  if (!ensureLogin()) return
-  loadTasks()
-})
+onShow(loadTasks)
+onMounted(loadTasks)
+onHide(() => { activeQuery = undefined; loading.value = false })
+onBeforeUnmount(() => { activeQuery = undefined })
 
 async function loadTasks() {
-  if (loading.value) return
+  const query = { keyword: keyword.value.trim(), session: mobileSessionKey() }
+  if (loading.value && activeQuery?.keyword === query.keyword && activeQuery.session === query.session) return
+  activeQuery = query
+  tasks.value = []
+  loadedOrders.value = 0
+  orderTotal.value = 0
+  hasMore.value = false
+  errorMessage.value = ''
+  seen.clear()
+  nextPage = 1
+  if (!ensureLogin()) {
+    activeQuery = undefined
+    loading.value = false
+    return
+  }
+  await requestTaskPage(query, 1)
+}
+
+async function requestTaskPage(query: TaskQuery, page: number) {
   loading.value = true
   errorMessage.value = ''
   try {
-    const res = await fetchWorkOrders()
+    const res = await fetchWorkOrderPage({ page, size: pageSize, keyword: query.keyword, reportableOnly: true })
+    if (activeQuery !== query || mobileSessionKey() !== query.session) return
+    if (!Array.isArray(res?.items) || !Number.isSafeInteger(res.total) || res.total < 0) {
+      throw new Error('工单列表返回格式异常，请重试')
+    }
     orderTotal.value = res.total
-    loadedOrders.value = res.items.length
-    tasks.value = (res.items || [])
-      .flatMap(order => buildTaskCards(order))
-      .sort((a, b) => a.workOrderCode.localeCompare(b.workOrderCode) || a.sequenceNo - b.sequenceNo)
+    for (const order of res.items) {
+      if (seen.has(order.id)) continue
+      seen.add(order.id)
+      loadedOrders.value += 1
+      tasks.value.push(...buildTaskCards(order))
+    }
+    hasMore.value = res.items.length === pageSize && page * pageSize < res.total
+    nextPage = page + 1
   } catch (e: any) {
-    tasks.value = []
-    orderTotal.value = 0
-    loadedOrders.value = 0
-    errorMessage.value = e.message || '加载任务失败'
+    if (activeQuery === query && mobileSessionKey() === query.session) errorMessage.value = e.message || '加载任务失败'
   } finally {
-    loading.value = false
+    if (activeQuery === query) {
+      loading.value = false
+      if (mobileSessionKey() !== query.session) {
+        activeQuery = undefined
+        tasks.value = []
+        loadedOrders.value = 0
+        orderTotal.value = 0
+        hasMore.value = false
+        errorMessage.value = '登录状态已变更，请刷新'
+      }
+    }
   }
+}
+
+async function loadMore() {
+  if (loading.value || !hasMore.value) return
+  await retryPage()
+}
+
+async function retryPage() {
+  if (loading.value) return
+  if (!activeQuery || mobileSessionKey() !== activeQuery.session) return loadTasks()
+  await requestTaskPage(activeQuery, nextPage)
 }
 
 function buildTaskCards(order: WorkOrderInfo): TaskCard[] {
@@ -110,6 +159,7 @@ function buildTaskCards(order: WorkOrderInfo): TaskCard[] {
     return []
   }
   return order.tasks
+    .map((task, index) => ({ ...task, sequenceNo: task.sequenceNo || index + 1 }))
     .filter(task => task.enabled !== false)
     .filter(task => hasReportPermission(task))
     .filter(task => {
@@ -117,12 +167,12 @@ function buildTaskCards(order: WorkOrderInfo): TaskCard[] {
       const completed = (task.completedQuantity || 0) + (task.defectQuantity || 0)
       return planned <= 0 || completed < planned
     })
-    .map((task, index) => {
+    .map(task => {
       const planned = task.plannedQuantity || order.plannedQuantity || 0
       const goodQuantity = task.completedQuantity || 0
       const defectQuantity = task.defectQuantity || 0
       const completed = goodQuantity + defectQuantity
-      const sequenceNo = task.sequenceNo || index + 1
+      const sequenceNo = task.sequenceNo
       return {
         id: `${order.id}-${sequenceNo}`,
         workOrderId: order.id,
@@ -149,9 +199,11 @@ function hasReportPermission(task: WorkOrderTask) {
 
 async function handleTask(task: TaskCard) {
   if (checkingPermission || !ensureLogin()) return
+  const session = mobileSessionKey()
   checkingPermission = true
   try {
     const users = await fetchWorkOrderReporters(task.workOrderId, task.sequenceNo)
+    if (mobileSessionKey() !== session) throw new Error('登录状态已变更，请刷新')
     if (!users.some(user => user.id === uni.getStorageSync('user')?.id)) throw new Error('您没有此工序的报工权限')
   } catch (e: any) {
     uni.showToast({ title: e.message || '报工权限确认失败，请重试', icon: 'none' })
@@ -160,13 +212,7 @@ async function handleTask(task: TaskCard) {
     checkingPermission = false
   }
   const url = `/pages/report-form/index?orderId=${task.workOrderId}&processNo=${task.sequenceNo}&processName=${encodeURIComponent(task.processName)}&plannedQty=${task.plannedQuantity}&completedQty=${task.completedQuantity}&defectQty=${task.defectQuantity}&reportPermission=${encodeURIComponent(task.reportPermission || '')}`
-  if (typeof window !== 'undefined' && window.location) {
-    window.location.hash = `#${url}`
-    return
-  }
-  uni.navigateTo({
-    url
-  })
+  navigatePage(url)
 }
 </script>
 
@@ -177,14 +223,17 @@ async function handleTask(task: TaskCard) {
   min-height: 100vh;
   padding-bottom: 130rpx;
   box-sizing: border-box;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .header {
-  margin-bottom: 40rpx;
+  margin-bottom: 20rpx;
 }
 
 .title {
-  font-size: 44rpx;
+  font-size: 36rpx;
   font-weight: bold;
   color: #333;
   display: block;
@@ -192,13 +241,21 @@ async function handleTask(task: TaskCard) {
 
 .subtitle {
   font-size: 26rpx;
-  color: #999;
+  color: #64756d;
   margin-top: 10rpx;
 }
 
 .task-list {
-  height: calc(100vh - 160rpx);
+  height: 0;
+  min-height: 0;
+  flex: 1;
 }
+
+.search-row { display: flex; align-items: center; gap: 16rpx; }
+.search-row input { flex: 1; min-width: 0; background: #fff; border-radius: 12rpx; padding: 20rpx; font-size: 26rpx; }
+.search-btn { font-size: 24rpx; color: #00856b; margin: 0; }
+.coverage-notice { color: #71847e; padding: 16rpx 0; font-size: 24rpx; line-height: 1.5; }
+.load-more { padding: 20rpx 0; display: flex; justify-content: center; }
 
 .task-list::-webkit-scrollbar { display: none; }
 
@@ -210,6 +267,7 @@ async function handleTask(task: TaskCard) {
   align-items: center;
   margin-bottom: 24rpx;
   box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.03);
+  width: 100%;
 }
 
 .task-icon {
@@ -238,7 +296,7 @@ async function handleTask(task: TaskCard) {
 
 .task-order {
   font-size: 24rpx;
-  color: #999;
+  color: #64756d;
   margin-top: 6rpx;
   display: block;
   overflow: hidden;
@@ -263,7 +321,7 @@ async function handleTask(task: TaskCard) {
 
 .progress-fill {
   height: 100%;
-  background: #00b889;
+  background: #00856b;
   border-radius: 999rpx;
 }
 
@@ -280,13 +338,13 @@ async function handleTask(task: TaskCard) {
   flex-direction: column;
   align-items: center;
   padding-top: 100rpx;
-  color: #999;
+  color: #64756d;
   font-size: 28rpx;
 }
 
 .retry-btn {
   margin-top: 24rpx;
-  background: #00b889;
+  background: #00856b;
   color: white;
   border-radius: 999rpx;
   font-size: 26rpx;
@@ -295,6 +353,6 @@ async function handleTask(task: TaskCard) {
 
 .empty-text {
   font-size: 26rpx;
-  color: #999;
+  color: #64756d;
 }
 </style>

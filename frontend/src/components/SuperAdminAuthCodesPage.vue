@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from './UiIcon.vue'
 import { ref, watch, onMounted } from 'vue'
 import {
   generateAuthCode,
@@ -641,9 +642,9 @@ onMounted(() => {
           <p>{{ successModalContent }}</p>
         </div>
         <footer class="modal-footer">
-          <button v-if="successModalShowSave" class="ghost-btn wide" type="button" @click="copySuccessContent">复制信息</button>
-          <button v-if="successModalShowSave" class="ghost-btn wide" type="button" @click="saveSuccessToFile">保存到本地</button>
-          <button class="primary-btn wide" type="button" @click="showSuccessModal = false">关闭</button>
+          <button v-if="successModalShowSave" class="ghost-btn wide ui-icon-button" type="button" @click="copySuccessContent" title="复制信息" aria-label="复制信息"><UiIcon name="copy" /></button>
+          <button v-if="successModalShowSave" class="ghost-btn wide ui-icon-button" type="button" @click="saveSuccessToFile" title="保存到本地" aria-label="保存到本地"><UiIcon name="download" /></button>
+          <button class="primary-btn wide ui-icon-button" type="button" @click="showSuccessModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </footer>
       </section>
     </div>
@@ -712,12 +713,10 @@ onMounted(() => {
         <div class="list-header">
           <h3 class="section-title">工厂列表</h3>
           <div class="list-header-actions">
-            <button class="secondary-btn" type="button" @click="exportFactories">导出</button>
-            <button class="secondary-btn" type="button" @click="triggerImportFactories">导入</button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="exportFactories" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="triggerImportFactories" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
             <input ref="factoryImportInput" type="file" accept=".json" style="display:none" @change="handleImportFactories" />
-            <button class="secondary-btn" type="button" @click="loadFactories" :disabled="listLoading">
-              刷新
-            </button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="loadFactories" :disabled="listLoading" title="刷新" aria-label="刷新"><UiIcon name="refresh" /></button>
             <TableConfigButton table-id="super-factories-table" />
           </div>
         </div>
@@ -828,12 +827,10 @@ onMounted(() => {
         <div class="list-header">
           <h3 class="section-title">管理员列表</h3>
           <div class="list-header-actions">
-            <button class="secondary-btn" type="button" @click="exportAdmins">导出</button>
-            <button class="secondary-btn" type="button" @click="triggerImportAdmins">导入</button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="exportAdmins" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="triggerImportAdmins" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
             <input ref="adminImportInput" type="file" accept=".json" style="display:none" @change="handleImportAdmins" />
-            <button class="secondary-btn" type="button" @click="loadFactoryAdmins" :disabled="listLoading">
-              刷新
-            </button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="loadFactoryAdmins" :disabled="listLoading" title="刷新" aria-label="刷新"><UiIcon name="refresh" /></button>
             <TableConfigButton table-id="super-factory-admins-table" />
           </div>
         </div>
@@ -877,10 +874,10 @@ onMounted(() => {
                     @click="handleEnableFactoryAdmin(item.id)"
                   >启用</button>
                   <button
-                    class="danger-btn-sm"
+                    class="danger-btn-sm ui-icon-button"
                     style="margin-left: 6px;"
                     @click="handleDeleteFactoryAdmin(item.id, item.username)"
-                  >删除</button>
+                   title="删除" aria-label="删除" type="button"><UiIcon name="trash" /></button>
                 </td>
               </tr>
             </tbody>
@@ -943,12 +940,10 @@ onMounted(() => {
         <div class="list-header">
           <h3 class="section-title">授权码列表</h3>
           <div class="list-header-actions">
-            <button class="secondary-btn" type="button" @click="exportAuthCodes">导出</button>
-            <button class="secondary-btn" type="button" @click="triggerImportAuthCodes">导入</button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="exportAuthCodes" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="triggerImportAuthCodes" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
             <input ref="authcodeImportInput" type="file" accept=".json" style="display:none" @change="handleImportAuthCodes" />
-            <button class="secondary-btn" type="button" @click="loadAuthCodes" :disabled="listLoading">
-              刷新
-            </button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="loadAuthCodes" :disabled="listLoading" title="刷新" aria-label="刷新"><UiIcon name="refresh" /></button>
             <TableConfigButton table-id="super-auth-codes-table" />
           </div>
         </div>
@@ -989,9 +984,9 @@ onMounted(() => {
                     @click="handleDisableAuthCode(item.id)"
                   >停用</button>
                   <button
-                    class="danger-btn-sm"
+                    class="danger-btn-sm ui-icon-button"
                     @click="handleDeleteAuthCode(item.id, item.code)"
-                  >删除</button>
+                   title="删除" aria-label="删除" type="button"><UiIcon name="trash" /></button>
                 </td>
               </tr>
             </tbody>
@@ -1039,7 +1034,7 @@ onMounted(() => {
         <div class="list-header">
           <h3 class="section-title">超级管理员列表</h3>
           <div class="list-header-actions">
-            <button class="secondary-btn" type="button" @click="loadSuperAdmins" :disabled="listLoading">刷新</button>
+            <button class="secondary-btn ui-icon-button" type="button" @click="loadSuperAdmins" :disabled="listLoading" title="刷新" aria-label="刷新"><UiIcon name="refresh" /></button>
             <TableConfigButton table-id="super-admins-table" />
           </div>
         </div>
@@ -1063,9 +1058,9 @@ onMounted(() => {
                 <td>
                   <button class="secondary-btn-sm" @click="openResetPassword(item.id, item.username, 'ADMIN')">重置密码</button>
                   <button
-                    class="danger-btn-sm"
+                    class="danger-btn-sm ui-icon-button"
                     @click="handleDeleteSuperAdmin(item.id, item.username)"
-                  >删除</button>
+                   title="删除" aria-label="删除" type="button"><UiIcon name="trash" /></button>
                 </td>
               </tr>
             </tbody>
@@ -1079,7 +1074,7 @@ onMounted(() => {
       <section class="modal">
         <header class="modal-header-bar">
           <h2>重置密码</h2>
-          <button class="close-btn" type="button" @click="showResetPasswordModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showResetPasswordModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </header>
         <div class="modal-body">
           <p class="modal-hint">为用户 "{{ resetPasswordUsername }}" 重置密码</p>
@@ -1089,7 +1084,7 @@ onMounted(() => {
           </label>
         </div>
         <footer class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showResetPasswordModal = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showResetPasswordModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" type="button" :disabled="loading" @click="handleResetPassword">
             {{ loading ? '处理中...' : '确定' }}
           </button>

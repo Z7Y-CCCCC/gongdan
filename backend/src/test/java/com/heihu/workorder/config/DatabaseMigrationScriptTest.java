@@ -24,7 +24,7 @@ class DatabaseMigrationScriptTest {
         List<String> scriptNames = migrationScriptNames();
 
         assertThat(scriptNames).allMatch(name -> name.matches("V\\d+__.+\\.(sql|java)"));
-        assertThat(scriptNames.stream().filter(name -> name.endsWith(".sql"))).hasSize(20);
+        assertThat(scriptNames.stream().filter(name -> name.endsWith(".sql"))).hasSize(23);
         assertThat(scriptNames.stream().filter(name -> name.endsWith(".java")))
                 .containsExactly("V20__add_product_version.java", "V21__scope_receipt_codes_to_factory.java");
 
@@ -46,7 +46,7 @@ class DatabaseMigrationScriptTest {
                 .sorted()
                 .collect(Collectors.toList());
 
-        assertThat(versions).hasSize(22);
+        assertThat(versions).hasSize(25);
         assertThat(versions.get(0)).isEqualTo(1);
         for (int i = 0; i < versions.size(); i++) {
             assertThat(versions.get(i)).isEqualTo(i + 1);

@@ -2,13 +2,12 @@
   <view class="container">
     <view class="header">
       <view class="brand-row">
-        <view class="logo-box"><uni-icons type="compose" size="24" color="#00a982" /></view>
+        <view class="logo-box"><uni-icons type="compose" size="24" color="#00a982"  aria-hidden="true" /></view>
         <view class="brand-copy">
           <text class="title">黑湖小工单</text>
-          <text class="subtitle">生产现场移动工作台</text>
         </view>
       </view>
-      <text class="login-title">登录工厂账号</text>
+      <text class="login-title">登录</text>
     </view>
 
     <view class="form">
@@ -27,12 +26,12 @@
         <input class="input" v-model="form.password" :type="isH5 ? 'password' : 'text'" password placeholder="请输入登录密码" placeholder-style="color:#ccc" />
       </view>
 
-      <button class="btn-submit" :loading="loading" :disabled="loading" @click="handleBind">登录</button>
-      <button v-if="!isH5" class="wechat-login" :disabled="loading" @click="tryWechatLogin">微信登录 / 重新获取绑定凭证</button>
+      <button class="btn-submit" :loading="loading" :aria-busy="loading" :disabled="loading" @click="handleBind">登录</button>
+      <button v-if="!isH5" class="wechat-login" :disabled="loading" @click="tryWechatLogin">微信登录</button>
     </view>
 
     <view class="footer">
-      <text class="footer-text">如果您没有账号，请联系车间管理员</text>
+      <text class="footer-text">没有账号？联系管理员</text>
     </view>
   </view>
 </template>
@@ -176,6 +175,7 @@ const handleBind = async () => {
     uni.showModal({
       title: '登录失败',
       content: e.message || '请检查工厂代码或账号密码是否正确',
+      confirmText: '关闭',
       showCancel: false
     })
   } finally {
@@ -228,7 +228,7 @@ const handleBind = async () => {
 
 .subtitle {
   font-size: 22rpx;
-  color: #8a9693;
+  color: #64756d;
   margin-top: 4rpx;
 }
 
@@ -273,7 +273,7 @@ const handleBind = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #00b889;
+  background-color: #00856b;
   color: white;
   border-radius: 12rpx;
   height: 84rpx;
@@ -295,7 +295,7 @@ const handleBind = async () => {
 .wechat-login {
   margin-top: 24rpx;
   background: transparent;
-  color: #00a982;
+  color: #00856b;
   font-size: 24rpx;
 }
 

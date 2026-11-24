@@ -1,69 +1,72 @@
 <template>
   <view class="container">
-    <view class="welcome-section">
+    <view class="welcome-section ui-page-head">
       <view class="user-info">
-        <text class="greeting">您好，</text>
         <text class="username">{{ userInfo.name || userInfo.nickname || userInfo.username || '工友' }}</text>
+        <text class="date">{{ currentDate }}</text>
       </view>
-      <text class="date">{{ currentDate }}</text>
+      <IconButton icon="refreshempty" label="刷新报工统计" :busy="statsLoading" @click="loadStats" />
     </view>
 
     <view class="action-grid">
-      <view class="action-card scan" @click="handleScan">
+      <button class="action-card scan" aria-label="扫码报工" @click="handleScan">
         <view class="icon-wrapper">
-          <uni-icons type="scan" size="30" color="#fff"></uni-icons>
+          <uni-icons type="scan" size="28" color="#fff" aria-hidden="true"></uni-icons>
         </view>
         <text class="card-title">扫码报工</text>
-        <text class="card-desc">扫描工单二维码快速报工</text>
-      </view>
+      </button>
 
       <view class="menu-list">
-        <view class="menu-item" @click="navigateTo('/pages/work-orders/index')">
+        <button class="menu-item" @click="navigateTo('/pages/work-orders/index')">
           <view class="menu-left">
             <view class="menu-icon bg-green">
-              <uni-icons type="list" size="20" color="#00a982"></uni-icons>
+              <uni-icons type="list" size="20" color="#00a982" aria-hidden="true"></uni-icons>
             </view>
             <text class="menu-text">我的工单</text>
           </view>
-          <uni-icons type="right" size="16" color="#ccc"></uni-icons>
-        </view>
+          <uni-icons type="right" size="16" color="#ccc" aria-hidden="true"></uni-icons>
+        </button>
 
-        <view class="menu-item" @click="navigateTo('/pages/report-list/index')">
+        <button class="menu-item" @click="navigateTo('/pages/report-list/index')">
           <view class="menu-left">
             <view class="menu-icon bg-blue">
-              <uni-icons type="paperplane" size="20" color="#4080ff"></uni-icons>
+              <uni-icons type="paperplane" size="20" color="#4080ff" aria-hidden="true"></uni-icons>
             </view>
             <text class="menu-text">报工历史</text>
           </view>
-          <uni-icons type="right" size="16" color="#ccc"></uni-icons>
-        </view>
+          <uni-icons type="right" size="16" color="#ccc" aria-hidden="true"></uni-icons>
+        </button>
 
-        <view class="menu-item" @click="navigateTo('/pages/field-events/index')">
+        <button class="menu-item" @click="navigateTo('/pages/field-events/index')">
           <view class="menu-left">
             <view class="menu-icon bg-purple">
-              <uni-icons type="sound" size="20" color="#7c3aed"></uni-icons>
+              <uni-icons type="sound" size="20" color="#7c3aed" aria-hidden="true"></uni-icons>
             </view>
             <text class="menu-text">现场事件</text>
           </view>
-          <uni-icons type="right" size="16" color="#ccc"></uni-icons>
-        </view>
+          <uni-icons type="right" size="16" color="#ccc" aria-hidden="true"></uni-icons>
+        </button>
 
-        <view class="menu-item" @click="navigateTo('/pages/board/index')">
+        <button class="menu-item" @click="navigateTo('/pages/board/index')">
           <view class="menu-left">
             <view class="menu-icon bg-orange">
-              <uni-icons type="bars" size="20" color="#d97706"></uni-icons>
+              <uni-icons type="bars" size="20" color="#d97706" aria-hidden="true"></uni-icons>
             </view>
             <text class="menu-text">车间看板</text>
           </view>
-          <uni-icons type="right" size="16" color="#ccc"></uni-icons>
-        </view>
+          <uni-icons type="right" size="16" color="#ccc" aria-hidden="true"></uni-icons>
+        </button>
       </view>
     </view>
 
     <view class="stats-section">
-      <text class="section-title">今日报工统计</text>
-      <ListLimitNotice :total="reportTotal" :loaded="reports.length" />
-      <view class="stats-grid">
+      <text class="section-title">今日报工</text>
+      <view v-if="statsError" class="stats-state">
+        <text>{{ statsError }}</text>
+        <IconButton icon="refreshempty" label="重试报工统计" @click="loadStats" />
+      </view>
+      <view v-else-if="statsLoading" class="stats-state">刷新中...</view>
+      <view v-else-if="dashboard" class="stats-grid">
         <view class="stat-box">
           <text class="stat-value">{{ todayGood }}</text>
           <text class="stat-label">完成件数</text>
@@ -79,8 +82,9 @@
       </view>
     </view>
 
-    <button class="logout-link" @click="handleLogout">退出登录</button>
+    <button class="logout-link" aria-label="退出登录" @click="handleLogout">退出</button>
     <!-- #ifdef H5 -->
+    <ScanWorkOrderDialog v-model="showScan" />
     <MobileTabBar current="home" />
     <!-- #endif -->
   </view>
@@ -89,92 +93,53 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { clearSession, ensureLogin, fetchReports } from '../../services/api'
-import type { WorkOrderReport } from '../../types/api'
+import { clearSession, ensureLogin } from '../../services/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
-import ListLimitNotice from '../../components/ListLimitNotice.vue'
+import IconButton from '../../components/IconButton.vue'
 import { navigatePage } from '../../utils/navigation'
+import { useMobileDashboard } from '../../composables/useMobileDashboard'
+import { scannedWorkOrderRoute } from '../../utils/scan-target'
+// #ifdef H5
+import ScanWorkOrderDialog from '../../components/ScanWorkOrderDialog.vue'
+const showScan = ref(false)
+// #endif
 
 const userInfo = ref<any>({})
 const currentDate = ref('')
-const reports = ref<WorkOrderReport[]>([])
-const reportTotal = ref(0)
-let statsLoading = false
-
-const todayKey = computed(() => {
-  const now = new Date()
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-})
-const todayReports = computed(() => reports.value.filter(item => (item.createdAt || '').startsWith(todayKey.value)))
-const todayApproved = computed(() => todayReports.value.filter(item => item.status === 'APPROVED'))
-const todayGood = computed(() => todayApproved.value.reduce((sum, item) => sum + (item.goodQuantity || 0), 0))
-const todayDefect = computed(() => todayApproved.value.reduce((sum, item) => sum + (item.defectQuantity || 0), 0))
-const todayPending = computed(() => todayReports.value.filter(item => item.status === 'PENDING').length)
+const { dashboard, loading: statsLoading, errorMessage: statsError, load: loadDashboard } = useMobileDashboard()
+const todayGood = computed(() => dashboard.value?.todayGood || 0)
+const todayDefect = computed(() => dashboard.value?.todayDefect || 0)
+const todayPending = computed(() => dashboard.value?.todayPending || 0)
 const todayPassRate = computed(() => {
   const total = todayGood.value + todayDefect.value
   return total > 0 ? Math.round(todayGood.value / total * 100) : 0
 })
 
-onMounted(() => {
-  if (!ensureLogin()) return
-  
-  const user = uni.getStorageSync('user')
-  if (user) userInfo.value = user
-  
-  const now = new Date()
-  currentDate.value = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`
-  loadStats()
-})
+onMounted(loadStats)
 
-onShow(() => {
-  if (uni.getStorageSync('token')) loadStats()
-})
+onShow(loadStats)
 
 async function loadStats() {
-  if (statsLoading) return
-  statsLoading = true
-  try {
-    const result = await fetchReports('', 'today')
-    reports.value = result.items || []
-    reportTotal.value = result.total
-  } catch (e: any) {
-    reports.value = []
-    reportTotal.value = 0
-    uni.showToast({ title: e.message || '报工统计加载失败', icon: 'none' })
-  } finally {
-    statsLoading = false
-  }
+  userInfo.value = uni.getStorageSync('user') || {}
+  const now = new Date()
+  currentDate.value = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`
+  await loadDashboard()
 }
 
 const handleScan = () => {
+  if (!ensureLogin()) return
+  // #ifdef H5
   if (typeof window !== 'undefined' && window.location) {
-    // H5 模式不支持原生扫码
-    uni.showModal({
-      title: '提示',
-      content: 'H5 模式暂不支持扫码，请在工单列表中选择工单进行报工。',
-      showCancel: false
-    })
+    showScan.value = true
     return
   }
+  // #endif
   uni.scanCode({
     success: (res) => {
-      if (res.result) {
-        const url = res.result
-        const idMatch = url.match(/[?&]id=(\d+)/)
-        if (idMatch) {
-          uni.navigateTo({ url: `/pages/work-order-detail/index?id=${idMatch[1]}` })
-          return
-        }
-        const codeMatch = url.match(/[?&]code=([^&]+)/)
-        if (codeMatch) {
-          uni.navigateTo({ url: `/pages/work-order-detail/index?code=${codeMatch[1]}` })
-          return
-        }
-        const target = /^\d+$/.test(url) ? `id=${url}` : `code=${encodeURIComponent(url)}`
-        uni.navigateTo({ url: `/pages/work-order-detail/index?${target}` })
-      }
-    }
+      try { navigatePage(scannedWorkOrderRoute(String(res.result || ''))) }
+      catch (error) { uni.showToast({ title: error instanceof Error ? error.message : '不是工单二维码', icon: 'none' }) }
+    },
+    fail: error => { if (!error.errMsg?.includes('cancel')) uni.showToast({ title: '扫码失败，请重试', icon: 'none' }) }
   })
 }
 
@@ -186,6 +151,8 @@ const handleLogout = () => {
   uni.showModal({
     title: '提示',
     content: '确定要退出当前登录吗？微信绑定关系将保留。',
+    cancelText: '取消',
+    confirmText: '退出',
     success: (res) => {
       if (res.confirm) {
         clearSession()
@@ -204,15 +171,30 @@ const handleLogout = () => {
   padding-bottom: 150rpx;
 }
 
+.stats-state {
+  color: #64756d;
+  font-size: 26rpx;
+  text-align: center;
+  padding: 24rpx 0;
+}
+
+.retry-btn {
+  margin-top: 20rpx;
+  color: #00856b;
+  font-size: 26rpx;
+}
+
 .welcome-section {
-  margin-bottom: 40rpx;
-  padding-top: 20rpx;
+  margin-bottom: 24rpx;
 }
 
 .user-info {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
+  flex-direction: column;
   margin-bottom: 10rpx;
+  min-width: 0;
+  flex: 1;
 }
 
 .greeting {
@@ -221,35 +203,42 @@ const handleLogout = () => {
 }
 
 .username {
-  font-size: 48rpx;
+  font-size: 38rpx;
   font-weight: bold;
   color: #333;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .date {
   font-size: 24rpx;
-  color: #999;
+  color: #64756d;
 }
 
 .action-card.scan {
-  background: #00b889;
-  padding: 44rpx 36rpx;
+  background: #00856b;
+  padding: 28rpx 32rpx;
   border-radius: 16rpx;
   color: white;
   margin-bottom: 30rpx;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  gap: 20rpx;
+  width: 100%;
   box-shadow: 0 8rpx 20rpx rgba(0, 169, 130, 0.16);
 }
 
 .icon-wrapper {
-  margin-bottom: 20rpx;
+  margin: 0;
 }
 
 .card-title {
-  font-size: 40rpx;
+  font-size: 32rpx;
   font-weight: bold;
-  margin-bottom: 10rpx;
+  margin: 0;
 }
 
 .card-desc {
@@ -268,7 +257,10 @@ const handleLogout = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 40rpx 0;
+  padding: 24rpx 0;
+  width: 100%;
+  background: transparent;
+  border-radius: 0;
   border-bottom: 1px solid #f0f0f0;
 }
 
@@ -291,7 +283,7 @@ const handleLogout = () => {
   margin-right: 24rpx;
 }
 
-.bg-green { background-color: #e6f7f3; color: #00b889; }
+.bg-green { background-color: #e6f7f3; color: #00856b; }
 .bg-blue { background-color: #eef3fe; color: #4080ff; }
 .bg-orange { background-color: #fff4e6; color: #ff9900; }
 .bg-purple { background-color: #f0edff; color: #7c3aed; }
@@ -338,7 +330,7 @@ const handleLogout = () => {
 
 .stat-label {
   font-size: 22rpx;
-  color: #999;
+  color: #64756d;
 }
 
 .logout-link {

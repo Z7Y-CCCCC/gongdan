@@ -52,6 +52,10 @@ public class WorkOrderReport {
     @JoinColumn(name = "reporter_id", nullable = false)
     private FactoryUser reporter;
 
+    // Retain the actual actor's identity even if that account is later removed.
+    @Column(name = "submitter_id")
+    private Long submitterId;
+
     @Column(name = "reporter_name", nullable = false, length = 64)
     private String reporterName;
 
@@ -108,6 +112,8 @@ public class WorkOrderReport {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+    public Long getSubmitterId() { return submitterId; }
+    public void setSubmitterId(Long submitterId) { this.submitterId = submitterId; }
     public Factory getFactory() { return factory; }
     public void setFactory(Factory factory) { this.factory = factory; }
     public WorkOrder getWorkOrder() { return workOrder; }

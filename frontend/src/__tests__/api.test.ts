@@ -38,6 +38,18 @@ describe('API session and upload handling', () => {
     return auth
   }
 
+  it('retrieves a single real work order using the read-only authenticated endpoint', async () => {
+    createSession()
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(200, { id: 42, code: 'WO-42' }))
+    expect(await api.fetchWorkOrder('current-token', 42)).toMatchObject({ id: 42, code: 'WO-42' })
+    const [rawUrl, options] = vi.mocked(fetch).mock.calls[0]
+    const url = new URL(String(rawUrl))
+    expect(url.origin + url.pathname).toBe('https://factory.example.test/backend/api/work-orders/42')
+    expect(url.searchParams.has('_t')).toBe(true)
+    expect(new Headers(options?.headers).get('Authorization')).toBe('Bearer current-token')
+    expect(options?.method || 'GET').toBe('GET')
+  })
+
   it('clears the active session for an expired authenticated JSON response', async () => {
     const session = createSession()
     vi.mocked(fetch).mockResolvedValue(jsonResponse(401, { message: '登录已过期' }))

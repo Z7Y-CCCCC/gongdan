@@ -1,40 +1,85 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import UiIcon from './UiIcon.vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { ApiError, establishUReportSession } from '../api'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { t, uiLocale, type UiLocale } from '../i18n'
+import { currentReportPath, reportHasUnsavedChanges, reportLocaleUrl } from '../utils/reportLocale'
 
 const props = defineProps<{ token: string }>()
 
 const iframeSrc = ref('')
+const frameRef = ref<HTMLIFrameElement | null>(null)
+const frameLocale = ref<UiLocale>(uiLocale.value)
+const languagePending = computed(() => Boolean(iframeSrc.value) && !frameLoading.value && frameLocale.value !== uiLocale.value)
 const loading = ref(true)
 const frameLoading = ref(false)
 const errorMessage = ref('')
 let disposed = false
+let active = true
+const beginLoad = useLatestRequest()
+let frameTimeout: ReturnType<typeof setTimeout> | undefined
+function clearFrameTimeout() { clearTimeout(frameTimeout); frameTimeout = undefined }
 
-async function load() {
+async function load(reportPath = '') {
+  const isCurrent = beginLoad()
+  const requestToken = props.token
+  clearFrameTimeout()
   loading.value = true
   frameLoading.value = false
   iframeSrc.value = ''
   errorMessage.value = ''
+  if (!requestToken || !active) { loading.value = false; return }
+  const current = () => !disposed && active && isCurrent() && props.token === requestToken
   try {
-    const session = await establishUReportSession(props.token)
-    if (disposed) return
-    iframeSrc.value = `${session.path}?_t=${Date.now()}`
+    const session = await establishUReportSession(requestToken)
+    if (!current()) return
+    frameLocale.value = uiLocale.value
+    iframeSrc.value = reportLocaleUrl(reportPath || session.path, frameLocale.value, Date.now())
     frameLoading.value = true
+    frameTimeout = setTimeout(() => {
+      if (current() && frameLoading.value) onFrameError()
+    }, 20000)
   } catch (error) {
-    if (disposed) return
+    if (!current()) return
     errorMessage.value = error instanceof ApiError ? error.message : '报表设计器启动失败，请稍后重试'
   } finally {
-    if (!disposed) loading.value = false
+    if (current()) loading.value = false
   }
 }
 
+function requestReload() {
+  if (loading.value || frameLoading.value) return
+  if (iframeSrc.value && reportHasUnsavedChanges(frameRef.value)
+    && !window.confirm(t('重新加载将丢弃未保存的报表修改，是否继续？'))) return
+  void load(currentReportPath(frameRef.value, iframeSrc.value))
+}
+
 function onFrameLoaded() {
+  clearFrameTimeout()
   frameLoading.value = false
+  try {
+    const nativeLocale = frameRef.value?.contentDocument?.documentElement.getAttribute('data-workorder-report-locale')
+    if (nativeLocale === 'en-US' || nativeLocale === 'zh-CN') frameLocale.value = nativeLocale
+  } catch {}
+}
+function onFrameError() {
+  clearFrameTimeout()
+  frameLoading.value = false
+  iframeSrc.value = ''
+  errorMessage.value = '报表设计器加载失败，请重试'
 }
 
 onMounted(load)
+onActivated(() => { active = true })
+useRefreshOnActivated(load)
+onDeactivated(() => { active = false; beginLoad(); clearFrameTimeout(); iframeSrc.value = ''; frameLoading.value = false })
+watch(() => props.token, () => { beginLoad(); clearFrameTimeout(); iframeSrc.value = ''; void load() })
 onBeforeUnmount(() => {
   disposed = true
+  beginLoad()
+  clearFrameTimeout()
   iframeSrc.value = ''
 })
 </script>
@@ -44,28 +89,32 @@ onBeforeUnmount(() => {
     <div class="ureport-header">
       <div>
         <h2>高级报表</h2>
-        <p>UReport2 已嵌入当前系统，报表设计、预览和导出都运行在现有 Java 服务内。</p>
       </div>
-      <button class="ghost-btn" type="button" :disabled="loading || frameLoading" @click="load">刷新</button>
+      <div class="ureport-actions">
+        <button v-if="languagePending" class="ghost-btn" type="button" @click="requestReload">应用语言</button>
+        <button class="ghost-btn ui-icon-button" type="button" :disabled="loading || frameLoading" @click="requestReload" title="刷新" aria-label="刷新"><UiIcon name="refresh" /></button>
+      </div>
     </div>
 
     <div v-if="loading" class="ureport-state">
       <strong>正在启动报表设计器</strong>
-      <span>使用当前管理员登录态建立安全会话…</span>
     </div>
 
     <div v-else-if="errorMessage" class="ureport-state ureport-state-error">
       <strong>{{ errorMessage }}</strong>
       <span>请确认当前账号具有管理员权限，或联系系统管理员。</span>
-      <button class="primary-btn" type="button" @click="load">重新加载</button>
+      <button class="primary-btn ui-icon-button" type="button" @click="load()" title="重新加载" aria-label="重新加载"><UiIcon name="refresh" /></button>
     </div>
 
     <iframe
       v-else-if="iframeSrc"
+      :key="iframeSrc"
+      ref="frameRef"
       class="ureport-frame"
       :src="iframeSrc"
       title="UReport2 高级报表"
       @load="onFrameLoaded"
+      @error="onFrameError"
     ></iframe>
   </section>
 </template>
@@ -90,6 +139,8 @@ onBeforeUnmount(() => {
   color: #1f2d2a;
   font-size: 20px;
 }
+
+.ureport-actions { display: flex; align-items: center; gap: 8px; }
 
 .ureport-header p {
   margin: 0;

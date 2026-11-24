@@ -1,20 +1,31 @@
 <template>
-  <view class="mobile-tabbar">
-    <view
+  <!-- #ifdef H5 -->
+  <Teleport v-if="visible" to="body">
+  <!-- #endif -->
+  <view class="mobile-tabbar" role="tablist" aria-label="主导航">
+    <button
       v-for="item in items"
       :key="item.key"
       class="tab-item"
       :class="{ active: current === item.key }"
+      role="tab" :aria-label="item.label" :aria-selected="current === item.key"
       @click="open(item.path)"
     >
-      <uni-icons :type="item.icon" size="21" :color="current === item.key ? '#00a982' : '#8a9693'" />
+      <uni-icons :type="item.icon" size="21" :color="current === item.key ? '#00a982' : '#64756d'" aria-hidden="true" />
       <text>{{ item.label }}</text>
-    </view>
+    </button>
   </view>
+  <!-- #ifdef H5 -->
+  </Teleport>
+  <!-- #endif -->
 </template>
 
 <script setup lang="ts">
-defineProps<{ current: string }>()
+import { navigatePage } from '../utils/navigation'
+// #ifdef H5
+import { onActivated, onDeactivated, onMounted, ref } from 'vue'
+// #endif
+const props = defineProps<{ current: string }>()
 
 const items = [
   { key: 'orders', label: '工单', icon: 'compose', path: '/pages/work-orders/index' },
@@ -24,12 +35,22 @@ const items = [
   { key: 'board', label: '看板', icon: 'map', path: '/pages/board/index' }
 ]
 
+// #ifdef H5
+function isCurrentTab() {
+  if (typeof window === 'undefined') return true
+  const item = items.find(item => item.key === props.current)
+  return Boolean(item && window.location.hash.split('?')[0] === `#${item.path}`)
+}
+const visible = ref(isCurrentTab())
+// Keep the bar outside the transformed uni page, but never leave a cached
+// or late-mounted inactive page's teleported bar in the document body.
+onMounted(() => { visible.value = isCurrentTab() })
+onActivated(() => { visible.value = isCurrentTab() })
+onDeactivated(() => { visible.value = false })
+// #endif
+
 function open(path: string) {
-  if (typeof window !== 'undefined' && window.location) {
-    window.location.hash = `#${path}`
-    return
-  }
-  uni.switchTab({ url: path })
+  navigatePage(path)
 }
 </script>
 
@@ -56,13 +77,20 @@ function open(path: string) {
   align-items: center;
   justify-content: center;
   gap: 4rpx;
-  color: #8a9693;
+  color: #64756d;
   font-size: 20rpx;
   position: relative;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  line-height: 1.2;
 }
 
 .tab-item.active {
-  color: #00a982;
+  color: #00856b;
 }
 
 .tab-item::before {

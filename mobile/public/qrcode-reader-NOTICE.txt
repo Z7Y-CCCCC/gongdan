@@ -1,0 +1,8 @@
+This application includes qrcode-reader 1.0.4, https://github.com/edi9999/jsqrcode,
+licensed under the Apache License 2.0. The decoder source is used without changes.
+Original source notices include:
+Copyright 2011 Lazar Laszlo (lazarsoft@gmail.com, www.lazarsoft.info)
+Copyright 2007 ZXing authors
+
+Application-specific QR image bounds, UI, and work-order route validation were
+written for gongdan. See qrcode-reader-LICENSE.txt for the complete license.

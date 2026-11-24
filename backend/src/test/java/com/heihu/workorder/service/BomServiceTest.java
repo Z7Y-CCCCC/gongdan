@@ -18,6 +18,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.HashSet;
+import java.util.Set;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -43,6 +46,16 @@ class BomServiceTest {
     @BeforeEach
     void setUp() {
         service = new BomService(bomRepository, factoryRepository, productRepository);
+    }
+
+    @Test
+    void automaticCodesStayUniqueWithinFastBatches() {
+        Set<String> codes = new HashSet<>();
+        for (int i = 0; i < 2000; i++) {
+            String code = ReflectionTestUtils.invokeMethod(service, "generateCode");
+            assertThat(code).startsWith("BOM-").hasSizeLessThanOrEqualTo(64);
+            assertThat(codes.add(code)).as("code must not collide within the same millisecond").isTrue();
+        }
     }
 
     @Test

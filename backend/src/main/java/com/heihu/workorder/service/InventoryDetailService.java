@@ -1,168 +1,125 @@
 package com.heihu.workorder.service;
 
+import com.heihu.workorder.dto.InventoryDetailPageResponse;
 import com.heihu.workorder.dto.InventoryDetailResponse;
-import com.heihu.workorder.model.InboundReceipt;
-import com.heihu.workorder.model.InboundReceiptItem;
-import com.heihu.workorder.model.OutboundReceipt;
-import com.heihu.workorder.model.OutboundReceiptItem;
-import com.heihu.workorder.model.Product;
-import com.heihu.workorder.repository.InboundReceiptRepository;
-import com.heihu.workorder.repository.OutboundReceiptRepository;
-import org.springframework.cache.annotation.Cacheable;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.stream.Collectors;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
-@Transactional(readOnly = true)
+@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class InventoryDetailService {
+    private static final int MAX_PAGE_SIZE = 500;
+    private final NamedParameterJdbcTemplate jdbc;
 
-    private final InboundReceiptRepository inboundReceiptRepository;
-    private final OutboundReceiptRepository outboundReceiptRepository;
-
-    public InventoryDetailService(
-            InboundReceiptRepository inboundReceiptRepository,
-            OutboundReceiptRepository outboundReceiptRepository
-    ) {
-        this.inboundReceiptRepository = inboundReceiptRepository;
-        this.outboundReceiptRepository = outboundReceiptRepository;
+    public InventoryDetailService(NamedParameterJdbcTemplate jdbc) {
+        this.jdbc = jdbc;
     }
 
-    @Cacheable(cacheNames = "inventory.details", key = "#factoryId + ':' + #receiptCode + ':' + #receiptType + ':' + #sourceType + ':' + #remark + ':' + #productCode + ':' + #productName + ':' + #productSpec + ':' + #productAttribute + ':' + #startTime + ':' + #endTime")
-    public long count(Long factoryId, String receiptCode, String receiptType,
-                      String sourceType, String remark, String productCode,
-                      String productName, String productSpec, String productAttribute,
-                      LocalDateTime startTime, LocalDateTime endTime) {
-        return filteredDetails(factoryId, receiptCode, receiptType, sourceType, remark,
-                productCode, productName, productSpec, productAttribute, startTime, endTime)
-                .size();
-    }
-
-    @Cacheable(cacheNames = "inventory.details", key = "#factoryId + ':' + #receiptCode + ':' + #receiptType + ':' + #sourceType + ':' + #remark + ':' + #productCode + ':' + #productName + ':' + #productSpec + ':' + #productAttribute + ':' + #startTime + ':' + #endTime + ':' + #page + ':' + #size")
-    public List<InventoryDetailResponse> list(Long factoryId, String receiptCode, String receiptType,
-                                               String sourceType, String remark, String productCode,
-                                               String productName, String productSpec, String productAttribute,
-                                               LocalDateTime startTime, LocalDateTime endTime,
-                                               int page, int size) {
-        List<InventoryDetailResponse> details = filteredDetails(factoryId, receiptCode, receiptType,
-                sourceType, remark, productCode, productName, productSpec, productAttribute,
-                startTime, endTime);
-
-        int safePage = Math.max(page, 1);
-        int safeSize = Math.max(size, 1);
-        int fromIndex = (int) Math.min((long) (safePage - 1) * safeSize, details.size());
-        int toIndex = (int) Math.min((long) fromIndex + safeSize, details.size());
-        return new ArrayList<>(details.subList(fromIndex, toIndex));
-    }
-
-    private List<InventoryDetailResponse> filteredDetails(
-            Long factoryId,
-            String receiptCode,
-            String receiptType,
-            String sourceType,
-            String remark,
-            String productCode,
-            String productName,
-            String productSpec,
-            String productAttribute,
-            LocalDateTime startTime,
-            LocalDateTime endTime
-    ) {
-        return buildDetails(factoryId).stream()
-                .filter(item -> matchesLike(item.getReceiptCode(), receiptCode))
-                .filter(item -> matchesEquals(item.getReceiptType(), receiptType))
-                .filter(item -> matchesEquals(item.getSourceType(), sourceType))
-                .filter(item -> matchesLike(item.getRemark(), remark))
-                .filter(item -> matchesLike(item.getProductCode(), productCode))
-                .filter(item -> matchesLike(item.getProductName(), productName))
-                .filter(item -> matchesLike(item.getProductSpec(), productSpec))
-                .filter(item -> matchesEquals(item.getProductAttribute(), productAttribute))
-                .filter(item -> startTime == null || (item.getOperationTime() != null && !item.getOperationTime().isBefore(startTime)))
-                .filter(item -> endTime == null || (item.getOperationTime() != null && !item.getOperationTime().isAfter(endTime)))
-                .sorted(Comparator.comparing(InventoryDetailResponse::getOperationTime,
-                        Comparator.nullsLast(Comparator.reverseOrder())))
-                .collect(Collectors.toList());
-    }
-
-    private List<InventoryDetailResponse> buildDetails(Long factoryId) {
-        List<InventoryDetailResponse> details = new ArrayList<>();
-
-        for (InboundReceipt receipt : inboundReceiptRepository.findByFactoryId(factoryId, Pageable.unpaged())) {
-            if (receipt.getItems() == null) continue;
-            for (InboundReceiptItem item : receipt.getItems()) {
-                details.add(toInboundDetail(receipt, item));
-            }
+    @Cacheable(cacheNames = "inventory.details",
+            key = "T(com.heihu.workorder.service.InventoryDetailService).cacheKey(#root.args)")
+    public InventoryDetailPageResponse list(Long factoryId, String receiptCode, String receiptType,
+                                            String sourceType, String remark, String productCode,
+                                            String productName, String productSpec, String productAttribute,
+                                            LocalDateTime startTime, LocalDateTime endTime,
+                                            int page, int size) {
+        int limit = Math.min(MAX_PAGE_SIZE, Math.max(size, 1));
+        long offset = (Math.max(page, 1) - 1L) * limit;
+        MapSqlParameterSource params = new MapSqlParameterSource("factoryId", factoryId)
+                .addValue("limit", limit).addValue("offset", offset);
+        StringBuilder filters = new StringBuilder(" WHERE r.factory_id = :factoryId");
+        textFilter(filters, params, "r.code", "receiptCode", receiptCode, false);
+        textFilter(filters, params, "r.receipt_type", "receiptType", receiptType, true);
+        textFilter(filters, params, "r.remark", "remark", remark, false);
+        boolean needsProduct = appendProductFilters(filters, params, productCode, productName, productSpec, productAttribute);
+        if (startTime != null) {
+            filters.append(" AND r.operation_time >= :startTime");
+            params.addValue("startTime", startTime);
+        }
+        if (endTime != null) {
+            filters.append(" AND r.operation_time <= :endTime");
+            params.addValue("endTime", endTime);
         }
 
-        for (OutboundReceipt receipt : outboundReceiptRepository.findByFactoryId(factoryId, Pageable.unpaged())) {
-            if (receipt.getItems() == null) continue;
-            for (OutboundReceiptItem item : receipt.getItems()) {
-                details.add(toOutboundDetail(receipt, item));
-            }
+        String source = normalize(sourceType);
+        List<String> counts = new ArrayList<>();
+        List<String> rows = new ArrayList<>();
+        if (source == null || "in".equals(source)) {
+            addQueries(counts, rows, filters.toString(), needsProduct, "inbound", "IN");
         }
+        if (source == null || "out".equals(source)) {
+            addQueries(counts, rows, filters.toString(), needsProduct, "outbound", "OUT");
+        }
+        if (counts.isEmpty()) return new InventoryDetailPageResponse(new ArrayList<>(), 0);
+        long total = jdbc.queryForObject("SELECT SUM(line_count) FROM (" +
+                String.join(" UNION ALL ", counts) + ") counts", params, Long.class);
+        if (offset >= total) return new InventoryDetailPageResponse(new ArrayList<>(), total);
 
-        return details;
+        List<InventoryDetailResponse> items = jdbc.query(
+                String.join(" UNION ALL ", rows) +
+                        " ORDER BY operation_time DESC, source_type ASC, item_id DESC LIMIT :limit OFFSET :offset",
+                params, (rs, row) -> new InventoryDetailResponse(rs.getString("source_type"), rs.getString("receipt_code"),
+                            rs.getString("receipt_type"), rs.getObject("operation_time", LocalDateTime.class),
+                            rs.getString("remark"), rs.getString("product_code"), rs.getString("product_name"),
+                            rs.getString("spec"), rs.getString("attribute"), rs.getString("unit_name"),
+                            rs.getInt("quantity"), rs.getInt("change_qty")));
+        return new InventoryDetailPageResponse(items, total);
     }
 
-    private InventoryDetailResponse toInboundDetail(InboundReceipt receipt, InboundReceiptItem item) {
-        Product product = item.getProduct();
-        return new InventoryDetailResponse(
-                "IN",
-                receipt.getCode(),
-                receipt.getInboundType(),
-                receipt.getInboundTime(),
-                receipt.getRemark(),
-                product != null ? product.getCode() : null,
-                product != null ? product.getName() : null,
-                product != null ? product.getSpec() : null,
-                product != null ? product.getAttribute() : null,
-                product != null && product.getUnit() != null ? product.getUnit().getName() : null,
-                item.getQuantity(),
-                item.getQuantity()
-        );
+    private static void addQueries(List<String> counts, List<String> rows, String filters,
+                                   boolean needsProduct, String direction, String source) {
+        // direction/source come only from the two fixed branches above; filter values remain bound.
+        String time = "r." + direction + "_time";
+        String type = "r." + direction + "_type";
+        String where = filters.replace("r.operation_time", time).replace("r.receipt_type", type);
+        String from = " FROM " + direction + "_receipts r JOIN " + direction + "_receipt_items i ON i."
+                + direction + "_receipt_id = r.id";
+        String product = " LEFT JOIN products p ON p.id = i.product_id AND p.factory_id = r.factory_id";
+        counts.add("SELECT COUNT(*) AS line_count" + from + (needsProduct ? product : "") + where);
+        rows.add("SELECT '" + source + "' AS source_type, i.id AS item_id, r.code AS receipt_code, "
+                + type + " AS receipt_type, " + time + " AS operation_time, r.remark, "
+                + "p.code AS product_code, p.name AS product_name, p.spec, p.attribute, u.name AS unit_name, "
+                + "i.quantity, " + ("IN".equals(source) ? "i.quantity" : "-i.quantity") + " AS change_qty"
+                + from + product + " LEFT JOIN units u ON u.id = p.unit_id AND u.factory_id = r.factory_id" + where);
     }
 
-    private InventoryDetailResponse toOutboundDetail(OutboundReceipt receipt, OutboundReceiptItem item) {
-        Product product = item.getProduct();
-        int quantity = item.getQuantity() != null ? item.getQuantity() : 0;
-        return new InventoryDetailResponse(
-                "OUT",
-                receipt.getCode(),
-                receipt.getOutboundType(),
-                receipt.getOutboundTime(),
-                receipt.getRemark(),
-                product != null ? product.getCode() : null,
-                product != null ? product.getName() : null,
-                product != null ? product.getSpec() : null,
-                product != null ? product.getAttribute() : null,
-                product != null && product.getUnit() != null ? product.getUnit().getName() : null,
-                quantity,
-                -quantity
-        );
+    private static boolean appendProductFilters(StringBuilder sql, MapSqlParameterSource params, String code,
+                                            String name, String spec, String attribute) {
+        int start = sql.length();
+        textFilter(sql, params, "p.code", "productCode", code, false);
+        textFilter(sql, params, "p.name", "productName", name, false);
+        textFilter(sql, params, "p.spec", "productSpec", spec, false);
+        textFilter(sql, params, "p.attribute", "productAttribute", attribute, true);
+        return sql.length() != start;
     }
 
-    private boolean matchesLike(String actual, String expected) {
-        String needle = normalize(expected);
-        if (needle == null) return true;
-        return normalize(actual) != null && normalize(actual).contains(needle);
+    private static void textFilter(StringBuilder sql, MapSqlParameterSource params, String column,
+                                      String key, String value, boolean exact) {
+        String normalized = normalize(value);
+        if (normalized == null) return;
+        String field = "LOWER(TRIM(" + column + "))";
+        sql.append(exact ? " AND " + field + " = :" + key : " AND LOCATE(:" + key + ", " + field + ") > 0");
+        params.addValue(key, normalized);
     }
 
-    private boolean matchesEquals(String actual, String expected) {
-        String needle = normalize(expected);
-        if (needle == null) return true;
-        return needle.equals(normalize(actual));
+    private static String normalize(String value) {
+        return value == null || value.trim().isEmpty() ? null : value.trim().toLowerCase(Locale.ROOT);
     }
 
-    private String normalize(String value) {
-        if (value == null) return null;
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed.toLowerCase(Locale.ROOT);
+    public static String cacheKey(Object[] args) {
+        StringBuilder key = new StringBuilder("page-v2:");
+        for (Object arg : args) {
+            String value = arg instanceof String ? normalize((String) arg) : arg == null ? null : arg.toString();
+            if (value == null) key.append("-:");
+            else key.append(value.length()).append(':').append(value);
+        }
+        return key.toString();
     }
 }

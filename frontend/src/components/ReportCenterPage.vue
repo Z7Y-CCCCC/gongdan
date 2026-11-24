@@ -95,9 +95,8 @@ onMounted(loadData)
     <div class="report-header">
       <div>
         <h2>生产报表</h2>
-        <p>汇总当前工厂的工单产出、报工审批和人员产出。</p>
       </div>
-      <button class="ghost-btn" type="button" :disabled="loading" @click="loadData"><UiIcon name="refresh" />刷新</button>
+      <button class="ghost-btn ui-icon-button" type="button" :disabled="loading" @click="loadData" title="刷新生产报表" aria-label="刷新生产报表"><UiIcon name="refresh" /></button>
     </div>
 
     <div class="metric-grid">

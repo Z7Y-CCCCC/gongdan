@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { parseCsvRows } from '../utils/csv'
+import UiIcon from './UiIcon.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
   createProduct,
@@ -458,50 +460,13 @@ async function handleImportProducts(event: Event) {
     const text = e.target?.result as string
     if (!text) return
     
-    const lines: string[][] = []
-    let row: string[] = []
-    let insideQuote = false
-    let currentToken = ''
-    
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i]
-      const nextChar = text[i + 1]
-      
-      if (insideQuote) {
-        if (char === '"') {
-          if (nextChar === '"') {
-            currentToken += '"'
-            i++
-          } else {
-            insideQuote = false
-          }
-        } else {
-          currentToken += char
-        }
-      } else {
-        if (char === '"') {
-          insideQuote = true
-        } else if (char === ',') {
-          row.push(currentToken.trim())
-          currentToken = ''
-        } else if (char === '\r' || char === '\n') {
-          if (char === '\r' && nextChar === '\n') {
-            i++
-          }
-          row.push(currentToken.trim())
-          lines.push(row)
-          row = []
-          currentToken = ''
-        } else {
-          currentToken += char
-        }
-      }
+    let lines: string[][]
+    try { lines = parseCsvRows(text) }
+    catch (error) {
+      emit('notice', error instanceof Error ? error.message : 'CSV 文件格式不正确')
+      return
     }
-    if (currentToken || row.length > 0) {
-      row.push(currentToken.trim())
-      lines.push(row)
-    }
-    
+
     if (lines.length <= 1) {
       emit('notice', 'CSV 文件格式不正确或无数据')
       return
@@ -656,7 +621,7 @@ onMounted(loadData)
             <span class="cat-label">{{ cat === 'all' ? '全部' : cat }}</span>
             <span v-if="isPersistedCategory(cat)" class="cat-delete" title="删除此分类" @click="removeCategory(cat, $event)">×</span>
           </button>
-          <button class="add-cat-btn" type="button" @click="openAddCategory" title="新增分类">
+          <button class="add-cat-btn ui-icon-button" type="button" @click="openAddCategory" title="新增分类" aria-label="新增分类">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
         </div>
@@ -682,30 +647,18 @@ onMounted(loadData)
       </div>
 
       <div class="toolbar">
-        <button class="primary-btn create-btn" type="button" @click="openCreate">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-          创建产品
-        </button>
+        <button class="primary-btn create-btn ui-icon-button" type="button" @click="openCreate" title="创建产品" aria-label="创建产品"><UiIcon name="plus" /></button>
         
-        <button class="toolbar-btn" type="button" @click="handleExportProducts">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          导出
-        </button>
+        <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportProducts" title="导出产品" aria-label="导出产品"><UiIcon name="download" /></button>
         
-        <button class="toolbar-btn" type="button" @click="triggerProductImport">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          导入
-        </button>
+        <button class="toolbar-btn ui-icon-button" type="button" @click="triggerProductImport" title="导入产品" aria-label="导入产品"><UiIcon name="upload" /></button>
         <input type="file" ref="productFileInput" style="display:none" accept=".csv" @change="handleImportProducts" />
 
         <TableConfigButton table-id="product-list-table" />
 
         <!-- 排序配置下拉菜单 -->
         <div class="toolbar-dropdown-container">
-          <button class="toolbar-btn" type="button" @click="showProductSortConfig = !showProductSortConfig; showProductRowHeightConfig = false" :class="{ 'active-btn': showProductSortConfig }">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
-            排序
-          </button>
+          <button class="toolbar-btn ui-action-button" type="button" @click="showProductSortConfig = !showProductSortConfig; showProductRowHeightConfig = false" :class="{ 'active-btn': showProductSortConfig }" title="排序" aria-label="排序"><UiIcon name="list" /><span>排序</span></button>
           <div v-if="showProductSortConfig" class="dropdown-bubble sort-bubble">
             <div class="dropdown-header">列表排序配置</div>
             <div class="dropdown-content">
@@ -757,10 +710,7 @@ onMounted(loadData)
 
         <!-- 行高配置下拉菜单 -->
         <div class="toolbar-dropdown-container">
-          <button class="toolbar-btn" type="button" @click="showProductRowHeightConfig = !showProductRowHeightConfig; showProductSortConfig = false" :class="{ 'active-btn': showProductRowHeightConfig }">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><line x1="21" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="3" y2="18"/></svg>
-            行高
-          </button>
+          <button class="toolbar-btn ui-action-button" type="button" @click="showProductRowHeightConfig = !showProductRowHeightConfig; showProductSortConfig = false" :class="{ 'active-btn': showProductRowHeightConfig }" title="设置行高" aria-label="设置行高"><UiIcon name="settings" /><span>行高</span></button>
           <div v-if="showProductRowHeightConfig" class="dropdown-bubble row-height-bubble">
             <div class="dropdown-header">表格行高配置</div>
             <div class="dropdown-content">
@@ -780,14 +730,8 @@ onMounted(loadData)
           </div>
         </div>
 
-        <button class="toolbar-btn" type="button" style="margin-left:auto; margin-right:8px" @click="openLogs">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          操作记录
-        </button>
-        <button class="toolbar-btn" type="button" @click="showProductImportLogs = true; refreshProductImportLogs()">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          导入日志
-        </button>
+        <button class="toolbar-btn ui-action-button" type="button" style="margin-left:auto; margin-right:8px" @click="openLogs" title="操作记录" aria-label="操作记录"><UiIcon name="clock" /><span>操作记录</span></button>
+        <button class="toolbar-btn ui-action-button" type="button" @click="showProductImportLogs = true; refreshProductImportLogs()" title="导入日志" aria-label="导入日志"><UiIcon name="file" /><span>导入日志</span></button>
       </div>
 
       <div class="table-container">
@@ -814,10 +758,9 @@ onMounted(loadData)
               <td v-if="isProductColumnVisible('routeName')">{{ item.routeName || '-' }}</td>
               <td v-if="isProductColumnVisible('supplierName')">{{ item.supplierName || '-' }}</td>
               <td v-if="isProductColumnVisible('action')" class="action-cell">
-                <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
-                <button class="action-link" type="button">打印</button>
-                <button class="action-link" type="button" @click="copyProduct(item)">复制</button>
-                <button class="action-link danger" type="button" @click="removeProduct(item)">删除</button>
+                <button class="action-link ui-icon-button" type="button" @click="openEdit(item)" title="编辑产品" aria-label="编辑产品"><UiIcon name="edit" /></button>
+                <button class="action-link ui-icon-button" type="button" @click="copyProduct(item)" title="复制产品" aria-label="复制产品"><UiIcon name="copy" /></button>
+                <button class="action-link danger ui-icon-button" type="button" @click="removeProduct(item)" title="删除产品" aria-label="删除产品"><UiIcon name="trash" /></button>
               </td>
             </tr>
             <tr v-if="filteredProducts.length === 0">
@@ -867,7 +810,7 @@ onMounted(loadData)
         </div>
         <div class="form-bottom-bar">
           <button class="ghost-btn wide" type="button" @click="view = 'list'">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveProduct" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
+          <button class="primary-btn wide" type="button" @click="saveProduct" :disabled="saving" title="保存产品" aria-label="保存产品">{{ saving ? '保存中...' : '保存' }}</button>
         </div>
       </div>
     </template>
@@ -894,7 +837,7 @@ onMounted(loadData)
       <div class="category-modal modal">
         <div class="category-modal-header modal-header">
           <h3>新增分类</h3>
-          <button class="close-btn" type="button" @click="showCategoryModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showCategoryModal = false" title="关闭分类窗口" aria-label="关闭分类窗口"><UiIcon name="close" /></button>
         </div>
         <div class="category-modal-body modal-body">
           <div class="category-input-group">
@@ -985,7 +928,7 @@ onMounted(loadData)
 
 .cat-icon {
   flex-shrink: 0;
-  transition: transform 0.2s ease;
+  transition: transform var(--motion-base) ease;
 }
 
 .category-tab:hover .cat-icon {
@@ -1008,7 +951,7 @@ onMounted(loadData)
   font-size: 10px;
   line-height: 1;
   margin-left: 4px;
-  transition: all 0.2s ease;
+  transition: all var(--motion-base) ease;
   opacity: 0.4;
 }
 
@@ -1033,7 +976,7 @@ onMounted(loadData)
   background-color: transparent;
   color: #8a9693;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--motion-base) ease;
 }
 
 .add-cat-btn:hover {
@@ -1090,7 +1033,7 @@ onMounted(loadData)
   font-size: 20px;
   color: #8a9693;
   cursor: pointer;
-  transition: color 0.2s;
+  transition: color var(--motion-base);
   line-height: 1;
 }
 
@@ -1121,7 +1064,7 @@ onMounted(loadData)
   border-radius: 6px;
   font-size: 14px;
   color: #0e1816;
-  transition: all 0.2s ease;
+  transition: all var(--motion-base) ease;
   outline: none;
 }
 
@@ -1144,7 +1087,7 @@ onMounted(loadData)
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--motion-base) ease;
 }
 
 .category-modal-footer .ghost-btn {

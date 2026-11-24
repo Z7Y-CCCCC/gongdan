@@ -120,7 +120,7 @@ public class ProductService {
         return response;
     }
 
-    @Cacheable(cacheNames = "products.list", key = "#factoryId + ':' + #code + ':' + #name + ':' + #spec + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
+    @Cacheable(cacheNames = "products.list", key = "'v2:' + #factoryId + ':' + #code + ':' + #name + ':' + #spec + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<ProductResponse> list(Long factoryId, String code, String name, String spec, Pageable pageable) {
         boolean hasCode = code != null && !code.trim().isEmpty();
         boolean hasName = name != null && !name.trim().isEmpty();
@@ -128,7 +128,7 @@ public class ProductService {
         if (!hasCode && !hasName && !hasSpec) {
             return productRepository.findByFactoryId(factoryId, pageable).map(this::toResponse);
         }
-        return productRepository.findByFactoryIdAndCodeContainingAndNameContainingAndSpecContaining(
+        return productRepository.search(
                 factoryId,
                 hasCode ? code.trim() : "",
                 hasName ? name.trim() : "",

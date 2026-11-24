@@ -15,14 +15,15 @@ import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import { fetchAllPages } from '../utils/pagination'
+import { formatBomDecimal, normalizeBomQuantity, normalizeBomScrapRate } from '../utils/bomDecimal'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
 
 type BomFormItem = {
   productId: number | ''
-  quantity: number
-  scrapRate: number
+  quantity: string
+  scrapRate: string
   remark: string
 }
 
@@ -43,7 +44,7 @@ const filter = reactive({ code: '', productName: '' })
 const form = reactive({
   code: '',
   productId: '' as number | '',
-  outputQuantity: 1,
+  outputQuantity: '1',
   remark: '',
   enabled: true,
   items: [] as BomFormItem[]
@@ -89,8 +90,8 @@ async function loadData() {
 function emptyItem(): BomFormItem {
   return {
     productId: '',
-    quantity: 1,
-    scrapRate: 0,
+    quantity: '1',
+    scrapRate: '0',
     remark: ''
   }
 }
@@ -99,7 +100,7 @@ function resetForm() {
   Object.assign(form, {
     code: '',
     productId: '',
-    outputQuantity: 1,
+    outputQuantity: '1',
     remark: '',
     enabled: true,
     items: [emptyItem()]
@@ -117,14 +118,14 @@ function openEdit(item: BomInfo) {
   Object.assign(form, {
     code: item.code,
     productId: item.productId,
-    outputQuantity: item.outputQuantity || 1,
+    outputQuantity: String(item.outputQuantity ?? '1'),
     remark: item.remark || '',
     enabled: item.enabled,
     items: item.items.length > 0
       ? item.items.map(detail => ({
           productId: detail.productId,
-          quantity: detail.quantity,
-          scrapRate: detail.scrapRate || 0,
+          quantity: String(detail.quantity),
+          scrapRate: String(detail.scrapRate ?? '0'),
           remark: detail.remark || ''
         }))
       : [emptyItem()]
@@ -149,8 +150,11 @@ function buildPayload(): BomPayload | null {
     emit('notice', '请选择成品')
     return null
   }
-  if (!form.outputQuantity || Number(form.outputQuantity) <= 0) {
-    emit('notice', '产出数量必须大于0')
+  let outputQuantity: string
+  try {
+    outputQuantity = normalizeBomQuantity(form.outputQuantity)
+  } catch (e) {
+    emit('notice', e instanceof Error ? e.message : '产出数量无效')
     return null
   }
   const seen = new Set<number>()
@@ -168,26 +172,27 @@ function buildPayload(): BomPayload | null {
       emit('notice', 'BOM明细不能重复选择同一产品')
       return null
     }
-    if (!item.quantity || Number(item.quantity) <= 0) {
-      emit('notice', '子件用量必须大于0')
-      return null
-    }
-    if (Number(item.scrapRate) < 0 || Number(item.scrapRate) > 100) {
-      emit('notice', '损耗率必须在0到100之间')
+    let quantity: string
+    let scrapRate: string
+    try {
+      quantity = normalizeBomQuantity(item.quantity, '子件用量')
+      scrapRate = normalizeBomScrapRate(item.scrapRate === '' ? '0' : item.scrapRate)
+    } catch (e) {
+      emit('notice', e instanceof Error ? e.message : '子件数量或损耗率无效')
       return null
     }
     seen.add(item.productId)
     items.push({
       productId: item.productId,
-      quantity: Number(item.quantity),
-      scrapRate: Number(item.scrapRate || 0),
+      quantity,
+      scrapRate,
       remark: item.remark.trim() || undefined
     })
   }
   return {
     code: form.code.trim() || undefined,
     productId: form.productId,
-    outputQuantity: Number(form.outputQuantity),
+    outputQuantity,
     remark: form.remark.trim() || undefined,
     enabled: form.enabled,
     items
@@ -217,15 +222,21 @@ async function saveBom() {
 }
 
 async function removeBom(item: BomInfo) {
+  if (visible.value || saving.value || loading.value) return
   const ok = await confirm({ message: `确认删除物料清单「${item.code}」？` })
   if (!ok) return
+  deleteLoading.value = true
   try {
     await deleteBom(props.token, item.id)
     emit('notice', '物料清单已删除')
-    await loadData()
   } catch (e) {
     emit('notice', e instanceof Error ? e.message : '删除失败')
+    return
+  } finally {
+    deleteLoading.value = false
+    handleCancel()
   }
+  await loadData()
 }
 
 useRefreshOnActivated(loadData)
@@ -244,13 +255,13 @@ onMounted(loadData)
         <input v-model="filter.productName" placeholder="请输入成品名称" @keydown.enter="loadData" />
       </label>
       <div class="filter-actions">
-        <button class="primary-btn query-btn" type="button" @click="loadData"><UiIcon name="search" />查询</button>
-        <button class="ghost-btn" type="button" @click="filter.code = ''; filter.productName = ''; loadData()"><UiIcon name="reset" />重置</button>
+        <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadData" title="查询物料清单" aria-label="查询物料清单"><UiIcon name="search" /></button>
+        <button class="ghost-btn ui-icon-button" type="button" @click="filter.code = ''; filter.productName = ''; loadData()" title="重置筛选" aria-label="重置筛选"><UiIcon name="reset" /></button>
       </div>
     </div>
 
     <div class="toolbar">
-      <button class="primary-btn" type="button" @click="openCreate"><UiIcon name="plus" />新建物料清单</button>
+      <button class="primary-btn ui-icon-button" type="button" @click="openCreate" title="新建物料清单" aria-label="新建物料清单"><UiIcon name="plus" /></button>
       <span class="muted">共 {{ total }} 个BOM</span>
       <TableConfigButton table-id="bom-list-table" />
     </div>
@@ -284,15 +295,15 @@ onMounted(loadData)
             <td>{{ item.productCode }}</td>
             <td>{{ item.productName }}</td>
             <td>{{ item.productSpec || '-' }}</td>
-            <td>{{ item.outputQuantity }} {{ item.unitName || '' }}</td>
+            <td>{{ formatBomDecimal(item.outputQuantity) }} {{ item.unitName || '' }}</td>
             <td>{{ item.items.length }}</td>
             <td>
               <span class="status-badge" :class="{ disabled: !item.enabled }">{{ item.enabled ? '启用' : '停用' }}</span>
             </td>
             <td>{{ item.updatedAt || item.createdAt || '-' }}</td>
             <td class="action-cell">
-              <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
-              <button class="action-link danger" type="button" @click="removeBom(item)">删除</button>
+              <button class="action-link ui-icon-button" type="button" @click="openEdit(item)" title="编辑物料清单" aria-label="编辑物料清单"><UiIcon name="edit" /></button>
+              <button class="action-link danger ui-icon-button" type="button" @click="removeBom(item)" title="删除物料清单" aria-label="删除物料清单"><UiIcon name="trash" /></button>
             </td>
           </tr>
         </tbody>
@@ -303,7 +314,7 @@ onMounted(loadData)
       <div class="modal workorder-modal bom-modal">
         <div class="modal-header">
           <h2>{{ editing ? '编辑物料清单' : '新建物料清单' }}</h2>
-          <button class="close-btn" type="button" @click="showModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
         <div class="modal-body">
           <div class="form-grid two-col">
@@ -322,7 +333,7 @@ onMounted(loadData)
             </label>
             <label>
               <span>产出数量</span>
-              <input v-model.number="form.outputQuantity" type="number" min="0.0001" step="0.0001" />
+              <input v-model="form.outputQuantity" type="text" inputmode="decimal" maxlength="128" aria-label="产出数量" placeholder="大于0，最多4位小数" />
             </label>
             <label>
               <span>状态</span>
@@ -341,7 +352,7 @@ onMounted(loadData)
             <h3>子件明细</h3>
             <div class="bom-detail-actions">
               <TableConfigButton table-id="bom-item-table" />
-              <button class="ghost-btn" type="button" @click="addItem"><UiIcon name="plus" />添加子件</button>
+              <button class="ghost-btn ui-icon-button" type="button" @click="addItem" title="添加子件" aria-label="添加子件"><UiIcon name="plus" /></button>
             </div>
           </div>
           <div class="table-container compact-table">
@@ -367,17 +378,17 @@ onMounted(loadData)
                     </select>
                   </td>
                   <td>
-                    <input v-model.number="item.quantity" type="number" min="0.0001" step="0.0001" />
+                    <input v-model="item.quantity" type="text" inputmode="decimal" maxlength="128" aria-label="子件用量" placeholder="大于0，最多4位小数" />
                   </td>
                   <td>{{ itemUnit(item) }}</td>
                   <td>
-                    <input v-model.number="item.scrapRate" type="number" min="0" max="100" step="0.01" />
+                    <input v-model="item.scrapRate" type="text" inputmode="decimal" maxlength="128" aria-label="损耗率" placeholder="0到100，最多4位小数" />
                   </td>
                   <td>
                     <input v-model="item.remark" placeholder="备注" />
                   </td>
                   <td>
-                    <button class="action-link danger" type="button" @click="removeItem(index)">删除</button>
+                    <button class="action-link danger ui-icon-button" type="button" @click="removeItem(index)" title="删除子件" aria-label="删除子件"><UiIcon name="trash" /></button>
                   </td>
                 </tr>
               </tbody>
@@ -386,7 +397,7 @@ onMounted(loadData)
         </div>
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveBom" :disabled="saving">{{ saving ? '保存中...' : '保存' }}</button>
+          <button class="primary-btn wide" type="button" @click="saveBom" :disabled="saving" title="保存物料清单" aria-label="保存物料清单">{{ saving ? '保存中...' : '保存' }}</button>
         </div>
       </div>
     </div>

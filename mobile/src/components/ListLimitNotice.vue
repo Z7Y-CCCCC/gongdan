@@ -1,6 +1,7 @@
 <template>
-  <view v-if="total > loaded" class="limit-notice">
-    {{ label }}已加载 {{ loaded }} / {{ total }} 条；列表与统计仅涵盖已加载记录，请缩小查询范围或在管理端查询。
+  <view v-if="total > loaded" class="limit-notice" role="status">
+    <uni-icons type="info" size="16" color="#805900" aria-hidden="true" />
+    <text>{{ label }} {{ loaded }} / {{ total }} · 仅统计已加载记录</text>
   </view>
 </template>
 
@@ -9,5 +10,5 @@ withDefaults(defineProps<{ total: number; loaded: number; label?: string }>(), {
 </script>
 
 <style scoped>
-.limit-notice { padding: 18rpx 24rpx; margin: 12rpx 0; background: #fff5dd; color: #805900; font-size: 24rpx; line-height: 1.5; border-radius: 10rpx; }
+.limit-notice { display: flex; align-items: center; gap: 10rpx; padding: 16rpx 20rpx; margin: 12rpx 0; background: #fff5dd; color: #805900; font-size: 24rpx; line-height: 1.5; border-radius: 16rpx; }
 </style>

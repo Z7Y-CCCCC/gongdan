@@ -12,6 +12,8 @@ public interface WorkOrderReportImageRepository extends JpaRepository<WorkOrderR
 
     List<WorkOrderReportImage> findByReportIdOrderByCreatedAtAsc(Long reportId);
 
+    List<WorkOrderReportImage> findByFactoryIdAndReportIdInOrderByCreatedAtAscIdAsc(Long factoryId, Collection<Long> reportIds);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     List<WorkOrderReportImage> findByFactoryIdAndIdIn(Long factoryId, Collection<Long> ids);
 

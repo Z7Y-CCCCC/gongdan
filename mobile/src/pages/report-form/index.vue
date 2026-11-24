@@ -5,9 +5,9 @@
       <view class="step-header">
         <view class="step-num">{{ processNo }}</view>
         <text class="step-name">{{ processName }}</text>
-        <view class="close-icon" @click="handleClose"><uni-icons type="closeempty" size="20" color="#8a9693" /></view>
+        <IconButton icon="closeempty" label="关闭报工" :disabled="loading || uploading" @click="handleClose" />
       </view>
-      <view class="data-grid">
+      <view v-if="!reporterLoading && !loadError" class="data-grid">
         <view class="data-item">
           <text class="dl">计划数</text>
           <text class="dv">{{ plannedQty }}</text>
@@ -24,22 +24,24 @@
     </view>
 
     <!-- 表单主体 -->
+    <view v-if="loadError" class="form-message form-error" role="alert"><text>{{ loadError }}</text><IconButton icon="refreshempty" label="重试报工信息" :busy="reporterLoading" @click="loadReportContext" /></view>
+    <view v-else-if="isCorrection" class="form-message">重报需审批，原记录保留。</view>
     <view class="form-list">
       <!-- 生产人员 -->
-      <view class="form-item" @click="!loading && !reporterLoading && (showReporterPicker = true)">
+      <button class="form-item reporter-select" aria-label="选择生产人员" :disabled="loading || reporterLoading || !!loadError" @click="showReporterPicker = true">
         <view class="label"><text class="required">*</text>生产人员</view>
         <view class="value-row">
           <text>{{ selectedReporterName }}</text>
-          <text class="arrow">›</text>
+          <uni-icons type="right" size="16" color="#64756d" aria-hidden="true" />
         </view>
-      </view>
+      </button>
 
       <!-- 报工数 -->
       <view class="form-item">
         <view class="label"><text class="required">*</text>报工数</view>
         <view class="value-row">
-          <input type="number" v-model="form.reportQuantity" placeholder="0" class="num-input" @input="syncGoodQuantity" />
-          <text class="unit">{{ productUnit }} ›</text>
+          <input type="number" v-model="form.reportQuantity" aria-label="报工数" placeholder="0" class="num-input" @input="syncGoodQuantity" />
+          <text class="unit">{{ productUnit }}</text>
         </view>
       </view>
 
@@ -47,7 +49,7 @@
       <view class="form-item">
         <view class="label">良品数</view>
         <view class="value-row">
-          <input type="number" v-model="form.goodQuantity" placeholder="0" class="num-input" />
+          <input type="number" v-model="form.goodQuantity" aria-label="良品数" placeholder="0" class="num-input" />
         </view>
       </view>
 
@@ -55,26 +57,32 @@
       <view class="form-item">
         <view class="label">不良数</view>
         <view class="value-row">
-          <input type="number" v-model="form.defectQuantity" placeholder="请输入" class="num-input red-text" @input="syncGoodQuantity" />
+          <input type="number" v-model="form.defectQuantity" aria-label="不良数" placeholder="请输入" class="num-input red-text" @input="syncGoodQuantity" />
         </view>
       </view>
 
       <!-- 不良品项 -->
+      <!-- #ifdef H5 -->
+      <Transition name="field-reveal">
+      <!-- #endif -->
       <view class="form-item" v-if="Number(form.defectQuantity) > 0">
         <view class="label">不良品项</view>
         <view class="value-row">
-          <input v-model="form.defectItemName" class="text-input" placeholder="请输入不良原因" />
+          <input v-model="form.defectItemName" aria-label="不良原因" class="text-input" placeholder="请输入不良原因" />
         </view>
       </view>
+      <!-- #ifdef H5 -->
+      </Transition>
+      <!-- #endif -->
 
       <!-- 报工时长 -->
       <view class="form-item">
         <view class="label">报工时长</view>
         <view class="value-row">
-          <input type="number" v-model="durationHours" class="mini-input" />
+          <input type="number" v-model="durationHours" aria-label="报工小时" class="mini-input" />
           <text class="unit-s">小时</text>
-          <input type="number" v-model="durationMinutes" class="mini-input" />
-          <text class="unit-s">分钟 ›</text>
+          <input type="number" v-model="durationMinutes" aria-label="报工分钟" class="mini-input" />
+          <text class="unit-s">分钟</text>
         </view>
       </view>
 
@@ -107,19 +115,19 @@
       <view class="form-item">
         <view class="label">领料产品</view>
         <view class="value-row">
-          <input v-model="form.materialName" class="text-input" placeholder="可选，填写领料产品" />
+          <input v-model="form.materialName" aria-label="领料产品" class="text-input" placeholder="产品（可选）" />
         </view>
       </view>
 
       <!-- 备注 -->
       <view class="form-item-textarea">
         <view class="label">备注</view>
-        <textarea class="textarea-input" v-model="form.remark" placeholder="请输入备注..." maxlength="500" />
+        <textarea class="textarea-input" v-model="form.remark" aria-label="报工备注" placeholder="备注（可选）" maxlength="500" />
       </view>
 
       <!-- 底部图片上传 -->
       <view class="upload-section">
-        <view class="label">报废/次品照片</view>
+        <view class="label">照片 <text class="ui-meta">{{ uploadedImages.length }} / 9</text></view>
         <view class="image-grid">
           <view v-for="(img, idx) in uploadedImages" :key="idx" class="img-box">
             <!-- #ifdef H5 -->
@@ -128,11 +136,11 @@
             <!-- #ifndef H5 -->
             <image :src="img.previewPath || ''" mode="aspectFill" class="uploaded-img" />
             <!-- #endif -->
-            <view class="img-delete" @click="removeImage(idx)"><uni-icons type="closeempty" size="12" color="#fff" /></view>
+            <button class="img-delete" :aria-label="'移除照片 ' + (idx + 1)" :title="'移除照片 ' + (idx + 1)" :disabled="loading || uploading" @click="removeImage(idx)"><uni-icons type="closeempty" size="20" color="#d84545" aria-hidden="true" /></button>
           </view>
-          <view class="add-box" @click="chooseImage" v-if="uploadedImages.length < 9">
-            <uni-icons type="camera-filled" size="24" color="#8a9693" />
-          </view>
+          <button class="add-box" aria-label="添加报工照片" title="添加报工照片" :disabled="loading || uploading || reporterLoading || !!loadError" @click="chooseImage" v-if="uploadedImages.length < 9">
+            <uni-icons type="camera-filled" size="24" color="#64756d" aria-hidden="true" />
+          </button>
         </view>
         <text v-if="uploading" class="tl">图片上传中，请稍候…</text>
       </view>
@@ -140,25 +148,26 @@
 
     <!-- 底部按钮 -->
     <view class="footer">
-      <button class="btn outline" :disabled="loading || uploading || reporterLoading" @click="handleSubmit(true)">继续报工</button>
-      <button class="btn solid" :loading="loading" :disabled="loading || uploading || reporterLoading" @click="handleSubmit(false)">提交</button>
+      <button class="btn outline" :disabled="loading || uploading || reporterLoading || !!loadError" @click="handleSubmit(true)">提交继续</button>
+      <button class="btn solid" :loading="loading" :aria-busy="loading" :disabled="loading || uploading || reporterLoading || !!loadError" @click="handleSubmit(false)">提交</button>
     </view>
 
     <!-- 生产人员选择弹窗 -->
     <view v-if="showReporterPicker" class="picker-mask" @click="showReporterPicker = false">
-      <view class="picker-content" @click.stop>
+      <view ref="pickerDialog" class="picker-content" role="dialog" aria-modal="true" aria-label="选择生产人员" @click.stop @keydown="trapPickerFocus">
         <view class="picker-header">
           <text class="picker-title">选择生产人员</text>
-          <view class="picker-close" @click="showReporterPicker = false"><uni-icons type="closeempty" size="20" color="#8a9693" /></view>
+          <IconButton icon="closeempty" label="关闭人员选择" @click="showReporterPicker = false" />
         </view>
-        <scroll-view scroll-y class="picker-list">
-          <view v-for="user in reporterList" :key="user.id"
+        <scroll-view scroll-y class="picker-list" :style="{ height: Math.min(reporterList.length * 52 + 8, 260) + 'px' }">
+          <button v-for="user in reporterList" :key="user.id"
                 class="picker-item" :class="{ selected: selectedReporterId === user.id }"
+                :aria-pressed="selectedReporterId === user.id"
                 @click="selectReporter(user)">
             <text>{{ user.name }}</text>
             <text class="picker-sub">{{ user.username }}</text>
             <text v-if="selectedReporterId === user.id" class="picker-check">✓</text>
-          </view>
+          </button>
           <view v-if="reporterList.length === 0" class="picker-empty">暂无可选人员</view>
         </scroll-view>
       </view>
@@ -167,12 +176,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onBeforeUnmount, onMounted } from 'vue'
+import { ref, reactive, onBeforeUnmount, onMounted, nextTick, watch } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { createReport, downloadReportImage, ensureLogin, fetchWorkOrder, uploadReportImage, fetchWorkOrderReporters } from '../../services/api'
 import type { ReportImage } from '../../types/api'
 import { usePageDraft } from '../../composables/usePageDraft'
 import { formatDateTime, updateDateTime, validateReportValues } from '../../utils/report'
+import { showPendingReportsOnReturn } from '../../utils/report-flow'
+import { navigatePage } from '../../utils/navigation'
+import IconButton from '../../components/IconButton.vue'
+import { mobileSessionKey } from '../../utils/session-key'
 
 // URL 参数
 let paramOrderId = ''
@@ -181,6 +194,9 @@ let paramProcessName = ''
 let paramPlannedQty = ''
 let paramCompletedQty = ''
 let paramDefectQty = ''
+let initialReporterId = 0
+let originalProcessName = ''
+const isCorrection = ref(false)
 
 function safeDecode(value: string) {
   try {
@@ -193,10 +209,13 @@ function safeDecode(value: string) {
 function applyRouteOptions(options: Record<string, any> = {}) {
   paramOrderId = String(options.orderId || '')
   paramProcessNo = String(options.processNo || '1')
-  paramProcessName = safeDecode(String(options.processName || ''))
+  originalProcessName = String(options.processName || '')
+  paramProcessName = safeDecode(originalProcessName)
   paramPlannedQty = String(options.plannedQty || '0')
   paramCompletedQty = String(options.completedQty || '0')
   paramDefectQty = String(options.defectQty || '0')
+  isCorrection.value = String(options.correction || '') === '1'
+  initialReporterId = isCorrection.value ? Number(options.reporterId) || 0 : 0
 }
 
 function readH5RouteOptions() {
@@ -224,13 +243,37 @@ const processName = ref('')
 const plannedQty = ref(0)
 const completedQty = ref(0)
 const defectQtyDisplay = ref(0)
-const productUnit = ref('个')
+const productUnit = ref('')
 const loading = ref(false)
 const uploading = ref(false)
 const reporterLoading = ref(true)
+const loadError = ref('')
 const showReporterPicker = ref(false)
+const pickerDialog = ref<any>(null)
+let pickerReturnFocus: HTMLElement | null = null
+watch(showReporterPicker, async shown => {
+  if (typeof document === 'undefined') return
+  if (!shown) { pickerReturnFocus?.focus(); return }
+  pickerReturnFocus = document.activeElement as HTMLElement | null
+  await nextTick()
+  const dialog = pickerDialog.value?.$el || pickerDialog.value
+  dialog?.querySelector('button:not([disabled])')?.focus()
+}, { flush: 'post' })
+
+function trapPickerFocus(event: KeyboardEvent) {
+  if (typeof document === 'undefined' || !showReporterPicker.value) return
+  if (event.key === 'Escape') { event.preventDefault(); showReporterPicker.value = false; return }
+  if (event.key !== 'Tab') return
+  const dialog = pickerDialog.value?.$el || pickerDialog.value
+  const buttons = Array.from(dialog?.querySelectorAll('button:not([disabled])') || []) as HTMLElement[]
+  if (!buttons.length) return
+  const first = buttons[0], last = buttons[buttons.length - 1]
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+}
 let navigationTimer: ReturnType<typeof setTimeout> | undefined
-onBeforeUnmount(() => { if (navigationTimer) clearTimeout(navigationTimer) })
+let contextSequence = 0
+onBeforeUnmount(() => { contextSequence++; if (navigationTimer) clearTimeout(navigationTimer) })
 
 // 报工人员列表
 const reporterList = ref<Array<{ id: number; name: string; username: string }>>([])
@@ -285,21 +328,37 @@ onMounted(async () => {
   // 加载当前登录用户信息
   const user = uni.getStorageSync('user')
   if (user) {
-    selectedReporterId.value = user.id
+    selectedReporterId.value = initialReporterId || user.id
     selectedReporterName.value = user.name || user.username || '当前用户'
   }
 
-  // 加载有报工权限的用户列表
-  if (form.workOrderId) {
+  await loadReportContext()
+})
+
+async function loadReportContext() {
+  const sequence = ++contextSequence
+  const session = mobileSessionKey()
+  const current = () => sequence === contextSequence && session === mobileSessionKey()
+  const user = uni.getStorageSync('user')
+  reporterLoading.value = true
+  loadError.value = ''
+  if (ensureLogin() && Number.isSafeInteger(form.workOrderId) && form.workOrderId > 0) {
     try {
       const [order, users] = await Promise.all([
         fetchWorkOrder(form.workOrderId),
         fetchWorkOrderReporters(form.workOrderId, form.processSequenceNo)
       ])
-      const task = order.tasks.find(item => item.sequenceNo === form.processSequenceNo)
+      if (!current()) return
+      if (!order || !Array.isArray(order.tasks) || !Array.isArray(users)) throw new Error('报工信息返回格式异常，请重试')
+      const task = order.tasks.find((item, index) => (item.sequenceNo || index + 1) === form.processSequenceNo)
       if (!task || task.enabled === false) throw new Error('工序不存在或已停用')
+      if (isCorrection.value && ![originalProcessName, paramProcessName].includes(task.processName)) {
+        throw new Error('原报工工序已变更，请回到工单选择当前工序。')
+      }
+      if (!users.some(item => item.id === user?.id)) throw new Error('当前账号没有该工序的报工权限')
       form.processName = task.processName
       processName.value = task.processName
+      productUnit.value = order.unitName || ''
       plannedQty.value = task.plannedQuantity ?? order.plannedQuantity
       completedQty.value = task.completedQuantity || 0
       defectQtyDisplay.value = task.defectQuantity || 0
@@ -311,23 +370,30 @@ onMounted(async () => {
         if (image.previewPath) continue
         try {
           image.previewPath = await downloadReportImage(image.id)
+          if (!current()) return
         } catch (e: any) {
           uploadedImages.value = uploadedImages.value.filter(item => item.id !== image.id)
           uni.showToast({ title: e.message || '草稿图片已失效，请重新上传', icon: 'none' })
         }
       }
     } catch (e: any) {
+      if (!current()) return
+      loadError.value = e.message || '报工信息加载失败，请返回重试'
       reporterList.value = []
       selectedReporterId.value = 0
-      selectedReporterName.value = '人员加载失败，请返回重试'
-      uni.showToast({ title: e.message || '报工人员加载失败', icon: 'none' })
+      selectedReporterName.value = '不可报工'
+      uni.showToast({ title: loadError.value, icon: 'none' })
     } finally {
-      reporterLoading.value = false
+      if (sequence === contextSequence) {
+        if (session !== mobileSessionKey()) { reporterList.value = []; selectedReporterId.value = 0; loadError.value = '登录状态已变更，请重试' }
+        reporterLoading.value = false
+      }
     }
   } else {
+    loadError.value = '缺少工单信息，请返回重试'
     reporterLoading.value = false
   }
-})
+}
 
 const { clearDraft: clearReportDraft } = usePageDraft({
   key: () => `gongdan:draft:report:${paramOrderId || form.workOrderId}:${paramProcessNo || form.processSequenceNo}`,
@@ -371,7 +437,7 @@ function changeH5Time(field: 'startTime' | 'endTime', event: Event) {
 }
 
 const chooseImage = () => {
-  if (loading.value || uploading.value || reporterLoading.value || uploadedImages.value.length >= 9) return
+  if (loading.value || uploading.value || reporterLoading.value || loadError.value || uploadedImages.value.length >= 9) return
   uploading.value = true
   uni.chooseImage({
     count: 9 - uploadedImages.value.length,
@@ -407,22 +473,23 @@ function syncGoodQuantity() {
 
 function goBack() {
   if (typeof window !== 'undefined' && window.location) {
-    window.location.hash = `#/pages/work-order-detail/index?id=${form.workOrderId}`
+    if (isCorrection.value) {
+      navigatePage('/pages/report-list/index')
+      return
+    }
+    navigatePage(`/pages/work-order-detail/index?id=${form.workOrderId}`, true)
     return
   }
   uni.navigateBack()
 }
 
 function goAfterSubmit() {
-  if (typeof window !== 'undefined' && window.location) {
-    window.location.hash = '#/pages/report-list/index'
-    return
-  }
-  uni.switchTab({ url: '/pages/report-list/index' })
+  showPendingReportsOnReturn()
+  navigatePage('/pages/report-list/index')
 }
 
 const handleSubmit = async (isContinue: boolean) => {
-  if (loading.value || reporterLoading.value) return
+  if (loading.value || reporterLoading.value || loadError.value) return
   if (uploading.value) {
     uni.showToast({ title: '请等待图片上传完成', icon: 'none' })
     return
@@ -505,6 +572,8 @@ const handleClose = () => {
 </script>
 
 <style scoped>
+.form-message { margin: 20rpx; padding: 20rpx; background: #e6f7f3; color: #007c63; font-size: 26rpx; }
+.form-error { background: #fff1f0; color: #a0332c; }
 .container {
   background: #f6f7f7;
   min-height: 100vh;
@@ -526,7 +595,7 @@ const handleClose = () => {
 .step-num {
   width: 36rpx;
   height: 36rpx;
-  background: #00b889;
+  background: #00856b;
   color: white;
   border-radius: 50%;
   font-size: 20rpx;
@@ -554,9 +623,9 @@ const handleClose = () => {
 }
 
 .data-item { display: flex; flex-direction: column; }
-.dl { font-size: 22rpx; color: #999; margin-bottom: 8rpx; }
+.dl { font-size: 22rpx; color: #64756d; margin-bottom: 8rpx; }
 .dv { font-size: 28rpx; font-weight: bold; }
-.dv.green { color: #00b889; }
+.dv.green { color: #00856b; }
 .dv.red { color: #ff4d4f; }
 
 .form-list {
@@ -571,6 +640,9 @@ const handleClose = () => {
   padding: 30rpx;
   border-bottom: 1px solid #f8f8f8;
 }
+.reporter-select { width: 100%; text-align: left; background: #fff; border-radius: 0; }
+.field-reveal-enter-active, .field-reveal-leave-active { transition: opacity 180ms ease, transform 180ms ease; }
+.field-reveal-enter-from, .field-reveal-leave-to { opacity: 0; transform: translateY(-8rpx); }
 
 .form-item-textarea {
   padding: 30rpx;
@@ -598,8 +670,8 @@ const handleClose = () => {
 .unit { font-size: 26rpx; color: #666; margin-left: 10rpx; }
 .arrow { font-size: 32rpx; color: #ccc; margin-left: 10rpx; }
 
-.mini-input { width: 72rpx; height: 56rpx; text-align: center; font-size: 28rpx; background: #f7f9f8; border: 1rpx solid #dfe5e3; border-radius: 8rpx; }
-.unit-s { font-size: 24rpx; color: #999; margin: 0 10rpx; }
+.mini-input { width: 88rpx; min-width: 44px; height: 88rpx; text-align: center; font-size: 28rpx; background: #f7f9f8; border: 1rpx solid #dfe5e3; border-radius: 8rpx; }
+.unit-s { font-size: 24rpx; color: #64756d; margin: 0 10rpx; }
 
 .textarea-input {
   width: 100%;
@@ -622,7 +694,7 @@ const handleClose = () => {
 
 .time-item { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .datetime-input { display: block; width: 100%; min-width: 0; height: 72rpx; font-size: 23rpx; color: #202926; }
-.tl { font-size: 22rpx; color: #999; margin-bottom: 8rpx; }
+.tl { font-size: 22rpx; color: #64756d; margin-bottom: 8rpx; }
 .tv { font-size: 28rpx; color: #333; }
 .time-divider {
   width: 40rpx;
@@ -654,11 +726,11 @@ const handleClose = () => {
   position: absolute;
   top: -10rpx;
   right: -10rpx;
-  width: 32rpx;
-  height: 32rpx;
-  background: #ff4d4f;
+  width: 88rpx;
+  height: 88rpx;
+  background: transparent;
   color: white;
-  border-radius: 50%;
+  border-radius: 16rpx;
   font-size: 18rpx;
   display: flex;
   justify-content: center;
@@ -675,6 +747,8 @@ const handleClose = () => {
   justify-content: center;
   align-items: center;
 }
+.img-delete :deep(.uni-icons) { background: rgba(255,255,255,0.94); border-radius: 50%; padding: 4rpx; }
+.time-item picker { min-height: 88rpx; display: flex; align-items: center; }
 
 
 .footer {
@@ -703,8 +777,8 @@ const handleClose = () => {
   margin: 0 10rpx;
 }
 
-.btn.outline { border: 1px solid #00b889; color: #00b889; }
-.btn.solid { background: #00b889; color: white; }
+.btn.outline { border: 1px solid #00b889; color: #00856b; }
+.btn.solid { background: #00856b; color: white; }
 .btn[disabled] { opacity: 0.6; }
 
 /* 人员选择弹窗 */
@@ -737,12 +811,13 @@ const handleClose = () => {
 }
 
 .picker-title { font-size: 32rpx; font-weight: bold; }
-.picker-close { font-size: 32rpx; color: #999; padding: 0 10rpx; }
+.picker-close { font-size: 32rpx; color: #64756d; padding: 0 10rpx; }
 
 .picker-list {
-  max-height: 50vh;
+  max-height: calc(60vh - 160rpx);
   padding: 0 30rpx;
 }
+.picker-item { width: 100%; background: transparent; text-align: left; border-radius: 0; }
 
 .picker-item {
   display: flex;
@@ -753,25 +828,25 @@ const handleClose = () => {
 }
 
 .picker-item.selected {
-  color: #00b889;
+  color: #00856b;
 }
 
 .picker-sub {
   font-size: 24rpx;
-  color: #999;
+  color: #64756d;
   margin-left: 20rpx;
 }
 
 .picker-check {
   margin-left: auto;
-  color: #00b889;
+  color: #00856b;
   font-weight: bold;
 }
 
 .picker-empty {
   text-align: center;
   padding: 60rpx 0;
-  color: #999;
+  color: #64756d;
   font-size: 28rpx;
 }
 </style>

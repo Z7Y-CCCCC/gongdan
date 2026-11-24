@@ -1,6 +1,7 @@
 # Mobile work-order client
 
-H5 signs in through `/api/auth/login` with the factory/account/password contract.
+H5 signs in through `/api/mobile/auth/password-login` with the factory/account/password contract.
+Production users retain the same mobile permissions; the management login still rejects production accounts.
 WeChat Mini Program builds use WeChat authorization and account binding; no
 fabricated ticket is used after a failed authorization request. Production Mini
 Programs still require a real app ID and an absolute HTTPS `VITE_API_BASE_URL`.
@@ -24,11 +25,35 @@ printed loopback URL serves the app with the production CSP and an in-memory
 fake backend. Requests never reach a real database or account. The fixture also
 supports `/mobile/` for a production-base build. Stop it when QA is complete.
 
-List reads paginate up to 5,000 records. Larger datasets display the loaded and
-total counts, explicitly qualifying statistics; use a narrower date range or
-the administrative client for additional records. Drafts are scoped to the
-factory/user identity. Legacy unscoped drafts are not automatically restored
-into another account and are not deleted by the migration.
+Home and board use `/api/mobile/dashboard?day=YYYY-MM-DD` for full database
+aggregates, scoped to factory work orders and the current user's own reports
+(not reports submitted on behalf of other users). They no longer download a
+5,000-row sample to calculate statistics. The recent-order section and process
+ranking show only their first five entries; the summary totals cover all rows.
+Malformed or unsafe-integer aggregate values produce an explicit error instead
+of misleading zero or rounded statistics.
+
+Work-order browsing and tasks request 20 orders at a time, with search, load
+more and same-page retry. Tasks use `reportableOnly=true` and filter permitted,
+unfinished processes on the client; their visible count covers only checked
+orders, not a fabricated total task count. Report history and individual
+work-order history now request 20 records at a time with server-side status/date
+filters and same-page retry, including records beyond the former 5,000 ceiling.
+History summaries explicitly cover only loaded records. Drafts rebind to the factory/user/session when cached pages
+become visible. Unauthenticated pages do not read or write personal drafts, and
+pending old-account changes cannot overwrite another account's draft. Legacy
+unscoped drafts are not restored into another account or deleted by migration.
+
+H5 scanning supports taking/selecting a QR photo with local pixel decoding and
+an explicit work-order input fallback; Mini Programs retain native `scanCode`.
+The decoder is pinned `qrcode-reader@1.0.4` (Apache-2.0), with the original
+[license](public/qrcode-reader-LICENSE.txt) and [attribution](public/qrcode-reader-NOTICE.txt)
+served alongside H5 assets. Photos are limited to 10 MiB and 16 million source
+pixels, and decoding uses at most 1,048,576 pixels. A scanned URL can only resolve
+to an internal work-order route, never arbitrary external navigation. Browser
+camera availability still depends on device, secure context and user permission.
+Report attachments use authenticated downloads and native preview; failed
+downloads can retry and late old-session previews are discarded.
 
 ## Dependency security baseline (2026-09-12)
 
@@ -93,7 +118,8 @@ overrides in nested packages. The combined Docker build copies `vendor/` before
 `npm test` runs every `test/*.test.mjs` through a cross-platform runner, including
 real loopback HTTP/TLS redirect checks, malformed-image workers, ZIP link/budget
 regressions and actual Vite development-module/source-map/HMR/security tests.
-It never starts the long-lived manual `browser-fixture.mjs` automatically.
+The manual `browser-fixture.mjs` is not treated as a test entry; a bounded HTTP
+contract test explicitly starts and stops its own isolated fixture child.
 
 Development and preview bind to `127.0.0.1` by default. For necessary LAN
 debugging, explicitly set `VITE_DEV_HOST` to a trusted interface and apply a

@@ -44,7 +44,7 @@ public class SupplierController {
             @RequestParam(defaultValue = "100") int size
     ) {
         AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
-        PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        PageRequest pageRequest = PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
         Page<SupplierResponse> result = supplierService.list(currentUser.getFactoryId(), code, name, pageRequest);
         Map<String, Object> response = new HashMap<>();
         response.put("items", result.getContent());

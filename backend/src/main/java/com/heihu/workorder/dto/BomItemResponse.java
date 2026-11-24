@@ -1,5 +1,6 @@
 package com.heihu.workorder.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.math.BigDecimal;
 
 public class BomItemResponse {
@@ -31,9 +32,11 @@ public class BomItemResponse {
     public String getUnitName() { return unitName; }
     public void setUnitName(String unitName) { this.unitName = unitName; }
 
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     public BigDecimal getQuantity() { return quantity; }
     public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
 
+    @JsonFormat(shape = JsonFormat.Shape.STRING)
     public BigDecimal getScrapRate() { return scrapRate; }
     public void setScrapRate(BigDecimal scrapRate) { this.scrapRate = scrapRate; }
 

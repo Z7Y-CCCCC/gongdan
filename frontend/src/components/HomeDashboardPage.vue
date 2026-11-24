@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide, ref, computed } from 'vue'
+import { provide, ref } from 'vue'
 import { useAuth } from '../composables/useAuth'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
 import type { HomeRange } from '../api'
@@ -8,26 +8,12 @@ import WorkOrderProgressSection from './WorkOrderProgressSection.vue'
 import PerformanceSection from './PerformanceSection.vue'
 import LiveBroadcastSection from './LiveBroadcastSection.vue'
 
-const { currentUser, token } = useAuth()
+const { token } = useAuth()
 const { forbidden, forbiddenMessage } = useHomeDashboardErrorHandler()
 
 // Time range shared with child components (ProcessTaskSection writes, PerformanceSection reads)
 const range = ref<HomeRange>('today')
 provide('homeRange', range)
-
-// Display name: use name field, fallback to username if name is empty/null
-const displayName = computed(() => {
-  if (!currentUser.value) return ''
-  const name = currentUser.value.name
-  if (name && name.trim()) return name
-  return currentUser.value.username
-})
-
-// Avatar error handling: hide entire user area if avatar fails to load
-const avatarError = ref(false)
-function onAvatarError() {
-  avatarError.value = true
-}
 
 // Handle "view work order" events from child sections
 function handleViewWorkOrder(workOrderId: number) {
@@ -41,15 +27,6 @@ function handleViewWorkOrder(workOrderId: number) {
     <header class="home-topbar">
       <div class="home-topbar-left">
         <h1 class="home-topbar-title">主页</h1>
-      </div>
-      <div v-if="currentUser && !avatarError" class="home-topbar-right">
-        <img
-          src="/avatar-placeholder.svg"
-          alt="用户头像"
-          class="home-topbar-avatar"
-          @error="onAvatarError"
-        />
-        <span class="home-topbar-username">{{ displayName }}</span>
       </div>
     </header>
 
@@ -106,7 +83,7 @@ function handleViewWorkOrder(workOrderId: number) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
+  padding: 12px 20px;
   background: #fff;
   border-bottom: 1px solid #e8e8e8;
 }
@@ -117,7 +94,7 @@ function handleViewWorkOrder(workOrderId: number) {
 }
 
 .home-topbar-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: #1a1a1a;
   margin: 0;
@@ -144,17 +121,17 @@ function handleViewWorkOrder(workOrderId: number) {
 /* Main Content */
 .home-content {
   flex: 1;
-  padding: 20px 24px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 /* Section cards */
 .home-section {
   background: #fff;
   border-radius: 8px;
-  padding: 20px;
+  padding: 16px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
@@ -167,7 +144,7 @@ function handleViewWorkOrder(workOrderId: number) {
 .home-bottom-grid {
   display: grid;
   grid-template-columns: 1fr 380px;
-  gap: 20px;
+  gap: 16px;
   flex: 1;
 }
 
@@ -175,7 +152,7 @@ function handleViewWorkOrder(workOrderId: number) {
 .home-right-column {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 /* Forbidden state */

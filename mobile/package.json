@@ -19,6 +19,7 @@
     "@dcloudio/uni-components": "3.0.0-4020920240930001",
     "@dcloudio/uni-mp-weixin": "3.0.0-4020920240930001",
     "@dcloudio/uni-ui": "^1.5.12",
+    "qrcode-reader": "1.0.4",
     "vue": "3.4.34"
   },
   "overrides": {
@@ -53,11 +54,12 @@
     "path-to-regexp@^0.1.0": "0.1.13"
   },
   "devDependencies": {
-    "adm-zip": "file:vendor/uni-zip",
-    "file-type": "file:vendor/uni-file-type",
     "@dcloudio/types": "^3.4.14",
     "@dcloudio/vite-plugin-uni": "3.0.0-4020920240930001",
     "@vitejs/plugin-vue": "5.2.4",
+    "adm-zip": "file:vendor/uni-zip",
+    "file-type": "file:vendor/uni-file-type",
+    "qrcode-terminal": "0.12.0",
     "sass": "^1.101.3",
     "typescript": "~5.7.2",
     "vite": "6.4.3",

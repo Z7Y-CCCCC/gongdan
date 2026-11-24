@@ -154,6 +154,20 @@ class WorkOrderServiceTest {
         assertThat(service.get(1L, 100L).getProgressPercent()).isEqualTo(Integer.MAX_VALUE);
     }
 
+    @Test
+    void responseKeepsActualUnitAndUsesNullForMissingLegacyProductOrUnit() {
+        WorkOrder order = workOrder();
+        when(workOrderRepository.findById(100L)).thenReturn(Optional.of(order));
+        assertThat(service.get(1L, 100L).getUnitName()).isNull();
+        Product product = new Product();
+        order.setProduct(product);
+        assertThat(service.get(1L, 100L).getUnitName()).isNull();
+        com.heihu.workorder.model.Unit unit = new com.heihu.workorder.model.Unit();
+        unit.setName("kg");
+        product.setUnit(unit);
+        assertThat(service.get(1L, 100L).getUnitName()).isEqualTo("kg");
+    }
+
     private void stubProduct() {
         Product product = new Product();
         product.setId(10L);

@@ -1,4 +1,4 @@
-﻿name: CI 自动化门禁流水线
+name: CI 自动化门禁流水线
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   frontend-build:
-    name: 前端编译与打包
+    name: 管理端回归、编译与打包
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -25,6 +25,8 @@ jobs:
         working-directory: ./frontend
         run: |
           npm ci
+          npm test
+          node --test scripts/test-plugin-csp.mjs
           npm run build
 
       - name: 上传前端产物包 (dist)
@@ -35,8 +37,21 @@ jobs:
           retention-days: 7
 
   backend-build:
-    name: 后端 Java 8 编译与打包
+    name: 后端全量回归、MySQL 迁移验收与打包
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: gongdan-ci-migrations
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3308:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -48,10 +63,13 @@ jobs:
           java-version: '8'
           cache: 'maven'
 
-      - name: Maven 打包 Jar
+      - name: 执行全量回归及 MySQL 和 H2 迁移并打包 Jar
         working-directory: ./backend
-        run: |
-          mvn clean package -DskipTests
+        env:
+          GONGDAN_MIGRATION_MYSQL_TEST: '1'
+          GONGDAN_MIGRATION_MYSQL_USER: root
+          GONGDAN_MIGRATION_MYSQL_PASSWORD: gongdan-ci-migrations
+        run: mvn -B clean package
 
       - name: 上传后端产物包 (Jar)
         uses: actions/upload-artifact@v4
@@ -59,3 +77,67 @@ jobs:
           name: backend-jar
           path: backend/target/*.jar
           retention-days: 7
+
+  mobile-build:
+    name: 移动端回归、类型检查与双端构建
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+      - name: 移动端验收
+        working-directory: ./mobile
+        run: |
+          npm ci
+          npm test
+          npm run build
+          npm run build:mp-weixin
+
+  plugin-tests:
+    name: 插件回归
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        plugin: [quality-management, equipment-inspection]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '8'
+          cache: 'maven'
+      - run: mvn -B test
+        working-directory: ./plugins/${{ matrix.plugin }}
+
+  ops-tests:
+    name: 运维配置与只读 MCP 回归
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: ops/mcp/package-lock.json
+      - run: node --test ops/test-compose-config.test.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: UI UX 只读参考与来源完整性回归
+        run: python -B tools/ui-ux/test_query.py
+      - name: MCP 协议冒烟
+        working-directory: ./ops/mcp
+        run: |
+          npm ci
+          npm test
+
+  windows-guards:
+    name: Windows 运维保护回归
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./ops/test-windows-guards.ps1
+        shell: pwsh

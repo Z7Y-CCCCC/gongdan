@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from './UiIcon.vue'
 import { computed, reactive, ref } from 'vue'
 import {
   login,
@@ -208,56 +209,17 @@ async function handleSelectFactory(factoryId: number) {
 
 <template>
   <main class="login-page">
-    <section class="login-hero">
-      <div class="brand">
-        <span class="brand-mark"><img class="logo-mark" src="/logo.jpg" alt="数字工单通" /></span>
-        <span class="brand-name">
-          <strong>数字工单通</strong>
-          <small>生产现场协同平台</small>
-        </span>
-      </div>
-      <div class="hero-copy">
-        <p class="hero-kicker">轻量化生产执行与现场协同</p>
-        <h1>让每一张工单<br />都清楚、及时、可追溯</h1>
-        <p class="hero-description">从计划下达到移动报工，把人员、设备、物料和质量信息沉淀在同一条生产链路中。</p>
-        <div class="feature-grid">
-          <div class="feature-item">
-            <span class="feature-icon">01</span>
-            <div>
-              <strong>扫码接单，移动作业</strong>
-              <p>一线工人手机扫码，无纸化生产</p>
-            </div>
-          </div>
-          <div class="feature-item">
-            <span class="feature-icon">02</span>
-            <div>
-              <strong>计时计件薪资实时核算</strong>
-              <p>解放财务劳动力，绩效薪资实时核算</p>
-            </div>
-          </div>
-          <div class="feature-item">
-            <span class="feature-icon">03</span>
-            <div>
-              <strong>工厂全局大屏监控</strong>
-              <p>一站式数据管理驱动生产</p>
-            </div>
-          </div>
-        </div>
-        <div class="hero-assurance"><span></span> 本地部署可用 · 数据留在企业内部</div>
-      </div>
-    </section>
     <section class="login-panel">
       <div class="login-box">
-        <div class="login-heading">
-          <span>账号登录</span>
-          <h2>进入生产工作台</h2>
-          <p class="login-sub">使用工厂账号或已绑定的手机号登录</p>
+        <div class="brand">
+          <span class="brand-mark"><img class="logo-mark" src="/logo.jpg" alt="数字工单通" /></span>
+          <div class="brand-name"><h1>数字工单通</h1></div>
         </div>
 
         <!-- Tab switcher -->
         <div class="login-tabs">
-          <span class="login-tab" :class="{ active: loginTab === 'factory' }" @click="loginTab = 'factory'">工厂账号登录</span>
-          <span class="login-tab" :class="{ active: loginTab === 'phone' }" @click="loginTab = 'phone'">手机号登录</span>
+          <button class="login-tab" type="button" :class="{ active: loginTab === 'factory' }" :aria-pressed="loginTab === 'factory'" @click="loginTab = 'factory'">工厂账号登录</button>
+          <button class="login-tab" type="button" :class="{ active: loginTab === 'phone' }" :aria-pressed="loginTab === 'phone'" @click="loginTab = 'phone'">手机号登录</button>
         </div>
 
         <!-- Factory select overlay -->
@@ -269,7 +231,7 @@ async function handleSelectFactory(factoryId: number) {
               <span class="factory-code-label">{{ f.factoryCode }}</span>
             </div>
           </div>
-          <button class="text-btn" type="button" @click="showFactorySelect = false">返回</button>
+          <button class="text-btn ui-icon-button" type="button" @click="showFactorySelect = false" title="返回" aria-label="返回"><UiIcon name="arrowLeft" /></button>
         </div>
 
         <!-- Bind factory page -->
@@ -283,9 +245,8 @@ async function handleSelectFactory(factoryId: number) {
         <!-- Phone login form -->
         <form v-if="loginTab === 'phone' && !showFactorySelect && !showBindFactory" class="login-form" @submit.prevent="handlePhoneLogin">
           <div class="phone-mode-switch">
-            <span :class="{ active: phoneLoginMode === 'password' }" @click="phoneLoginMode = 'password'">密码登录</span>
-            <span class="mode-divider">|</span>
-            <span :class="{ active: phoneLoginMode === 'sms' }" @click="phoneLoginMode = 'sms'">验证码登录</span>
+            <button type="button" :class="{ active: phoneLoginMode === 'password' }" :aria-pressed="phoneLoginMode === 'password'" @click="phoneLoginMode = 'password'">密码登录</button>
+            <button type="button" :class="{ active: phoneLoginMode === 'sms' }" :aria-pressed="phoneLoginMode === 'sms'" @click="phoneLoginMode = 'sms'">验证码登录</button>
           </div>
           <label>
             <span>手机号</span>
@@ -296,15 +257,12 @@ async function handleSelectFactory(factoryId: number) {
             <div class="password-input-wrap">
               <input v-model="phoneForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showPhonePassword ? 'text' : 'password'" />
               <button
-                class="password-toggle"
+                class="password-toggle ui-icon-button"
                 type="button"
                 :aria-label="showPhonePassword ? '隐藏密码' : '显示密码'"
                 :title="showPhonePassword ? '隐藏密码' : '显示密码'"
                 @click="showPhonePassword = !showPhonePassword"
-              >
-                <svg v-if="showPhonePassword" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                <svg v-else viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0"/><path d="M6 12v3"/><path d="M10 13.5v3.5"/><path d="M14 13.5v3.5"/><path d="M18 12v3"/></svg>
-              </button>
+              ><UiIcon name="eye" :size="18" /></button>
             </div>
           </label>
           <label v-else class="sms-label">
@@ -337,15 +295,12 @@ async function handleSelectFactory(factoryId: number) {
             <div class="password-input-wrap">
               <input v-model="loginForm.password" autocomplete="current-password" placeholder="请输入密码" :type="showLoginPassword ? 'text' : 'password'" />
               <button
-                class="password-toggle"
+                class="password-toggle ui-icon-button"
                 type="button"
                 :aria-label="showLoginPassword ? '隐藏密码' : '显示密码'"
                 :title="showLoginPassword ? '隐藏密码' : '显示密码'"
                 @click="showLoginPassword = !showLoginPassword"
-              >
-                <svg v-if="showLoginPassword" viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                <svg v-else viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10a13.5 13.5 0 0 0 18 0"/><path d="M6 12v3"/><path d="M10 13.5v3.5"/><path d="M14 13.5v3.5"/><path d="M18 12v3"/></svg>
-              </button>
+              ><UiIcon name="eye" :size="18" /></button>
             </div>
           </label>
           <div class="remember-me-row">
@@ -364,3 +319,33 @@ async function handleSelectFactory(factoryId: number) {
     </section>
   </main>
 </template>
+
+<style scoped>
+.login-page {
+  grid-template-columns: minmax(0, 440px);
+  justify-content: center;
+  align-content: center;
+  gap: 0;
+  padding: 32px 20px;
+  background: var(--canvas, #f5f7f6);
+}
+.login-page::before, .login-page::after { display: none; }
+.login-panel {
+  justify-self: center;
+  padding: 32px;
+  border-radius: 12px;
+  border: 1px solid var(--line, #dfe7e4);
+  background: var(--surface, #fff);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 8%);
+  backdrop-filter: none;
+}
+.brand { margin-bottom: 24px; gap: 12px; }
+.brand-mark { width: 42px; height: 42px; border: 0; box-shadow: none; }
+.brand-name h1 { margin: 0; font-size: 22px; color: var(--ink, #20302c); background: none; -webkit-text-fill-color: currentColor; text-shadow: none; }
+.phone-mode-switch button { border: 0; padding: 0; background: none; color: #6b7280; font: inherit; cursor: pointer; }
+.phone-mode-switch button.active { color: var(--accent, #059669); font-weight: 600; }
+@media (max-width: 480px) {
+  .login-page { padding: 16px; }
+  .login-panel { padding: 24px; }
+}
+</style>

@@ -1,0 +1,3 @@
+# Keep audited upstream bytes stable across Windows Git checkouts.
+vendor/** -text -whitespace
+LICENSE -text -whitespace

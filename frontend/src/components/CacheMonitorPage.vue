@@ -63,13 +63,12 @@ onMounted(load)
     <div class="monitor-page-header">
       <div>
         <h1>缓存监控</h1>
-        <p>Redis 运行状态、内存使用和命令调用概览。</p>
       </div>
       <div class="monitor-header-actions">
         <span class="monitor-status" :class="{ fallback: basicInfo.status && !basicInfo.status.includes('正常') }">
           <i></i>{{ basicInfo.status || '加载中' }}
         </span>
-        <button class="toolbar-btn" type="button" title="刷新缓存监控" @click="load"><UiIcon name="refresh" :size="15" />刷新</button>
+        <button class="toolbar-btn ui-icon-button" type="button" title="刷新缓存监控" @click="load" aria-label="刷新缓存监控"><UiIcon name="refresh" /></button>
       </div>
     </div>
 
@@ -79,7 +78,7 @@ onMounted(load)
         <div v-if="loading" class="monitor-panel-loading">加载中...</div>
         <div v-else class="metric-grid">
           <div v-for="item in basicItems" :key="item[0]" class="metric-item">
-            <span>{{ item[1] }}</span><strong>{{ displayValue(item[0]) }}</strong>
+            <span>{{ $t(item[1]) }}</span><strong>{{ displayValue(item[0]) }}</strong>
           </div>
         </div>
       </section>

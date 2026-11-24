@@ -3,6 +3,7 @@ const tabPages = new Set([
   '/pages/tasks/index', '/pages/board/index'
 ])
 const pages = new Set([...tabPages, '/pages/work-order-detail/index', '/pages/report-form/index', '/pages/field-events/index'])
+let pendingNavigation: { key: string } | undefined
 
 export function safeDecode(value: string) {
   try { return decodeURIComponent(value) } catch { return value }
@@ -22,15 +23,28 @@ export function loginRedirect(value: unknown): string {
 }
 
 export function navigatePage(url: string, replace = false) {
-  if (typeof window !== 'undefined' && window.location) {
-    window.location.hash = `#${url}`
-  } else if (tabPages.has(url.split('?')[0])) {
-    uni.switchTab({ url: url.split('?')[0] })
-  } else if (replace) {
-    uni.reLaunch({ url })
-  } else {
-    uni.navigateTo({ url })
+  const isTab = tabPages.has(url.split('?')[0])
+  const target = isTab ? url.split('?')[0] : url
+  const mode = isTab ? 'switchTab' : replace ? 'reLaunch' : 'navigateTo'
+  const key = `${mode}:${target}`
+  // App launch and the first page can both request the same login redirect
+  // before the uni page registry is ready. Queue that transition only once.
+  if (pendingNavigation?.key === key) return
+  const navigation = { key }
+  pendingNavigation = navigation
+  const options = {
+    url: target,
+    fail(error: any) {
+      if (pendingNavigation !== navigation) return
+      uni.showToast({ title: error?.errMsg || '页面跳转失败，请重试', icon: 'none' })
+    },
+    complete() {
+      if (pendingNavigation === navigation) pendingNavigation = undefined
+    }
   }
+  if (isTab) uni.switchTab(options)
+  else if (replace) uni.reLaunch(options)
+  else uni.navigateTo(options)
 }
 
 export function goAfterLogin(redirect: unknown) {

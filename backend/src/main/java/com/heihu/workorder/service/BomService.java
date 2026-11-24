@@ -20,11 +20,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,6 +36,7 @@ public class BomService {
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final BigDecimal ONE_HUNDRED = new BigDecimal("100");
+    private static final BigDecimal MAX_QUANTITY = new BigDecimal("99999999999999.9999");
 
     private final BomRepository bomRepository;
     private final FactoryRepository factoryRepository;
@@ -214,7 +218,10 @@ public class BomService {
         if (normalized.compareTo(BigDecimal.ZERO) <= 0) {
             throw new IllegalArgumentException(label + "必须大于0");
         }
-        return normalized;
+        if (normalized.compareTo(MAX_QUANTITY) > 0) {
+            throw new IllegalArgumentException(label + "不能超过99999999999999.9999");
+        }
+        return requireExactScale(normalized, label);
     }
 
     private BigDecimal normalizeScrapRate(BigDecimal value) {
@@ -222,15 +229,23 @@ public class BomService {
         if (normalized.compareTo(BigDecimal.ZERO) < 0 || normalized.compareTo(ONE_HUNDRED) > 0) {
             throw new IllegalArgumentException("损耗率必须在0到100之间");
         }
-        return normalized;
+        return requireExactScale(normalized, "损耗率");
+    }
+
+    private BigDecimal requireExactScale(BigDecimal value, String label) {
+        // DECIMAL columns must not silently round a positive quantity to zero.
+        if (value.stripTrailingZeros().scale() > 4) {
+            throw new IllegalArgumentException(label + "最多支持4位小数");
+        }
+        return value.setScale(4, RoundingMode.UNNECESSARY);
     }
 
     private String generateCode() {
-        return "BOM-" + Long.toString(System.currentTimeMillis(), 36).toUpperCase();
+        return "BOM-" + UUID.randomUUID().toString().replace("-", "").toUpperCase(Locale.ROOT);
     }
 
     private String normalizeCode(String value) {
-        return StringUtils.hasText(value) ? value.trim().toUpperCase() : "";
+        return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "";
     }
 
     private String normalizeText(String value) {

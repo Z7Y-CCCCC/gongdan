@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
+import UiIcon from './UiIcon.vue'
 import { bindFactory, type BindFactoryResponse } from '../api'
 
 const props = defineProps<{
@@ -58,18 +59,18 @@ function handleGoLogin() {
   <div class="bind-factory-container">
     <!-- Success state -->
     <div v-if="bindSuccess" class="bind-success">
-      <div class="success-icon">✓</div>
+      <div class="success-icon"><UiIcon name="check" :size="32" /></div>
       <h3>绑定成功</h3>
-      <p class="success-hint">您的账号已成功绑定工厂，以下是您的默认登录密码：</p>
+      <p class="success-hint">默认登录密码</p>
       <div class="default-password">{{ defaultPassword }}</div>
-      <p class="password-tip">请牢记此密码，后续可使用手机号 + 密码登录</p>
-      <button class="primary-btn" @click="handleGoLogin">返回登录</button>
+      <p class="password-tip">请保存密码，可使用手机号登录。</p>
+      <button class="primary-btn" type="button" title="返回登录" aria-label="返回登录" @click="handleGoLogin"><UiIcon name="arrowLeft" />返回登录</button>
     </div>
 
     <!-- Bind form -->
     <div v-else>
       <h3 class="bind-title">绑定工厂</h3>
-      <p class="bind-hint">手机号 {{ phone }} 尚未绑定工厂，请输入工厂代码和授权码完成绑定</p>
+      <p class="bind-hint">手机号 {{ phone }} 尚未绑定工厂</p>
       <form class="bind-form" @submit.prevent="handleSubmit">
         <label>
           <span>工厂代码</span>
@@ -91,7 +92,7 @@ function handleGoLogin() {
         <button class="primary-btn login-btn" :disabled="loading" type="submit">
           {{ loading ? '绑定中...' : '确认绑定' }}
         </button>
-        <button class="text-btn" type="button" @click="handleGoLogin">返回登录</button>
+        <button class="text-btn" type="button" title="返回登录" aria-label="返回登录" @click="handleGoLogin"><UiIcon name="arrowLeft" />返回登录</button>
       </form>
     </div>
   </div>

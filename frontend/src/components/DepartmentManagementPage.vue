@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from './UiIcon.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import {
   fetchDepartments, createDepartment, updateDepartment, deleteDepartment,
@@ -181,18 +182,12 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
             <input v-model="departmentFilterForm.code" placeholder="请输入部门编码" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn" type="button" @click="loadDepartments">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              查询
-            </button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadDepartments" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
 
         <div class="toolbar">
-          <button class="primary-btn" @click="openCreateDepartmentModal">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-            新建部门
-          </button>
+          <button class="primary-btn ui-icon-button" @click="openCreateDepartmentModal" title="新建部门" aria-label="新建部门" type="button"><UiIcon name="plus" /></button>
           <TableConfigButton table-id="department-list-table" />
         </div>
 
@@ -214,8 +209,8 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
                 <td>{{ formatDateTime(dept.createdAt) }}</td>
                 <td>{{ dept.createdBy || '-' }}</td>
                 <td class="action-cell">
-                  <button class="action-link" type="button" @click="openEditDepartmentModal(dept)">编辑</button>
-                  <button class="action-link danger" type="button" @click="confirmDeleteDepartment(dept)">删除</button>
+                  <button class="action-link ui-icon-button" type="button" @click="openEditDepartmentModal(dept)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
+                  <button class="action-link danger ui-icon-button" type="button" @click="confirmDeleteDepartment(dept)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                 </td>
               </tr>
               <tr v-if="departments.length === 0">
@@ -227,13 +222,9 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
 
         <div class="pagination">
           <span class="page-total">共 {{ departmentTotal }} 条结果</span>
-          <button class="page-btn" type="button" :disabled="departmentFilterForm.page <= 1" @click="handleDepartmentPageChange(-1)">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
-          </button>
+          <button class="page-btn ui-icon-button" type="button" :disabled="departmentFilterForm.page <= 1" @click="handleDepartmentPageChange(-1)" title="上一页" aria-label="上一页"><UiIcon name="arrowLeft" /></button>
           <span class="page-num">{{ departmentFilterForm.page }}</span>
-          <button class="page-btn" type="button" :disabled="departmentFilterForm.page >= Math.ceil(departmentTotal / departmentFilterForm.size) || departmentTotal === 0" @click="handleDepartmentPageChange(1)">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="9 18 15 12 9 6"/></svg>
-          </button>
+          <button class="page-btn ui-icon-button" type="button" :disabled="departmentFilterForm.page >= Math.ceil(departmentTotal / departmentFilterForm.size) || departmentTotal === 0" @click="handleDepartmentPageChange(1)" title="下一页" aria-label="下一页"><UiIcon name="arrowRight" /></button>
           <select class="size-select" v-model="departmentFilterForm.size" @change="loadDepartments">
             <option :value="10">10条/页</option>
             <option :value="20">20条/页</option>
@@ -247,7 +238,7 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingDepartment ? '编辑部门' : '新建部门' }}</h2>
-        <button class="close-btn" type="button" @click="showDepartmentModal = false">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showDepartmentModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleSaveDepartment">
         <label>
@@ -281,7 +272,7 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
           </div>
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showDepartmentModal = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showDepartmentModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
         </footer>
       </form>

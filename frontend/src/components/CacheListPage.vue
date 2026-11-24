@@ -164,19 +164,19 @@ onMounted(loadNames)
 <template>
   <section class="content monitor-page cache-list-page">
     <div class="monitor-page-header">
-      <div><h1>缓存列表</h1><p>按缓存名称查看键和值，清理操作会保留短时恢复记录。</p></div>
-      <button class="toolbar-btn" type="button" title="刷新缓存列表" @click="loadNames"><UiIcon name="refresh" :size="15" />刷新</button>
+      <div><h1>缓存列表</h1><p>清理后可在恢复期限内还原。</p></div>
+      <button class="toolbar-btn ui-icon-button" type="button" title="刷新缓存列表" @click="loadNames" aria-label="刷新缓存列表"><UiIcon name="refresh" /></button>
     </div>
 
     <div class="cache-list-layout">
       <section class="monitor-panel cache-column">
-        <div class="monitor-panel-head"><div><UiIcon name="list" :size="16" /><strong>缓存列表</strong></div><span class="monitor-panel-actions"><TableConfigButton table-id="cache-names-table" /><button class="icon-btn" title="刷新缓存名称" type="button" @click="loadNames"><UiIcon name="refresh" :size="14" /></button></span></div>
+        <div class="monitor-panel-head"><div><UiIcon name="list" :size="16" /><strong>缓存列表</strong></div><span class="monitor-panel-actions"><TableConfigButton table-id="cache-names-table" /><button class="icon-btn ui-icon-button" title="刷新缓存名称" type="button" @click="loadNames" aria-label="刷新缓存名称"><UiIcon name="refresh" :size="14" /></button></span></div>
         <div class="monitor-inner-table">
           <table id="cache-names-table" class="data-table compact-table"><thead><tr><th>序号</th><th>缓存名称</th><th>备注</th><th>数量</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="(item, index) in cacheNames" :key="item.cacheName" :class="{ selected: selectedCacheName === item.cacheName }" @click="selectCache(item.cacheName)">
                 <td>{{ index + 1 }}</td><td class="strong-text">{{ item.cacheName }}</td><td>{{ item.remark }}</td><td>{{ item.keyCount }}</td>
-                <td><button class="icon-btn danger" title="清理缓存名称" type="button" @click.stop="clearName(item)"><UiIcon name="trash" :size="14" /></button></td>
+                <td><button class="icon-btn danger ui-icon-button" title="清理缓存名称" type="button" @click.stop="clearName(item)" aria-label="清理缓存名称"><UiIcon name="trash" :size="14" /></button></td>
               </tr>
               <tr v-if="!loadingNames && cacheNames.length === 0"><td colspan="5" class="monitor-empty">暂无缓存</td></tr>
               <tr v-if="loadingNames"><td colspan="5" class="monitor-empty">加载中...</td></tr>
@@ -186,13 +186,13 @@ onMounted(loadNames)
       </section>
 
       <section class="monitor-panel cache-column">
-        <div class="monitor-panel-head"><div><UiIcon name="layers" :size="16" /><strong>键名列表</strong></div><span class="monitor-panel-actions"><TableConfigButton table-id="cache-keys-table" /><button class="icon-btn" title="刷新缓存键" type="button" :disabled="!selectedCacheName" @click="selectCache(selectedCacheName)"><UiIcon name="refresh" :size="14" /></button></span></div>
+        <div class="monitor-panel-head"><div><UiIcon name="layers" :size="16" /><strong>键名列表</strong></div><span class="monitor-panel-actions"><TableConfigButton table-id="cache-keys-table" /><button class="icon-btn ui-icon-button" title="刷新缓存键" type="button" :disabled="!selectedCacheName" @click="selectCache(selectedCacheName)" aria-label="刷新缓存键"><UiIcon name="refresh" :size="14" /></button></span></div>
         <div class="selected-cache-hint">{{ selectedCacheName || '请先选择缓存名称' }}</div>
         <div class="monitor-inner-table">
           <table id="cache-keys-table" class="data-table compact-table"><thead><tr><th>序号</th><th>缓存键名</th><th>操作</th></tr></thead>
             <tbody>
               <tr v-for="(key, index) in cacheKeys" :key="key" :class="{ selected: selectedCacheKey === key }" @click="selectKey(key)">
-                <td>{{ index + 1 }}</td><td class="mono-text">{{ key }}</td><td><button class="icon-btn danger" title="清理缓存键" type="button" @click.stop="clearKey(key)"><UiIcon name="trash" :size="14" /></button></td>
+                <td>{{ index + 1 }}</td><td class="mono-text">{{ key }}</td><td><button class="icon-btn danger ui-icon-button" title="清理缓存键" type="button" @click.stop="clearKey(key)" aria-label="清理缓存键"><UiIcon name="trash" :size="14" /></button></td>
               </tr>
               <tr v-if="!loadingKeys && cacheKeys.length === 0"><td colspan="3" class="monitor-empty">{{ selectedCacheName ? '暂无缓存键' : '选择左侧缓存名称' }}</td></tr>
               <tr v-if="loadingKeys"><td colspan="3" class="monitor-empty">加载中...</td></tr>
@@ -219,7 +219,7 @@ onMounted(loadNames)
         <div v-for="item in recoveries" :key="item.id" class="recovery-row">
           <div><strong>{{ item.cacheName }}</strong><span v-if="item.cacheKey" class="mono-text"> / {{ item.cacheKey }}</span></div>
           <span>{{ item.entryCount }} 个键</span><span>{{ formatDate(item.deletedAt) }} 清理</span><span>截止 {{ formatDate(item.expiresAt) }}</span>
-          <button class="primary-btn small-btn" type="button" @click="restore(item)"><UiIcon name="reset" :size="14" />恢复</button>
+          <button class="primary-btn small-btn" type="button" @click="restore(item)" title="恢复" aria-label="恢复"><UiIcon name="reset" />恢复</button>
         </div>
       </div>
     </section>

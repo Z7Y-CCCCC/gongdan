@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UiIcon from './UiIcon.vue'
+import { nextTick } from 'vue'
 
 export interface WorkspaceTabItem {
   id: string
@@ -8,10 +9,21 @@ export interface WorkspaceTabItem {
   closable: boolean
 }
 
-defineProps<{
+const props = defineProps<{
   tabs: WorkspaceTabItem[]
   activeId: string
 }>()
+
+function moveTab(event: KeyboardEvent, tab: WorkspaceTabItem) {
+  const direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
+  if (!direction || !props.tabs.length) return
+  event.preventDefault()
+  const index = props.tabs.findIndex(item => item.id === tab.id)
+  const next = (index + direction + props.tabs.length) % props.tabs.length
+  const container = (event.currentTarget as HTMLElement).parentElement
+  emit('select', props.tabs[next])
+  nextTick(() => (container?.querySelectorAll<HTMLElement>('[role="tab"]')[next])?.focus())
+}
 
 const emit = defineEmits<{
   select: [tab: WorkspaceTabItem]
@@ -22,7 +34,7 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <nav class="workspace-tabs" aria-label="工作区标签页" @contextmenu.prevent>
+  <nav class="workspace-tabs" role="tablist" aria-label="工作区标签页" @contextmenu.prevent>
     <div
       v-for="tab in tabs"
       :key="tab.id"
@@ -30,9 +42,12 @@ const emit = defineEmits<{
       :class="{ active: tab.id === activeId, pinned: tab.pinned }"
       role="tab"
       :aria-selected="tab.id === activeId"
-      tabindex="0"
+      :tabindex="tab.id === activeId ? 0 : -1"
       @click="emit('select', tab)"
-      @keydown.enter="emit('select', tab)"
+      @keydown.enter.self.prevent="emit('select', tab)"
+      @keydown.space.self.prevent="emit('select', tab)"
+      @keydown.left.self="moveTab($event, tab)"
+      @keydown.right.self="moveTab($event, tab)"
       @contextmenu.prevent.stop="emit('contextmenu', $event, tab)"
     >
       <button
@@ -54,6 +69,7 @@ const emit = defineEmits<{
         class="workspace-tab-close"
         type="button"
         title="关闭标签页"
+        :aria-label="`关闭 ${tab.label}`"
         @click.stop="emit('close', tab)"
       >
         <UiIcon name="close" :size="13" />

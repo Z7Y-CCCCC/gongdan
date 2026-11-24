@@ -1,1 +1,2 @@
-*.sh text eol=lf
+# Preserve the audited upstream report-template bytes across Windows checkouts.
+backend/src/main/resources/ureport-html/*.html -text -whitespace

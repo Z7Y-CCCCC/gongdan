@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import UiIcon from './UiIcon.vue'
 type LoadingStageStatus = 'pending' | 'loading' | 'done' | 'error'
 
 interface LoadingStage {
@@ -26,16 +27,6 @@ function clampProgress(value: number) {
   return Math.min(100, Math.max(0, Math.round(value)))
 }
 
-function statusLabel(status: LoadingStageStatus) {
-  if (status === 'done') return '完成'
-  if (status === 'loading') return '进行中'
-  if (status === 'error') return '失败'
-  return '等待'
-}
-
-function completedCount() {
-  return props.stages.filter(stage => stage.status === 'done').length
-}
 </script>
 
 <template>
@@ -49,50 +40,23 @@ function completedCount() {
     >
       <section class="workspace-loading-card" :class="{ 'is-error': error }">
         <div class="workspace-loading-heading">
-          <div class="workspace-loading-mark" aria-hidden="true">
-            <span class="workspace-loading-ring workspace-loading-ring-one"></span>
-            <span class="workspace-loading-ring workspace-loading-ring-two"></span>
-            <span class="workspace-loading-core"></span>
-          </div>
+          <span v-if="!error" class="workspace-loading-spinner" aria-hidden="true"></span>
+          <UiIcon v-else name="warning" :size="22" />
           <div class="workspace-loading-title-group">
-            <strong>正在加载工作区</strong>
-            <span>{{ stage || '准备启动' }}</span>
+            <strong>{{ error ? '加载失败' : (stage || '加载中') }}</strong>
           </div>
           <strong class="workspace-loading-percent">{{ clampProgress(progress) }}%</strong>
         </div>
 
-        <div class="workspace-loading-progress" aria-hidden="true">
+        <div class="workspace-loading-progress" role="progressbar" aria-label="加载进度" :aria-valuenow="clampProgress(progress)" aria-valuemin="0" aria-valuemax="100">
           <span :style="{ width: `${clampProgress(progress)}%` }"></span>
         </div>
 
-        <div class="workspace-loading-summary">
-          <span>{{ completedCount() }} / {{ stages.length }} 个阶段完成</span>
-          <span>{{ error ? '加载暂停' : '请保持页面打开' }}</span>
-        </div>
-
-        <ol class="workspace-loading-stages">
-          <li v-for="item in stages" :key="item.key" :class="`is-${item.status}`">
-            <span class="workspace-loading-status" aria-hidden="true">
-              <span v-if="item.status === 'done'" class="workspace-loading-check">✓</span>
-              <span v-else-if="item.status === 'error'" class="workspace-loading-cross">!</span>
-              <span v-else-if="item.status === 'loading'" class="workspace-loading-dot"></span>
-              <span v-else class="workspace-loading-pending"></span>
-            </span>
-            <span class="workspace-loading-stage-copy">
-              <span>{{ item.label }}</span>
-              <small v-if="item.detail">{{ item.detail }}</small>
-            </span>
-            <em>{{ statusLabel(item.status) }}</em>
-          </li>
-        </ol>
-
         <div v-if="error" class="workspace-loading-error">
-          <span class="workspace-loading-error-icon">!</span>
           <div>
-            <strong>加载没有完成</strong>
             <p>{{ error }}</p>
           </div>
-          <button type="button" class="workspace-loading-retry" @click="emit('retry')">重新加载</button>
+          <button type="button" class="workspace-loading-retry ui-icon-button" title="重试" aria-label="重试" @click="emit('retry')"><UiIcon name="refresh" :size="18" /></button>
         </div>
       </section>
     </div>

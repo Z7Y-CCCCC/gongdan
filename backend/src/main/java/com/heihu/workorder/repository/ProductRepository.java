@@ -15,8 +15,12 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     Page<Product> findByFactoryId(Long factoryId, Pageable pageable);
 
-    Page<Product> findByFactoryIdAndCodeContainingAndNameContainingAndSpecContaining(
-            Long factoryId, String code, String name, String spec, Pageable pageable
+    @Query("select p from Product p where p.factory.id = :factoryId " +
+            "and (:code = '' or locate(:code, p.code) > 0) " +
+            "and (:name = '' or locate(:name, p.name) > 0) " +
+            "and (:spec = '' or locate(:spec, p.spec) > 0)")
+    Page<Product> search(@Param("factoryId") Long factoryId, @Param("code") String code,
+            @Param("name") String name, @Param("spec") String spec, Pageable pageable
     );
 
     Optional<Product> findByFactoryIdAndCode(Long factoryId, String code);

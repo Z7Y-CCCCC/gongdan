@@ -10,12 +10,16 @@ import {
   type NotificationScope
 } from '../api'
 import UiIcon from './UiIcon.vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { notificationHeading, notificationBody } from '../utils/notificationLocale'
 
 const props = defineProps<{ token: string }>()
 
 const emit = defineEmits<{
   open: [item: NotificationInfo]
   notice: [message: string]
+  'unread-count': [count: number]
 }>()
 
 const scope = ref<NotificationScope>('active')
@@ -31,6 +35,9 @@ const total = ref(0)
 const unreadCount = ref(0)
 const loading = ref(false)
 const error = ref('')
+const beginLoad = useLatestRequest()
+const pendingItems = ref(new Set<number>())
+const markingAllRead = ref(false)
 
 const hasPrevious = computed(() => page.value > 1)
 const hasNext = computed(() => page.value * pageSize < total.value)
@@ -76,7 +83,16 @@ function priorityLabel(value: string) {
 }
 
 async function load() {
-  if (!props.token) return
+  const isCurrent = beginLoad()
+  if (!props.token) {
+    items.value = []
+    total.value = 0
+    unreadCount.value = 0
+    emit('unread-count', 0)
+    error.value = ''
+    loading.value = false
+    return
+  }
   loading.value = true
   error.value = ''
   try {
@@ -89,85 +105,90 @@ async function load() {
       page: page.value,
       size: pageSize
     })
+    if (!isCurrent()) return
+    const lastPage = Math.max(1, Math.ceil((result.total || 0) / pageSize))
+    if (page.value > lastPage) {
+      page.value = lastPage
+      return
+    }
     items.value = result.items || []
     total.value = result.total || 0
     unreadCount.value = result.unreadCount || 0
+    emit('unread-count', unreadCount.value)
   } catch (err) {
-    items.value = []
-    total.value = 0
+    if (!isCurrent()) return
     error.value = err instanceof Error ? err.message : '通知加载失败'
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
 
 function search() {
-  keyword.value = searchKeyword.value.trim()
-  page.value = 1
-  void load()
+  const nextKeyword = searchKeyword.value.trim()
+  if (keyword.value !== nextKeyword) keyword.value = nextKeyword
+  else if (page.value !== 1) page.value = 1
+  else void load()
 }
 
 function changeScope(nextScope: NotificationScope) {
   scope.value = nextScope
-  page.value = 1
+}
+
+function itemBusy(item: NotificationInfo) {
+  return markingAllRead.value || pendingItems.value.has(item.id)
+}
+
+async function updateItem<T>(item: NotificationInfo, action: () => Promise<T>, failureMessage: string) {
+  if (!props.token || itemBusy(item)) return
+  pendingItems.value.add(item.id)
+  try {
+    const updated = await action()
+    // Server results determine filter membership, pagination, and global unread counts.
+    // A local +/- count is wrong after overlapping reads, archives, or new notifications.
+    await load()
+    return updated
+  } catch (err) {
+    emit('notice', err instanceof Error ? err.message : failureMessage)
+  } finally {
+    pendingItems.value.delete(item.id)
+  }
 }
 
 async function openItem(item: NotificationInfo) {
+  if (itemBusy(item)) return
+  const token = props.token
+  let openedItem = item
   if (item.unread && props.token) {
-    try {
-      await markNotificationRead(props.token, item.id)
-      item.unread = false
-      item.state = 'READ'
-      unreadCount.value = Math.max(0, unreadCount.value - 1)
-    } catch {
-      // The detail navigation remains available if the read-state request is interrupted.
-    }
+    const updated = await updateItem(item, () => markNotificationRead(props.token, item.id), '通知状态更新失败')
+    if (updated) openedItem = updated
   }
-  emit('open', item)
+  // The detail navigation remains available if the read-state request is interrupted.
+  if (props.token === token && token) emit('open', openedItem)
 }
 
 async function toggleRead(item: NotificationInfo) {
-  try {
-    if (item.unread) {
-      await markNotificationRead(props.token, item.id)
-      item.unread = false
-      item.state = 'READ'
-      unreadCount.value = Math.max(0, unreadCount.value - 1)
-    } else {
-      await markNotificationUnread(props.token, item.id)
-      item.unread = true
-      item.state = 'UNREAD'
-      unreadCount.value += 1
-    }
-  } catch (err) {
-    emit('notice', err instanceof Error ? err.message : '通知状态更新失败')
-  }
+  const action = item.unread ? markNotificationRead : markNotificationUnread
+  await updateItem(item, () => action(props.token, item.id), '通知状态更新失败')
 }
 
 async function archiveItem(item: NotificationInfo) {
-  try {
+  await updateItem(item, async () => {
     await archiveNotification(props.token, item.id)
-    items.value = items.value.filter(current => current.id !== item.id)
-    total.value = Math.max(0, total.value - 1)
-    if (item.unread) unreadCount.value = Math.max(0, unreadCount.value - 1)
     emit('notice', '通知已归档')
-  } catch (err) {
-    emit('notice', err instanceof Error ? err.message : '通知归档失败')
-  }
+  }, '通知归档失败')
 }
 
 async function markAllRead() {
-  if (unreadCount.value === 0) return
+  if (!props.token || unreadCount.value === 0 || markingAllRead.value || pendingItems.value.size > 0) return
+  markingAllRead.value = true
   try {
     await markAllNotificationsRead(props.token)
-    items.value.forEach(item => {
-      item.unread = false
-      if (item.state === 'UNREAD') item.state = 'READ'
-    })
-    unreadCount.value = 0
     emit('notice', '已全部标记为已读')
+    await load()
   } catch (err) {
     emit('notice', err instanceof Error ? err.message : '全部已读失败')
+  } finally {
+    markingAllRead.value = false
   }
 }
 
@@ -181,7 +202,12 @@ function nextPage() {
   page.value += 1
 }
 
-watch([scope, unreadOnly, eventType, priority, page], () => void load())
+watch([scope, unreadOnly, eventType, priority, keyword, () => props.token], () => {
+  if (page.value !== 1) page.value = 1
+  else void load()
+})
+watch(page, () => void load())
+useRefreshOnActivated(() => void load())
 onMounted(() => void load())
 </script>
 
@@ -189,14 +215,9 @@ onMounted(() => void load())
   <section class="notification-center-page">
     <header class="notification-center-header">
       <div>
-        <span class="section-eyebrow">WORKSPACE</span>
         <h1>通知中心</h1>
-        <p>集中查看需要你关注的工单、报工和系统动态</p>
       </div>
-      <button class="notification-center-refresh" type="button" title="刷新通知" aria-label="刷新通知" :disabled="loading" @click="load">
-        <UiIcon name="refresh" :size="16" />
-        <span>刷新</span>
-      </button>
+      <button class="notification-center-refresh ui-icon-button" type="button" title="刷新通知" aria-label="刷新通知" :disabled="loading" @click="load"><UiIcon name="refresh" /></button>
     </header>
 
     <div class="notification-center-tabs" role="tablist" aria-label="通知范围">
@@ -210,9 +231,7 @@ onMounted(() => void load())
       <div class="notification-center-search">
         <UiIcon name="search" :size="15" />
         <input v-model="searchKeyword" type="search" placeholder="搜索通知标题或内容" @keydown.enter="search" />
-        <button v-if="searchKeyword" type="button" title="清除搜索" aria-label="清除搜索" @click="searchKeyword = ''; search()">
-          <UiIcon name="close" :size="14" />
-        </button>
+        <button v-if="searchKeyword" type="button" title="清除搜索" aria-label="清除搜索" @click="searchKeyword = ''; search()" class="ui-icon-button"><UiIcon name="close" :size="14" /></button>
       </div>
       <select v-model="eventType" aria-label="通知类型">
         <option value="">全部类型</option>
@@ -229,35 +248,34 @@ onMounted(() => void load())
         <option value="NORMAL">普通</option>
         <option value="LOW">低</option>
       </select>
-      <button v-if="unreadCount" class="notification-center-read-all" type="button" @click="markAllRead">
+      <button v-if="unreadCount" class="notification-center-read-all" type="button" :disabled="markingAllRead || pendingItems.size > 0" @click="markAllRead">
         <UiIcon name="check" :size="15" />
         全部已读
       </button>
     </div>
 
-    <div class="notification-center-summary">
+    <div v-if="!loading && !error" class="notification-center-summary">
       <span>共 {{ total }} 条记录</span>
       <span v-if="unreadCount" class="notification-center-unread-summary">{{ unreadCount }} 条未读</span>
       <span v-if="keyword">搜索：{{ keyword }}</span>
     </div>
 
     <div v-if="loading" class="notification-center-state">正在加载通知...</div>
-    <div v-else-if="error" class="notification-center-state error">{{ error }} <button type="button" @click="load">重试</button></div>
+    <div v-else-if="error" class="notification-center-state error">{{ error }} <button type="button" @click="load" title="重试" aria-label="重试" class="ui-icon-button"><UiIcon name="refresh" /></button></div>
     <div v-else-if="items.length === 0" class="notification-center-state">
       <UiIcon name="bell" :size="28" />
       <strong>暂无通知</strong>
-      <span>{{ unreadOnly ? '当前没有未读通知' : '新的业务动态会显示在这里' }}</span>
     </div>
     <div v-else class="notification-center-list">
       <article v-for="item in items" :key="item.id" class="notification-center-item" :class="{ unread: item.unread }">
-        <button type="button" class="notification-center-item-main" @click="openItem(item)">
+        <button type="button" class="notification-center-item-main" :disabled="itemBusy(item)" @click="openItem(item)">
           <span class="notification-center-icon" :class="item.priority.toLowerCase()"><UiIcon :name="iconName(item)" :size="16" /></span>
           <span class="notification-center-item-body">
             <span class="notification-center-item-title">
-              <strong>{{ item.title }}</strong>
+              <strong>{{ notificationHeading(item) }}</strong>
               <em>{{ priorityLabel(item.priority) }}</em>
             </span>
-            <span class="notification-center-item-content">{{ item.content }}</span>
+            <span class="notification-center-item-content">{{ notificationBody(item) }}</span>
             <span class="notification-center-item-meta">
               <time :title="formatDate(item.createdAt)">{{ relativeTime(item.createdAt) }}</time>
               <span v-if="item.sourceType">{{ item.sourceType === 'WORK_ORDER' ? '工单' : '报工' }}</span>
@@ -267,21 +285,17 @@ onMounted(() => void load())
           <span v-if="item.unread" class="notification-center-unread-dot" aria-label="未读"></span>
         </button>
         <div class="notification-center-item-actions">
-          <button type="button" :title="item.unread ? '标记为已读' : '标记为未读'" :aria-label="item.unread ? '标记为已读' : '标记为未读'" @click.stop="toggleRead(item)">
-            <UiIcon :name="item.unread ? 'check' : 'bell'" :size="14" />
-          </button>
-          <button type="button" title="归档通知" aria-label="归档通知" @click.stop="archiveItem(item)">
-            <UiIcon name="archive" :size="14" />
-          </button>
+          <button type="button" :title="item.unread ? '标记为已读' : '标记为未读'" :aria-label="item.unread ? '标记为已读' : '标记为未读'" :disabled="itemBusy(item)" @click.stop="toggleRead(item)" class="ui-icon-button"><UiIcon :name="item.unread ? 'check' : 'bell'" :size="14" /></button>
+          <button type="button" title="归档通知" aria-label="归档通知" :disabled="itemBusy(item)" @click.stop="archiveItem(item)" class="ui-icon-button"><UiIcon name="archive" :size="14" /></button>
         </div>
       </article>
     </div>
 
-    <footer v-if="total > pageSize" class="notification-center-pagination">
+    <footer v-if="!loading && !error && total > pageSize" class="notification-center-pagination">
       <span>第 {{ page }} / {{ totalPages }} 页</span>
       <div>
-        <button type="button" title="上一页" aria-label="上一页" :disabled="!hasPrevious" @click="previousPage"><UiIcon name="arrowLeft" :size="15" /></button>
-        <button type="button" title="下一页" aria-label="下一页" :disabled="!hasNext" @click="nextPage"><UiIcon name="arrowRight" :size="15" /></button>
+        <button type="button" title="上一页" aria-label="上一页" :disabled="!hasPrevious" @click="previousPage" class="ui-icon-button"><UiIcon name="arrowLeft" :size="15" /></button>
+        <button type="button" title="下一页" aria-label="下一页" :disabled="!hasNext" @click="nextPage" class="ui-icon-button"><UiIcon name="arrowRight" :size="15" /></button>
       </div>
     </footer>
   </section>

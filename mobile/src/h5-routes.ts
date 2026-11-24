@@ -1,4 +1,9 @@
+import { createBlock, createVNode, defineAsyncComponent, openBlock, withCtx } from 'vue'
+import { getApp, PageComponent, setupPage } from '@dcloudio/uni-h5'
+
 const navigationBar = (titleText: string) => ({
+  // Existing H5 screens render their own headers and mobile tab bar.
+  style: 'custom',
   titleText,
   type: 'default',
   titleSize: '16px',
@@ -7,13 +12,31 @@ const navigationBar = (titleText: string) => ({
 })
 
 const page = (route: string, titleText: string, component: () => Promise<unknown>, isEntry = false, isTabBar = false) => {
+  // Match the uni H5 pages generator: setupPage registers the public page,
+  // lifecycle hooks and navigation queued during app launch. A bare
+  // Vue-router component renders but never becomes a uni page.
+  const loader = () => component().then(module => setupPage((module as any).default || module))
+  const pageComponent = defineAsyncComponent({ loader, delay: 0, suspensible: false })
   const routeConfig: Record<string, unknown> = {
     path: `/${route}`,
-    component,
+    component: {
+      setup() {
+        return () => {
+          const app = getApp() as { $route?: { query?: Record<string, unknown> } }
+          const query = app?.$route?.query || {}
+          openBlock()
+          return createBlock(PageComponent, null, {
+            page: withCtx(() => [createVNode(pageComponent, { ...query, ref: 'page' }, null, 512)]),
+            _: 1
+          })
+        }
+      }
+    },
+    loader,
     meta: {
     route,
     isEntry,
-    isQuit: isEntry,
+    isQuit: isEntry || isTabBar,
     isTabBar,
     navigationBar: navigationBar(titleText),
     maxWidth: 640
@@ -25,7 +48,7 @@ const page = (route: string, titleText: string, component: () => Promise<unknown
   return routeConfig
 }
 
-const routes = [
+export const routes = [
   page('pages/bind/index', '账号绑定', () => import('./pages/bind/index.vue'), true),
   page('pages/home/index', '黑湖小工单', () => import('./pages/home/index.vue'), false, true),
   page('pages/work-orders/index', '工单', () => import('./pages/work-orders/index.vue'), false, true),

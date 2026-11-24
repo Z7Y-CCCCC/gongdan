@@ -109,6 +109,76 @@ class UserServiceBoundaryTest {
         verify(users, never()).save(any());
     }
 
+    @Test
+    void exportedQuotedMultilineFieldsCanBeImportedAsOneRecord() {
+        org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
+                new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4);
+        user.setUsername("worker");
+        user.setName("First,\n\"Second\"\rThird");
+        user.setPasswordHash(bcrypt.encode("password123"));
+        user.setEnabled(true);
+        when(users.findByFactoryIdOrderByCreatedAtAsc(1L)).thenReturn(java.util.Collections.singletonList(user));
+
+        UserService.ImportResult result = service.importUsersCsv(1L, service.exportUsersCsv(1L));
+
+        assertThat(result.getSuccess()).isEqualTo(1);
+        assertThat(result.getFail()).isZero();
+        assertThat(result.getTotal()).isEqualTo(1);
+        org.mockito.ArgumentCaptor<FactoryUser> saved = org.mockito.ArgumentCaptor.forClass(FactoryUser.class);
+        verify(users).save(saved.capture());
+        assertThat(saved.getValue().getName()).isEqualTo(user.getName());
+        assertThat(saved.getValue().getPasswordHash()).isEqualTo(user.getPasswordHash());
+        assertThat(bcrypt.matches("password123", saved.getValue().getPasswordHash())).isTrue();
+    }
+
+    @Test
+    void supportedBcryptHashVersionsRemainUsableAfterImport() {
+        org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder bcrypt =
+                new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4);
+        String encoded = bcrypt.encode("password123");
+        for (String version : new String[]{"2a", "2b", "2y"}) {
+            UserService.ImportResult result = service.importUsersCsv(1L,
+                    "账号,姓名,角色,手机号,部门,密码\nworker-" + version + ",Worker,PRODUCTION,,,$"
+                            + version + encoded.substring(3));
+            assertThat(result.getSuccess()).isEqualTo(1);
+            assertThat(result.getFail()).isZero();
+        }
+        org.mockito.ArgumentCaptor<FactoryUser> saved = org.mockito.ArgumentCaptor.forClass(FactoryUser.class);
+        verify(users, times(3)).save(saved.capture());
+        assertThat(saved.getAllValues()).allSatisfy(value ->
+                assertThat(bcrypt.matches("password123", value.getPasswordHash())).isTrue());
+    }
+
+    @Test
+    void malformedCsvIsRejectedBeforeAnyEarlierRecordIsSaved() {
+        assertThatThrownBy(() -> service.importUsersCsv(1L,
+                "账号,姓名,角色,手机号,部门,密码\nworker,Worker,PRODUCTION,,,password123\nnext,\"unclosed,PRODUCTION,,,password123"))
+                .isInstanceOfSatisfying(ApiException.class,
+                        ex -> assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
+        verify(users, never()).save(any());
+    }
+
+    @Test
+    void invalidImportedPasswordHashAndOversizedFieldsAreSkippedBeforePersistence() {
+        UserService.ImportResult result = service.importUsersCsv(1L,
+                "账号,姓名,角色,手机号,部门,密码\nworker,Worker,PRODUCTION,,,$2-not-a-hash\n"
+                        + new String(new char[65]).replace('\0', 'x') + ",Worker,PRODUCTION,,,password123");
+        assertThat(result.getSuccess()).isZero();
+        assertThat(result.getFail()).isEqualTo(2);
+        verify(users, never()).save(any());
+    }
+
+    @Test
+    void importedUnknownDepartmentIsNotSilentlyDiscarded() {
+        UserService.ImportResult result = service.importUsersCsv(1L,
+                "账号,姓名,角色,手机号,部门,密码\nworker,Worker,PRODUCTION,,missing,password123");
+        assertThat(result.getSuccess()).isZero();
+        assertThat(result.getFail()).isEqualTo(1);
+        assertThat(result.getErrors()).hasSize(1);
+        assertThat(result.getErrors().get(0)).contains("部门不存在");
+        verify(users, never()).save(any());
+    }
+
     private CreateUserRequest createRequest() {
         CreateUserRequest request = new CreateUserRequest();
         request.setUsername("worker");

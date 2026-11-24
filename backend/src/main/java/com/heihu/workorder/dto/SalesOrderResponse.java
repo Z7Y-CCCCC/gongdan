@@ -15,7 +15,7 @@ public class SalesOrderResponse {
     private String creator;
     private String createdAt;
     private String updatedAt;
-    private Integer totalQuantity;
+    private Long totalQuantity;
     private List<SalesOrderItemResponse> items = new ArrayList<>();
 
     public Long getId() { return id; }
@@ -51,8 +51,8 @@ public class SalesOrderResponse {
     public String getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(String updatedAt) { this.updatedAt = updatedAt; }
 
-    public Integer getTotalQuantity() { return totalQuantity; }
-    public void setTotalQuantity(Integer totalQuantity) { this.totalQuantity = totalQuantity; }
+    public Long getTotalQuantity() { return totalQuantity; }
+    public void setTotalQuantity(Long totalQuantity) { this.totalQuantity = totalQuantity; }
 
     public List<SalesOrderItemResponse> getItems() { return items; }
     public void setItems(List<SalesOrderItemResponse> items) { this.items = items; }

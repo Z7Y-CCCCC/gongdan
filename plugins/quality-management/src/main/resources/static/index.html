@@ -30,18 +30,44 @@
     button { cursor: pointer; border: 0; border-radius: 5px; background: #1677e8; color: white; padding: 9px 14px; font-weight: 600; }
     button:disabled { opacity: .55; cursor: wait; }
     .notice { margin: 0 0 18px; padding: 11px 13px; border: 1px solid #4e3e25; background: #2b2419; color: #f0c77a; border-radius: 6px; font-size: 13px; }
+    .notice.error { border-color: #623c3f; color: #ffb7bb; background: #321f22; }
+    :root.light { color-scheme: light; background: #f4f7f8; color: #172326; }
+    body.light { background: #f4f7f8; color: #172326; }
+    body.light header, body.light section, body.light .record { border-color: #dce5e7; }
+    body.light section { background: #fff; }
+    body.light .muted { color: #5f7077; }
+    body.light label { color: #56656a; }
+    body.light input, body.light select, body.light textarea { border-color: #cfdadd; background: #fff; color: #172326; }
+    body.light .health { color: #087f61; }
+    body.light .health.down { color: #a23f45; }
+    body.light .tag { color: #1764a6; background: #e6f1fe; }
+    body.light .notice { border-color: #dfd0af; background: #fff8e7; color: #785622; }
+    body.light .notice.error { border-color: #efd1d1; background: #fff1f1; color: #a23f45; }
     @media (max-width: 760px) { main { padding: 18px; } .grid { grid-template-columns: 1fr; } header { align-items: flex-start; flex-direction: column; } }
+    header { flex-wrap: wrap; }
+    .plugin-tools { display: flex; align-items: center; gap: 8px; }
+    #retry { width: 36px; min-width: 36px; height: 36px; padding: 0; border: 1px solid currentColor; background: transparent; color: inherit; font-size: 18px; }
+    #retry span { display: inline-block; }
+    #retry[aria-busy="true"] span { animation: plugin-spin .9s linear infinite; }
+    button { transition: opacity .12s, transform .12s, background-color .12s; }
+    button:active:not(:disabled) { transform: scale(.96); }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #278be8; outline-offset: 2px; }
+    input:disabled, select:disabled, textarea:disabled { cursor: wait; }
+    [hidden] { display: none !important; }
+    @keyframes plugin-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { button { transition: none; } #retry[aria-busy="true"] span { animation: none; } }
+    @media (pointer: coarse) { button { min-height: 44px; } #retry { width: 44px; min-width: 44px; height: 44px; } }
   </style>
 </head>
 <body>
 <main>
   <header>
-    <div><h1>质量管理</h1><div class="muted">独立插件示例 · 版本 1.0.0</div></div>
-    <div id="health" class="health down">等待平台连接</div>
+    <div><h1>质量管理</h1></div>
+    <div class="plugin-tools"><span id="health" class="health down" role="status">等待平台连接</span> <button id="retry" type="button" title="刷新" aria-label="刷新"><span aria-hidden="true">↻</span></button></div>
   </header>
-  <div id="notice" class="notice">正在等待主系统建立安全消息桥。</div>
+  <div id="notice" class="notice" role="status">正在等待主系统建立安全消息桥。</div>
   <div class="grid">
-    <section><h2>质量问题记录</h2><div id="records"><div class="muted">暂无数据</div></div></section>
+    <section><h2>质量问题记录</h2><div id="records"><div class="muted">加载中...</div></div></section>
     <section>
       <h2>新增问题</h2>
       <form id="form">
@@ -53,17 +79,35 @@
     </section>
   </div>
 </main>
+<script src="ui-i18n.js"></script>
 <script>
   const pluginKey = 'quality-management';
   const pending = new Map();
   let parentOrigin = '';
   let requestSequence = 0;
+  let connecting = false;
+  let healthy = false;
+  let saving = false;
   const $ = (id) => document.getElementById(id);
+
+  function updateControls() {
+    $('submit').disabled = connecting || saving || !healthy;
+    $('retry').disabled = connecting || saving;
+    $('retry').setAttribute('aria-busy', String(connecting));
+    $('form').setAttribute('aria-busy', String(saving));
+  }
+
+  function lockFields(form) {
+    const fields = Array.from(form.querySelectorAll('input,select,textarea'), field => ({ field, disabled: field.disabled }));
+    fields.forEach(({ field }) => { field.disabled = true; });
+    return () => fields.forEach(({ field, disabled }) => { field.disabled = disabled; });
+  }
 
   function setNotice(message, isError) {
     $('notice').textContent = message;
-    $('notice').style.borderColor = isError ? '#5a3030' : '#4e3e25';
-    $('notice').style.color = isError ? '#ff9d9d' : '#f0c77a';
+    $('notice').hidden = !message;
+    $('notice').className = isError ? 'notice error' : 'notice';
+    PluginUiLocale.localize();
   }
 
   function request(path, options) {
@@ -87,38 +131,59 @@
   }
 
   async function loadRecords() {
-    const items = await request('/api/plugin/quality-management/records');
-    $('records').innerHTML = items.length ? items.map(item =>
-      '<div class="record"><div class="record-title"><strong>' + escapeHtml(item.issue) + '</strong><span class="tag">' + escapeHtml(item.status) + '</span></div>' +
-      '<div class="muted">' + escapeHtml(item.remark || '无备注') + ' · ' + escapeHtml(item.createdAt) + '</div></div>'
-    ).join('') : '<div class="muted">暂无数据</div>';
+    $('records').setAttribute('aria-busy', 'true');
+    try {
+      const items = await request('/api/plugin/quality-management/records');
+      $('records').innerHTML = items.length ? items.map(item =>
+        '<div class="record"><div class="record-title"><strong>' + escapeHtml(item.issue) + '</strong><span class="tag">' + escapeHtml(item.status) + '</span></div>' +
+        '<div class="muted">' + (item.remark ? escapeHtml(item.remark) : '<span data-ui-copy>无备注</span>') + ' · ' + escapeHtml(item.createdAt) + '</div></div>'
+      ).join('') : '<div class="muted">暂无数据</div>';
+      PluginUiLocale.localize();
+    } finally {
+      $('records').setAttribute('aria-busy', 'false');
+    }
   }
 
   async function connect() {
+    if (connecting || saving) return;
+    connecting = true;
+    updateControls();
+    $('health').textContent = '连接中...';
+    PluginUiLocale.localize();
     try {
       const ping = await request('/api/plugin/quality-management/ping');
       $('health').textContent = '服务正常 · ' + ping.version;
       $('health').className = 'health';
-      $('submit').disabled = false;
       $('submit').textContent = '保存问题';
-      setNotice('插件已通过主系统安全代理连接。', false);
+      setNotice('', false);
       await loadRecords();
+      healthy = true;
     } catch (error) {
       $('health').textContent = '服务不可用';
       $('health').className = 'health down';
+      healthy = false;
       setNotice(error.message, true);
+    } finally {
+      connecting = false;
+      updateControls();
+      PluginUiLocale.localize();
     }
   }
 
   function escapeHtml(value) { return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
 
   window.addEventListener('message', (event) => {
+    if (event.source !== window.parent || !/^https?:\/\//.test(event.origin)) return;
     const data = event.data || {};
     if (data.pluginKey !== pluginKey) return;
+    if (parentOrigin && event.origin !== parentOrigin) return;
     if (data.type === 'platform-context') {
       parentOrigin = event.origin;
+      PluginUiLocale.setLocale(data.locale || data.context?.locale);
+      document.body.classList.toggle('light', data.theme !== 'dark');
+      document.documentElement.classList.toggle('light', data.theme !== 'dark');
       document.documentElement.style.colorScheme = data.theme === 'dark' ? 'dark' : 'light';
-      connect();
+      if (!healthy) connect();
       return;
     }
     if (data.type !== 'plugin-api-response' || event.origin !== parentOrigin) return;
@@ -133,16 +198,35 @@
   $('form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const button = $('submit');
-    button.disabled = true;
+    const form = event.currentTarget;
+    if (saving || connecting || !healthy || button.disabled || !form.reportValidity()) return;
+    const data = Object.fromEntries(new FormData(form).entries());
+    saving = true;
+    const unlockFields = lockFields(form);
+    updateControls();
+    button.textContent = '保存中...';
+    PluginUiLocale.localize();
     try {
-      const data = Object.fromEntries(new FormData(event.target).entries());
       await request('/api/plugin/quality-management/records', { method: 'POST', body: data });
-      event.target.reset();
-      await loadRecords();
-      setNotice('质量问题已保存。', false);
-    } catch (error) { setNotice(error.message, true); }
-    button.disabled = false;
+      form.reset();
+      try {
+        await loadRecords();
+        setNotice('质量问题已保存。', false);
+      } catch (error) {
+        setNotice('已保存，列表刷新失败：' + (error.message || '插件请求失败'), true);
+      }
+    } catch (error) {
+      setNotice(error.message || '保存失败', true);
+    } finally {
+      unlockFields();
+      saving = false;
+      button.textContent = '保存问题';
+      updateControls();
+      PluginUiLocale.localize();
+    }
   });
+
+  $('retry').addEventListener('click', connect);
 
   window.parent.postMessage({ type: 'plugin-ready', pluginKey }, '*');
 </script>

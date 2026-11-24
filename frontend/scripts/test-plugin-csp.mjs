@@ -65,7 +65,10 @@ test('rendered Nginx contains an explicit map, no placeholder or broad frame sou
   assert.match(rendered, /default "http:\/\/localhost:9101 http:\/\/localhost:9102";/)
   assert.match(rendered, /"localhost:9101" "http:\/\/localhost:9102";/)
   assert.doesNotMatch(rendered, /__PLUGIN_FRAME_SOURCE_MAP__/)
-  assert.doesNotMatch(rendered, /frame-src (?:\*|'self'|https?:;)/)
+  for (const [, frameSources] of rendered.matchAll(/frame-src\s+([^;]+)/g)) {
+    assert.ok(frameSources.split(/\s+/).every(source => source !== '*' && !/^https?:$/.test(source)))
+  }
+  assert.match(rendered, /frame-src 'self' \$plugin_frame_src;/)
   const reservedHosts = renderNginx(template, 'http://include,http://default')
   assert.ok(reservedHosts.includes('"\\\\include"'))
   assert.ok(reservedHosts.includes('"\\\\default"'))
@@ -79,10 +82,22 @@ test('mobile rejects frames while desktop keeps all existing restrictive directi
   assert.match(mobile, /frame-src 'none'/)
   assert.doesNotMatch(mobile, /\$plugin_frame_src/)
   for (const policy of rendered.matchAll(/add_header Content-Security-Policy "([^"]+)" always;/g)) {
+    if (policy[1].startsWith("frame-ancestors 'self';")) continue; // UReport legacy document, not an app shell.
     for (const directive of ["script-src 'self'", "connect-src 'self'", "object-src 'none'", "frame-ancestors 'none'", "form-action 'self'"]) {
       assert.ok(policy[1].includes(directive), directive)
     }
     assert.ok(!policy[1].includes("script-src 'self' 'unsafe-inline'"))
+  }
+})
+
+test('the built-in report designer has the only same-origin framing exception in both reverse proxies', () => {
+  for (const config of [renderNginx(template), readFileSync(new URL('../../deploy/windows/nginx-server.conf', import.meta.url), 'utf8')]) {
+    const report = config.match(/location \^~ \/ureport\/ \{([\s\S]*?)\n\s*\}/)?.[1]
+    assert.ok(report)
+    assert.match(report, /proxy_pass http:\/\/[^/]+\/ureport\//)
+    assert.match(report, /X-Frame-Options "SAMEORIGIN"/)
+    assert.match(report, /frame-ancestors 'self'; object-src 'none'; base-uri 'self'/)
+    assert.doesNotMatch(config.replace(report, ''), /frame-ancestors 'self'|SAMEORIGIN/)
   }
 })
 

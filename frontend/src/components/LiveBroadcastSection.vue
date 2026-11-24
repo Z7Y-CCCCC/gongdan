@@ -153,7 +153,7 @@ onDeactivated(() => {
 
 <template>
   <div class="live-broadcast">
-    <h3 class="live-broadcast__title">生产实时播报</h3>
+    <h3 class="live-broadcast__title">生产动态</h3>
 
     <!-- Empty state -->
     <div v-if="initialLoaded && reports.length === 0" class="live-broadcast__empty">
@@ -170,13 +170,15 @@ onDeactivated(() => {
         <span class="live-broadcast__dot">●</span>
         <span class="live-broadcast__time">{{ formatTime(report.createdAt) }}</span>
         <span class="live-broadcast__text">{{ report.reporterName }} {{ report.processName }}</span>
-        <a
+        <button
           class="live-broadcast__link"
-          href="javascript:void(0)"
-          @click.prevent="emit('viewWorkOrder', report.workOrderId)"
+          type="button"
+          :title="`查看工单 ${report.workOrderCode}`"
+          :aria-label="`查看工单 ${report.workOrderCode}`"
+          @click="emit('viewWorkOrder', report.workOrderId)"
         >
-          工号: {{ report.workOrderCode }}
-        </a>
+          {{ report.workOrderCode }}
+        </button>
       </li>
     </ul>
   </div>
@@ -244,7 +246,11 @@ onDeactivated(() => {
 }
 
 .live-broadcast__link {
-  color: #409eff;
+  color: var(--accent, #00b889);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
   text-decoration: none;
   cursor: pointer;
   white-space: nowrap;

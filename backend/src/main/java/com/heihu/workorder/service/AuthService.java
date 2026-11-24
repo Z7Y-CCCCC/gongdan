@@ -76,6 +76,15 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request, HttpServletRequest httpRequest) {
+        return authenticate(request, httpRequest, false);
+    }
+
+    @Transactional
+    public AuthResponse loginMobile(LoginRequest request, HttpServletRequest httpRequest) {
+        return authenticate(request, httpRequest, true);
+    }
+
+    private AuthResponse authenticate(LoginRequest request, HttpServletRequest httpRequest, boolean mobile) {
         String factoryCode = normalize(request.getFactoryCode()).toUpperCase();
         String account = normalize(request.getUsername());
         String limitKey = AuthAttemptLimiter.key("web", factoryCode, account);
@@ -99,7 +108,7 @@ public class AuthService {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "工厂代码、用户名或密码不正确");
         }
 
-        if (user.getRole() == Role.PRODUCTION) {
+        if (!mobile && user.getRole() == Role.PRODUCTION) {
             throw new ApiException(HttpStatus.FORBIDDEN, "生产人员只能在手机端登录");
         }
 

@@ -10,6 +10,10 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
+    "pretest": "npm run test:ui-contract && npm run test:plugin-ui && npm run test:i18n-contract",
+    "test:ui-contract": "node --test scripts/audit-icon-controls.test.mjs && node scripts/audit-icon-controls.mjs --check",
+    "test:plugin-ui": "node --test scripts/plugin-ui-functional.test.mjs",
+    "test:i18n-contract": "node --test scripts/ui-i18n-transform.test.mjs",
     "test": "vitest --run",
     "test:watch": "vitest"
   },

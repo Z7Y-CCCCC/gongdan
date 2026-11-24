@@ -1,5 +1,6 @@
-import type { FieldEventPayload, FieldEventRecord, ListResponse, MobileAuthResult, ReportImage, WorkOrderInfo, WorkOrderReport, UserInfo } from '../types/api'
+import type { FieldEventPayload, FieldEventRecord, ListResponse, MobileAuthResult, MobileDashboard, ReportImage, WorkOrderInfo, WorkOrderReport, UserInfo } from '../types/api'
 import { loginRedirect, navigatePage } from '../utils/navigation'
+import { validateMobileDashboard } from '../utils/dashboard'
 
 // H5 can use /api through a reverse proxy. Local static demos use the backend port directly.
 // Mini Program builds should set VITE_API_BASE_URL to HTTPS.
@@ -120,15 +121,15 @@ export function bindAccount(payload: { openidTicket: string; factoryCode: string
 }
 
 export function passwordLogin(payload: { factoryCode: string; username: string; password: string }) {
-  return request<{ token: string; user: UserInfo }>('/auth/login', { method: 'POST', data: payload, auth: false })
+  return request<{ token: string; user: UserInfo }>('/mobile/auth/password-login', { method: 'POST', data: payload, auth: false })
 }
 
-function queryString(params: Record<string, string | number | undefined>) {
+function queryString(params: Record<string, string | number | boolean | undefined>) {
   return Object.entries(params).filter(([, value]) => value !== undefined && value !== '')
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&')
 }
 
-async function fetchAllPages<T extends { id: number }>(path: string, params: Record<string, string> = {}): Promise<ListResponse<T>> {
+async function fetchAllPages<T extends { id: number }>(path: string, params: Record<string, string | number | undefined> = {}): Promise<ListResponse<T>> {
   const size = 100
   const maxItems = 5000
   const sessionToken = token()
@@ -153,6 +154,15 @@ async function fetchAllPages<T extends { id: number }>(path: string, params: Rec
 
 export function fetchWorkOrders() {
   return fetchAllPages<WorkOrderInfo>('/mobile/work-orders')
+}
+
+export function fetchWorkOrderPage(filters: { page: number; size: number; keyword?: string; status?: string; reportableOnly?: boolean }) {
+  return request<ListResponse<WorkOrderInfo>>(`/mobile/work-orders?${queryString(filters)}`)
+}
+
+export async function fetchDashboard(day: string): Promise<MobileDashboard> {
+  const result = await request<MobileDashboard>(`/mobile/dashboard?${queryString({ day })}`)
+  return validateMobileDashboard(result)
 }
 
 export function fetchWorkOrder(id: number | string) {
@@ -185,7 +195,9 @@ export function uploadReportImage(filePath: string): Promise<ReportImage> {
             return
           }
           try {
-            resolve(JSON.parse(res.data) as ReportImage)
+            const image = JSON.parse(res.data) as ReportImage
+            if (!image || !Number.isSafeInteger(image.id) || image.id <= 0) throw new Error('无效照片记录')
+            resolve(image)
           } catch {
             reject(new Error('图片上传结果解析失败'))
           }
@@ -208,7 +220,7 @@ export function downloadReportImage(imageId: number): Promise<string> {
       timeout: 30000,
       header: requestToken ? { Authorization: `Bearer ${requestToken}` } : {},
       success: (res) => {
-        if (res.statusCode === 200 && token() === requestToken) resolve(res.tempFilePath)
+        if (res.statusCode === 200 && token() === requestToken && typeof res.tempFilePath === 'string' && res.tempFilePath) resolve(res.tempFilePath)
         else reject(responseError(res.statusCode, undefined, requestToken, '图片已失效或无法加载，请重新上传'))
       },
       fail: () => reject(new Error('图片加载失败，请重新上传'))
@@ -238,12 +250,19 @@ export function createReport(payload: {
   })
 }
 
-export function fetchReports(status?: string, period = '') {
-  return fetchAllPages<WorkOrderReport>('/mobile/reports', { status: status || '', period })
+export function fetchReports(status?: string, period = '', options: { includeSubmitted?: boolean; workOrderId?: number } = {}) {
+  return fetchAllPages<WorkOrderReport>('/mobile/reports', {
+    status, period, workOrderId: options.workOrderId,
+    includeSubmitted: options.includeSubmitted ? 'true' : undefined
+  })
 }
 
 export function fetchFieldEvents() {
   return request<ListResponse<FieldEventRecord>>('/mobile/field-events?size=50')
+}
+
+export function fetchReportPage(filters: { page: number; size: number; status?: string; period?: string; includeSubmitted?: boolean; workOrderId?: number }) {
+  return request<ListResponse<WorkOrderReport>>(`/mobile/reports?${queryString(filters)}`)
 }
 
 export function createFieldEvent(payload: FieldEventPayload) {

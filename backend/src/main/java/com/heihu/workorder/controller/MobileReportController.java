@@ -80,6 +80,8 @@ public class MobileReportController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String period,
+            @RequestParam(defaultValue = "false") boolean includeSubmitted,
+            @RequestParam(required = false) Long workOrderId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "100") int size
     ) {
@@ -87,6 +89,8 @@ public class MobileReportController {
         Page<WorkOrderReportResponse> result = reportService.listMobile(
                 currentUser.getFactoryId(),
                 currentUser.getUserId(),
+                includeSubmitted,
+                workOrderId,
                 status,
                 period,
                 PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt"))

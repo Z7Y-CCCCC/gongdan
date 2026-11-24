@@ -17,6 +17,7 @@ import com.heihu.workorder.util.WorkOrderStates;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -28,12 +29,16 @@ import java.util.Collections;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import javax.persistence.criteria.Predicate;
 
 @Service
 @Transactional
 public class WorkOrderService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private CustomFieldValueValidator customFieldValueValidator;
 
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -56,23 +61,71 @@ public class WorkOrderService {
         this.reportRepository = reportRepository;
     }
 
-    @Cacheable(cacheNames = "workorders.list", key = "#factoryId + ':' + #code + ':' + #productName + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "workorders.list", key = "'search-v3:' + #factoryId + ':' + #code + ':' + #productName + ':' + #pageable.pageNumber + ':' + #pageable.pageSize + ':' + #pageable.sort")
     public Page<WorkOrderResponse> list(Long factoryId, String code, String productName, Pageable pageable) {
-        boolean hasCode = code != null && !code.trim().isEmpty();
-        boolean hasProductName = productName != null && !productName.trim().isEmpty();
-        if (!hasCode && !hasProductName) {
-            return workOrderRepository.findByFactoryId(factoryId, pageable).map(this::toResponse);
-        }
-        return workOrderRepository.findByFactoryIdAndCodeContainingAndProductNameContaining(
-                factoryId,
-                hasCode ? code.trim() : "",
-                hasProductName ? productName.trim() : "",
-                pageable
-        ).map(this::toResponse);
+        return searchPage(factoryId, code, productName, null, Collections.emptySet(), pageable);
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(cacheNames = "workorders.detail", key = "#factoryId + ':' + #id")
+    public List<WorkOrderResponse> recentMobile(Long factoryId) {
+        List<WorkOrderResponse> result = new ArrayList<>();
+        for (WorkOrder order : workOrderRepository.findFirst5ByFactoryIdOrderByCreatedAtDescIdDesc(factoryId)) {
+            result.add(toResponse(order));
+        }
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public Page<WorkOrderResponse> searchMobile(Long factoryId, String code, String productName,
+                                                 String keyword, String status, Pageable pageable) {
+        return searchMobile(factoryId, code, productName, keyword, status, false, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<WorkOrderResponse> searchMobile(Long factoryId, String code, String productName,
+                                                 String keyword, String status, boolean reportableOnly, Pageable pageable) {
+        String trimmed = normalize(status);
+        if (reportableOnly && trimmed != null) {
+            throw new IllegalArgumentException("可报工筛选不能与状态筛选同时使用");
+        }
+        return searchPage(factoryId, code, productName, keyword,
+                reportableOnly ? WorkOrderStates.reportableValues()
+                        : WorkOrderStates.filterValues(trimmed == null ? null : trimmed.toUpperCase(Locale.ROOT)), pageable);
+    }
+
+    private Page<WorkOrderResponse> searchPage(Long factoryId, String code, String productName, String keyword,
+                                               Set<String> statuses, Pageable pageable) {
+        String codeFilter = normalize(code);
+        String productFilter = normalize(productName);
+        String search = normalize(keyword);
+        if (codeFilter == null && productFilter == null && search == null && statuses.isEmpty()) {
+            return workOrderRepository.findByFactoryId(factoryId, pageable).map(this::toResponse);
+        }
+        Specification<WorkOrder> spec = (order, query, builder) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(builder.equal(order.get("factory").get("id"), factoryId));
+            if (codeFilter != null) {
+                predicates.add(builder.gt(builder.locate(builder.lower(order.get("code")), codeFilter.toLowerCase(Locale.ROOT)), 0));
+            }
+            if (productFilter != null) {
+                predicates.add(builder.gt(builder.locate(builder.lower(order.get("productName")), productFilter.toLowerCase(Locale.ROOT)), 0));
+            }
+            if (search != null) {
+                String needle = search.toLowerCase(Locale.ROOT);
+                predicates.add(builder.or(
+                        builder.gt(builder.locate(builder.lower(order.get("code")), needle), 0),
+                        builder.gt(builder.locate(builder.lower(order.get("productCode")), needle), 0),
+                        builder.gt(builder.locate(builder.lower(order.get("productName")), needle), 0)));
+            }
+            if (!statuses.isEmpty()) predicates.add(order.get("status").in(statuses));
+            return builder.and(predicates.toArray(new Predicate[0]));
+        };
+        return workOrderRepository.findAll(spec, pageable).map(this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "workorders.detail", key = "'unit-v1:' + #factoryId + ':' + #id")
     public WorkOrderResponse get(Long factoryId, Long id) {
         WorkOrder workOrder = workOrderRepository.findById(id)
                 .filter(item -> item.getFactory().getId().equals(factoryId))
@@ -81,7 +134,7 @@ public class WorkOrderService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(cacheNames = "workorders.code", key = "#factoryId + ':' + #code")
+    @Cacheable(cacheNames = "workorders.code", key = "'unit-v1:' + #factoryId + ':' + #code")
     public WorkOrderResponse getByCode(Long factoryId, String code) {
         WorkOrder workOrder = workOrderRepository.findByFactoryIdAndCode(factoryId, code)
                 .orElseThrow(() -> new IllegalArgumentException("工单不存在：" + code));
@@ -203,6 +256,7 @@ public class WorkOrderService {
         workOrder.setPlanEnd(planEnd);
         workOrder.setRelatedOrderCode(normalize(request.getRelatedOrderCode()));
         workOrder.setRemark(normalize(request.getRemark()));
+        if (customFieldValueValidator != null) customFieldValueValidator.validate(factoryId, "workorder", request.getCustomValues(), workOrder.getCustomDataJson(), !creating);
         workOrder.setCustomDataJson(writeJson(request.getCustomValues()));
         workOrder.setTaskDataJson(writeJson(normalizeTasks(request.getTasks())));
         workOrder.setMaterialDataJson(writeJson(request.getMaterials()));
@@ -216,6 +270,8 @@ public class WorkOrderService {
         response.setProductCode(item.getProductCode());
         response.setProductName(item.getProductName());
         response.setProductSpec(item.getProductSpec());
+        response.setUnitName(item.getProduct() != null && item.getProduct().getUnit() != null
+                ? item.getProduct().getUnit().getName() : null);
         response.setPlannedQuantity(item.getPlannedQuantity());
         response.setGoodQuantity(item.getGoodQuantity());
         response.setDefectQuantity(item.getDefectQuantity());

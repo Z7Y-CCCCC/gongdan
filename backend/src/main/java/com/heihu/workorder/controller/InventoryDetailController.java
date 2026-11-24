@@ -1,6 +1,6 @@
 package com.heihu.workorder.controller;
 
-import com.heihu.workorder.dto.InventoryDetailResponse;
+import com.heihu.workorder.dto.InventoryDetailPageResponse;
 import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.InventoryDetailService;
 import com.heihu.workorder.service.TokenService;
@@ -9,9 +9,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/inventory-details")
@@ -26,7 +23,7 @@ public class InventoryDetailController {
     }
 
     @GetMapping
-    public ResponseEntity<Map<String, Object>> list(
+    public ResponseEntity<InventoryDetailPageResponse> list(
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam(required = false) String receiptCode,
             @RequestParam(required = false) String receiptType,
@@ -53,17 +50,8 @@ public class InventoryDetailController {
             end = DateTimeParser.parse(endTime);
         }
 
-        long total = inventoryDetailService.count(factoryId, receiptCode, receiptType,
+        return ResponseEntity.ok(inventoryDetailService.list(factoryId, receiptCode, receiptType,
                 sourceType, remark, productCode, productName, productSpec, productAttribute,
-                start, end);
-
-        List<InventoryDetailResponse> items = inventoryDetailService.list(factoryId, receiptCode, receiptType,
-                sourceType, remark, productCode, productName, productSpec, productAttribute,
-                start, end, page, size);
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("items", items);
-        response.put("total", total);
-        return ResponseEntity.ok(response);
+                start, end, page, size));
     }
 }

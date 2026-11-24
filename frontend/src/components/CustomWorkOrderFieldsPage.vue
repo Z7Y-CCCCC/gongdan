@@ -11,6 +11,7 @@ import {
   createSystemImportLog
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
@@ -25,6 +26,9 @@ const { visible, title, message, loading, confirm, handleConfirm, handleCancel }
 const fields = ref<CustomFieldInfo[]>([])
 const view = ref<'list' | 'form'>('list')
 const editing = ref<CustomFieldInfo | null>(null)
+const saving = ref(false)
+const loadError = ref('')
+const beginLoad = useLatestRequest()
 const showBatch = ref(false)
 const batchText = ref('')
 
@@ -152,17 +156,27 @@ function emptyOption(label = '') {
 }
 
 async function loadFields() {
-  const res = await fetchCustomFields(props.token, 'workorder')
-  fields.value = res.items
+  const isCurrent = beginLoad()
+  loadError.value = ''
+  try {
+    const res = await fetchCustomFields(props.token, 'workorder')
+    if (isCurrent()) fields.value = res.items
+  } catch (e: any) {
+    if (!isCurrent()) return
+    loadError.value = e.message || '加载字段失败'
+    emit('notice', loadError.value)
+  }
 }
 
 function openCreate() {
+  if (saving.value) return
   editing.value = null
   resetForm()
   view.value = 'form'
 }
 
 function openEdit(item: CustomFieldInfo) {
+  if (saving.value) return
   editing.value = item
   Object.assign(form, {
     name: item.name,
@@ -223,6 +237,7 @@ function applyBatch() {
 }
 
 async function saveField() {
+  if (saving.value || loading.value || importing.value) return
   if (!form.name.trim()) {
     emit('notice', '请输入字段名称')
     return
@@ -253,6 +268,7 @@ async function saveField() {
     options,
     defaultValues: options.filter(item => item.defaultSelected).map(item => item.value)
   }
+  saving.value = true
   try {
     if (editing.value) {
       await updateCustomField(props.token, editing.value.id, payload)
@@ -265,17 +281,23 @@ async function saveField() {
     await loadFields()
   } catch (e: any) {
     emit('notice', e.message || '保存失败')
+  } finally {
+    saving.value = false
   }
 }
 
 async function removeField(item: CustomFieldInfo) {
+  if (loading.value || saving.value || importing.value) return
   const confirmed = await confirm({ message: `确认删除字段「${item.name}」？` })
   if (!confirmed) return
   loading.value = true
   try {
     await deleteCustomField(props.token, item.id)
     emit('notice', '字段已删除')
+    visible.value = false
     await loadFields()
+  } catch (e: any) {
+    emit('notice', e.message || '删除失败')
   } finally {
     loading.value = false
     visible.value = false
@@ -510,32 +532,18 @@ onMounted(async () => {
 <template>
   <section class="content">
     <template v-if="view === 'list'">
+      <div v-if="loadError" role="alert">{{ loadError }} <button type="button" @click="loadFields" title="重试" aria-label="重试" class="ui-icon-button"><UiIcon name="refresh" /></button></div>
       <div class="toolbar" style="margin-bottom: 16px">
-        <button class="primary-btn" type="button" @click="openCreate">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right: 4px;">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="16"></line>
-            <line x1="8" y1="12" x2="16" y2="12"></line>
-          </svg>
-          添加新字段
-        </button>
+        <button class="primary-btn ui-icon-button" type="button" @click="openCreate" title="添加新字段" aria-label="添加新字段"><UiIcon name="plus" /></button>
         <span class="muted" style="margin-left:8px">最多支持添加 80 个</span>
 
-        <button class="toolbar-btn" type="button" @click="handleExportFields">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          导出
-        </button>
-        <button class="toolbar-btn" type="button" @click="fieldFileInput?.click()">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          导入
-        </button>
+        <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportFields" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+        <button class="toolbar-btn ui-icon-button" type="button" @click="fieldFileInput?.click()" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
         <input type="file" ref="fieldFileInput" style="display:none" accept=".csv" @change="handleImportFields" />
 
         <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
-          <button class="toolbar-btn" type="button" @click="showImportLogs = true; refreshImportLogs()"><UiIcon name="file" />导入日志</button>
-          <button class="table-config-trigger" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true">
-            <UiIcon name="table-columns" :size="16" />
-          </button>
+          <button class="toolbar-btn" type="button" @click="showImportLogs = true; refreshImportLogs()" title="导入日志" aria-label="导入日志"><UiIcon name="file" />日志</button>
+          <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true"><UiIcon name="table-columns" :size="16" /></button>
         </div>
       </div>
       <div class="table-container">
@@ -562,8 +570,8 @@ onMounted(async () => {
                 <template v-else-if="column.key === 'creator'">{{ item.creator || '-' }}</template>
                 <template v-else-if="column.key === 'updatedAt'">{{ item.updatedAt || '-' }}</template>
                 <template v-else-if="column.key === 'actions'">
-                  <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
-                  <button class="action-link danger" type="button" @click="removeField(item)">删除</button>
+                  <button class="action-link ui-icon-button" type="button" @click="openEdit(item)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
+                  <button class="action-link danger ui-icon-button" type="button" @click="removeField(item)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                 </template>
               </td>
             </tr>
@@ -588,8 +596,8 @@ onMounted(async () => {
         <div v-if="form.fieldType === 'single_select' || form.fieldType === 'multiple_select'" class="option-box">
           <div class="toolbar">
             <span class="toolbar-title">设置可选项</span>
-            <button class="toolbar-btn" type="button" @click="addOption"><UiIcon name="plus" />新增可选项</button>
-            <button class="toolbar-btn" type="button" @click="openBatch"><UiIcon name="edit" />批量编辑</button>
+            <button class="toolbar-btn ui-icon-button" type="button" @click="addOption" title="新增可选项" aria-label="新增可选项"><UiIcon name="plus" /></button>
+            <button class="toolbar-btn" type="button" @click="openBatch" title="批量编辑" aria-label="批量编辑"><UiIcon name="edit" />批量编辑</button>
             <TableConfigButton table-id="custom-work-order-options-table" />
           </div>
           <table id="custom-work-order-options-table" class="data-table">
@@ -613,7 +621,7 @@ onMounted(async () => {
                     <option value="#8e8e93" style="color: #8e8e93;">■ 次要灰</option>
                   </select>
                 </td>
-                <td><button class="action-link danger" type="button" @click="removeOption(option.id)">删除</button></td>
+                <td><button class="action-link danger ui-icon-button" type="button" @click="removeOption(option.id)" title="删除" aria-label="删除"><UiIcon name="trash" /></button></td>
               </tr>
             </tbody>
           </table>
@@ -631,8 +639,8 @@ onMounted(async () => {
           <label><input v-model="form.allowUserOptions" type="checkbox" /> 允许用户添加选项</label>
         </div>
         <div class="form-bottom-bar">
-          <button class="ghost-btn wide" type="button" @click="view = 'list'">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveField">保存</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" :disabled="saving" @click="view = 'list'" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="primary-btn wide" type="button" :disabled="saving" @click="saveField">{{ saving ? '保存中...' : '保存' }}</button>
         </div>
       </div>
     </template>
@@ -641,14 +649,14 @@ onMounted(async () => {
       <div class="modal batch-modal">
         <div class="modal-header">
           <h2>批量编辑</h2>
-          <button class="close-btn" type="button" @click="showBatch = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showBatch = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
         <div style="padding:18px">
-          <p class="muted">每个选项单独一行，多个选项之间用换行符分隔。</p>
+          <p class="muted">每行一个选项。</p>
           <textarea v-model="batchText" rows="12" style="width:100%"></textarea>
         </div>
         <div class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showBatch = false">取消</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="showBatch = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" type="button" @click="applyBatch">确定</button>
         </div>
       </div>

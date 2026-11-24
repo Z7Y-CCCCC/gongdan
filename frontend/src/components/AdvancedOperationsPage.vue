@@ -7,6 +7,7 @@
         class="cat-tab"
         :class="{ active: activeTab === tab.key }"
         type="button"
+        :disabled="saving || pendingRecords.size > 0"
         @click="switchTab(tab.key)"
       >
         {{ tab.label }}
@@ -16,24 +17,24 @@
 
     <div class="toolbar advanced-toolbar">
       <div class="toolbar-left">
-        <button v-if="currentModule" class="primary-btn create-btn" type="button" @click="openCreate">
-          <UiIcon name="plus" />
-          新建{{ currentTabLabel }}
-        </button>
-        <button class="ghost-btn" type="button" @click="loadActive"><UiIcon name="refresh" />刷新</button>
+        <button v-if="currentModule" class="primary-btn create-btn ui-icon-button" type="button" :title="'新建' + currentTabLabel" :aria-label="'新建' + currentTabLabel" @click="openCreate"><UiIcon name="plus" /></button>
+        <button class="ghost-btn ui-icon-button" type="button" @click="loadActive" title="刷新" aria-label="刷新"><UiIcon name="refresh" /></button>
       </div>
       <div class="filters inline-filters">
         <label v-if="currentModule">
           <span>状态</span>
-          <select v-model="statusFilter" @change="loadRecords">
+          <select v-model="statusFilter" @change="loadActive">
             <option value="">全部</option>
             <option v-for="status in currentStatuses" :key="status.value" :value="status.value">{{ status.label }}</option>
           </select>
         </label>
+        <label v-if="activeTab === 'PAYROLL'"><span>核算月份</span><input v-model="payrollMonth" type="month" aria-label="核算月份" /></label>
       </div>
     </div>
 
-    <div v-if="activeTab === 'SOP'" class="table-container">
+    <div v-if="loading" class="loading-line" role="status">加载中...</div>
+    <div v-else-if="loadError" class="loading-line" role="alert">{{ loadError }} <button class="ghost-btn ui-icon-button" type="button" title="重试加载高级运营" aria-label="重试加载高级运营" @click="loadActive"><UiIcon name="refresh" /></button></div>
+    <div v-else-if="activeTab === 'SOP'" class="table-container">
       <div class="table-config-line"><TableConfigButton table-id="advanced-sop-table" /></div>
       <table id="advanced-sop-table" class="data-table">
         <thead>
@@ -56,12 +57,12 @@
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td>{{ record.updatedAt || '-' }}</td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon name="edit" />编辑</button>
-              <button class="toolbar-btn" type="button" @click="changeStatus(record, record.status === 'ACTIVE' ? 'ARCHIVED' : 'ACTIVE')">
+              <button class="toolbar-btn ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="openEdit(record)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
+              <button class="toolbar-btn" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="changeStatus(record, record.status === 'ACTIVE' ? 'ARCHIVED' : 'ACTIVE')">
                 <UiIcon :name="record.status === 'ACTIVE' ? 'archive' : 'check'" />
                 {{ record.status === 'ACTIVE' ? '归档' : '启用' }}
               </button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
+              <button class="toolbar-btn danger ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="removeRecord(record)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="7" class="empty-cell">暂无 SOP 文档</td></tr>
@@ -90,9 +91,9 @@
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td>{{ record.updatedAt || '-' }}</td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon name="edit" />编辑</button>
-              <button class="toolbar-btn" type="button" @click="sendTest(record)"><UiIcon name="send" />发送测试</button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
+              <button class="toolbar-btn ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="openEdit(record)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
+              <button class="toolbar-btn" type="button" :disabled="saving || pendingRecords.has(record.id)" :aria-busy="pendingRecords.has(record.id)" @click="sendTest(record)"><UiIcon name="send" />发送测试</button>
+              <button class="toolbar-btn danger ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="removeRecord(record)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="6" class="empty-cell">暂无推送配置</td></tr>
@@ -123,10 +124,10 @@
             <td>{{ payloadOf(record).reworkOwner || '-' }}</td>
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon :name="record.status === 'CLOSED' ? 'eye' : 'edit'" />{{ record.status === 'CLOSED' ? '查看/编辑' : '编辑' }}</button>
-              <button v-if="record.status === 'OPEN'" class="toolbar-btn" type="button" @click="changeStatus(record, 'REWORKING')"><UiIcon name="rework" />转返工</button>
-              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')"><UiIcon name="close" />关闭</button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
+              <button class="toolbar-btn ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="openEdit(record)" :title="record.status === 'CLOSED' ? '查看/编辑' : '编辑'" :aria-label="record.status === 'CLOSED' ? '查看/编辑' : '编辑'"><UiIcon :name="record.status === 'CLOSED' ? 'eye' : 'edit'" /></button>
+              <button v-if="record.status === 'OPEN'" class="toolbar-btn" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="changeStatus(record, 'REWORKING')"><UiIcon name="rework" />转返工</button>
+              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="changeStatus(record, 'CLOSED')" title="关闭记录" aria-label="关闭记录"><UiIcon name="close" />关闭</button>
+              <button class="toolbar-btn danger ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="removeRecord(record)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="7" class="empty-cell">暂无质检返工记录</td></tr>
@@ -157,10 +158,10 @@
             <td>{{ payloadOf(record).nextMaintenance || '-' }}</td>
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon name="edit" />编辑</button>
-              <button v-if="record.status !== 'MAINTENANCE'" class="toolbar-btn" type="button" @click="changeStatus(record, 'MAINTENANCE')"><UiIcon name="wrench" />保养</button>
-              <button v-if="record.status !== 'ACTIVE'" class="toolbar-btn" type="button" @click="changeStatus(record, 'ACTIVE')"><UiIcon name="check" />启用</button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
+              <button class="toolbar-btn ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="openEdit(record)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
+              <button v-if="record.status !== 'MAINTENANCE'" class="toolbar-btn" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="changeStatus(record, 'MAINTENANCE')"><UiIcon name="wrench" />保养</button>
+              <button v-if="record.status !== 'ACTIVE'" class="toolbar-btn" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="changeStatus(record, 'ACTIVE')"><UiIcon name="check" />启用</button>
+              <button class="toolbar-btn danger ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="removeRecord(record)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="7" class="empty-cell">暂无设备/工位</td></tr>
@@ -217,8 +218,8 @@
               <td>{{ money(payloadOf(record).defectPenalty) }}</td>
               <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
               <td class="row-actions">
-                <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon name="edit" />编辑</button>
-                <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
+                <button class="toolbar-btn ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="openEdit(record)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
+                <button class="toolbar-btn danger ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="removeRecord(record)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
               </td>
             </tr>
             <tr v-if="!loading && records.length === 0"><td colspan="6" class="empty-cell">暂无工资规则</td></tr>
@@ -278,9 +279,9 @@
             <td>{{ record.createdByName || '-' }}</td>
             <td><span class="status-pill" :class="record.status.toLowerCase()">{{ statusText(record.status) }}</span></td>
             <td class="row-actions">
-              <button class="toolbar-btn" type="button" @click="openEdit(record)"><UiIcon :name="record.status === 'CLOSED' ? 'eye' : 'edit'" />{{ record.status === 'CLOSED' ? '查看/编辑' : '处理' }}</button>
-              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" @click="changeStatus(record, 'CLOSED')"><UiIcon name="close" />关闭</button>
-              <button class="toolbar-btn danger" type="button" @click="removeRecord(record)"><UiIcon name="trash" />删除</button>
+              <button class="toolbar-btn ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="openEdit(record)" :title="record.status === 'CLOSED' ? '查看/编辑' : '处理'" :aria-label="record.status === 'CLOSED' ? '查看/编辑' : '处理'"><UiIcon :name="record.status === 'CLOSED' ? 'eye' : 'edit'" /></button>
+              <button v-if="record.status !== 'CLOSED'" class="toolbar-btn" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="changeStatus(record, 'CLOSED')" title="关闭记录" aria-label="关闭记录"><UiIcon name="close" />关闭</button>
+              <button class="toolbar-btn danger ui-icon-button" type="button" :disabled="saving || pendingRecords.has(record.id)" @click="removeRecord(record)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
             </td>
           </tr>
           <tr v-if="!loading && records.length === 0"><td colspan="7" class="empty-cell">暂无现场事件</td></tr>
@@ -288,15 +289,15 @@
       </table>
     </div>
 
-    <div v-if="loading" class="loading-line">加载中...</div>
 
     <div v-if="showModal" class="modal-backdrop">
       <section class="modal advanced-modal">
         <header class="modal-header">
           <h2>{{ editingRecord ? '编辑' : '新建' }}{{ currentTabLabel }}</h2>
-          <button class="close-btn" type="button" @click="showModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" :disabled="saving" @click="showModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </header>
         <form class="create-form two-column" @submit.prevent="saveRecord">
+          <fieldset class="advanced-form-fields" :disabled="saving">
           <label class="full-row">
             <span><em>*</em> 名称</span>
             <input v-model.trim="form.title" required placeholder="请输入名称" />
@@ -319,10 +320,11 @@
                 <option value="webhook">Webhook</option>
               </select>
             </label>
-            <label><span>接收对象</span><input v-model.trim="form.payload.target" placeholder="部门/群/用户" /></label>
-            <label><span>Webhook</span><input v-model.trim="form.payload.webhook" /></label>
-            <label><span>AppId</span><input v-model.trim="form.payload.appId" /></label>
-            <label class="full-row"><span>消息模板</span><textarea v-model.trim="form.payload.template" rows="4"></textarea></label>
+            <label><span>{{ form.payload.channel === 'wechat_mp' ? 'OpenID' : '接收对象' }}</span><input v-model.trim="form.payload.target" :required="form.payload.channel === 'wechat_mp'" /></label>
+            <label v-if="form.payload.channel !== 'wechat_mp'"><span>Webhook</span><input v-model.trim="form.payload.webhook" type="url" required /></label>
+            <label v-if="form.payload.channel === 'wechat_mp'"><span>AppId</span><input v-model.trim="form.payload.appId" required /></label>
+            <label v-if="form.payload.channel === 'wechat_mp'"><span>模板ID</span><input v-model.trim="form.payload.templateId" required /></label>
+            <label class="full-row"><span>{{ form.payload.channel === 'wechat_mp' ? '模板数据（JSON）' : '消息内容' }}</span><textarea v-model.trim="form.payload.template" rows="4" required></textarea></label>
           </template>
 
           <template v-else-if="activeTab === 'QUALITY'">
@@ -373,9 +375,11 @@
             </select>
           </label>
           <footer class="modal-footer full-row">
-            <button class="ghost-btn wide" type="button" @click="showModal = false"><UiIcon name="close" />取消</button>
+            <button class="ghost-btn wide ui-icon-button" type="button" :disabled="saving" @click="showModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
             <button class="primary-btn wide" :disabled="saving" type="submit"><UiIcon name="save" />{{ saving ? '保存中...' : '保存' }}</button>
           </footer>
+          <p v-if="saveError" class="full-row" role="alert">{{ saveError }}</p>
+          </fieldset>
         </form>
       </section>
     </div>
@@ -392,7 +396,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { t } from '../i18n'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
   createAdvancedRecord,
   deleteAdvancedRecord,
@@ -400,6 +405,7 @@ import {
   fetchReports,
   fetchWorkOrders,
   updateAdvancedRecord,
+  sendAdvancedMessageTest,
   type AdvancedRecordInfo,
   type AdvancedRecordModule,
   type WorkOrderInfo,
@@ -409,6 +415,9 @@ import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchAllPages } from '../utils/pagination'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ (e: 'notice', message: string): void }>()
@@ -431,6 +440,12 @@ const workOrders = ref<WorkOrderInfo[]>([])
 const reports = ref<WorkOrderReportInfo[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const loadError = ref('')
+const saveError = ref('')
+const pendingRecords = ref(new Set<number>())
+const beginLoad = useLatestRequest()
+let sessionGeneration = 0
+const payrollMonth = ref(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`)
 const statusFilter = ref('')
 const showModal = ref(false)
 const editingRecord = ref<AdvancedRecordInfo | null>(null)
@@ -460,7 +475,8 @@ const statusMap: Record<string, StatusItem[]> = {
   MESSAGE: [
     { value: 'DRAFT', label: '草稿' },
     { value: 'ACTIVE', label: '启用' },
-    { value: 'SENT', label: '已测试' },
+    { value: 'SENT', label: '已发送' },
+    { value: 'FAILED', label: '发送失败' },
     { value: 'DISABLED', label: '停用' }
   ],
   QUALITY: [
@@ -489,15 +505,16 @@ const currentStatuses = computed(() => currentModule.value ? statusMap[currentMo
 const currentTabLabel = computed(() => moduleTabs.find(tab => tab.key === activeTab.value)?.label || '')
 const tabs = computed(() => moduleTabs.map(tab => ({
   ...tab,
-  count: tab.key === activeTab.value && activeTab.value !== 'GANTT' ? records.value.length : undefined
+  count: tab.key === activeTab.value && activeTab.value !== 'GANTT' && !loading.value && !loadError.value ? records.value.length : undefined
 })))
 
 const payrollRows = computed(() => {
   const rules = records.value
     .filter(record => record.status === 'ACTIVE')
     .map(record => payloadOf(record))
+    .filter(rule => !rule.effectiveMonth || rule.effectiveMonth === payrollMonth.value)
   const rows = new Map<string, { name: string; goodQuantity: number; defectQuantity: number; processSet: Set<string>; amount: number }>()
-  reports.value.filter(report => report.status === 'APPROVED').forEach(report => {
+  reports.value.filter(report => report.status === 'APPROVED' && report.createdAt?.slice(0, 7) === payrollMonth.value).forEach(report => {
     const name = report.reporterName || '未指定'
     const row = rows.get(name) || { name, goodQuantity: 0, defectQuantity: 0, processSet: new Set<string>(), amount: 0 }
     const good = Number(report.goodQuantity || 0)
@@ -546,75 +563,72 @@ const ganttItems = computed(() => {
   })
 })
 
-watch(() => props.token, () => loadActive())
+watch(() => props.token, () => {
+  sessionGeneration++
+  beginLoad()
+  records.value = []
+  workOrders.value = []
+  reports.value = []
+  pendingRecords.value = new Set()
+  saving.value = false
+  showModal.value = false
+  handleCancel()
+  void loadActive()
+})
 
 onMounted(() => {
   loadActive()
 })
+useRefreshOnActivated(loadActive)
+onBeforeUnmount(() => { sessionGeneration++; beginLoad(); handleCancel() })
 
 function moduleNameFor(tab: TabKey): AdvancedRecordModule {
   return tab === 'PAYROLL' ? 'PAYROLL_RULE' : tab as AdvancedRecordModule
 }
 
 async function switchTab(tab: TabKey) {
+  if (saving.value || pendingRecords.value.size > 0) return
   activeTab.value = tab
   statusFilter.value = ''
+  records.value = []
+  workOrders.value = []
+  reports.value = []
+  showModal.value = false
   await loadActive()
 }
 
 async function loadActive() {
-  if (activeTab.value === 'GANTT') {
-    await loadGantt()
-    return
-  }
-  await loadRecords()
-  if (activeTab.value === 'PAYROLL') {
-    await loadReports()
-  }
-}
-
-async function loadRecords() {
-  if (!props.token || !currentModule.value) return
+  const isCurrent = beginLoad()
+  const requestToken = props.token
+  const tab = activeTab.value
+  const status = statusFilter.value
+  if (!requestToken) { loading.value = false; return }
+  const current = () => isCurrent() && props.token === requestToken && activeTab.value === tab && statusFilter.value === status
   loading.value = true
+  loadError.value = ''
   try {
-    const result = await fetchAdvancedRecords(props.token, {
-      moduleName: currentModule.value,
-      status: statusFilter.value,
-      page: 1,
-      size: 200
-    })
-    records.value = result.items || []
+    if (tab === 'GANTT') {
+      const result = await fetchAllPages(params => fetchWorkOrders(requestToken, params), 500, current)
+      if (current()) workOrders.value = result.items
+    } else {
+      const [recordResult, reportResult] = await Promise.all([
+        fetchAllPages(params => fetchAdvancedRecords(requestToken, { ...params, moduleName: moduleNameFor(tab), status }), 200, current),
+        tab === 'PAYROLL' ? fetchAllPages(params => fetchReports(requestToken, params), 500, current) : Promise.resolve({ items: [], total: 0 })
+      ])
+      if (!current()) return
+      records.value = recordResult.items
+      reports.value = reportResult.items
+    }
   } catch (error) {
-    emit('notice', error instanceof Error ? error.message : '加载失败')
+    if (current()) loadError.value = error instanceof Error ? error.message : '加载失败，请重试'
   } finally {
-    loading.value = false
-  }
-}
-
-async function loadGantt() {
-  if (!props.token) return
-  loading.value = true
-  try {
-    const result = await fetchWorkOrders(props.token, { page: 1, size: 500 })
-    workOrders.value = result.items || []
-  } catch (error) {
-    emit('notice', error instanceof Error ? error.message : '排产加载失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadReports() {
-  if (!props.token) return
-  try {
-    const result = await fetchReports(props.token, { page: 1, size: 500 })
-    reports.value = result.items || []
-  } catch (error) {
-    emit('notice', error instanceof Error ? error.message : '绩效数据加载失败')
+    if (current()) loading.value = false
   }
 }
 
 function openCreate() {
+  if (saving.value) return
+  saveError.value = ''
   editingRecord.value = null
   form.title = ''
   form.businessKey = ''
@@ -624,6 +638,8 @@ function openCreate() {
 }
 
 function openEdit(record: AdvancedRecordInfo) {
+  if (saving.value || pendingRecords.value.has(record.id)) return
+  saveError.value = ''
   editingRecord.value = record
   form.title = record.title
   form.businessKey = record.businessKey || ''
@@ -633,8 +649,12 @@ function openEdit(record: AdvancedRecordInfo) {
 }
 
 async function saveRecord() {
-  if (!currentModule.value || !form.title.trim()) return
+  if (saving.value || !currentModule.value || !form.title.trim() || !props.token) return
+  const requestToken = props.token
+  const requestGeneration = sessionGeneration
+  const current = () => props.token === requestToken && sessionGeneration === requestGeneration
   saving.value = true
+  saveError.value = ''
   try {
     const payload = {
       moduleName: currentModule.value,
@@ -644,70 +664,91 @@ async function saveRecord() {
       payloadJson: JSON.stringify(form.payload)
     }
     if (editingRecord.value) {
-      await updateAdvancedRecord(props.token, editingRecord.value.id, payload)
+      await updateAdvancedRecord(requestToken, editingRecord.value.id, payload)
+      if (!current()) return
       emit('notice', '已更新')
     } else {
-      await createAdvancedRecord(props.token, payload)
+      await createAdvancedRecord(requestToken, payload)
+      if (!current()) return
       emit('notice', '已创建')
     }
     showModal.value = false
     await loadActive()
   } catch (error) {
-    emit('notice', error instanceof Error ? error.message : '保存失败')
+    if (current()) saveError.value = error instanceof Error ? error.message : '保存失败'
   } finally {
-    saving.value = false
+    if (current()) saving.value = false
   }
 }
 
 async function changeStatus(record: AdvancedRecordInfo, status: string) {
+  if (saving.value || pendingRecords.value.has(record.id) || !props.token) return
+  const requestToken = props.token
+  const generation = sessionGeneration
+  const current = () => props.token === requestToken && sessionGeneration === generation
+  pendingRecords.value.add(record.id)
   try {
-    await updateAdvancedRecord(props.token, record.id, {
+    await updateAdvancedRecord(requestToken, record.id, {
       moduleName: record.moduleName,
       businessKey: record.businessKey,
       title: record.title,
       status,
       payloadJson: record.payloadJson
     })
+    if (!current()) return
     emit('notice', '状态已更新')
     await loadActive()
   } catch (error) {
-    emit('notice', error instanceof Error ? error.message : '状态更新失败')
+    if (current()) emit('notice', error instanceof Error ? error.message : '状态更新失败')
+  } finally {
+    if (current()) pendingRecords.value.delete(record.id)
   }
 }
 
 async function removeRecord(record: AdvancedRecordInfo) {
-  const accepted = await requestConfirm({ title: '删除记录', message: `确定删除「${record.title}」吗？` })
-  confirmVisible.value = false
-  if (!accepted) return
+  if (saving.value || pendingRecords.value.has(record.id) || confirmVisible.value || !props.token) return
+  const requestToken = props.token
+  const generation = sessionGeneration
+  const current = () => props.token === requestToken && sessionGeneration === generation
+  pendingRecords.value.add(record.id)
   try {
-    await deleteAdvancedRecord(props.token, record.id)
+    const accepted = await requestConfirm({ title: '删除记录', message: `确定删除「${record.title}」吗？` })
+    confirmVisible.value = false
+    if (!accepted || !current()) return
+    await deleteAdvancedRecord(requestToken, record.id)
+    if (!current()) return
     emit('notice', '已删除')
     await loadActive()
   } catch (error) {
-    emit('notice', error instanceof Error ? error.message : '删除失败')
+    if (current()) emit('notice', error instanceof Error ? error.message : '删除失败')
+  } finally {
+    if (current()) pendingRecords.value.delete(record.id)
   }
 }
 
 async function sendTest(record: AdvancedRecordInfo) {
-  const payload = payloadOf(record)
-  await updateAdvancedRecord(props.token, record.id, {
-    moduleName: record.moduleName,
-    businessKey: record.businessKey,
-    title: record.title,
-    status: 'SENT',
-    payloadJson: JSON.stringify({
-      ...payload,
-      lastTestAt: new Date().toISOString(),
-      lastTestResult: 'SIMULATED_OK'
-    })
-  })
-  emit('notice', '已记录测试推送')
-  await loadActive()
+  if (saving.value || pendingRecords.value.has(record.id) || !props.token) return
+  const requestToken = props.token
+  const generation = sessionGeneration
+  const current = () => props.token === requestToken && sessionGeneration === generation
+  pendingRecords.value.add(record.id)
+  try {
+    const result = await sendAdvancedMessageTest(requestToken, record.id)
+    if (!current()) return
+    if (!result.record || result.record.id !== record.id) throw new Error('测试消息响应不一致，请刷新后重试')
+    records.value = records.value.map(item => item.id === record.id ? result.record : item)
+    emit('notice', result.message || (result.success ? '测试消息已发送' : '测试消息发送失败'))
+    await loadActive()
+  } catch (error) {
+    if (current()) emit('notice', error instanceof Error ? error.message : '测试消息发送失败')
+  } finally {
+    if (current()) pendingRecords.value.delete(record.id)
+  }
 }
 
 function defaultPayload(tab: TabKey) {
   if (tab === 'SOP') return { processName: '', version: 'v1.0', owner: '', attachmentUrl: '', content: '' }
-  if (tab === 'MESSAGE') return { channel: 'wechat_work', target: '', webhook: '', appId: '', template: '' }
+  if (tab === 'MESSAGE') return { channel: 'wechat_work', target: '', webhook: '', appId: '', templateId: '', template: '' }
   if (tab === 'QUALITY') return { workOrderCode: '', processName: '', defectName: '', defectQuantity: 0, reworkOwner: '', reworkDeadline: '', action: '' }
   if (tab === 'EQUIPMENT') return { type: 'equipment', location: '', owner: '', maintenanceCycle: '', nextMaintenance: '' }
   if (tab === 'PAYROLL') return { processName: '', effectiveMonth: new Date().toISOString().slice(0, 7), unitPrice: 0, defectPenalty: 0, description: '' }
@@ -729,8 +770,8 @@ function statusText(status: string) {
 }
 
 function channelText(channel?: string) {
-  if (channel === 'wechat_work') return '企业微信'
-  if (channel === 'wechat_mp') return '微信公众号'
+  if (channel === 'wechat_work') return t('企业微信')
+  if (channel === 'wechat_mp') return t('微信公众号')
   if (channel === 'webhook') return 'Webhook'
   return channel || '-'
 }
@@ -745,6 +786,7 @@ function formatDate(value?: string) {
 </script>
 
 <style scoped>
+.advanced-form-fields { display: contents; }
 .advanced-page {
   gap: 14px;
 }

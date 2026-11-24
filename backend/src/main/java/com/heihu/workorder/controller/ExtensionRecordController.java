@@ -5,6 +5,9 @@ import com.heihu.workorder.dto.ExtensionRecordResponse;
 import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.ExtensionRecordService;
 import com.heihu.workorder.service.TokenService;
+import com.heihu.workorder.service.MessageDeliveryService;
+import com.heihu.workorder.dto.MessageDeliveryTestResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import java.util.HashMap;
 import java.util.Map;
 import org.springframework.data.domain.Page;
@@ -28,6 +31,7 @@ public class ExtensionRecordController {
 
     private final ExtensionRecordService recordService;
     private final TokenService tokenService;
+    @Autowired private MessageDeliveryService messageDeliveryService;
 
     public ExtensionRecordController(ExtensionRecordService recordService, TokenService tokenService) {
         this.recordService = recordService;
@@ -84,5 +88,12 @@ public class ExtensionRecordController {
         AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         recordService.delete(currentUser.getFactoryId(), id);
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/{id}/send-test")
+    public ResponseEntity<MessageDeliveryTestResponse> sendTest(
+            @RequestHeader(value = "Authorization", required = false) String authorization, @PathVariable Long id) {
+        AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
+        return ResponseEntity.ok(messageDeliveryService.sendTest(currentUser.getFactoryId(), id));
     }
 }

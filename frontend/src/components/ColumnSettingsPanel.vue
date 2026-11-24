@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import UiIcon from './UiIcon.vue'
+import { useDialogFocus } from '../composables/useDialogFocus'
 
 export type ColumnFixedSide = 'left' | 'none' | 'right'
 
@@ -31,6 +32,8 @@ function cloneColumns(columns: ColumnSetting[]) {
 
 const draft = ref<ColumnSetting[]>(cloneColumns(props.modelValue))
 const draggedKey = ref('')
+const dialogRef = ref<HTMLElement | null>(null)
+useDialogFocus(dialogRef, () => true, cancel)
 
 watch(() => props.modelValue, value => {
   draft.value = cloneColumns(value)
@@ -79,6 +82,7 @@ function cancel() {
 }
 
 function confirm() {
+  if (!visibleCount.value) return
   const value = cloneColumns(draft.value)
   emit('update:modelValue', value)
   emit('confirm', value)
@@ -87,10 +91,10 @@ function confirm() {
 
 <template>
   <div class="column-settings-overlay" @click.self="cancel">
-    <section class="column-settings-panel" role="dialog" aria-modal="true" :aria-label="title || '列设置'">
+    <section ref="dialogRef" class="column-settings-panel" role="dialog" aria-modal="true" tabindex="-1" :aria-label="title || '列设置'">
       <header class="column-settings-header">
         <h2>{{ title || '列设置' }}</h2>
-        <button class="column-settings-close" type="button" title="关闭" @click="cancel">
+        <button class="column-settings-close ui-icon-button" type="button" title="关闭" aria-label="关闭" @click="cancel">
           <UiIcon name="close" :size="18" />
         </button>
       </header>
@@ -103,7 +107,7 @@ function confirm() {
           </label>
           <span>列标题</span>
           <span>列宽（像素）</span>
-          <span>冻结列（最多 4 列）</span>
+          <span>冻结位置</span>
         </div>
 
         <div
@@ -117,18 +121,18 @@ function confirm() {
           @drop.prevent="onDrop(column)"
         >
           <label class="column-check-cell">
-            <input v-model="column.visible" type="checkbox" :disabled="column.locked" />
+            <input v-model="column.visible" type="checkbox" :aria-label="`显示 ${column.label}`" :disabled="column.locked" />
           </label>
           <div class="column-title-cell">
-            <span class="column-drag-handle" title="拖动排序" aria-hidden="true">⋮⋮</span>
+            <span class="column-drag-handle" title="拖动排序" aria-hidden="true"><UiIcon name="grip" :size="16" /></span>
             <span>{{ column.label }}</span>
             <small v-if="column.locked">固定</small>
           </div>
           <div class="column-width-cell">
-            <input v-model.number="column.width" type="number" min="50" max="480" step="1" @change="normalizeWidth(column)" />
+            <input v-model.number="column.width" type="number" :aria-label="`${column.label}列宽`" min="50" max="480" step="1" @change="normalizeWidth(column)" />
             <div class="column-stepper">
-              <button type="button" title="增加列宽" @click="updateWidth(column, 10)">＋</button>
-              <button type="button" title="减少列宽" @click="updateWidth(column, -10)">−</button>
+              <button type="button" title="增加列宽" aria-label="增加列宽" @click="updateWidth(column, 10)"><UiIcon name="plus" :size="12" /></button>
+              <button type="button" title="减少列宽" aria-label="减少列宽" @click="updateWidth(column, -10)"><UiIcon name="minus" :size="12" /></button>
             </div>
           </div>
           <div class="column-fixed-group" role="group" aria-label="冻结位置">
@@ -140,11 +144,11 @@ function confirm() {
       </div>
 
       <footer class="column-settings-footer">
-        <span class="column-settings-count">已显示 {{ visibleCount }} 列</span>
+        <span class="column-settings-count" :role="visibleCount === 0 ? 'status' : undefined">{{ visibleCount === 0 ? '至少显示一列' : `${visibleCount} 列` }}</span>
         <div>
-          <button class="column-settings-secondary" type="button" @click="restoreDefaults">恢复默认</button>
+          <button class="column-settings-secondary ui-action-button" type="button" title="恢复默认" aria-label="恢复默认" @click="restoreDefaults"><UiIcon name="reset" :size="16" />默认</button>
           <button class="column-settings-secondary" type="button" @click="cancel">取消</button>
-          <button class="column-settings-primary" type="button" @click="confirm">确定</button>
+          <button class="column-settings-primary ui-icon-button" type="button" title="应用列设置" aria-label="应用列设置" :disabled="visibleCount === 0" @click="confirm"><UiIcon name="check" :size="18" /></button>
         </div>
       </footer>
     </section>

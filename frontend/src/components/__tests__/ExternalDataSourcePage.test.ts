@@ -32,7 +32,7 @@ describe('外部数据源', () => {
     wrapper = mount(ExternalDataSourcePage, { props: { token: 'factory-a' } })
     await flushPromises(); return wrapper
   }
-  function button(text: string) { return wrapper.findAll('button').find(b => b.text() === text)! }
+  function button(text: string) { return wrapper.findAll('button').find(b => b.attributes('aria-label') === text || b.text() === text)! }
   function field(label: string) { return wrapper.findAll('label').find(l => l.text().startsWith(label))!.find('input,select,textarea') }
   async function keptPage(): Promise<VueWrapper<any>> {
     wrapper = mount(defineComponent({
@@ -331,11 +331,11 @@ describe('外部数据源', () => {
     const nextPage = deferred<{ content: ExternalSourceCheck[]; last: boolean }>()
     api.history.mockReturnValueOnce(nextPage.promise)
     await page(); await button('记录').trigger('click'); await flushPromises()
-    const dialog = wrapper.find('[aria-label="检查记录"]')
-    await dialog.findAll('button').find(b => b.text() === '下一页')!.trigger('click')
+    const dialog = wrapper.find('[role="dialog"][aria-label="检查记录"]')
+    await dialog.findAll('button').find(b => b.attributes('aria-label') === '下一页')!.trigger('click')
     await dialog.find('header button').trigger('click')
     nextPage.resolve({ content: [successfulCheck()], last: true }); await flushPromises()
-    expect(wrapper.find('[aria-label="检查记录"]').exists()).toBe(false)
+    expect(wrapper.find('[role="dialog"][aria-label="检查记录"]').exists()).toBe(false)
     expect(wrapper.vm.historySource).toBeNull()
   })
   it('does not reopen closed schema when a delayed field response completes', async () => {
@@ -344,11 +344,11 @@ describe('外部数据源', () => {
     const columns = deferred<unknown>()
     api.schema.mockReturnValueOnce(columns.promise)
     await page(); await button('表与字段').trigger('click'); await flushPromises()
-    const dialog = wrapper.find('[aria-label="表与字段"]')
+    const dialog = wrapper.find('[role="dialog"][aria-label="表与字段"]')
     await button('查看字段').trigger('click')
     await dialog.find('header button').trigger('click')
     columns.resolve({ items: [{ column: 'id', type: 'INTEGER', nullable: false, primaryKey: true }], hasMore: false, message: '只读字段' }); await flushPromises()
-    expect(wrapper.find('[aria-label="表与字段"]').exists()).toBe(false)
+    expect(wrapper.find('[role="dialog"][aria-label="表与字段"]').exists()).toBe(false)
     expect(wrapper.vm.schemaSource).toBeNull()
   })
   it('keeps the displayed list page unchanged when fetching the next page fails', async () => {

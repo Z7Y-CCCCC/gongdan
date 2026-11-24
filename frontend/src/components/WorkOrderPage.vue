@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch, type CSSProperties } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch, type CSSProperties } from 'vue'
 import QRCode from 'qrcode'
+import { t } from '../i18n'
+import { printSheetName } from '../utils/printHtml'
 import {
   createWorkOrder,
   deleteWorkOrder,
@@ -9,6 +11,7 @@ import {
   fetchProcesses,
   fetchProducts,
   fetchWorkOrders,
+  fetchWorkOrder,
   updateWorkOrder,
   type CustomFieldInfo,
   type ProcessInfo,
@@ -37,15 +40,56 @@ import {
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { fetchAllPages } from '../utils/pagination'
+import { bomMaterialQuantity } from '../utils/bomDecimal'
 import { normalizeWorkOrderStatus } from '../utils/workOrderStatus'
+import { missingRequiredCustomField } from '../utils/customFieldValidation'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import SystemLogsDialog from './SystemLogsDialog.vue'
 import UiIcon from './UiIcon.vue'
 import ColumnSettingsPanel, { type ColumnSetting } from './ColumnSettingsPanel.vue'
 import TableConfigButton from './TableConfigButton.vue'
 
-const props = defineProps<{ token: string }>()
-const emit = defineEmits<{ notice: [message: string] }>()
+const props = defineProps<{ token: string; focusTarget?: { id: number } | null }>()
+const emit = defineEmits<{ notice: [message: string]; 'clear-focus': [] }>()
+
+const focusedOrder = ref<WorkOrderInfo | null>(null)
+const focusLoading = ref(false)
+const focusError = ref('')
+const focusRegion = ref<HTMLElement | null>(null)
+const beginFocusLoad = useLatestRequest()
+
+async function loadFocusedOrder() {
+  const isCurrent = beginFocusLoad()
+  const target = props.focusTarget
+  const requestToken = props.token
+  focusedOrder.value = null
+  focusError.value = ''
+  focusLoading.value = false
+  if (!target || !requestToken) return
+  if (!Number.isSafeInteger(target.id) || target.id <= 0) {
+    focusError.value = '工单编号无效'
+    return
+  }
+  focusLoading.value = true
+  const current = () => isCurrent() && props.token === requestToken && props.focusTarget === target
+  try {
+    const response = fetchWorkOrder(requestToken, target.id)
+    await nextTick()
+    if (current() && focusRegion.value?.isConnected) focusRegion.value.focus()
+    const order = await response
+    if (!current()) return
+    if (!order || order.id !== target.id || !order.code) throw new Error('工单定位结果不一致，请重试')
+    focusedOrder.value = order
+    await nextTick()
+    if (current() && focusRegion.value?.isConnected) focusRegion.value.focus()
+  } catch (error) {
+    if (current()) focusError.value = error instanceof Error ? error.message : '工单加载失败，请重试'
+  } finally {
+    if (current()) focusLoading.value = false
+  }
+}
+
+watch([() => props.token, () => props.focusTarget], () => void loadFocusedOrder(), { immediate: true, flush: 'sync' })
 
 const { visible: deleteVisible, title: deleteTitle, message: deleteMessage, loading: deleteLoading, confirm: deleteConfirm, handleConfirm: deleteHandleConfirm, handleCancel: deleteHandleCancel } = useDeleteConfirm()
 
@@ -824,7 +868,7 @@ function getStepName(step: any): string {
   if (process) return process.name
   const subRoute = routes.value.find(item => item.id === step.processId)
   if (subRoute) return subRoute.name
-  return '未知步骤'
+  return t('未知步骤')
 }
 
 function getRouteStepsPreview(r: any): string {
@@ -1045,14 +1089,19 @@ function applyBomMaterials() {
     emit('notice', '当前产品没有启用的物料清单')
     return
   }
-  const plannedQty = Math.max(1, Number(form.plannedQuantity || 1))
-  const outputQty = Math.max(1, Number(bom.outputQuantity || 1))
-  form.materials = bom.items.map(item => ({
-    materialCode: item.productCode || '',
-    materialName: item.productName || '',
-    materialSpec: item.productSpec || '',
-    quantity: Math.max(1, Math.ceil(Number(item.quantity || 0) * plannedQty / outputQty))
-  }))
+  const plannedQty = Number(form.plannedQuantity)
+  try {
+    const materials = bom.items.map(item => ({
+      materialCode: item.productCode || '',
+      materialName: item.productName || '',
+      materialSpec: item.productSpec || '',
+      quantity: bomMaterialQuantity(item.quantity, plannedQty, bom.outputQuantity)
+    }))
+    form.materials = materials
+  } catch (e) {
+    emit('notice', e instanceof Error ? e.message : 'BOM用料换算失败')
+    return
+  }
   emit('notice', `已按 BOM「${bom.code}」带入 ${form.materials.length} 条用料`)
 }
 
@@ -1077,6 +1126,12 @@ async function saveOrder() {
   if (!Number.isInteger(Number(form.plannedQuantity)) || Number(form.plannedQuantity) <= 0) {
     emit('notice', '计划数必须为大于 0 的整数')
     activeTab.value = 'basic'
+    return
+  }
+  const missing = missingRequiredCustomField(customFields.value, form.customValues, editing.value?.customValues)
+  if (missing) {
+    emit('notice', `请填写必填字段「${missing.name}」`)
+    activeTab.value = 'custom'
     return
   }
   const payload = {
@@ -1119,6 +1174,7 @@ async function saveOrder() {
 }
 
 async function removeOrder(item: WorkOrderInfo) {
+  if (deleteLoading.value || saving.value) return
   const confirmed = await deleteConfirm({ message: `确认删除工单「${item.code}」？` })
   if (!confirmed) return
   deleteLoading.value = true
@@ -1664,18 +1720,34 @@ async function handleBulkStatus(status: string) {
 }
 
 async function handleDeleteSelected() {
-  const confirmed = await deleteConfirm({ message: `确认删除选中的 ${selectedIds.value.length} 个工单？` })
+  if (deleteLoading.value || saving.value) return
+  const ids = [...selectedIds.value]
+  if (ids.length === 0) {
+    emit('notice', '请先选择工单')
+    return
+  }
+  const confirmed = await deleteConfirm({ message: `确认删除选中的 ${ids.length} 个工单？` })
   if (!confirmed) return
   deleteLoading.value = true
+  let deleted = 0
+  const failedIds = new Set<number>()
+  let failureMessage = ''
   try {
-    for (const id of selectedIds.value) {
-      await deleteWorkOrder(props.token, id)
+    for (const id of ids) {
+      try {
+        await deleteWorkOrder(props.token, id)
+        deleted += 1
+      } catch (e: any) {
+        failedIds.add(id)
+        if (!failureMessage) failureMessage = e.message || '删除失败'
+      }
     }
-    selectedIds.value = []
-    emit('notice', '删除成功')
+    // Keep failed targets selected for retry, without clearing unrelated new selections.
+    const targetIds = new Set(ids)
+    selectedIds.value = selectedIds.value.filter(id => !targetIds.has(id) || failedIds.has(id))
+    emit('notice', failureMessage ? `已删除 ${deleted} 条工单；${failureMessage}` : '删除成功')
+    deleteVisible.value = false
     await loadData()
-  } catch (e: any) {
-    emit('notice', e.message || '删除失败')
   } finally {
     deleteLoading.value = false
     deleteVisible.value = false
@@ -1790,12 +1862,13 @@ function getFieldValue(order: any, fieldName: string) {
     case '计划结束时间': return order.planEnd || ''
     case '计划时间': return (order.planStart || '') + ' | ' + (order.planEnd || '')
     case '工单备注': return order.remark || ''
-    case '工单外链': return `${window.location.origin}/workorder/${order.code || ''}`
-    case '单位': return 'pcs'
-    case '创建人': return order.creator || '王艺儒'
-    case '创建时间': return order.createdAt || '2026-05-25 10:00'
-    case '更新人': return order.updator || '王艺儒'
-    case '更新时间': return order.updatedAt || '2026-05-25 10:05'
+    case '工单外链': return Number.isSafeInteger(order.id) && order.id > 0
+      ? `${getMobileBaseUrl()}/#/pages/work-order-detail/index?id=${order.id}&code=${encodeURIComponent(order.code || '')}` : ''
+    case '单位': return order.unitName || products.value.find(product => product.id === order.productId)?.unitName || '-'
+    case '创建人': return order.creator || '-'
+    case '创建时间': return order.createdAt || '-'
+    case '更新人': return order.updator || '-'
+    case '更新时间': return order.updatedAt || '-'
     default: return ''
   }
 }
@@ -1865,6 +1938,15 @@ function doPrint() {
   }, 100)
 }
 
+function printedStatusLabel(value: string) {
+  const label = statusLabel(value)
+  return label === value ? value : t(label)
+}
+function printedPriorityLabel(value: string) {
+  const label = priorityLabel(value)
+  return label === value ? value : t(label)
+}
+
 async function doExcelPrint(action: 'wps' | 'download') {
   const targets = selectedIds.value.length > 0
     ? workOrders.value.filter(o => selectedIds.value.includes(o.id))
@@ -1880,43 +1962,44 @@ async function doExcelPrint(action: 'wps' | 'download') {
   ])
   const tplType = selectedExcelTpl.value
   const wb = new ExcelJS.Workbook()
-  wb.creator = '小工单管理系统'
+  wb.creator = t('小工单管理系统')
+  const sheetNames = new Set<string>()
   wb.created = new Date()
 
   if (tplType === 'flow') {
     // ====== 工单流转卡模板 ======
     for (const item of targets) {
-      const ws = wb.addWorksheet(`流转卡-${item.code}`)
+      const ws = wb.addWorksheet(printSheetName(t('工单流转卡'), item.code, sheetNames))
       ws.columns = [
         { width: 16 }, { width: 30 }, { width: 30 }
       ]
       // 标题行
       ws.mergeCells('A1:C1')
       const titleCell = ws.getCell('A1')
-      titleCell.value = '工单流转卡'
+      titleCell.value = t('工单流转卡')
       titleCell.font = { bold: true, size: 18 }
       titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
       titleCell.border = { bottom: { style: 'medium' } }
       ws.getRow(1).height = 36
 
       const fields = [
-        ['工单编号', item.code],
-        ['产品编号', item.productCode],
-        ['产品名称', item.productName],
-        ['产品规格', item.productSpec || '-'],
-        ['工单计划数', item.plannedQuantity],
-        ['良品数', item.goodQuantity],
-        ['不良品数', item.defectQuantity],
-        ['不良率', item.defectRate || '-'],
-        ['状态', statusLabel(item.status)],
-        ['优先级', priorityLabel(item.priority)],
-        ['工艺路线', item.routeName || '-'],
-        ['工单分类', item.categoryName || '-'],
-        ['计划开始', item.planStart || '-'],
-        ['计划结束', item.planEnd || '-'],
-        ['关联订单号', item.relatedOrderCode || '-'],
-        ['客户名称', item.customerName || '-'],
-        ['备注', item.remark || '']
+        [t('工单编号'), item.code],
+        [t('产品编号'), item.productCode],
+        [t('产品名称'), item.productName],
+        [t('产品规格'), item.productSpec || '-'],
+        [t('工单计划数'), item.plannedQuantity],
+        [t('良品数'), item.goodQuantity],
+        [t('不良品数'), item.defectQuantity],
+        [t('不良率'), item.defectRate || '-'],
+        [t('状态'), printedStatusLabel(item.status)],
+        [t('优先级'), printedPriorityLabel(item.priority)],
+        [t('工艺路线'), item.routeName || '-'],
+        [t('工单分类'), item.categoryName || '-'],
+        [t('计划开始'), item.planStart || '-'],
+        [t('计划结束'), item.planEnd || '-'],
+        [t('关联订单号'), item.relatedOrderCode || '-'],
+        [t('客户名称'), item.customerName || '-'],
+        [t('备注'), item.remark || '']
       ]
 
       // 动态自定义字段值
@@ -1955,13 +2038,13 @@ async function doExcelPrint(action: 'wps' | 'download') {
         const startRow = lastRowIdx + 2
         ws.mergeCells(startRow, 1, startRow, 3)
         const secTitle = ws.getCell(startRow, 1)
-        secTitle.value = '生产任务（工序）'
+        secTitle.value = t('生产任务（工序）')
         secTitle.font = { bold: true, size: 12 }
         secTitle.alignment = { horizontal: 'center' }
         secTitle.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
 
         const headerRow = ws.getRow(startRow + 1)
-        const taskHeaders = ['工序名称', '计划数', '完成数']
+        const taskHeaders = ['工序名称', '计划数', '完成数'].map(label => t(label))
         taskHeaders.forEach((h, ci) => {
           const cell = headerRow.getCell(ci + 1)
           cell.value = h
@@ -1988,13 +2071,13 @@ async function doExcelPrint(action: 'wps' | 'download') {
         const matStartRow = lastRowIdx + 2
         ws.mergeCells(matStartRow, 1, matStartRow, 3)
         const matTitle = ws.getCell(matStartRow, 1)
-        matTitle.value = '生产用料（物料）'
+        matTitle.value = t('生产用料（物料）')
         matTitle.font = { bold: true, size: 12 }
         matTitle.alignment = { horizontal: 'center' }
         matTitle.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
 
         const matHeaderRow = ws.getRow(matStartRow + 1)
-        const matHeaders = ['物料编号', '物料名称', '需求数量']
+        const matHeaders = ['物料编号', '物料名称', '需求数量'].map(label => t(label))
         matHeaders.forEach((h, ci) => {
           const cell = matHeaderRow.getCell(ci + 1)
           cell.value = h
@@ -2017,9 +2100,9 @@ async function doExcelPrint(action: 'wps' | 'download') {
     }
   } else if (tplType === 'qr') {
     // ====== 工单二维码模板 ======
-    const ws = wb.addWorksheet('工单二维码')
+    const ws = wb.addWorksheet(printSheetName(t('工单二维码'), '', sheetNames))
     ws.columns = [{ width: 20 }, { width: 30 }, { width: 25 }]
-    ws.getRow(1).values = ['工单编号', '产品名称', '二维码链接']
+    ws.getRow(1).values = ['工单编号', '产品名称', '二维码链接'].map(label => t(label))
     ws.getRow(1).eachCell(c => {
       c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
       c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B889' } }
@@ -2030,20 +2113,20 @@ async function doExcelPrint(action: 'wps' | 'download') {
       const row = ws.getRow(idx + 2)
       row.getCell(1).value = item.code
       row.getCell(2).value = item.productName
-      row.getCell(3).value = `${window.location.origin}/workorder/${item.code}`
+      row.getCell(3).value = getFieldValue(item, '工单外链')
       row.eachCell(c => {
         c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
       })
     })
   } else if (tplType === 'list') {
     // ====== 工单列表模板 ======
-    const ws = wb.addWorksheet('工单列表')
+    const ws = wb.addWorksheet(printSheetName(t('工单列表'), '', sheetNames))
     const listHeaders = [
       '工单编号', '产品编号', '产品名称', '产品规格',
       '状态', '优先级', '计划数', '良品数', '不良品数', '不良率',
       '进度', '工艺路线', '分类', '计划开始', '计划结束', '关联订单号',
       '客户名称', '备注', '创建人', '创建时间'
-    ]
+    ].map(label => t(label))
     // 动态加入自定义字段表头
     customFields.value.forEach(f => {
       listHeaders.push(f.name)
@@ -2059,7 +2142,7 @@ async function doExcelPrint(action: 'wps' | 'download') {
     targets.forEach(item => {
       const baseValues = [
         item.code, item.productCode, item.productName, item.productSpec || '',
-        statusLabel(item.status), priorityLabel(item.priority),
+        printedStatusLabel(item.status), printedPriorityLabel(item.priority),
         item.plannedQuantity, item.goodQuantity, item.defectQuantity, item.defectRate || '',
         item.progressPercent != null ? item.progressPercent + '%' : '',
         item.routeName || '', item.categoryName || '',
@@ -2082,14 +2165,14 @@ async function doExcelPrint(action: 'wps' | 'download') {
     })
   } else {
     // ====== 用料清单模板 ======
-    const ws = wb.addWorksheet('用料清单')
+    const ws = wb.addWorksheet(printSheetName(t('用料清单'), '', sheetNames))
     ws.columns = [
-      { header: '工单编号', width: 20 },
-      { header: '产品名称', width: 20 },
-      { header: '物料编号', width: 18 },
-      { header: '物料名称', width: 20 },
-      { header: '物料规格', width: 18 },
-      { header: '需求数量', width: 12 }
+      { header: t('工单编号'), width: 20 },
+      { header: t('产品名称'), width: 20 },
+      { header: t('物料编号'), width: 18 },
+      { header: t('物料名称'), width: 20 },
+      { header: t('物料规格'), width: 18 },
+      { header: t('需求数量'), width: 12 }
     ]
     ws.getRow(1).eachCell(c => {
       c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
@@ -2110,7 +2193,7 @@ async function doExcelPrint(action: 'wps' | 'download') {
           })
         })
       } else {
-        const row = ws.addRow([item.code, item.productName, '', '(无物料)', '', 0])
+        const row = ws.addRow([item.code, item.productName, '', t('(无物料)'), '', 0])
         row.eachCell(c => {
           c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
         })
@@ -2123,7 +2206,7 @@ async function doExcelPrint(action: 'wps' | 'download') {
     : tplType === 'qr' ? '工单二维码'
     : tplType === 'list' ? '工单列表'
     : '用料清单'
-  const fileName = `${tplLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`
+  const fileName = `${t(tplLabel)}_${new Date().toISOString().slice(0, 10)}.xlsx`
 
   try {
     const buffer = await wb.xlsx.writeBuffer()
@@ -2179,6 +2262,22 @@ onUnmounted(() => {
 
 <template>
   <section class="content">
+    <section v-if="focusTarget" ref="focusRegion" class="work-order-focus" role="region" aria-label="工单详情" :aria-busy="focusLoading" tabindex="-1">
+      <header>
+        <h2>{{ focusedOrder?.code || `工单 #${focusTarget.id}` }}</h2>
+        <button class="ghost-btn ui-icon-button" type="button" title="关闭工单详情" aria-label="关闭工单详情" @click="emit('clear-focus')"><UiIcon name="close" /></button>
+      </header>
+      <p v-if="focusLoading" role="status">加载中…</p>
+      <div v-else-if="focusError" role="alert">{{ focusError }} <button class="ghost-btn ui-icon-button" type="button" title="重试加载工单" aria-label="重试加载工单" @click="loadFocusedOrder"><UiIcon name="refresh" /></button></div>
+      <dl v-else-if="focusedOrder">
+        <div><dt>产品</dt><dd>{{ focusedOrder.productCode || '—' }} · {{ focusedOrder.productName || '—' }}</dd></div>
+        <div><dt>状态</dt><dd>{{ statusLabel(focusedOrder.status) }}</dd></div>
+        <div><dt>计划数</dt><dd>{{ focusedOrder.plannedQuantity ?? '—' }}</dd></div>
+        <div><dt>良品数</dt><dd>{{ focusedOrder.goodQuantity ?? '—' }}</dd></div>
+        <div><dt>不良数</dt><dd>{{ focusedOrder.defectQuantity ?? '—' }}</dd></div>
+        <div><dt>计划结束</dt><dd>{{ focusedOrder.planEnd || '—' }}</dd></div>
+      </dl>
+    </section>
     <div v-if="taskTooltip.visible && taskTooltip.task" class="task-tooltip" :style="{ left: taskTooltip.x + 'px', top: taskTooltip.y + 'px' }">
       <div class="tooltip-title">{{ taskTooltip.task.processName }}</div>
       <div class="tooltip-progress">工序进度: {{ taskTooltip.task.completedQuantity || 0 }}/{{ taskTooltip.task.plannedQuantity || 0 }}</div>
@@ -2222,7 +2321,7 @@ onUnmounted(() => {
             ×
           </span>
         </button>
-        <button class="add-cat-btn" type="button" @click="showCategoryModal = true" title="添加工单分类">
+        <button class="add-cat-btn ui-icon-button" type="button" @click="showCategoryModal = true" title="添加工单分类" aria-label="添加工单分类">
           <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
       </div>
@@ -2248,44 +2347,24 @@ onUnmounted(() => {
             <option value="工单、产品">默认</option>
           </select>
           <input v-model="keyword" placeholder="搜工单、查产品" style="border: none; outline: none; height: 100%; width: 140px; font-size: 13px; padding: 0 12px;" />
-          <button style="background: #00b889; border: none; color: white; height: 100%; display: flex; align-items: center; justify-content: center; padding: 0 12px; cursor: pointer;">
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-          </button>
+          <span class="work-order-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></span>
         </div>
       </div>
     </div>
 
     <div class="toolbar" v-if="selectedIds.length === 0">
-      <button class="primary-btn create-btn" type="button" @click="openCreate">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-        创建工单
-      </button>
-      <button class="toolbar-btn" type="button" @click="handleExport">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-        导出
-      </button>
-      <button class="toolbar-btn" type="button" @click="handleImport">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-        导入
-      </button>
-      <button class="table-config-trigger" type="button" style="margin-left: 8px;" title="字段配置" @click="showColumnModal = true">
+      <button class="primary-btn create-btn ui-icon-button" type="button" @click="openCreate" title="创建工单" aria-label="创建工单"><UiIcon name="plus" /></button>
+      <button class="toolbar-btn ui-icon-button" type="button" @click="handleExport" title="导出工单" aria-label="导出工单"><UiIcon name="download" /></button>
+      <button class="toolbar-btn ui-icon-button" type="button" @click="handleImport" title="导入工单" aria-label="导入工单"><UiIcon name="upload" /></button>
+      <button class="table-config-trigger ui-icon-button" type="button" style="margin-left: 8px;" title="字段配置" @click="showColumnModal = true" aria-label="字段配置">
         <UiIcon name="table-columns" :size="16" />
       </button>
-      <button class="text-btn" type="button" style="color: #586360; margin-left: 8px;" @click="toggleSort">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="13" y2="6"></line><line x1="4" y1="12" x2="11" y2="12"></line><line x1="4" y1="18" x2="11" y2="18"></line><polyline points="15 16 18 19 21 16"></polyline><line x1="18" y1="5" x2="18" y2="19"></line></svg>
-        排序
-      </button>
-      <button class="text-btn" type="button" style="color: #586360; margin-left: 8px;" @click="showFilterPanel = !showFilterPanel" :class="{ 'active-btn': showFilterPanel }">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
-        筛选
-      </button>
+      <button class="text-btn ui-action-button" type="button" style="color: #586360; margin-left: 8px;" @click="toggleSort" title="排序" aria-label="排序"><UiIcon name="list" /><span>排序</span></button>
+      <button class="text-btn ui-action-button" type="button" style="color: #586360; margin-left: 8px;" @click="showFilterPanel = !showFilterPanel" :class="{ 'active-btn': showFilterPanel }" title="筛选" aria-label="筛选"><UiIcon name="filter" /><span>筛选</span></button>
 
       <!-- 行高配置下拉菜单 -->
       <div class="toolbar-dropdown-container">
-        <button class="text-btn" type="button" style="color: #586360; margin-left: 8px;" @click.stop="showRowHeightPopover = !showRowHeightPopover" :class="{ 'active-btn': showRowHeightPopover }">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 9 12 5 16 9"></polyline><polyline points="16 15 12 19 8 15"></polyline><line x1="12" y1="5" x2="12" y2="19"></line></svg>
-          行高
-        </button>
+        <button class="text-btn ui-action-button" type="button" style="color: #586360; margin-left: 8px;" @click.stop="showRowHeightPopover = !showRowHeightPopover" :class="{ 'active-btn': showRowHeightPopover }" title="设置行高" aria-label="设置行高"><UiIcon name="settings" /><span>行高</span></button>
         <div v-if="showRowHeightPopover" class="dropdown-bubble row-height-bubble" @click.stop>
           <div class="dropdown-header">表格行高配置</div>
           <div class="dropdown-content">
@@ -2306,66 +2385,45 @@ onUnmounted(() => {
       </div>
 
       <div style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
-        <button class="text-btn" type="button" style="color: #586360;" @click="showImportLogModal = true">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          导入日志
-        </button>
-        <button class="text-btn" type="button" style="color: #586360;" @click="openLogs">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-          操作记录
-        </button>
+        <button class="text-btn ui-action-button" type="button" style="color: #586360;" @click="showImportLogModal = true" title="导入日志" aria-label="导入日志"><UiIcon name="file" /><span>导入日志</span></button>
+        <button class="text-btn ui-action-button" type="button" style="color: #586360;" @click="openLogs" title="操作记录" aria-label="操作记录"><UiIcon name="clock" /><span>操作记录</span></button>
       </div>
     </div>
 
     <div class="toolbar" v-else style="background: #fdfdfd; border: 1px solid #dce3e0;">
       <span style="font-size: 13px; color: #00b889; margin: 0 12px; font-weight: 500;">已选 {{ selectedIds.length }} 条</span>
       
-      <button class="toolbar-btn" type="button" @click="handleExport">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-        导出
-      </button>
-      <button class="toolbar-btn" type="button" @click="handleBulkStatus('EXECUTING')">
+      <button class="toolbar-btn ui-icon-button" type="button" @click="handleExport" title="导出工单" aria-label="导出工单"><UiIcon name="download" /></button>
+      <button class="toolbar-btn ui-action-button" type="button" @click="handleBulkStatus('EXECUTING')" title="开始选中工单" aria-label="开始选中工单">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
         开始
       </button>
-      <button class="toolbar-btn" type="button" @click="handleBulkStatus('PAUSED')">
+      <button class="toolbar-btn ui-action-button" type="button" @click="handleBulkStatus('PAUSED')" title="暂停选中工单" aria-label="暂停选中工单">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
         暂停
       </button>
-      <button class="toolbar-btn" type="button" @click="handleBulkStatus('FINISHED')">
+      <button class="toolbar-btn ui-action-button" type="button" @click="handleBulkStatus('FINISHED')" title="结束选中工单" aria-label="结束选中工单">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
         结束
       </button>
-      <button class="toolbar-btn" type="button" @click="handleBulkStatus('CLOSED')">
+      <button class="toolbar-btn ui-action-button" type="button" @click="handleBulkStatus('CLOSED')" title="关闭选中工单" aria-label="关闭选中工单">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
         关闭
       </button>
-      <button class="toolbar-btn" type="button" @click="openPrint">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
-        打印
-      </button>
-      <button class="toolbar-btn" type="button" @click="handleEditSelected">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-        修改
-      </button>
-      <button class="toolbar-btn" type="button" @click="handleDeleteSelected" style="color: #e74c3c;">
-        <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-        删除
-      </button>
+      <button class="toolbar-btn ui-icon-button" type="button" @click="openPrint" title="打印工单" aria-label="打印工单"><UiIcon name="print" /></button>
+      <button class="toolbar-btn ui-icon-button" type="button" @click="handleEditSelected" title="编辑选中工单" aria-label="编辑选中工单"><UiIcon name="edit" /></button>
+      <button class="toolbar-btn ui-icon-button" type="button" @click="handleDeleteSelected" style="color: #e74c3c;" title="删除选中工单" aria-label="删除选中工单"><UiIcon name="trash" /></button>
 
       <div style="margin-left: auto;">
-        <button class="toolbar-btn" type="button" @click="selectedIds = []">
-          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="15 9 9 15"></polyline><polyline points="9 9 15 15"></polyline></svg>
-          撤销多选
-        </button>
+        <button class="toolbar-btn ui-action-button" type="button" @click="selectedIds = []" title="取消选择" aria-label="取消选择"><UiIcon name="close" /><span>取消选择</span></button>
       </div>
     </div>
 
     <!-- 高级筛选面板 (平铺滑出) -->
-    <div v-if="showFilterPanel" class="filters" style="margin-top: 12px; border-top: 1px dashed #cbd6d3; padding-top: 16px; animation: dropdownFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;">
+    <div v-if="showFilterPanel" class="filters" style="margin-top: 12px; border-top: 1px dashed #cbd6d3; padding-top: 16px; animation: dropdownFadeIn var(--motion-base) cubic-bezier(0.16, 1, 0.3, 1) forwards;">
       <label>
         <span>优先级</span>
-        <select v-model="filterParams.priority" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s;">
+        <select v-model="filterParams.priority" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color var(--motion-base);">
           <option value="all">全部</option>
           <option value="LOW">低</option>
           <option value="NORMAL">中</option>
@@ -2375,31 +2433,31 @@ onUnmounted(() => {
       </label>
       <label>
         <span>计划数下限</span>
-        <input type="number" v-model.number="filterParams.plannedQtyMin" placeholder="最小数量" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s;" />
+        <input type="number" v-model.number="filterParams.plannedQtyMin" placeholder="最小数量" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color var(--motion-base);" />
       </label>
       <label>
         <span>计划数上限</span>
-        <input type="number" v-model.number="filterParams.plannedQtyMax" placeholder="最大数量" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s;" />
+        <input type="number" v-model.number="filterParams.plannedQtyMax" placeholder="最大数量" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color var(--motion-base);" />
       </label>
       <label>
         <span>计划开始自</span>
-        <input type="datetime-local" v-model="filterParams.planStartMin" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s;" />
+        <input type="datetime-local" v-model="filterParams.planStartMin" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color var(--motion-base);" />
       </label>
       <label>
         <span>计划开始至</span>
-        <input type="datetime-local" v-model="filterParams.planStartMax" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s;" />
+        <input type="datetime-local" v-model="filterParams.planStartMax" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color var(--motion-base);" />
       </label>
       <label>
         <span>计划结束自</span>
-        <input type="datetime-local" v-model="filterParams.planEndMin" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s;" />
+        <input type="datetime-local" v-model="filterParams.planEndMin" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color var(--motion-base);" />
       </label>
       <label>
         <span>计划结束至</span>
-        <input type="datetime-local" v-model="filterParams.planEndMax" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color 0.2s;" />
+        <input type="datetime-local" v-model="filterParams.planEndMax" style="width: 100%; height: 36px; padding: 0 10px; border: 1px solid #cbd6d3; border-radius: 6px; font-size: 13px; outline: none; transition: border-color var(--motion-base);" />
       </label>
       <div class="filter-actions">
-        <button class="ghost-btn query-btn" type="button" @click="resetFilters" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;"><UiIcon name="reset" />重置</button>
-        <button class="primary-btn query-btn" type="button" @click="showFilterPanel = false" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;"><UiIcon name="chevronUp" />收起</button>
+        <button class="ghost-btn query-btn ui-icon-button" type="button" @click="resetFilters" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;" title="重置筛选" aria-label="重置筛选"><UiIcon name="reset" /></button>
+        <button class="primary-btn query-btn ui-icon-button" type="button" @click="showFilterPanel = false" style="padding: 0 16px; height: 36px; border-radius: 6px; font-size: 13px;" title="收起" aria-label="收起"><UiIcon name="chevronUp" /></button>
       </div>
     </div>
 
@@ -2428,8 +2486,8 @@ onUnmounted(() => {
               :style="workOrderColumnStyle(column)"
             >
               <template v-if="column.key === 'actions'">
-                <button class="action-link" type="button" @click="openEdit(item)">编辑</button>
-                <button class="action-link danger" type="button" @click="removeOrder(item)">删除</button>
+                <button class="action-link ui-icon-button" type="button" @click="openEdit(item)" title="编辑工单" aria-label="编辑工单"><UiIcon name="edit" /></button>
+                <button class="action-link danger ui-icon-button" type="button" @click="removeOrder(item)" title="删除工单" aria-label="删除工单"><UiIcon name="trash" /></button>
               </template>
               <template v-else-if="column.key === 'code'">{{ item.code }}</template>
               <template v-else-if="column.key === 'productCode'">{{ item.productCode }}</template>
@@ -2442,7 +2500,7 @@ onUnmounted(() => {
                 <div style="display: flex; align-items: center; flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 6px 0; gap: 4px; max-width: 360px;" class="scroll-thin">
                   <div v-for="(task, i) in item.tasks" :key="i" style="display: flex; align-items: center; position: relative;">
                     <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 68px; flex-shrink: 0; cursor: pointer; position: relative; z-index: 2;" @mouseenter="showTaskTooltip($event, task)" @mouseleave="hideTaskTooltip">
-                      <div :style="{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--surface-raised)', border: '2.5px solid', borderColor: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : 'var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12.5px', fontWeight: 'bold', color: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : '#1677ff', boxShadow: '0 2px 6px rgba(0,0,0,0.05)', transition: 'all 0.2s' }">
+                      <div :style="{ width: '48px', height: '48px', borderRadius: '50%', background: 'var(--surface-raised)', border: '2.5px solid', borderColor: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : 'var(--border-default)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12.5px', fontWeight: 'bold', color: taskProgressState(task) === 'complete' ? '#16a36b' : taskProgressState(task) === 'over' ? '#e5484d' : '#1677ff', boxShadow: '0 2px 6px rgba(0,0,0,0.05)', transition: 'all var(--motion-base)' }">
                         <template v-if="taskProgressState(task) === 'complete'"><UiIcon name="check" :size="16" /></template>
                         <template v-else>{{ taskProgressPercent(task) }}%</template>
                       </div>
@@ -2470,7 +2528,7 @@ onUnmounted(() => {
       <div class="modal workorder-modal">
         <div class="modal-header">
           <h2>{{ editing ? '编辑工单' : '创建工单' }}</h2>
-          <button class="close-btn" type="button" @click="showModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
         <div class="modal-tabs">
           <button :class="{ active: activeTab === 'basic' }" @click="activeTab = 'basic'">基本信息</button>
@@ -2577,7 +2635,7 @@ onUnmounted(() => {
                     type="button" 
                     @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                     style="height:34px; margin:0; white-space:nowrap;"
-                  >
+                   title="上传附件" aria-label="上传附件">
                     <UiIcon name="upload" />
                     {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
                   </button>
@@ -2605,10 +2663,8 @@ onUnmounted(() => {
                       type="button" 
                       @click="removeCustomFieldPath(field, pIdx)" 
                       style="position:absolute; top:-6px; right:-6px; width:16px; height:16px; border-radius:50%; background:#ff5a5a; color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:9px; line-height:1; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.15); padding:0; z-index:10;"
-                      title="取消"
-                    >
-                      ×
-                    </button>
+                      title="移除附件"
+                     class="ui-icon-button" aria-label="移除附件"><UiIcon name="close" /></button>
                   </div>
                 </div>
               </div>
@@ -2631,7 +2687,7 @@ onUnmounted(() => {
                     type="button" 
                     @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                     style="height:34px; margin:0; white-space:nowrap;"
-                  >
+                   title="上传附件" aria-label="上传附件">
                     <UiIcon name="upload" />
                     {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
                   </button>
@@ -2658,10 +2714,8 @@ onUnmounted(() => {
                       type="button" 
                       @click="removeCustomFieldPath(field, pIdx)" 
                       style="position:absolute; top:-6px; right:-6px; width:16px; height:16px; border-radius:50%; background:#ff5a5a; color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:9px; line-height:1; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.15); padding:0; z-index:10;"
-                      title="取消"
-                    >
-                      ×
-                    </button>
+                      title="移除附件"
+                     class="ui-icon-button" aria-label="移除附件"><UiIcon name="close" /></button>
                   </div>
                 </div>
               </div>
@@ -2685,24 +2739,15 @@ onUnmounted(() => {
           <div class="toolbar" style="margin-bottom: 12px; padding: 0; border: none; background: transparent;">
             <template v-if="selectedTaskIndexes.length === 0">
               <div style="position: relative;" class="add-task-wrap">
-                <button class="primary-btn" type="button" @click.stop="showTaskSelector = !showTaskSelector"><UiIcon name="plus" />添加生产任务</button>
+                <button class="primary-btn ui-action-button" type="button" @click.stop="showTaskSelector = !showTaskSelector" title="添加生产任务" aria-label="添加生产任务"><UiIcon name="plus" /><span>添加任务</span></button>
               </div>
             </template>
             <template v-else>
               <div style="display:flex; align-items:center; width:100%; background: #fdfdfd; border: 1px solid #dce3e0; border-radius: 4px; padding: 6px 12px;">
                 <span style="font-size: 13px; color: #00b889; font-weight: 500; margin-right: 16px;">已选 {{ selectedTaskIndexes.length }} 条</span>
-                <button class="toolbar-btn" type="button" @click="openTaskEdit()">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                  修改
-                </button>
-                <button class="toolbar-btn" type="button" @click="removeSelectedTasks" style="color: #e74c3c; margin-right: auto;">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                  删除
-                </button>
-                <button class="toolbar-btn" type="button" @click="selectedTaskIndexes = []">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"></circle><polyline points="15 9 9 15"></polyline><polyline points="9 9 15 15"></polyline></svg>
-                  撤销多选
-                </button>
+                <button class="toolbar-btn ui-icon-button" type="button" @click="openTaskEdit()" title="编辑生产任务" aria-label="编辑生产任务"><UiIcon name="edit" /></button>
+                <button class="toolbar-btn ui-icon-button" type="button" @click="removeSelectedTasks" style="color: #e74c3c; margin-right: auto;" title="删除生产任务" aria-label="删除生产任务"><UiIcon name="trash" /></button>
+                <button class="toolbar-btn ui-action-button" type="button" @click="selectedTaskIndexes = []" title="取消选择" aria-label="取消选择"><UiIcon name="close" /><span>取消选择</span></button>
               </div>
             </template>
             <TableConfigButton table-id="work-order-form-tasks-table" />
@@ -2738,8 +2783,8 @@ onUnmounted(() => {
                   <td>{{ task.planDeadline || '-' }}</td>
                   <td>{{ task.reportPermission || '-' }}</td>
                   <td class="action-cell">
-                    <button class="action-link" type="button" @click="openTaskEdit(index)">编辑</button>
-                    <button class="action-link danger" type="button" @click="toggleTaskOne(index, true); removeSelectedTasks()">删除</button>
+                    <button class="action-link ui-icon-button" type="button" @click="openTaskEdit(index)" title="编辑生产任务" aria-label="编辑生产任务"><UiIcon name="edit" /></button>
+                    <button class="action-link danger ui-icon-button" type="button" @click="toggleTaskOne(index, true); removeSelectedTasks()" title="删除生产任务" aria-label="删除生产任务"><UiIcon name="trash" /></button>
                   </td>
                 </tr>
                 <tr v-if="form.tasks.length === 0">
@@ -2753,8 +2798,8 @@ onUnmounted(() => {
         <div v-else-if="activeTab === 'material'" style="padding:18px; display:flex; flex-direction:column; min-height: 300px;">
           <div class="toolbar" style="margin-bottom: 12px; padding: 0; border: none; background: transparent;">
             <div class="toolbar-left">
-              <button class="primary-btn" type="button" @click="addMaterial"><UiIcon name="plus" />添加物料</button>
-              <button class="ghost-btn" type="button" :disabled="!selectedProductBom" @click="applyBomMaterials"><UiIcon name="layers" />按BOM带入</button>
+              <button class="primary-btn ui-action-button" type="button" @click="addMaterial" title="添加物料" aria-label="添加物料"><UiIcon name="plus" /><span>添加物料</span></button>
+              <button class="ghost-btn ui-action-button" type="button" :disabled="!selectedProductBom" @click="applyBomMaterials" title="按BOM带入" aria-label="按BOM带入"><UiIcon name="layers" />带入BOM</button>
               <TableConfigButton table-id="work-order-form-materials-table" />
               <span v-if="selectedProductBom" class="muted">已匹配 BOM：{{ selectedProductBom.code }}</span>
               <span v-else class="muted">当前产品暂无启用 BOM，可手工添加</span>
@@ -2788,7 +2833,7 @@ onUnmounted(() => {
                     />
                   </td>
                   <td class="action-cell">
-                    <button class="action-link danger" type="button" @click="removeMaterial(index)">删除</button>
+                    <button class="action-link danger ui-icon-button" type="button" @click="removeMaterial(index)" title="删除物料" aria-label="删除物料"><UiIcon name="trash" /></button>
                   </td>
                 </tr>
                 <tr v-if="form.materials.length === 0">
@@ -2801,7 +2846,7 @@ onUnmounted(() => {
 
         <div class="modal-footer">
           <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveOrder" :disabled="saving">{{ saving ? '保存中...' : '确定' }}</button>
+          <button class="primary-btn wide" type="button" @click="saveOrder" :disabled="saving" title="保存工单" aria-label="保存工单">{{ saving ? '保存中...' : '确定' }}</button>
         </div>
       </div>
     </div>
@@ -2811,7 +2856,7 @@ onUnmounted(() => {
       <div class="modal workorder-modal" style="width: 400px;">
         <div class="modal-header">
           <h2>修改任务</h2>
-          <button class="close-btn" type="button" @click="showTaskEditModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showTaskEditModal = false" title="关闭任务窗口" aria-label="关闭任务窗口"><UiIcon name="close" /></button>
         </div>
         <div style="padding: 24px;">
           <div class="form-row">
@@ -2846,7 +2891,7 @@ onUnmounted(() => {
       <div class="modal workorder-modal" style="width: 480px;">
         <div class="modal-header">
           <h2>添加工单分类</h2>
-          <button class="close-btn" type="button" @click="showCategoryModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showCategoryModal = false" title="关闭分类窗口" aria-label="关闭分类窗口"><UiIcon name="close" /></button>
         </div>
         <div style="padding: 24px;">
           <div class="form-row">
@@ -2876,7 +2921,7 @@ onUnmounted(() => {
       <div class="modal workorder-modal" style="width: 760px;">
         <div class="modal-header">
           <h2>选择打印模板</h2>
-          <button class="close-btn" type="button" @click="showPrintModal = false">×</button>
+          <button class="close-btn ui-icon-button" type="button" @click="showPrintModal = false" title="关闭打印窗口" aria-label="关闭打印窗口"><UiIcon name="close" /></button>
         </div>
         <div style="display: flex; padding: 24px; min-height: 300px;">
           <!-- 内置打印 -->
@@ -2905,7 +2950,7 @@ onUnmounted(() => {
               </label>
             </div>
             <div style="text-align: center; margin-top: 32px;">
-              <button class="primary-btn" type="button" @click="doPrint" style="padding: 0 32px;"><UiIcon name="print" />直接打印</button>
+              <button class="primary-btn ui-action-button" type="button" @click="doPrint" style="padding: 0 32px;" title="直接打印" aria-label="直接打印"><UiIcon name="print" /><span>打印</span></button>
             </div>
           </div>
           <!-- Excel 模板打印 -->
@@ -2942,8 +2987,8 @@ onUnmounted(() => {
               </label>
             </div>
             <div style="text-align: center; margin-top: 32px; display: flex; justify-content: center; gap: 16px;">
-              <button class="primary-btn" type="button" @click="doExcelPrint('wps')" style="padding: 0 24px; background: #00b889;"><UiIcon name="print" />WPS打印</button>
-              <button class="ghost-btn" type="button" @click="doExcelPrint('download')" style="padding: 0 24px; color: #00b889; border-color: #00b889;"><UiIcon name="download" />下载打印</button>
+              <button class="primary-btn ui-action-button" type="button" @click="doExcelPrint('wps')" style="padding: 0 24px; background: #00b889;" title="WPS打印" aria-label="WPS打印"><UiIcon name="print" /><span>WPS打印</span></button>
+              <button class="ghost-btn ui-action-button" type="button" @click="doExcelPrint('download')" style="padding: 0 24px; color: #00b889; border-color: #00b889;" title="下载打印" aria-label="下载打印"><UiIcon name="download" /><span>下载</span></button>
             </div>
           </div>
         </div>
@@ -3037,7 +3082,7 @@ onUnmounted(() => {
           <svg viewBox="0 0 24 24" width="18" height="18" stroke="#00b889" stroke-width="2.5" fill="none" style="vertical-align: middle;"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
           选择生产任务
         </h2>
-        <button class="close-btn" type="button" @click="showTaskSelector = false" style="cursor: pointer;">×</button>
+        <button class="close-btn ui-icon-button" type="button" @click="showTaskSelector = false" style="cursor: pointer;" title="关闭任务窗口" aria-label="关闭任务窗口"><UiIcon name="close" /></button>
       </div>
 
       <!-- 弹窗主体 -->
@@ -3059,7 +3104,7 @@ onUnmounted(() => {
                 borderRadius: '4px',
                 cursor: 'pointer',
                 fontSize: '13px',
-                transition: 'all 0.2s'
+                transition: 'all var(--motion-base)'
               }"
             >
               按工序添加
@@ -3077,7 +3122,7 @@ onUnmounted(() => {
                 borderRadius: '4px',
                 cursor: 'pointer',
                 fontSize: '13px',
-                transition: 'all 0.2s'
+                transition: 'all var(--motion-base)'
               }"
             >
               按工艺路线添加
@@ -3098,9 +3143,7 @@ onUnmounted(() => {
               type="button" 
               @click="taskSelectorKeyword = ''" 
               style="position: absolute; right: 10px; border: none; background: transparent; color: #8a9693; font-size: 16px; cursor: pointer;"
-            >
-              ×
-            </button>
+             class="ui-icon-button" title="清除搜索" aria-label="清除搜索"><UiIcon name="close" /></button>
           </div>
         </div>
 
@@ -3133,7 +3176,7 @@ onUnmounted(() => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '12px',
-                transition: 'all 0.15s ease-in-out',
+                transition: 'all var(--motion-fast) ease-in-out',
                 boxShadow: isProcessSelectedInSelector(p) ? '0 2px 8px rgba(0, 184, 137, 0.08)' : '0 1px 3px rgba(0,0,0,0.02)'
               }"
               class="selector-card-hover"
@@ -3171,11 +3214,11 @@ onUnmounted(() => {
               <button 
                 type="button" 
                 @click.stop="addTaskFromProcess(p)" 
-                style="border: none; background: transparent; padding: 4px; border-radius: 4px; cursor: pointer; color: #bdc7c4; transition: color 0.2s;"
+                style="border: none; background: transparent; padding: 4px; border-radius: 4px; cursor: pointer; color: #bdc7c4; transition: color var(--motion-base);"
                 title="直接单选添加"
                 onmouseover="this.style.color='#00b889'; this.style.background='#eefcf7';"
                 onmouseout="this.style.color='#bdc7c4'; this.style.background='transparent';"
-              >
+               class="ui-icon-button" aria-label="直接单选添加">
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               </button>
             </div>
@@ -3198,7 +3241,7 @@ onUnmounted(() => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '12px',
-                transition: 'all 0.15s ease-in-out',
+                transition: 'all var(--motion-fast) ease-in-out',
                 boxShadow: isRouteSelectedInSelector(r) ? '0 2px 8px rgba(0, 184, 137, 0.08)' : '0 1px 3px rgba(0,0,0,0.02)'
               }"
               class="selector-card-hover"
@@ -3245,11 +3288,11 @@ onUnmounted(() => {
               <button 
                 type="button" 
                 @click.stop="addTaskFromRoute(r)" 
-                style="border: none; background: transparent; padding: 4px; border-radius: 4px; cursor: pointer; color: #bdc7c4; transition: color 0.2s; align-self: center;"
+                style="border: none; background: transparent; padding: 4px; border-radius: 4px; cursor: pointer; color: #bdc7c4; transition: color var(--motion-base); align-self: center;"
                 title="直接单选添加工艺路线"
                 onmouseover="this.style.color='#00b889'; this.style.background='#eefcf7';"
                 onmouseout="this.style.color='#bdc7c4'; this.style.background='transparent';"
-              >
+               class="ui-icon-button" aria-label="直接单选添加工艺路线">
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               </button>
             </div>
@@ -3314,6 +3357,15 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.work-order-focus { margin-bottom: 16px; padding: 12px 16px; border: 1px solid var(--border-default, #dfe7e4); border-radius: 8px; background: var(--surface-raised, #fff); }
+.work-order-focus header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.work-order-focus h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }
+.work-order-focus dl { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 12px 0 0; }
+.work-order-focus dl > div { min-width: 80px; }
+.work-order-focus dt { color: var(--text-muted, #64716d); font-size: 12px; }
+.work-order-focus dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.work-order-focus [role="alert"] { color: var(--danger, #c43224); }
+.work-order-search-icon { display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; color: var(--accent, #00b889); }
 /* 精致超薄的进度条横向拖拉条样式 */
 .scroll-thin {
   overflow-x: auto;
@@ -3333,7 +3385,7 @@ onUnmounted(() => {
 .scroll-thin::-webkit-scrollbar-thumb {
   background-color: #bdc7c4 !important;
   border-radius: 2px !important;
-  transition: background-color 0.2s;
+  transition: background-color var(--motion-base);
 }
 
 .scroll-thin::-webkit-scrollbar-thumb:hover {
@@ -3448,7 +3500,7 @@ onUnmounted(() => {
   font-size: 13px;
   color: #1e2724;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background var(--motion-base);
 }
 .task-selector-item:hover {
   background: #f0f4f2;
@@ -3457,7 +3509,7 @@ tr.drag-over {
   border-top: 2px solid #00b889;
 }
 .selector-card-hover {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  transition: all var(--motion-base) cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 .selector-card-hover:hover {
   border-color: #00b889 !important;
@@ -3471,7 +3523,7 @@ tr.drag-over {
   border-radius: 6px;
   font-size: 13px;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color var(--motion-base);
   background: #fff;
 }
 .selector-search-input:focus {
@@ -3527,7 +3579,7 @@ tr.drag-over {
 
 .cat-icon {
   flex-shrink: 0;
-  transition: transform 0.2s ease;
+  transition: transform var(--motion-base) ease;
 }
 
 .category-tab:hover .cat-icon {
@@ -3550,7 +3602,7 @@ tr.drag-over {
   font-size: 10px;
   line-height: 1;
   margin-left: 4px;
-  transition: all 0.2s ease;
+  transition: all var(--motion-base) ease;
   opacity: 0.4;
 }
 
@@ -3575,7 +3627,7 @@ tr.drag-over {
   background-color: transparent;
   color: #8a9693;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--motion-base) ease;
 }
 
 .add-cat-btn:hover {
