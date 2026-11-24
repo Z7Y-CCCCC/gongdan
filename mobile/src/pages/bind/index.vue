@@ -41,13 +41,20 @@ import { ref, reactive, onBeforeUnmount, onMounted } from 'vue'
 import { bindAccount, passwordLogin, saveSession, wechatLogin } from '../../services/api'
 import { usePageDraft } from '../../composables/usePageDraft'
 import { goAfterLogin as navigateAfterLogin, loginRedirect } from '../../utils/navigation'
+import { mobileSessionKey } from '../../utils/session-key'
+import { onHide } from '@dcloudio/uni-app'
+import { useMobilePageActivity } from '../../composables/useMobilePageActivity'
+
+const pageActivity = useMobilePageActivity()
 
 const loading = ref(false)
 const redirectUrl = ref('')
 const isH5 = typeof window !== 'undefined'
 let manualLogin = false
 let navigationTimer: ReturnType<typeof setTimeout> | undefined
-onBeforeUnmount(() => { if (navigationTimer) clearTimeout(navigationTimer) })
+let pageAlive = true
+onHide(() => { if (navigationTimer) clearTimeout(navigationTimer) })
+onBeforeUnmount(() => { pageAlive = false; if (navigationTimer) clearTimeout(navigationTimer) })
 const configuredWechatMock = import.meta.env.VITE_WECHAT_MOCK_ENABLED
 const wechatMockEnabled = configuredWechatMock === 'true'
 const form = reactive({
@@ -114,14 +121,19 @@ async function getWxCode() {
 }
 
 async function tryWechatLogin() {
-  if (loading.value) return
+  if (!pageAlive || loading.value) return
+  const session = mobileSessionKey()
+  const isPageCurrent = pageActivity.capture(true)
+  const current = () => pageAlive && isPageCurrent() && session === mobileSessionKey()
   loading.value = true
   try {
     const code = await getWxCode()
+    if (!current()) return
     const res = await wechatLogin(wechatMockEnabled ? {
       code,
       mockOpenid: getMockOpenid()
     } : { code })
+    if (!current()) return
     if (res.bindRequired) {
       form.openidTicket = res.openidTicket || ''
       return
@@ -129,10 +141,11 @@ async function tryWechatLogin() {
     saveSession(res)
     goAfterLogin()
   } catch (e: any) {
+    if (!current()) return
     form.openidTicket = ''
     uni.showToast({ title: e.message || '微信登录失败，请重试', icon: 'none' })
   } finally {
-    loading.value = false
+    if (pageAlive) loading.value = false
   }
 }
 
@@ -141,7 +154,7 @@ function goAfterLogin() {
 }
 
 const handleBind = async () => {
-  if (loading.value) return
+  if (!pageAlive || loading.value) return
   if (!form.factoryCode.trim() || !form.username.trim() || !form.password) {
     uni.showToast({ title: '请填写完整信息', icon: 'none' })
     return
@@ -153,6 +166,9 @@ const handleBind = async () => {
 
   loading.value = true
   let signedIn = false
+  const session = mobileSessionKey()
+  const isPageCurrent = pageActivity.capture()
+  const current = () => pageAlive && isPageCurrent() && session === mobileSessionKey()
   try {
     const credentials = {
       factoryCode: form.factoryCode.trim(),
@@ -161,17 +177,19 @@ const handleBind = async () => {
     }
     const res = isH5 ? await passwordLogin(credentials)
       : await bindAccount({ ...credentials, openidTicket: form.openidTicket })
-    
+    if (!current()) return
     saveSession(res)
     signedIn = true
+    const signedInSession = mobileSessionKey()
     form.password = ''
     clearAccountDraft()
     uni.showToast({ title: '登录成功', icon: 'success' })
     
     navigationTimer = setTimeout(() => {
-      goAfterLogin()
+      if (pageAlive && isPageCurrent() && signedInSession === mobileSessionKey()) goAfterLogin()
     }, 1500)
   } catch (e: any) {
+    if (!current()) return
     uni.showModal({
       title: '登录失败',
       content: e.message || '请检查工厂代码或账号密码是否正确',
@@ -179,7 +197,7 @@ const handleBind = async () => {
       showCancel: false
     })
   } finally {
-    if (!signedIn) loading.value = false
+    if (pageAlive && !signedIn) loading.value = false
   }
 }
 </script>

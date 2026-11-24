@@ -43,6 +43,11 @@ release-windows/
 backend/uploads/
 uploads/
 
+# Standalone plugin databases are local state, never source artifacts.
+plugins/*/data/
+*.mv.db
+*.trace.db
+
 # Local Tools
 Launch-Codex-Fast.*
 

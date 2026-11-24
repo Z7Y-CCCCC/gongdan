@@ -7,6 +7,8 @@ import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.TokenService;
 import com.heihu.workorder.service.WorkOrderReportService;
 import com.heihu.workorder.service.WorkOrderReportService.ReportImageDownload;
+import com.heihu.workorder.util.AttachmentMediaTypes;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import org.springframework.core.io.Resource;
@@ -16,7 +18,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -57,10 +58,11 @@ public class MobileReportController {
         AuthenticatedUser currentUser = tokenService.requireUser(authorization);
         ReportImageDownload download = reportService.getImageDownload(currentUser.getFactoryId(), imageId);
         return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(download.getImage().getContentType()))
+                .contentType(AttachmentMediaTypes.forDownload(download.getImage().getContentType()))
                 .cacheControl(CacheControl.noStore())
+                .header("X-Content-Type-Options", "nosniff")
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
-                        .filename(download.getImage().getOriginalFileName())
+                        .filename(download.getImage().getOriginalFileName(), StandardCharsets.UTF_8)
                         .build()
                         .toString())
                 .body(download.getResource());

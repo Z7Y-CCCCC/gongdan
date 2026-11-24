@@ -40,7 +40,7 @@
       <view class="form-item">
         <view class="label"><text class="required">*</text>报工数</view>
         <view class="value-row">
-          <input type="number" v-model="form.reportQuantity" aria-label="报工数" placeholder="0" class="num-input" @input="syncGoodQuantity" />
+          <input type="number" v-model="form.reportQuantity" :disabled="loading" aria-label="报工数" placeholder="0" class="num-input" @input="syncGoodQuantity" />
           <text class="unit">{{ productUnit }}</text>
         </view>
       </view>
@@ -49,7 +49,7 @@
       <view class="form-item">
         <view class="label">良品数</view>
         <view class="value-row">
-          <input type="number" v-model="form.goodQuantity" aria-label="良品数" placeholder="0" class="num-input" />
+          <input type="number" v-model="form.goodQuantity" :disabled="loading" aria-label="良品数" placeholder="0" class="num-input" />
         </view>
       </view>
 
@@ -57,7 +57,7 @@
       <view class="form-item">
         <view class="label">不良数</view>
         <view class="value-row">
-          <input type="number" v-model="form.defectQuantity" aria-label="不良数" placeholder="请输入" class="num-input red-text" @input="syncGoodQuantity" />
+          <input type="number" v-model="form.defectQuantity" :disabled="loading" aria-label="不良数" placeholder="请输入" class="num-input red-text" @input="syncGoodQuantity" />
         </view>
       </view>
 
@@ -68,7 +68,7 @@
       <view class="form-item" v-if="Number(form.defectQuantity) > 0">
         <view class="label">不良品项</view>
         <view class="value-row">
-          <input v-model="form.defectItemName" aria-label="不良原因" class="text-input" placeholder="请输入不良原因" />
+          <input v-model="form.defectItemName" :disabled="loading" aria-label="不良原因" class="text-input" placeholder="请输入不良原因" />
         </view>
       </view>
       <!-- #ifdef H5 -->
@@ -79,9 +79,9 @@
       <view class="form-item">
         <view class="label">报工时长</view>
         <view class="value-row">
-          <input type="number" v-model="durationHours" aria-label="报工小时" class="mini-input" />
+          <input type="number" v-model="durationHours" :disabled="loading" aria-label="报工小时" class="mini-input" />
           <text class="unit-s">小时</text>
-          <input type="number" v-model="durationMinutes" aria-label="报工分钟" class="mini-input" />
+          <input type="number" v-model="durationMinutes" :disabled="loading" aria-label="报工分钟" class="mini-input" />
           <text class="unit-s">分钟</text>
         </view>
       </view>
@@ -91,22 +91,22 @@
         <view class="time-item">
           <text class="tl">开始时间 <text class="required">*</text></text>
           <!-- #ifdef H5 -->
-          <input type="datetime-local" aria-label="开始时间" class="datetime-input" :value="form.startTime.replace(' ', 'T').slice(0, 16)" @change="changeH5Time('startTime', $event)" />
+          <input type="datetime-local" :disabled="loading" aria-label="开始时间" class="datetime-input" :value="form.startTime.replace(' ', 'T').slice(0, 16)" @change="changeH5Time('startTime', $event)" />
           <!-- #endif -->
           <!-- #ifndef H5 -->
-          <picker mode="date" :value="form.startTime.slice(0, 10)" @change="changeTime('startTime', 'date', $event.detail.value)"><text class="tv">{{ form.startTime.slice(0, 10) || '选择日期' }}</text></picker>
-          <picker mode="time" :value="form.startTime.slice(11, 16)" @change="changeTime('startTime', 'time', $event.detail.value)"><text class="tv">{{ form.startTime.slice(11, 16) || '选择时间' }}</text></picker>
+          <picker mode="date" :disabled="loading" :value="form.startTime.slice(0, 10)" @change="changeTime('startTime', 'date', $event.detail.value)"><text class="tv">{{ form.startTime.slice(0, 10) || '选择日期' }}</text></picker>
+          <picker mode="time" :disabled="loading" :value="form.startTime.slice(11, 16)" @change="changeTime('startTime', 'time', $event.detail.value)"><text class="tv">{{ form.startTime.slice(11, 16) || '选择时间' }}</text></picker>
           <!-- #endif -->
         </view>
         <view class="time-divider"></view>
         <view class="time-item">
           <text class="tl">结束时间 <text class="required">*</text></text>
           <!-- #ifdef H5 -->
-          <input type="datetime-local" aria-label="结束时间" class="datetime-input" :value="form.endTime.replace(' ', 'T').slice(0, 16)" @change="changeH5Time('endTime', $event)" />
+          <input type="datetime-local" :disabled="loading" aria-label="结束时间" class="datetime-input" :value="form.endTime.replace(' ', 'T').slice(0, 16)" @change="changeH5Time('endTime', $event)" />
           <!-- #endif -->
           <!-- #ifndef H5 -->
-          <picker mode="date" :value="form.endTime.slice(0, 10)" @change="changeTime('endTime', 'date', $event.detail.value)"><text class="tv">{{ form.endTime.slice(0, 10) || '选择日期' }}</text></picker>
-          <picker mode="time" :value="form.endTime.slice(11, 16)" @change="changeTime('endTime', 'time', $event.detail.value)"><text class="tv">{{ form.endTime.slice(11, 16) || '选择时间' }}</text></picker>
+          <picker mode="date" :disabled="loading" :value="form.endTime.slice(0, 10)" @change="changeTime('endTime', 'date', $event.detail.value)"><text class="tv">{{ form.endTime.slice(0, 10) || '选择日期' }}</text></picker>
+          <picker mode="time" :disabled="loading" :value="form.endTime.slice(11, 16)" @change="changeTime('endTime', 'time', $event.detail.value)"><text class="tv">{{ form.endTime.slice(11, 16) || '选择时间' }}</text></picker>
           <!-- #endif -->
         </view>
       </view>
@@ -115,14 +115,14 @@
       <view class="form-item">
         <view class="label">领料产品</view>
         <view class="value-row">
-          <input v-model="form.materialName" aria-label="领料产品" class="text-input" placeholder="产品（可选）" />
+          <input v-model="form.materialName" :disabled="loading" aria-label="领料产品" class="text-input" placeholder="产品（可选）" />
         </view>
       </view>
 
       <!-- 备注 -->
       <view class="form-item-textarea">
         <view class="label">备注</view>
-        <textarea class="textarea-input" v-model="form.remark" aria-label="报工备注" placeholder="备注（可选）" maxlength="500" />
+        <textarea class="textarea-input" v-model="form.remark" :disabled="loading" aria-label="报工备注" placeholder="备注（可选）" maxlength="500" />
       </view>
 
       <!-- 底部图片上传 -->
@@ -177,7 +177,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onBeforeUnmount, onMounted, nextTick, watch } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onHide, onLoad } from '@dcloudio/uni-app'
 import { createReport, downloadReportImage, ensureLogin, fetchWorkOrder, uploadReportImage, fetchWorkOrderReporters } from '../../services/api'
 import type { ReportImage } from '../../types/api'
 import { usePageDraft } from '../../composables/usePageDraft'
@@ -186,6 +186,9 @@ import { showPendingReportsOnReturn } from '../../utils/report-flow'
 import { navigatePage } from '../../utils/navigation'
 import IconButton from '../../components/IconButton.vue'
 import { mobileSessionKey } from '../../utils/session-key'
+import { useMobilePageActivity } from '../../composables/useMobilePageActivity'
+
+const pageActivity = useMobilePageActivity()
 
 // URL 参数
 let paramOrderId = ''
@@ -273,7 +276,22 @@ function trapPickerFocus(event: KeyboardEvent) {
 }
 let navigationTimer: ReturnType<typeof setTimeout> | undefined
 let contextSequence = 0
-onBeforeUnmount(() => { contextSequence++; if (navigationTimer) clearTimeout(navigationTimer) })
+let reportContextSession = ''
+let pageAlive = true
+let uploadSequence = 0
+let hideActiveSubmitLoading: (() => void) | undefined
+onHide(() => {
+  hideActiveSubmitLoading?.()
+  if (navigationTimer) clearTimeout(navigationTimer)
+})
+onBeforeUnmount(() => {
+  pageAlive = false
+  contextSequence++
+  uploadSequence++
+  uploading.value = false
+  hideActiveSubmitLoading?.()
+  if (navigationTimer) clearTimeout(navigationTimer)
+})
 
 // 报工人员列表
 const reporterList = ref<Array<{ id: number; name: string; username: string }>>([])
@@ -336,9 +354,11 @@ onMounted(async () => {
 })
 
 async function loadReportContext() {
+  if (!pageAlive) return
   const sequence = ++contextSequence
   const session = mobileSessionKey()
-  const current = () => sequence === contextSequence && session === mobileSessionKey()
+  const isPageCurrent = pageActivity.capture()
+  const current = () => pageAlive && isPageCurrent() && sequence === contextSequence && session === mobileSessionKey()
   const user = uni.getStorageSync('user')
   reporterLoading.value = true
   loadError.value = ''
@@ -350,12 +370,14 @@ async function loadReportContext() {
       ])
       if (!current()) return
       if (!order || !Array.isArray(order.tasks) || !Array.isArray(users)) throw new Error('报工信息返回格式异常，请重试')
+      if (!['NOT_STARTED', 'EXECUTING', 'IN_PROGRESS'].includes(order.status)) throw new Error('已暂停、结束或取消的工单不可报工')
       const task = order.tasks.find((item, index) => (item.sequenceNo || index + 1) === form.processSequenceNo)
       if (!task || task.enabled === false) throw new Error('工序不存在或已停用')
       if (isCorrection.value && ![originalProcessName, paramProcessName].includes(task.processName)) {
         throw new Error('原报工工序已变更，请回到工单选择当前工序。')
       }
       if (!users.some(item => item.id === user?.id)) throw new Error('当前账号没有该工序的报工权限')
+      reportContextSession = session
       form.processName = task.processName
       processName.value = task.processName
       productUnit.value = order.unitName || ''
@@ -369,9 +391,11 @@ async function loadReportContext() {
       for (const image of [...uploadedImages.value]) {
         if (image.previewPath) continue
         try {
-          image.previewPath = await downloadReportImage(image.id)
+          const previewPath = await downloadReportImage(image.id)
           if (!current()) return
+          image.previewPath = previewPath
         } catch (e: any) {
+          if (!current()) return
           uploadedImages.value = uploadedImages.value.filter(item => item.id !== image.id)
           uni.showToast({ title: e.message || '草稿图片已失效，请重新上传', icon: 'none' })
         }
@@ -422,6 +446,7 @@ const { clearDraft: clearReportDraft } = usePageDraft({
 })
 
 const selectReporter = (user: any) => {
+  if (loading.value || reporterLoading.value || loadError.value || !hasCurrentReportContext()) return
   selectedReporterId.value = user.id
   selectedReporterName.value = user.name
   showReporterPicker.value = false
@@ -437,31 +462,39 @@ function changeH5Time(field: 'startTime' | 'endTime', event: Event) {
 }
 
 const chooseImage = () => {
-  if (loading.value || uploading.value || reporterLoading.value || loadError.value || uploadedImages.value.length >= 9) return
+  if (!pageAlive || loading.value || uploading.value || reporterLoading.value || loadError.value || uploadedImages.value.length >= 9 || !ensureLogin()) return
+  if (!hasCurrentReportContext()) return
+  const session = mobileSessionKey()
+  const isPageCurrent = pageActivity.capture(true)
+  const sequence = ++uploadSequence
+  const current = () => pageAlive && isPageCurrent() && sequence === uploadSequence && session === mobileSessionKey()
   uploading.value = true
   uni.chooseImage({
     count: 9 - uploadedImages.value.length,
     success: async (res) => {
       try {
         for (const path of res.tempFilePaths.slice(0, 9 - uploadedImages.value.length)) {
+          if (!current()) return
           try {
             const img = await uploadReportImage(path)
+            if (!current()) return
             img.previewPath = path
             uploadedImages.value.push(img)
           } catch (e: any) {
+            if (!current()) return
             uni.showToast({ title: e.message || '图片上传失败', icon: 'none' })
           }
         }
       } finally {
-        uploading.value = false
+        if (sequence === uploadSequence) uploading.value = false
       }
     },
-    fail: () => { uploading.value = false }
+    fail: () => { if (sequence === uploadSequence) uploading.value = false }
   })
 }
 
 const removeImage = (idx: number) => {
-  if (loading.value || uploading.value) return
+  if (!pageAlive || loading.value || uploading.value || !hasCurrentReportContext()) return
   uploadedImages.value.splice(idx, 1)
 }
 
@@ -488,13 +521,22 @@ function goAfterSubmit() {
   navigatePage('/pages/report-list/index')
 }
 
+function hasCurrentReportContext() {
+  if (reportContextSession === mobileSessionKey()) return true
+  loadError.value = '登录状态已变更，请重试报工信息'
+  reporterList.value = []
+  selectedReporterId.value = 0
+  return false
+}
+
 const handleSubmit = async (isContinue: boolean) => {
-  if (loading.value || reporterLoading.value || loadError.value) return
+  if (!pageAlive || loading.value || reporterLoading.value || loadError.value) return
   if (uploading.value) {
     uni.showToast({ title: '请等待图片上传完成', icon: 'none' })
     return
   }
   if (!ensureLogin()) return
+  if (!hasCurrentReportContext()) return
   if (!form.workOrderId || !form.processSequenceNo) {
     uni.showToast({ title: '工单或工序信息未加载，请返回重进', icon: 'none' })
     return
@@ -510,6 +552,9 @@ const handleSubmit = async (isContinue: boolean) => {
   }
 
   const totalMinutes = Number(durationHours.value) * 60 + Number(durationMinutes.value)
+  const session = mobileSessionKey()
+  const isPageCurrent = pageActivity.capture()
+  const current = () => pageAlive && isPageCurrent() && session === mobileSessionKey()
 
   loading.value = true
   let submitted = false
@@ -519,6 +564,7 @@ const handleSubmit = async (isContinue: boolean) => {
     if (loadingVisible) uni.hideLoading()
     loadingVisible = false
   }
+  hideActiveSubmitLoading = hideSubmitLoading
   try {
     await createReport({
       workOrderId: form.workOrderId,
@@ -538,10 +584,11 @@ const handleSubmit = async (isContinue: boolean) => {
     })
     submitted = true
     hideSubmitLoading()
+    if (!current()) return
     uni.showToast({ title: '提交成功', icon: 'success' })
     clearReportDraft()
     if (!isContinue) {
-      navigationTimer = setTimeout(() => goAfterSubmit(), 1500)
+      navigationTimer = setTimeout(() => { if (current()) goAfterSubmit() }, 1500)
     } else {
       // 继续报工：清空表单
       form.reportQuantity = ''
@@ -555,13 +602,22 @@ const handleSubmit = async (isContinue: boolean) => {
       durationMinutes.value = '0'
       form.startTime = formatDateTime(new Date())
       form.endTime = form.startTime
+      // A committed report can change totals, permissions or the order state.
+      // Keep submit locked until the real context is re-read, never guess totals.
+      await loadReportContext()
     }
   } catch (e: any) {
     hideSubmitLoading()
+    if (!current()) return
     uni.showToast({ title: e.message || '提交失败', icon: 'none' })
   } finally {
     hideSubmitLoading()
-    if (!submitted || isContinue) loading.value = false
+    if (hideActiveSubmitLoading === hideSubmitLoading) hideActiveSubmitLoading = undefined
+    if (pageAlive) {
+      if (session !== mobileSessionKey()) loadError.value = '登录状态已变更，请重试'
+      else if (!isPageCurrent()) loadError.value = '页面已切换，请刷新报工信息并确认已提交记录'
+      if (!submitted || isContinue || !current()) loading.value = false
+    }
   }
 }
 

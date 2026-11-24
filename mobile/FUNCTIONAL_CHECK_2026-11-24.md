@@ -33,3 +33,33 @@
 - 第 251 页回归证明客户端可请求第 5,001 条位置，并使用现有分页契约；未声称插入 6,000 条真实数据库记录或做生产压测。
 - 微信真机、真实 AppID/HTTPS API/授权平台凭据，以及设备摄像头权限/拍照本身未验收；拍照入口与本地图片解码不能代替真实硬件测试。
 - 本轮未提交、推送或部署，由主代理汇总后更新 GitHub。
+
+## 第二轮补验：异步操作与页面/账号隔离
+
+续接上轮被中断的 10 项回归；保留上文已有证据，不把不同轮次的数量累加。修正测试适配器未传 Vue `emit` 所致的扫码负断言假阳性后，10 项基线均失败；已配套完成实际源码修复。另证实并修复原生扫码、旧退出确认、任务/详情权限晚响应等 5 项关联行为回归。
+
+| 范围 | 本轮修复与补验 |
+| --- | --- |
+| 照片选择/上传 | 选图返回前、每次上传前后检查原账号、当前 uni 页面实例和 H5 完整路由；账号切换、真正离开、卸载后的响应不进入草稿，也不提示旧错误或继续上传下一张。 |
+| 报工提交 | 处理中锁定输入；旧页面提交结果不清除新页面草稿、不显示旧成功、不延迟跳转；隐藏时及时撤销自己的全局 loading，迟到 finally 不误关后来页面的 loading。 |
+| 提交继续 | 实际 POST 成功后清空已提交输入，再重读工单、工序数量及可报工人员，刷新期间不能再次提交；重读失败保留“已提交”事实并阻止重复重发，可独立重试信息读取。 |
+| 报工状态/上下文 | 仅允许后端真实集合 `NOT_STARTED`、`EXECUTING`、`IN_PROGRESS`；暂停/完成/结束/关闭/取消/缺状态直链不能发 POST。报工上下文不会被另一账号沿用。正向测试补齐真实 DTO 状态，不放宽断言。 |
+| 登录/微信异步 | 密码/绑定/微信响应不能复活已离开页面或覆盖后选账号；登录成功后的定时跳转仍绑定成功时会话和原页面。密码未写入草稿。 |
+| 现场事件 | 新会话能取代旧会话仍未完成的 GET；旧页面/隐藏页 POST 不能清空新草稿或刷新旧列表；隐藏后再次显示可重新读取。 |
+| 扫码/退出/权限 | H5 正常同账号 QR 确实关闭弹层并打开内部工单，补正向控制；旧原生扫码、旧退出确认、旧任务/工单详情权限响应不跳转或清除新账号。 |
+| 隐藏和原生覆盖 | 新 `useMobilePageActivity` 区分普通操作 `onHide` epoch 与原生媒体覆盖。照片/扫码允许同页同账号 camera/album overlay 的 hide，但仍拒绝实际换页、换账号和 H5 离开后返回的旧回调；不再假定所有离开都会 Vue unmount。 |
+| 草稿 | 卸载后的 draft owner 不再能调用 `clearDraft` 删除同账号新页面写入的草稿。 |
+
+### 最新验证
+
+- 强化定向 **35/35**；新增 `round2` 行为回归 **31 项**（包含 hidden-but-mounted 和 native-overlay 两组对照），定向子集不另计入总数。
+- 完整默认 `npm test` 和串行 `npm test -- --test-concurrency=1` 均为 **161/161**，失败/跳过 0。默认命令在构建结束后另行复跑通过；未扩大已有安全 worker 的 3,500ms 限时或移除安全回归。
+- 最新 `npm run build`（含 `vue-tsc --noEmit` / H5）和 `npm run build:mp-weixin` 均成功；沿用 Vue **3.4.34**，无新增第三方依赖。
+- 证据：`test/mobile-functional-round2-baseline.log`、`test/mobile-functional-round2-extra-baseline.log`、`test/mobile-functional-round2-targeted.log`、`test/mobile-functional-round2-all.log`、`test/mobile-functional-round2-default-all.log`、`test/mobile-functional-round2-build-h5.log`、`test/mobile-functional-round2-build-weixin.log`。
+- 本节新增生命周期检查通过真实 TS/Vue setup 编译及 uni 生命周期适配器完成，不当成微信真机验收。主代理随后完成的最新 H5 浏览器补证见下一节，不与 161 项组件回归重复累计。
+
+## 主代理补充：第二轮真实 H5 页面活动检查
+
+第二轮源码冻结后，主代理在最新 H5 生产构建和独立合成 HTTP 夹具完成 **25/25** Chromium 检查，0 pageerror：实际 `uni.navigateTo` 隐藏但保留旧页面，迟到已提交回复不能删新草稿或跳走；正常同页“提交并继续”仍保存/重读。选图正/负对照使用真实 H5 文件选择和 PNG 像素；覆盖层仅模拟 H5 onHide 钩子，**没有**原生相机、微信真机或真实后台报工验证。
+
+结构结果：`../output/playwright/mobile-functional/round2-hidden-browser-result.json`；截图：`../output/playwright/mobile-functional/round2-*.png`。JSON 分列两组检查、旧页面仍存活的实际状态与硬件未验标记，不混为真实后台或真机验收。

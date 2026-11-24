@@ -31,11 +31,12 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-function harness({ browser = false, services, uniH5, storage: initialStorage = {}, now = () => Date.now() } = {}) {
+function harness({ browser = false, services, mocks = {}, uniH5, storage: initialStorage = {}, now = () => Date.now() } = {}) {
   const storage = new Map(Object.entries({ token: 'old-token', user: defaultUser, ...initialStorage }))
   const requests = [], uploads = [], downloads = [], choices = [], scans = [], events = []
   const hooks = { mounted: [], unmounted: [], activated: [], deactivated: [], hide: [], show: [], load: [] }
   const timers = new Map()
+  const currentPages = []
   let timerId = 0
   const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value))
   const uni = {
@@ -84,6 +85,7 @@ function harness({ browser = false, services, uniH5, storage: initialStorage = {
   function load(relativePath) {
     const filename = path.resolve(root, relativePath)
     if (services && filename === path.join(root, 'src/services/api.ts')) return services
+    if (mocks[path.relative(root, filename).replaceAll('\\', '/')]) return mocks[path.relative(root, filename).replaceAll('\\', '/')]
     if (cache.has(filename)) return cache.get(filename).exports
     let source = readFileSync(filename, 'utf8')
     if (filename.endsWith('.vue')) {
@@ -109,7 +111,7 @@ function harness({ browser = false, services, uniH5, storage: initialStorage = {
     vm.runInNewContext(output, {
       module, exports: module.exports, require: localRequire,
       uni, window, console, Error, URLSearchParams: browser ? URLSearchParams : undefined,
-      getCurrentPages: () => [], __env: { VITE_WECHAT_MOCK_ENABLED: 'false' },
+      getCurrentPages: () => currentPages, __env: { VITE_WECHAT_MOCK_ENABLED: 'false' },
       Date: class extends Date {
         constructor(...args) { super(...(args.length ? args : [now()])) }
         static now() { return now() }
@@ -121,13 +123,14 @@ function harness({ browser = false, services, uniH5, storage: initialStorage = {
   }
   return {
     storage, uni, requests, uploads, downloads, choices, scans, events, hooks, timers, window, load,
+    setCurrentPages(pages) { currentPages.splice(0, currentPages.length, ...pages) },
     hashRoute(hash) {
       window.location.hash = hash
       for (const callback of windowListeners.get('hashchange') ?? []) callback()
     },
     async page(filename, options = {}, mount = true, props = {}) {
       const component = load(filename).default
-      const bindings = component.setup(props, { expose() {} })
+      const bindings = component.setup(props, { expose() {}, emit: (...args) => events.push(['emit', ...args]) })
       hooks.load.forEach(callback => callback(options))
       if (mount) await Promise.all(hooks.mounted.map(callback => callback()))
       return bindings
@@ -614,7 +617,7 @@ test('device-scoped account-name drafts remain usable without login and do not r
 function reportServices(overrides = {}) {
   return {
     ensureLogin: () => true,
-    fetchWorkOrder: async () => ({ id: 42, plannedQuantity: 100, tasks: [{ sequenceNo: 1, processName: '实际工序', plannedQuantity: 100, enabled: true }] }),
+    fetchWorkOrder: async () => ({ id: 42, status: 'EXECUTING', plannedQuantity: 100, tasks: [{ sequenceNo: 1, processName: '实际工序', plannedQuantity: 100, enabled: true }] }),
     fetchWorkOrderReporters: async () => [defaultUser],
     createReport: async () => ({ id: 1 }),
     uploadReportImage: async () => ({ id: 3, accessPath: '/api/mobile/reports/images/3/file' }),
@@ -1272,7 +1275,7 @@ test('failed report context can retry without losing entered values or bypassing
   let failed = true
   const services = reportServices({ fetchWorkOrder: async () => {
     if (failed) throw new Error('工序网络故障')
-    return { id: 42, plannedQuantity: 100, unitName: '公斤', tasks: [{ sequenceNo: 1, processName: '已恢复工序', enabled: true }] }
+    return { id: 42, status: 'EXECUTING', plannedQuantity: 100, unitName: '公斤', tasks: [{ sequenceNo: 1, processName: '已恢复工序', enabled: true }] }
   } })
   const h = harness({ services }), page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
   assert.match(page.loadError.value, /网络故障/)
@@ -1297,9 +1300,9 @@ test('report context ignores late lookup values after a newer retry', async () =
   const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' }, false)
   const mounted = h.mount()
   const retry = page.loadReportContext()
-  fresh.resolve({ id: 42, tasks: [{ sequenceNo: 1, processName: '新工序', completedQuantity: 11 }] })
+  fresh.resolve({ id: 42, status: 'EXECUTING', tasks: [{ sequenceNo: 1, processName: '新工序', completedQuantity: 11 }] })
   await retry
-  old.resolve({ id: 42, tasks: [{ sequenceNo: 1, processName: '旧工序', completedQuantity: 99 }] })
+  old.resolve({ id: 42, status: 'EXECUTING', tasks: [{ sequenceNo: 1, processName: '旧工序', completedQuantity: 99 }] })
   await mounted
   assert.equal(page.completedQty.value, 11)
   assert.equal(page.form.processName, '新工序')
@@ -1372,4 +1375,445 @@ test('work-order history has paged recovery without turning failures into zero r
   assert.deepEqual(calls.map(options => options.page), [1, 2, 2])
   assert.ok(calls.every(options => options.workOrderId === 42 && options.includeSubmitted === true))
   assert.equal(page.loadedReports.value, 21); assert.equal(page.historyHasMore.value, false)
+})
+
+test('round2: a camera selection from a departed report page cannot upload under another account', async () => {
+  let uploads = 0
+  const h = harness({ services: reportServices({ uploadReportImage: async () => { uploads++; return { id: 3 } } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  page.chooseImage()
+  h.storage.set('token', 'new-session')
+  h.storage.set('user', { ...defaultUser, id: 8, factoryId: 2 })
+  await h.choices[0].success({ tempFilePaths: ['/tmp/old-account-photo.png'] })
+  assert.equal(uploads, 0)
+  assert.equal(page.uploadedImages.value.length, 0)
+})
+
+test('round2: an in-flight photo cannot enter the draft after the report page unmounts', async () => {
+  const upload = deferred()
+  const h = harness({ services: reportServices({ uploadReportImage: () => upload.promise }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  page.chooseImage()
+  const selected = h.choices[0].success({ tempFilePaths: ['/tmp/photo.png'] })
+  h.unmount()
+  upload.resolve({ id: 3, accessPath: '/api/mobile/reports/images/3/file' })
+  await selected
+  assert.equal(page.uploadedImages.value.length, 0)
+  assert.equal(page.uploading.value, false)
+})
+
+test('round2: a committed report from an unmounted page cannot erase a newer draft or navigate later', async () => {
+  const write = deferred()
+  const h = harness({ services: reportServices({ createReport: () => write.promise }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  const pending = page.handleSubmit(false)
+  h.unmount()
+  const draftKey = 'gongdan:draft:report:42:1:user:global:7'
+  h.storage.set(draftKey, { form: { remark: 'a newer page draft' } })
+  write.resolve({ id: 1 })
+  await pending
+  h.flushTimers()
+  assert.equal(h.storage.get(draftKey)?.form.remark, 'a newer page draft')
+  assert.equal(h.events.filter(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)).length, 0)
+  assert.equal(h.events.filter(([kind, options]) => kind === 'toast' && options.title === '提交成功').length, 0)
+})
+
+test('round2: submit-and-continue refreshes real process totals before enabling another submission', async () => {
+  let reads = 0
+  const h = harness({ services: reportServices({ fetchWorkOrder: async () => ({
+    id: 42, status: 'EXECUTING', tasks: [{ sequenceNo: 1, processName: '实际工序', plannedQuantity: 100,
+      completedQuantity: ++reads === 1 ? 0 : 10, defectQuantity: 2, enabled: true }]
+  }) }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  await page.handleSubmit(true)
+  assert.equal(reads, 2)
+  assert.equal(page.completedQty.value, 10)
+  assert.equal(page.defectQtyDisplay.value, 2)
+  assert.equal(page.loading.value, false)
+})
+
+test('round2: a paused order loaded through a direct report URL cannot enable submit', async () => {
+  let writes = 0
+  const h = harness({ services: reportServices({ fetchWorkOrder: async () => ({
+    id: 42, status: 'PAUSED', tasks: [{ sequenceNo: 1, processName: '实际工序', enabled: true }]
+  }), createReport: async () => { writes++; return { id: 1 } } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  await page.handleSubmit(false)
+  assert.match(page.loadError.value, /不可报工|暂停/)
+  assert.equal(writes, 0)
+})
+
+test('round2: leaving password login before its reply never restores a session or schedules a redirect', async () => {
+  const reply = deferred()
+  let saved = 0
+  const h = harness({ browser: true, services: {
+    passwordLogin: () => reply.promise, saveSession: () => { saved++ },
+    bindAccount: async () => { throw new Error('wrong endpoint') }, wechatLogin: async () => { throw new Error('wrong platform') }
+  } })
+  const page = await h.page('src/pages/bind/index.vue')
+  Object.assign(page.form, { factoryCode: 'TEST', username: 'worker', password: 'password' })
+  const login = page.handleBind()
+  h.unmount()
+  reply.resolve({ token: 'reply-token', user: defaultUser })
+  await login
+  h.flushTimers()
+  assert.equal(saved, 0)
+  assert.equal(h.events.filter(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)).length, 0)
+})
+
+test('round2: a late password login cannot replace a session selected while the request was pending', async () => {
+  const reply = deferred()
+  let saved = 0
+  const h = harness({ browser: true, services: {
+    passwordLogin: () => reply.promise, saveSession: () => { saved++ },
+    bindAccount: async () => { throw new Error('wrong endpoint') }, wechatLogin: async () => { throw new Error('wrong platform') }
+  } })
+  const page = await h.page('src/pages/bind/index.vue')
+  Object.assign(page.form, { factoryCode: 'TEST', username: 'worker', password: 'password' })
+  const login = page.handleBind()
+  h.storage.set('token', 'selected-session')
+  reply.resolve({ token: 'reply-token', user: defaultUser })
+  await login
+  assert.equal(saved, 0)
+  assert.equal(h.storage.get('token'), 'selected-session')
+})
+
+test('round2: a new session can refresh field events while the previous session GET is unresolved', async () => {
+  const old = deferred()
+  let calls = 0
+  const h = harness({ services: { ensureLogin: () => true, fetchFieldEvents: () => ++calls === 1 ? old.promise : Promise.resolve({ items: [{ id: 2, title: 'new factory' }] }) } })
+  const page = await h.page('src/pages/field-events/index.vue', {}, false)
+  const mounted = h.mount()
+  h.storage.set('token', 'new-session')
+  h.storage.set('user', { ...defaultUser, factoryId: 2 })
+  await page.loadEvents()
+  assert.equal(calls, 2)
+  old.resolve({ items: [{ id: 1, title: 'old factory' }] })
+  await mounted
+  assert.equal(page.events.value[0].title, 'new factory')
+})
+
+test('round2: a departed field-event POST cannot clear a newer draft or refresh its former page', async () => {
+  const write = deferred()
+  let reads = 0
+  const h = harness({ services: { ensureLogin: () => true, fetchFieldEvents: async () => { reads++; return { items: [] } }, createFieldEvent: () => write.promise } })
+  const page = await h.page('src/pages/field-events/index.vue')
+  page.form.title = 'old submitted event'
+  const submitting = page.submitEvent()
+  h.unmount()
+  const draftKey = 'gongdan:draft:field-event:user:global:7'
+  h.storage.set(draftKey, { title: 'new draft' })
+  write.resolve({ id: 1 })
+  await submitting
+  assert.equal(h.storage.get(draftKey)?.title, 'new draft')
+  assert.equal(reads, 1)
+})
+
+test('round2: an image-selected QR from a previous account never navigates under a new account', async () => {
+  const decoded = deferred()
+  const h = harness({ browser: true, services: { ensureLogin: () => true }, mocks: {
+    'src/utils/qr-image.ts': { QR_MAX_FILE_BYTES: 10485760, readQrImage: () => decoded.promise }
+  } })
+  const page = await h.page('src/components/ScanWorkOrderDialog.vue', {}, true, { modelValue: true })
+  page.choose('camera')
+  const selected = h.choices[0].success({ tempFilePaths: ['/tmp/qr.png'] })
+  h.storage.set('token', 'new-account-session')
+  decoded.resolve('http://localhost:8080/mobile/#/pages/work-order-detail/index?id=42')
+  await selected
+  assert.equal(h.events.filter(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)).length, 0)
+})
+
+test('round2: a valid same-account image QR closes the dialog and opens the actual internal work order', async () => {
+  const h = harness({ browser: true, services: { ensureLogin: () => true }, mocks: {
+    'src/utils/qr-image.ts': { QR_MAX_FILE_BYTES: 10485760, readQrImage: async () => 'https://fixture.invalid/mobile/#/pages/work-order-detail/index?id=42' }
+  } })
+  const page = await h.page('src/components/ScanWorkOrderDialog.vue', {}, true, { modelValue: true })
+  page.choose('album')
+  await h.choices[0].success({ tempFilePaths: ['/tmp/qr.png'] })
+  assert.equal(page.busy.value, false)
+  assert.equal(page.error.value, '')
+  assert.equal(h.events.find(([kind]) => kind === 'emit')?.[1], 'update:modelValue')
+  assert.equal(h.events.find(([kind]) => kind === 'emit')?.[2], false)
+  assert.equal(h.events.find(([kind]) => kind === 'navigateTo')?.[1].url, '/pages/work-order-detail/index?id=42')
+})
+
+test('round2: a native scan callback from a prior account cannot redirect a newly selected session', async () => {
+  const h = harness(), page = await h.page('src/pages/home/index.vue', {}, false)
+  page.handleScan()
+  assert.equal(h.scans.length, 1)
+  h.storage.set('token', 'new-account-session')
+  h.scans[0].success({ result: 'https://fixture.invalid/mobile/#/pages/work-order-detail/index?id=42' })
+  assert.equal(h.events.some(([kind]) => kind === 'navigateTo'), false)
+})
+
+test('round2: a departed home native scan callback never redirects or displays an old failure', async () => {
+  const h = harness(), page = await h.page('src/pages/home/index.vue', {}, false)
+  page.handleScan()
+  h.unmount()
+  h.scans[0].success({ result: '42' })
+  h.scans[0].fail({ errMsg: 'scan failed' })
+  assert.equal(h.events.some(([kind]) => kind === 'navigateTo' || kind === 'toast'), false)
+})
+
+test('round2: an older logout confirmation cannot clear the session chosen after it opened', async () => {
+  const h = harness(), page = await h.page('src/pages/home/index.vue', {}, false)
+  page.handleLogout()
+  h.storage.set('token', 'selected-account-token')
+  h.storage.set('user', { ...defaultUser, id: 8 })
+  h.events.find(([kind]) => kind === 'modal')[1].success({ confirm: true })
+  assert.equal(h.storage.get('token'), 'selected-account-token')
+  assert.equal(h.storage.get('user').id, 8)
+  assert.equal(h.events.some(([kind]) => kind === 'reLaunch'), false)
+})
+
+test('round2: task permission responses from a departed page cannot navigate after the user leaves', async () => {
+  const permission = deferred()
+  const h = harness({ services: { ensureLogin: () => true, fetchWorkOrderPage: async () => ({ items: [taskOrder(1)], total: 1 }), fetchWorkOrderReporters: () => permission.promise } })
+  const page = await h.page('src/pages/tasks/index.vue')
+  const opening = page.handleTask(page.tasks.value[0])
+  h.unmount()
+  permission.resolve([defaultUser])
+  await opening
+  assert.equal(h.events.some(([kind]) => kind === 'navigateTo'), false)
+})
+
+test('round2: detail permission cannot use same-number user IDs from another factory or a departed page', async () => {
+  for (const changeSession of [true, false]) {
+    const permission = deferred()
+    const h = harness({ services: { ensureLogin: () => true, fetchWorkOrder: async () => taskOrder(42), fetchReportPage: async () => ({ items: [], total: 0 }), fetchWorkOrderReporters: () => permission.promise } })
+    const page = await h.page('src/pages/work-order-detail/index.vue', { id: '42' })
+    const opening = page.handleReport(page.order.value.tasks[0])
+    if (changeSession) { h.storage.set('token', 'new-account-session'); h.storage.set('user', { ...defaultUser, factoryId: 2 }) }
+    else h.unmount()
+    permission.resolve([defaultUser])
+    await opening
+    assert.equal(h.events.some(([kind]) => kind === 'navigateTo'), false)
+  }
+})
+
+test('round2: report submit-and-continue waits for its context refresh and cannot write twice while it is pending', async () => {
+  const fresh = deferred()
+  let reads = 0, writes = 0
+  const h = harness({ services: reportServices({ fetchWorkOrder: () => ++reads === 1 ? Promise.resolve(taskOrder(42)) : fresh.promise, createReport: async () => { writes++; return { id: 1 } } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  const first = page.handleSubmit(true)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(reads, 2)
+  assert.equal(page.loading.value, true)
+  assert.equal(page.reporterLoading.value, true)
+  fillValidReport(page)
+  await page.handleSubmit(true)
+  assert.equal(writes, 1)
+  fresh.resolve(taskOrder(42))
+  await first
+  assert.equal(page.loading.value, false)
+})
+
+test('round2: a committed continue submission with a failed reread remains committed and blocks a duplicate retry', async () => {
+  let reads = 0, writes = 0
+  const h = harness({ services: reportServices({ fetchWorkOrder: async () => {
+    if (++reads === 2) throw new Error('已提交，但工序刷新失败')
+    return taskOrder(42)
+  }, createReport: async () => { writes++; return { id: 1 } } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  await page.handleSubmit(true)
+  assert.match(page.loadError.value, /工序刷新失败/)
+  assert.equal(page.form.reportQuantity, '')
+  assert.equal(page.loading.value, false)
+  await page.handleSubmit(true)
+  assert.equal(writes, 1)
+  await page.loadReportContext()
+  assert.equal(page.loadError.value, '')
+  assert.equal(writes, 1)
+})
+
+test('round2: only the three actual backend reportable states permit a direct form submission', async () => {
+  for (const status of ['NOT_STARTED', 'EXECUTING', 'IN_PROGRESS', 'PAUSED', 'COMPLETED', 'FINISHED', 'CLOSED', 'CANCELED', undefined]) {
+    let writes = 0
+    const h = harness({ services: reportServices({ fetchWorkOrder: async () => ({ ...taskOrder(42), status }), createReport: async () => { writes++; return { id: 1 } } }) })
+    const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+    fillValidReport(page)
+    await page.handleSubmit(false)
+    assert.equal(writes, ['NOT_STARTED', 'EXECUTING', 'IN_PROGRESS'].includes(status) ? 1 : 0, String(status))
+  }
+})
+
+test('round2: a report page context loaded for a former account never submits or starts a new image selection', async () => {
+  let writes = 0
+  const h = harness({ services: reportServices({ createReport: async () => { writes++; return { id: 1 } } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  h.storage.set('token', 'new-account-session')
+  page.chooseImage()
+  await page.handleSubmit(false)
+  assert.equal(h.choices.length, 0)
+  assert.equal(writes, 0)
+  assert.match(page.loadError.value, /登录状态已变更/)
+})
+
+test('round2: multiple report uploads stop after an account change and no stale upload error is shown', async () => {
+  const first = deferred()
+  let calls = 0
+  const h = harness({ services: reportServices({ uploadReportImage: () => { calls++; return first.promise } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  page.chooseImage()
+  const selected = h.choices[0].success({ tempFilePaths: ['/tmp/one.png', '/tmp/two.png'] })
+  h.storage.set('token', 'new-account-session')
+  first.reject(new Error('an old photo error'))
+  await selected
+  assert.equal(calls, 1)
+  assert.equal(page.uploadedImages.value.length, 0)
+  assert.equal(page.uploading.value, false)
+  assert.equal(h.events.some(([kind, options]) => kind === 'toast' && options.title === 'an old photo error'), false)
+})
+
+test('round2: a login redirect timer never runs under a session chosen after the login succeeds', async () => {
+  const h = harness({ browser: true, services: { passwordLogin: async () => ({ token: 'signed-in-session', user: defaultUser }), saveSession: result => { h.storage.set('token', result.token); h.storage.set('user', result.user) } } })
+  const page = await h.page('src/pages/bind/index.vue')
+  Object.assign(page.form, { factoryCode: 'TEST', username: 'worker', password: 'password' })
+  await page.handleBind()
+  assert.equal(h.storage.get('token'), 'signed-in-session')
+  h.storage.set('token', 'later-account-session')
+  h.flushTimers()
+  assert.equal(h.events.some(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)), false)
+})
+
+test('round2: a late WeChat login cannot restore a departed page or replace a selected session', async () => {
+  for (const changeSession of [true, false]) {
+    const reply = deferred()
+    let saved = 0
+    const h = harness({ services: { wechatLogin: () => reply.promise, saveSession: () => { saved++ } } })
+    const page = await h.page('src/pages/bind/index.vue', {}, false)
+    const login = page.tryWechatLogin()
+    await new Promise(resolve => setImmediate(resolve))
+    if (changeSession) h.storage.set('token', 'selected-account-session')
+    else h.unmount()
+    reply.resolve({ token: 'reply-token', user: defaultUser })
+    await login
+    assert.equal(saved, 0)
+    assert.equal(h.events.some(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)), false)
+  }
+})
+
+test('round2: an unmounted draft owner cannot clear a replacement page draft with the same account key', async () => {
+  const h = harness()
+  const form = Vue.reactive({ title: 'old draft' })
+  const { clearDraft } = h.load('src/composables/usePageDraft.ts').usePageDraft({ key: 'round2-draft', source: () => ({ ...form }), restore: () => {} })
+  await h.mount()
+  h.unmount()
+  h.storage.set('round2-draft:user:global:7', { title: 'new page draft' })
+  clearDraft()
+  assert.equal(h.storage.get('round2-draft:user:global:7').title, 'new page draft')
+})
+
+test('round2: a merely hidden report POST cannot erase a newer draft, toast, or redirect on its old page', async () => {
+  const write = deferred()
+  const h = harness({ browser: true, services: reportServices({ createReport: () => write.promise }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  const pending = page.handleSubmit(false)
+  h.hooks.hide.forEach(callback => callback())
+  const draftKey = 'gongdan:draft:report:42:1:user:global:7'
+  h.storage.set(draftKey, { form: { remark: 'a newer visible page draft' } })
+  write.resolve({ id: 1 })
+  await pending
+  h.flushTimers()
+  assert.equal(h.storage.get(draftKey).form.remark, 'a newer visible page draft')
+  assert.equal(h.events.some(([kind, options]) => kind === 'toast' && options.title === '提交成功'), false)
+  assert.equal(h.events.some(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)), false)
+  assert.equal(h.events.filter(([kind]) => kind === 'hideLoading').length, 1)
+  assert.match(page.loadError.value, /页面已切换/)
+})
+
+test('round2: a hidden login reply neither saves the session nor clears or redirects the current page', async () => {
+  const reply = deferred()
+  let saved = 0
+  const h = harness({ browser: true, services: { passwordLogin: () => reply.promise, saveSession: () => { saved++ } } })
+  const page = await h.page('src/pages/bind/index.vue')
+  Object.assign(page.form, { factoryCode: 'TEST', username: 'worker', password: 'password' })
+  const login = page.handleBind()
+  h.hooks.hide.forEach(callback => callback())
+  reply.resolve({ token: 'reply-token', user: defaultUser })
+  await login
+  h.flushTimers()
+  assert.equal(saved, 0)
+  assert.equal(page.form.password, 'password')
+  assert.equal(h.events.some(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)), false)
+})
+
+test('round2: a native camera overlay hide preserves a same-page same-account photo selection', async () => {
+  const h = harness({ services: reportServices() })
+  const currentPage = { route: 'pages/report-form/index' }
+  h.setCurrentPages([currentPage])
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  page.chooseImage()
+  h.hooks.hide.forEach(callback => callback())
+  await h.choices[0].success({ tempFilePaths: ['/tmp/native-camera.png'] })
+  assert.equal(page.uploadedImages.value.length, 1)
+  assert.equal(page.uploadedImages.value[0].previewPath, '/tmp/native-camera.png')
+  assert.equal(page.uploading.value, false)
+})
+
+test('round2: native scanner overlays can hide the same page but navigating to a different uni page invalidates them', async () => {
+  for (const navigateAway of [true, false]) {
+    const h = harness(), currentPage = { route: 'pages/home/index' }
+    h.setCurrentPages([currentPage])
+    const page = await h.page('src/pages/home/index.vue', {}, false)
+    page.handleScan()
+    h.hooks.hide.forEach(callback => callback())
+    if (navigateAway) h.setCurrentPages([currentPage, { route: 'pages/field-events/index' }])
+    h.scans[0].success({ result: 'https://fixture.invalid/mobile/#/pages/work-order-detail/index?id=42' })
+    assert.equal(h.events.some(([kind]) => kind === 'navigateTo'), !navigateAway)
+  }
+})
+
+test('round2: leaving and returning to an H5 route cannot revive its older media picker callback', async () => {
+  const h = harness({ browser: true, services: reportServices() })
+  h.window.location.hash = '#/pages/report-form/index?orderId=42&processNo=1'
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  page.chooseImage()
+  h.hooks.hide.forEach(callback => callback())
+  h.hashRoute('#/pages/work-order-detail/index?id=42')
+  h.hashRoute('#/pages/report-form/index?orderId=42&processNo=1')
+  await h.choices[0].success({ tempFilePaths: ['/tmp/stale-photo.png'] })
+  assert.equal(page.uploadedImages.value.length, 0)
+  assert.equal(page.uploading.value, false)
+})
+
+test('round2: a field-event POST on a hidden but mounted page does not clear a new draft or refresh the old view', async () => {
+  const write = deferred()
+  let reads = 0
+  const h = harness({ services: { ensureLogin: () => true, fetchFieldEvents: async () => { reads++; return { items: [] } }, createFieldEvent: () => write.promise } })
+  const page = await h.page('src/pages/field-events/index.vue')
+  page.form.title = 'submitted while visible'
+  const pending = page.submitEvent()
+  h.hooks.hide.forEach(callback => callback())
+  h.storage.set('gongdan:draft:field-event:user:global:7', { title: 'new visible page draft' })
+  write.resolve({ id: 1 })
+  await pending
+  assert.equal(reads, 1)
+  assert.equal(h.storage.get('gongdan:draft:field-event:user:global:7').title, 'new visible page draft')
+  assert.equal(h.events.some(([kind, options]) => kind === 'toast' && options.title === '已上报'), false)
+})
+
+test('round2: merely hidden task and detail permission lookups cannot open the former report form', async () => {
+  for (const filename of ['tasks', 'work-order-detail']) {
+    const permission = deferred()
+    const h = harness({ services: {
+      ensureLogin: () => true, fetchWorkOrderPage: async () => ({ items: [taskOrder(42)], total: 1 }),
+      fetchWorkOrder: async () => taskOrder(42), fetchReportPage: async () => ({ items: [], total: 0 }),
+      fetchWorkOrderReporters: () => permission.promise
+    } })
+    const page = await h.page(`src/pages/${filename}/index.vue`, { id: '42' })
+    const pending = filename === 'tasks' ? page.handleTask(page.tasks.value[0]) : page.handleReport(page.order.value.tasks[0])
+    h.hooks.hide.forEach(callback => callback())
+    permission.resolve([defaultUser])
+    await pending
+    assert.equal(h.events.some(([kind]) => kind === 'navigateTo'), false)
+  }
 })

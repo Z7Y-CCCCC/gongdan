@@ -6,6 +6,7 @@ import com.heihu.workorder.model.CustomFieldAttachment;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.repository.CustomFieldAttachmentRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.util.AttachmentMediaTypes;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDateTime;
@@ -15,16 +16,20 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 @Transactional
 public class CustomFieldAttachmentService {
+    private static final Logger log = LoggerFactory.getLogger(CustomFieldAttachmentService.class);
 
     private static final long MAX_ATTACHMENT_SIZE = 20L * 1024L * 1024L;
     private static final int MAX_SCOPE_LENGTH = 32;
-    private static final int MAX_CONTENT_TYPE_LENGTH = 128;
 
     private final CustomFieldAttachmentRepository attachmentRepository;
     private final UserRepository userRepository;
@@ -65,12 +70,14 @@ public class CustomFieldAttachmentService {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "仅支持 jpg、jpeg、png、webp 图片");
             }
             validateImageSignature(file, ext);
+            contentType = resolvedImageContentType(ext);
         }
 
         FactoryUser uploader = userRepository.findByIdAndFactoryId(userId, factoryId)
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "用户不存在"));
         String storedName = "cf_" + UUID.randomUUID().toString().replace("-", "") + (StringUtils.hasText(ext) ? "." + ext : "");
         storage.store(storedName, file);
+        boolean transactionOwnsCleanup = cleanupAttachmentOnRollback(storedName);
 
         CustomFieldAttachment attachment = new CustomFieldAttachment();
         attachment.setFactory(uploader.getFactory());
@@ -84,9 +91,32 @@ public class CustomFieldAttachmentService {
         attachment.setFileSize(file.getSize());
         attachment.setContentType(StringUtils.hasText(contentType) ? contentType : "application/octet-stream");
         attachment.setCreatedAt(LocalDateTime.now());
-        CustomFieldAttachment saved = attachmentRepository.save(attachment);
-        saved.setAccessPath("/api/custom-field-attachments/" + saved.getId() + "/file");
-        return CustomFieldAttachmentResponse.from(attachmentRepository.save(saved));
+        try {
+            CustomFieldAttachment saved = attachmentRepository.save(attachment);
+            saved.setAccessPath("/api/custom-field-attachments/" + saved.getId() + "/file");
+            return CustomFieldAttachmentResponse.from(attachmentRepository.save(saved));
+        } catch (RuntimeException failure) {
+            if (!transactionOwnsCleanup) deleteUncommittedAttachment(storedName);
+            throw failure;
+        }
+    }
+
+    private boolean cleanupAttachmentOnRollback(String storedName) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) return false;
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCompletion(int status) {
+                if (status == STATUS_ROLLED_BACK) deleteUncommittedAttachment(storedName);
+            }
+        });
+        return true;
+    }
+
+    private void deleteUncommittedAttachment(String storedName) {
+        try {
+            if (!storage.delete(storedName)) log.warn("Unable to remove rolled-back attachment: {}", storedName);
+        } catch (RuntimeException failure) {
+            log.warn("Unable to remove rolled-back attachment: {}", storedName, failure);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -112,9 +142,19 @@ public class CustomFieldAttachmentService {
 
     private void validateImageSignature(MultipartFile file, String ext) {
         byte[] header = new byte[12];
-        int length;
+        int length = 0;
         try (InputStream input = file.getInputStream()) {
-            length = input.read(header);
+            while (length < header.length) {
+                int read = input.read(header, length, header.length - length);
+                if (read < 0) break;
+                if (read == 0) {
+                    int next = input.read();
+                    if (next < 0) break;
+                    header[length++] = (byte) next;
+                } else {
+                    length += read;
+                }
+            }
         } catch (IOException ex) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "图片读取失败");
         }
@@ -188,13 +228,7 @@ public class CustomFieldAttachmentService {
     }
 
     private String normalizeContentType(String contentType) {
-        if (!StringUtils.hasText(contentType)) {
-            return "";
-        }
-        String value = contentType.trim().toLowerCase(Locale.ROOT);
-        int semicolon = value.indexOf(';');
-        value = semicolon >= 0 ? value.substring(0, semicolon).trim() : value;
-        return value.length() <= MAX_CONTENT_TYPE_LENGTH ? value : "";
+        return AttachmentMediaTypes.normalize(contentType);
     }
 
     private String sanitizeOriginalFileName(String fileName) {

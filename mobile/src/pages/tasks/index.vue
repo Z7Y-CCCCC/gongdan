@@ -55,6 +55,9 @@ import IconButton from '../../components/IconButton.vue'
 import { canReportTask } from '../../utils/report-permission'
 import { mobileSessionKey } from '../../utils/session-key'
 import { navigatePage } from '../../utils/navigation'
+import { useMobilePageActivity } from '../../composables/useMobilePageActivity'
+
+const pageActivity = useMobilePageActivity()
 
 interface TaskCard {
   id: string
@@ -83,11 +86,13 @@ let activeQuery: TaskQuery | undefined
 let nextPage = 1
 const seen = new Set<number>()
 let checkingPermission = false
+let permissionSequence = 0
+let pageAlive = true
 
 onShow(loadTasks)
 onMounted(loadTasks)
-onHide(() => { activeQuery = undefined; loading.value = false })
-onBeforeUnmount(() => { activeQuery = undefined })
+onHide(() => { activeQuery = undefined; loading.value = false; permissionSequence++; checkingPermission = false })
+onBeforeUnmount(() => { pageAlive = false; activeQuery = undefined; permissionSequence++ })
 
 async function loadTasks() {
   const query = { keyword: keyword.value.trim(), session: mobileSessionKey() }
@@ -198,18 +203,24 @@ function hasReportPermission(task: WorkOrderTask) {
 }
 
 async function handleTask(task: TaskCard) {
-  if (checkingPermission || !ensureLogin()) return
+  if (!pageAlive || checkingPermission || !ensureLogin()) return
   const session = mobileSessionKey()
+  const sequence = ++permissionSequence
+  const query = activeQuery
+  const isPageCurrent = pageActivity.capture()
+  const current = () => pageAlive && isPageCurrent() && sequence === permissionSequence && query === activeQuery
   checkingPermission = true
   try {
     const users = await fetchWorkOrderReporters(task.workOrderId, task.sequenceNo)
+    if (!current()) return
     if (mobileSessionKey() !== session) throw new Error('登录状态已变更，请刷新')
     if (!users.some(user => user.id === uni.getStorageSync('user')?.id)) throw new Error('您没有此工序的报工权限')
   } catch (e: any) {
+    if (!current()) return
     uni.showToast({ title: e.message || '报工权限确认失败，请重试', icon: 'none' })
     return
   } finally {
-    checkingPermission = false
+    if (pageAlive && sequence === permissionSequence) checkingPermission = false
   }
   const url = `/pages/report-form/index?orderId=${task.workOrderId}&processNo=${task.sequenceNo}&processName=${encodeURIComponent(task.processName)}&plannedQty=${task.plannedQuantity}&completedQty=${task.completedQuantity}&defectQty=${task.defectQuantity}&reportPermission=${encodeURIComponent(task.reportPermission || '')}`
   navigatePage(url)

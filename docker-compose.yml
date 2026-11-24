@@ -117,7 +117,7 @@ services:
       APP_LOG_MAX_HISTORY: ${APP_LOG_MAX_HISTORY:-30}
       APP_LOG_TOTAL_SIZE_CAP: ${APP_LOG_TOTAL_SIZE_CAP:-500MB}
       APP_LOG_CLEAN_HISTORY_ON_START: ${APP_LOG_CLEAN_HISTORY_ON_START:-true}
-      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-10MB}
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-20MB}
       SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:-90MB}
     volumes:
       - report-images:/var/lib/heihu-workorder/report-images
@@ -180,6 +180,10 @@ services:
     restart: unless-stopped
     environment:
       PLUGIN_GATEWAY_SECRET: ${APP_PLUGIN_GATEWAY_SECRET:?set APP_PLUGIN_GATEWAY_SECRET}
+      PLUGIN_DATA_DIR: /var/lib/gongdan-plugin
+      PLUGIN_DATABASE_PASSWORD: ${QUALITY_PLUGIN_DATABASE_PASSWORD:-}
+    volumes:
+      - quality-plugin-data:/var/lib/gongdan-plugin
     ports:
       - "127.0.0.1:${QUALITY_PLUGIN_PORT:-9101}:9101"
     healthcheck:
@@ -195,6 +199,10 @@ services:
     restart: unless-stopped
     environment:
       PLUGIN_GATEWAY_SECRET: ${APP_PLUGIN_GATEWAY_SECRET:?set APP_PLUGIN_GATEWAY_SECRET}
+      PLUGIN_DATA_DIR: /var/lib/gongdan-plugin
+      PLUGIN_DATABASE_PASSWORD: ${INSPECTION_PLUGIN_DATABASE_PASSWORD:-}
+    volumes:
+      - inspection-plugin-data:/var/lib/gongdan-plugin
     ports:
       - "127.0.0.1:${INSPECTION_PLUGIN_PORT:-9102}:9102"
     healthcheck:
@@ -208,3 +216,5 @@ volumes:
   redis-data:
   report-images:
   app-logs:
+  quality-plugin-data:
+  inspection-plugin-data:

@@ -4,14 +4,10 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Size;
@@ -28,12 +24,12 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/plugin/equipment-inspection")
 public class EquipmentInspectionController {
 
-    private final AtomicLong sequence = new AtomicLong(2000);
-    private final Map<Long, InspectionRecord> records = new ConcurrentHashMap<>();
+    private final InspectionRecordRepository records;
     private final ObjectMapper objectMapper;
 
-    public EquipmentInspectionController(ObjectMapper objectMapper) {
+    public EquipmentInspectionController(ObjectMapper objectMapper, InspectionRecordRepository records) {
         this.objectMapper = objectMapper;
+        this.records = records;
     }
 
     @GetMapping("/ping")
@@ -57,12 +53,7 @@ public class EquipmentInspectionController {
 
     @GetMapping("/inspections")
     public List<InspectionRecord> list(@RequestHeader("X-Plugin-Factory-Id") String factoryId) {
-        List<InspectionRecord> result = new ArrayList<>();
-        for (InspectionRecord record : records.values()) {
-            if (factoryId.equals(record.getFactoryId())) result.add(record);
-        }
-        result.sort(Comparator.comparing(InspectionRecord::getCreatedAt).reversed());
-        return result;
+        return records.list(factoryId);
     }
 
     @PostMapping("/inspections")
@@ -72,15 +63,13 @@ public class EquipmentInspectionController {
             @Valid @RequestBody InspectionRequest request
     ) {
         InspectionRecord record = new InspectionRecord();
-        record.setId(sequence.incrementAndGet());
         record.setFactoryId(factoryId);
         record.setOperatorUserId(userId);
         record.setEquipmentCode(request.getEquipmentCode().trim());
         record.setResult(request.getResult().trim());
         record.setRemark(request.getRemark() == null ? "" : request.getRemark().trim());
         record.setCreatedAt(LocalDateTime.now().toString());
-        records.put(record.getId(), record);
-        return ResponseEntity.status(HttpStatus.CREATED).body(record);
+        return ResponseEntity.status(HttpStatus.CREATED).body(records.save(record));
     }
 
     private Map<String, Object> decodeConfig(String configBase64) {

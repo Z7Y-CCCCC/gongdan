@@ -2,7 +2,8 @@
 import UiIcon from './UiIcon.vue'
 import { formatUiDate, t, uiLocale } from '../i18n'
 import { escapePrintHtml as escapeHtml, printLabel } from '../utils/printHtml'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
 import {
   createUser, exportUsersCsv, fetchUsers, importUsersCsv,
   resetUserPassword, unbindUserPhone, updateUser, updateUserPermission, updateUserStatus,
@@ -32,10 +33,33 @@ const showPermissionModal = ref(false)
 const selectedUserIds = ref<number[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 const importLogs = ref<any[]>([])
+const importLogsLoading = ref(false)
+const importLogsError = ref('')
+const importLogsPage = ref(1)
+const importLogsTotal = ref(0)
+const importLogsPageSize = 20
+const importLogsPages = computed(() => Math.max(1, Math.ceil(importLogsTotal.value / importLogsPageSize)))
+let attemptedImportLogsPage = 1
+const beginImportLogs = useLatestRequest()
+let sessionGeneration = 0
 
-async function refreshImportLogs() {
+function captureSession() {
+  const token = props.token
+  const generation = sessionGeneration
+  return { token, current: () => props.token === token && sessionGeneration === generation }
+}
+
+async function refreshImportLogs(targetPage = importLogsPage.value) {
+  const session = captureSession()
+  const latest = beginImportLogs()
+  const current = () => session.current() && latest()
+  if (!session.token) return
+  attemptedImportLogsPage = targetPage
+  importLogsLoading.value = true
+  importLogsError.value = ''
   try {
-    const res = await fetchSystemImportLogs(props.token, 'USER')
+    const res = await fetchSystemImportLogs(session.token, 'USER', targetPage, importLogsPageSize)
+    if (!current()) return
     importLogs.value = res.items.map(item => ({
       time: item.createdAt,
       fileName: item.fileName,
@@ -44,8 +68,12 @@ async function refreshImportLogs() {
       fail: item.failCount,
       errors: item.errors ? item.errors.split('\n') : []
     }))
-  } catch (e) {
-    // ignore
+    importLogsPage.value = targetPage
+    importLogsTotal.value = res.total
+  } catch (error) {
+    if (current()) importLogsError.value = error instanceof Error ? error.message : '导入日志加载失败'
+  } finally {
+    if (current()) importLogsLoading.value = false
   }
 }
 const importResult = ref<{ total: number; success: number; fail: number; errors: string[] } | null>(null)
@@ -63,8 +91,26 @@ const resetPasswordForm = reactive({ password: '', confirmPassword: '' })
 const showNewPassword = ref(false)
 const showConfirmPassword = ref(false)
 const loading = ref(false)
+const importing = ref(false)
+const exporting = ref(false)
+const writing = computed(() => loading.value || importing.value)
 const errorMessage = ref('')
 watch(errorMessage, (v) => { if (v) emit('error', v) })
+
+async function runUserMutation<T>(request: (token: string) => Promise<T>, done: (result: T) => void, fallback: string) {
+  if (!props.token || writing.value) return
+  const session = captureSession()
+  errorMessage.value = ''
+  loading.value = true
+  try {
+    const result = await request(session.token)
+    if (session.current()) done(result)
+  } catch (error) {
+    if (session.current()) errorMessage.value = error instanceof Error ? error.message : fallback
+  } finally {
+    if (session.current()) loading.value = false
+  }
+}
 
 const formatDateTime = (val: string) => {
   if (!val) return '-'
@@ -125,6 +171,7 @@ const filteredUsers = computed(() => {
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredUsers.value.length / pageSize.value)))
+watch(pageSize, () => { currentPage.value = 1 })
 
 const paginatedUsers = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
@@ -134,11 +181,13 @@ const paginatedUsers = computed(() => {
 
 watch(filteredUsers, () => {
   currentPage.value = 1
+  const available = new Set(filteredUsers.value.map(user => user.id))
+  selectedUserIds.value = selectedUserIds.value.filter(id => available.has(id))
 })
 
 const isAllSelected = computed({
   get() {
-    return filteredUsers.value.length > 0 && selectedUserIds.value.length === filteredUsers.value.length
+    return filteredUsers.value.length > 0 && filteredUsers.value.every(user => selectedUserIds.value.includes(user.id))
   },
   set(val) {
     if (val) {
@@ -159,33 +208,23 @@ function resetCreateForm() {
   createForm.virtualUser = false
 }
 
+function openCreateUser() {
+  if (writing.value) return
+  showCreateModal.value = true
+}
+
 async function handleCreateUser() {
-  if (!props.token) {
-    return
-  }
-  errorMessage.value = ''
-  loading.value = true
-  try {
-    const created = await createUser(props.token, {
-      ...createForm,
-      username: createForm.username.trim(),
-      phone: createForm.phone?.trim(),
-      name: createForm.name.trim(),
-      password: createForm.password,
-      role: createForm.role as Role,
-      departmentId: createForm.departmentId,
-      virtualUser: Boolean(createForm.virtualUser)
-    })
+  if (!showCreateModal.value || writing.value) return
+  const payload = { ...createForm, username: createForm.username.trim(), phone: createForm.phone?.trim(),
+    name: createForm.name.trim(), password: createForm.password, role: createForm.role as Role,
+    departmentId: createForm.departmentId, virtualUser: Boolean(createForm.virtualUser) }
+  await runUserMutation(token => createUser(token, payload), created => {
     emit('reload-users')
     successUser.value = created
-    successUserPassword.value = createForm.password
+    successUserPassword.value = payload.password
     showCreateModal.value = false
     resetCreateForm()
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '创建用户失败'
-  } finally {
-    loading.value = false
-  }
+  }, '创建用户失败')
 }
 
 function syncCurrentUser(updated: UserInfo) {
@@ -197,12 +236,13 @@ function syncCurrentUser(updated: UserInfo) {
 
 async function copySuccessUser() {
   if (!successUser.value) return
+  const session = captureSession()
   const text = `账号：${successUser.value.username}\n姓名：${successUser.value.name}\n角色：${successUser.value.roleLabel}\n部门：${successUser.value.departmentName || '无'}\n密码：${successUserPassword.value}`
   try {
     await navigator.clipboard.writeText(text)
-    showAction('账号信息已复制到剪贴板')
+    if (session.current()) showAction('账号信息已复制到剪贴板')
   } catch (err) {
-    errorMessage.value = '复制失败，请手动复制'
+    if (session.current()) errorMessage.value = '复制失败，请手动复制'
   }
 }
 
@@ -211,6 +251,7 @@ function showAction(message: string) {
 }
 
 function openEditUser(user: UserInfo) {
+  if (writing.value) return
   editingUser.value = user
   editForm.username = user.username
   editForm.phone = user.phone || ''
@@ -222,57 +263,39 @@ function openEditUser(user: UserInfo) {
 }
 
 async function handleUpdateUser() {
-  if (!props.token || !editingUser.value) {
-    return
-  }
-  errorMessage.value = ''
-  loading.value = true
-  try {
-    const updated = await updateUser(props.token, editingUser.value.id, {
-      username: editForm.username.trim(),
-      phone: editForm.phone?.trim(),
-      name: editForm.name.trim(),
-      role: editForm.role,
-      departmentId: editForm.departmentId,
-      virtualUser: Boolean(editForm.virtualUser)
-    })
+  if (!showEditModal.value || !editingUser.value || writing.value) return
+  const id = editingUser.value.id
+  const payload = { username: editForm.username.trim(), phone: editForm.phone?.trim(), name: editForm.name.trim(),
+    role: editForm.role, departmentId: editForm.departmentId, virtualUser: Boolean(editForm.virtualUser) }
+  await runUserMutation(token => updateUser(token, id, payload), updated => {
     syncCurrentUser(updated)
     emit('reload-users')
     showEditModal.value = false
     showAction(`用户「${updated.name}」已更新`)
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '更新用户失败'
-  } finally {
-    loading.value = false
-  }
+  }, '更新用户失败')
 }
 
 function openPermissionConfig(user: UserInfo) {
+  if (writing.value) return
   permissionUser.value = user
   permissionRole.value = user.role
   showPermissionModal.value = true
 }
 
 async function handleUpdatePermission() {
-  if (!props.token || !permissionUser.value) {
-    return
-  }
-  errorMessage.value = ''
-  loading.value = true
-  try {
-    const updated = await updateUserPermission(props.token, permissionUser.value.id, permissionRole.value)
+  if (!showPermissionModal.value || !permissionUser.value || writing.value) return
+  const id = permissionUser.value.id
+  const role = permissionRole.value
+  await runUserMutation(token => updateUserPermission(token, id, role), updated => {
     syncCurrentUser(updated)
     emit('reload-users')
     showPermissionModal.value = false
     showAction(`用户「${updated.name}」权限已更新为${updated.roleLabel}`)
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '权限配置失败'
-  } finally {
-    loading.value = false
-  }
+  }, '权限配置失败')
 }
 
 function openResetPassword(user: UserInfo) {
+  if (writing.value) return
   resetPasswordUser.value = user
   resetPasswordForm.password = ''
   resetPasswordForm.confirmPassword = ''
@@ -282,9 +305,8 @@ function openResetPassword(user: UserInfo) {
 }
 
 async function handleResetPassword() {
-  if (!props.token || !resetPasswordUser.value) {
-    return
-  }
+  if (!showResetPasswordModal.value || !resetPasswordUser.value || writing.value) return
+  const user = resetPasswordUser.value
   const newPassword = resetPasswordForm.password
   const confirmPassword = resetPasswordForm.confirmPassword
   if (!newPassword.trim()) {
@@ -295,67 +317,47 @@ async function handleResetPassword() {
     errorMessage.value = '两次输入的密码不一致'
     return
   }
-  errorMessage.value = ''
-  loading.value = true
-  try {
-    const result = await resetUserPassword(props.token, resetPasswordUser.value.id, newPassword)
-    showAction(`用户「${resetPasswordUser.value.name}」的密码已重置，新密码：${newPassword}`)
+  await runUserMutation(token => resetUserPassword(token, user.id, newPassword), () => {
+    showAction(`用户「${user.name}」的密码已重置，新密码：${newPassword}`)
     showResetPasswordModal.value = false
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '重置密码失败'
-  } finally {
-    loading.value = false
-  }
+    resetPasswordForm.password = ''; resetPasswordForm.confirmPassword = ''
+  }, '重置密码失败')
 }
 
 function confirmUnbindPhone(user: UserInfo) {
+  if (writing.value) return
+  const session = captureSession()
   if (!user.phone) {
     showAction(`用户「${user.name}」当前没有绑定手机号`)
     return
   }
-  emit('confirm', { title: '解绑手机号', message: `是否解绑「${user.name}」的手机号 ${user.phone} 吗？`, action: () => handleUnbindPhone(user) })
+  emit('confirm', { title: '解绑手机号', message: `是否解绑「${user.name}」的手机号 ${user.phone} 吗？`,
+    action: () => { if (session.current()) return handleUnbindPhone(user) } })
 }
 
 async function handleUnbindPhone(user: UserInfo) {
-  if (!props.token) {
-    return
-  }
-  errorMessage.value = ''
-  loading.value = true
-  try {
-    const updated = await unbindUserPhone(props.token, user.id)
+  await runUserMutation(token => unbindUserPhone(token, user.id), updated => {
     syncCurrentUser(updated)
     emit('reload-users')
     showAction(`用户「${updated.name}」手机号已解绑`)
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '解绑手机号失败'
-  } finally {
-    loading.value = false
-  }
+  }, '解绑手机号失败')
 }
 
 function confirmToggleEnabled(user: UserInfo) {
+  if (writing.value) return
+  const session = captureSession()
   const nextEnabled = !user.enabled
   const action = nextEnabled ? '启用' : '停用'
-  emit('confirm', { title: `${action}用户`, message: `是否${action}用户「${user.name}」？`, action: () => handleToggleEnabled(user, nextEnabled, action) })
+  emit('confirm', { title: `${action}用户`, message: `是否${action}用户「${user.name}」？`,
+    action: () => { if (session.current()) return handleToggleEnabled(user, nextEnabled, action) } })
 }
 
 async function handleToggleEnabled(user: UserInfo, nextEnabled: boolean, actionName: string) {
-  if (!props.token) {
-    return
-  }
-  errorMessage.value = ''
-  loading.value = true
-  try {
-    const updated = await updateUserStatus(props.token, user.id, nextEnabled)
+  await runUserMutation(token => updateUserStatus(token, user.id, nextEnabled), updated => {
     syncCurrentUser(updated)
     emit('reload-users')
     showAction(`用户「${updated.name}」已${actionName}`)
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : `${actionName}用户失败`
-  } finally {
-    loading.value = false
-  }
+  }, `${actionName}用户失败`)
 }
 
 function handlePrintUser(user: UserInfo) {
@@ -408,15 +410,21 @@ async function handleExport() {
     errorMessage.value = '请先登录'
     return
   }
+  if (exporting.value || writing.value) return
+  const session = captureSession()
+  exporting.value = true
   try {
-    await exportUsersCsv(props.token)
-    showAction('用户数据导出成功（含密码哈希）')
+    await exportUsersCsv(session.token)
+    if (session.current()) showAction('用户数据导出成功（含密码哈希）')
   } catch (err) {
-    errorMessage.value = err instanceof Error ? err.message : '导出失败'
+    if (session.current()) errorMessage.value = err instanceof Error ? err.message : '导出失败'
+  } finally {
+    if (session.current()) exporting.value = false
   }
 }
 
 function triggerImport() {
+  if (writing.value) return
   if (fileInput.value) {
     fileInput.value.value = ''
     fileInput.value.click()
@@ -426,6 +434,7 @@ function triggerImport() {
 async function handleImport(event: Event) {
   const target = event.target as HTMLInputElement
   if (!target.files || target.files.length === 0) return
+  if (writing.value) return
   if (!props.token) {
     errorMessage.value = '请先登录'
     return
@@ -433,13 +442,24 @@ async function handleImport(event: Event) {
 
   const file = target.files[0]
   const fileName = file.name
+  const session = captureSession()
+  importing.value = true
+  errorMessage.value = ''
 
   try {
-    const result = await importUsersCsv(props.token, file)
+    const result = await importUsersCsv(session.token, file)
+    if (!session.current()) return
     importResult.value = result
+    emit('reload-users')
+
+    if (result.fail === 0) {
+      showAction(`导入完成：共 ${result.total} 条，全部成功`)
+    } else {
+      showAction(`导入完成：共 ${result.total} 条，成功 ${result.success} 条，失败 ${result.fail} 条`)
+    }
 
     try {
-      await createSystemImportLog(props.token, {
+      await createSystemImportLog(session.token, {
         module: 'USER',
         fileName,
         totalCount: result.total,
@@ -448,27 +468,39 @@ async function handleImport(event: Event) {
         status: result.fail === 0 ? '成功' : result.success > 0 ? '部分成功' : '失败',
         errors: result.errors && result.errors.length > 0 ? result.errors.join('\n') : undefined
       })
-      await refreshImportLogs()
-    } catch (e) {
-      // ignore
-    }
-
-    emit('reload-users')
-
-    if (result.fail === 0) {
-      showAction(`导入完成：共 ${result.total} 条，全部成功`)
-    } else {
-      showAction(`导入完成：共 ${result.total} 条，成功 ${result.success} 条，失败 ${result.fail} 条`)
+      if (session.current()) await refreshImportLogs(1)
+    } catch (error) {
+      if (session.current()) errorMessage.value = t('导入已完成，但日志保存失败')
     }
   } catch (err) {
-    errorMessage.value = err instanceof Error ? err.message : '导入失败'
+    if (session.current()) errorMessage.value = err instanceof Error ? err.message : '导入失败'
+  } finally {
+    if (session.current()) importing.value = false
+    target.value = ''
   }
-  target.value = ''
 }
 
 function openImportLog() {
   showImportLogModal.value = true
+  void refreshImportLogs(1)
 }
+
+watch(() => props.token, () => {
+  sessionGeneration++; beginImportLogs()
+  loading.value = false; importing.value = false; exporting.value = false; importLogsLoading.value = false
+  showCreateModal.value = false; showEditModal.value = false; showPermissionModal.value = false
+  showResetPasswordModal.value = false; showImportLogModal.value = false
+  successUser.value = null; successUserPassword.value = ''; selectedUserIds.value = []
+  editingUser.value = null; permissionUser.value = null; resetPasswordUser.value = null
+  importLogs.value = []; importResult.value = null; importLogsError.value = ''; errorMessage.value = ''
+  importLogsPage.value = 1; importLogsTotal.value = 0; attemptedImportLogsPage = 1
+  resetCreateForm()
+  Object.assign(editForm, { username: '', phone: '', name: '', role: 'ADMIN', departmentId: undefined, virtualUser: false })
+  Object.assign(resetPasswordForm, { password: '', confirmPassword: '' })
+  Object.assign(filterForm, { name: '', status: '启用中', account: '', role: '全部', department: '', virtual: '全部' })
+  currentPage.value = 1
+}, { flush: 'sync' })
+onBeforeUnmount(() => { sessionGeneration++; beginImportLogs() })
 
 function handlePrintTemplate() {
   const dataToprint = selectedUserIds.value.length > 0
@@ -576,16 +608,19 @@ function handlePrintTemplate() {
 
         <div class="toolbar">
           <div class="toolbar-left">
-            <button class="primary-btn ui-icon-button" type="button" @click="showCreateModal = true" title="新增用户" aria-label="新增用户"><UiIcon name="plus" /></button>
-            <button class="ghost-btn ui-icon-button" type="button" @click="handleExport" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+            <button class="primary-btn ui-icon-button" type="button" @click="openCreateUser" :disabled="writing" title="新增用户" aria-label="新增用户"><UiIcon name="plus" /></button>
+            <button class="ghost-btn ui-icon-button" type="button" @click="handleExport" :disabled="exporting || writing" title="导出" aria-label="导出"><UiIcon name="download" /></button>
             <label class="ghost-btn" style="cursor:pointer">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               导入
-              <input type="file" accept=".csv" style="display:none" @change="handleImport" />
+              <input type="file" accept=".csv" :disabled="writing" style="display:none" @change="handleImport" />
             </label>
+            <button class="ghost-btn ui-action-button" type="button" @click="openImportLog" title="导入日志" aria-label="导入日志"><UiIcon name="list" />导入日志</button>
             <TableConfigButton table-id="user-list-table" />
           </div>
         </div>
+
+        <p v-if="writing" role="status">{{ importing ? '导入中...' : '保存中...' }}</p>
 
         <div class="table-container">
           <table id="user-list-table" class="data-table">
@@ -651,16 +686,35 @@ function handlePrintTemplate() {
   <div v-if="showImportLogModal" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
-        <h2>导入结果</h2>
+        <h2>导入日志</h2>
         <button class="close-btn ui-icon-button" type="button" @click="showImportLogModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
-      <div style="padding: 22px 44px 24px; min-width: 340px;">
-        <p>总计：{{ importResult?.total }} 条</p>
-        <p style="color:#0c9d82">成功：{{ importResult?.success }} 条</p>
-        <p v-if="importResult?.fail" style="color:#d74434">失败：{{ importResult?.fail }} 条</p>
-        <ul v-if="importResult?.errors?.length" style="margin-top:8px;padding-left:16px;color:#d74434;font-size:13px">
-          <li v-for="err in importResult?.errors" :key="err">{{ err }}</li>
-        </ul>
+      <div class="modal-body" style="padding:22px;overflow:auto">
+        <section v-if="importResult" class="import-result">
+          <h3>导入结果</h3>
+          <p>总计：{{ importResult.total }} 条</p>
+          <p>成功：{{ importResult.success }} 条</p>
+          <p v-if="importResult.fail">失败：{{ importResult.fail }} 条</p>
+          <ul v-if="importResult.errors.length">
+            <li v-for="err in importResult.errors" :key="err">{{ err }}</li>
+          </ul>
+        </section>
+        <p v-if="importLogsLoading" role="status">加载中...</p>
+        <p v-if="importLogsError" role="alert">{{ importLogsError }} <button class="ui-icon-button" type="button" :disabled="importLogsLoading" @click="refreshImportLogs(attemptedImportLogsPage)" title="重试" aria-label="重试"><UiIcon name="refresh" /></button></p>
+        <table v-if="importLogs.length" class="data-table import-history-table" :aria-busy="importLogsLoading">
+          <thead><tr><th>时间</th><th>文件名</th><th>总计</th><th>成功</th><th>失败</th><th>错误</th></tr></thead>
+          <tbody><tr v-for="(log, index) in importLogs" :key="index">
+            <td>{{ formatDateTime(log.time) }}</td><td>{{ log.fileName }}</td><td>{{ log.total }}</td>
+            <td>{{ log.success }}</td><td>{{ log.fail }}</td><td><ul v-if="log.errors.length"><li v-for="(error, errorIndex) in log.errors" :key="errorIndex">{{ error }}</li></ul><span v-else>-</span></td>
+          </tr></tbody>
+        </table>
+        <p v-else-if="!importLogsLoading && !importLogsError">暂无导入日志</p>
+        <nav v-if="importLogsTotal > 0" class="pagination import-history-pagination" aria-label="导入日志分页">
+          <span>共 {{ importLogsTotal }} 条结果</span>
+          <button class="page-btn ui-icon-button" type="button" :disabled="importLogsLoading || !!importLogsError || importLogsPage <= 1" @click="refreshImportLogs(importLogsPage - 1)" title="上一页" aria-label="上一页"><UiIcon name="arrowLeft" /></button>
+          <span class="page-num">{{ importLogsPage }} / {{ importLogsPages }}</span>
+          <button class="page-btn ui-icon-button" type="button" :disabled="importLogsLoading || !!importLogsError || importLogsPage >= importLogsPages" @click="refreshImportLogs(importLogsPage + 1)" title="下一页" aria-label="下一页"><UiIcon name="arrowRight" /></button>
+        </nav>
       </div>
     </section>
   </div>
@@ -670,46 +724,46 @@ function handlePrintTemplate() {
     <section class="modal">
       <header class="modal-header">
         <h2>新增用户</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="showCreateModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <button class="close-btn ui-icon-button" type="button" @click="!writing && (showCreateModal = false)" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleCreateUser">
         <label>
           <span><em>*</em> 姓名</span>
-          <input v-model="createForm.name" placeholder="请输入姓名" required />
+          <input v-model="createForm.name" :disabled="writing" placeholder="请输入姓名" required />
         </label>
         <label>
           <span><em>*</em> 账号</span>
-          <input v-model="createForm.username" placeholder="请输入账号" required />
+          <input v-model="createForm.username" :disabled="writing" placeholder="请输入账号" required />
         </label>
         <label>
           <span>手机号</span>
-          <input v-model="createForm.phone" placeholder="请输入手机号" />
+          <input v-model="createForm.phone" :disabled="writing" placeholder="请输入手机号" />
         </label>
         <label>
           <span><em>*</em> 密码</span>
-          <input v-model="createForm.password" placeholder="请输入密码" type="password" required />
+          <input v-model="createForm.password" :disabled="writing" placeholder="请输入密码" type="password" required />
         </label>
         <label>
           <span>角色</span>
-          <select v-model="createForm.role">
+          <select v-model="createForm.role" :disabled="writing">
             <option value="ADMIN">管理员</option>
             <option value="PRODUCTION">生产人员</option>
           </select>
         </label>
         <label>
           <span>部门</span>
-          <select v-model="createForm.departmentId">
+          <select v-model="createForm.departmentId" :disabled="writing">
             <option :value="undefined">无</option>
             <option v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
           </select>
         </label>
         <label>
           <span>虚拟用户</span>
-          <input type="checkbox" v-model="createForm.virtualUser" style="width:auto;justify-self:start" />
+          <input type="checkbox" v-model="createForm.virtualUser" :disabled="writing" style="width:auto;justify-self:start" />
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="showCreateModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
-          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="!writing && (showCreateModal = false)" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="primary-btn wide" :disabled="writing" type="submit">{{ loading ? '保存中...' : '保存' }}</button>
         </footer>
       </form>
     </section>
@@ -720,42 +774,42 @@ function handlePrintTemplate() {
     <section class="modal">
       <header class="modal-header">
         <h2>编辑用户</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="showEditModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <button class="close-btn ui-icon-button" type="button" @click="!writing && (showEditModal = false)" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleUpdateUser">
         <label>
           <span><em>*</em> 姓名</span>
-          <input v-model="editForm.name" placeholder="请输入姓名" required />
+          <input v-model="editForm.name" :disabled="writing" placeholder="请输入姓名" required />
         </label>
         <label>
           <span><em>*</em> 账号</span>
-          <input v-model="editForm.username" placeholder="请输入账号" required />
+          <input v-model="editForm.username" :disabled="writing" placeholder="请输入账号" required />
         </label>
         <label>
           <span>手机号</span>
-          <input v-model="editForm.phone" placeholder="请输入手机号" />
+          <input v-model="editForm.phone" :disabled="writing" placeholder="请输入手机号" />
         </label>
         <label>
           <span>角色</span>
-          <select v-model="editForm.role">
+          <select v-model="editForm.role" :disabled="writing">
             <option value="ADMIN">管理员</option>
             <option value="PRODUCTION">生产人员</option>
           </select>
         </label>
         <label>
           <span>部门</span>
-          <select v-model="editForm.departmentId">
+          <select v-model="editForm.departmentId" :disabled="writing">
             <option :value="undefined">无</option>
             <option v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
           </select>
         </label>
         <label>
           <span>虚拟用户</span>
-          <input type="checkbox" v-model="editForm.virtualUser" style="width:auto;justify-self:start" />
+          <input type="checkbox" v-model="editForm.virtualUser" :disabled="writing" style="width:auto;justify-self:start" />
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="showEditModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
-          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="!writing && (showEditModal = false)" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="primary-btn wide" :disabled="writing" type="submit">{{ loading ? '保存中...' : '保存' }}</button>
         </footer>
       </form>
     </section>
@@ -766,26 +820,26 @@ function handlePrintTemplate() {
     <section class="modal">
       <header class="modal-header">
         <h2>重置密码</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="showResetPasswordModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <button class="close-btn ui-icon-button" type="button" @click="!writing && (showResetPasswordModal = false)" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleResetPassword">
         <label>
           <span><em>*</em> 新密码</span>
           <div style="position:relative">
-            <input v-model="resetPasswordForm.password" :type="showNewPassword ? 'text' : 'password'" placeholder="请输入新密码" required />
-            <button type="button" class="password-toggle ui-icon-button" @click="showNewPassword = !showNewPassword" :title="showNewPassword ? '隐藏密码' : '显示密码'" :aria-label="showNewPassword ? '隐藏密码' : '显示密码'"><UiIcon name="eye" :size="18" /></button>
+            <input v-model="resetPasswordForm.password" :disabled="writing" :type="showNewPassword ? 'text' : 'password'" placeholder="请输入新密码" required />
+            <button type="button" class="password-toggle ui-icon-button" :disabled="writing" @click="showNewPassword = !showNewPassword" :title="showNewPassword ? '隐藏密码' : '显示密码'" :aria-label="showNewPassword ? '隐藏密码' : '显示密码'"><UiIcon name="eye" :size="18" /></button>
           </div>
         </label>
         <label>
           <span><em>*</em> 确认密码</span>
           <div style="position:relative">
-            <input v-model="resetPasswordForm.confirmPassword" :type="showConfirmPassword ? 'text' : 'password'" placeholder="请再次输入密码" required />
-            <button type="button" class="password-toggle ui-icon-button" @click="showConfirmPassword = !showConfirmPassword" :title="showConfirmPassword ? '隐藏密码' : '显示密码'" :aria-label="showConfirmPassword ? '隐藏密码' : '显示密码'"><UiIcon name="eye" :size="18" /></button>
+            <input v-model="resetPasswordForm.confirmPassword" :disabled="writing" :type="showConfirmPassword ? 'text' : 'password'" placeholder="请再次输入密码" required />
+            <button type="button" class="password-toggle ui-icon-button" :disabled="writing" @click="showConfirmPassword = !showConfirmPassword" :title="showConfirmPassword ? '隐藏密码' : '显示密码'" :aria-label="showConfirmPassword ? '隐藏密码' : '显示密码'"><UiIcon name="eye" :size="18" /></button>
           </div>
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="showResetPasswordModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
-          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="!writing && (showResetPasswordModal = false)" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="primary-btn wide" :disabled="writing" type="submit">{{ loading ? '保存中...' : '保存' }}</button>
         </footer>
       </form>
     </section>
@@ -796,19 +850,19 @@ function handlePrintTemplate() {
     <section class="modal">
       <header class="modal-header">
         <h2>权限配置</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="showPermissionModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <button class="close-btn ui-icon-button" type="button" @click="!writing && (showPermissionModal = false)" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleUpdatePermission">
         <label>
           <span>角色</span>
-          <select v-model="permissionRole">
+          <select v-model="permissionRole" :disabled="writing">
             <option value="ADMIN">管理员</option>
             <option value="PRODUCTION">生产人员</option>
           </select>
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="showPermissionModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
-          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="!writing && (showPermissionModal = false)" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="primary-btn wide" :disabled="writing" type="submit">{{ loading ? '保存中...' : '保存' }}</button>
         </footer>
       </form>
     </section>

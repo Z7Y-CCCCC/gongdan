@@ -4,6 +4,8 @@
 
 测试仅使用独立 H2、临时文件、合成数据和明确的 loopback 接收器。未操作生产业务库；最终发布与 GitHub 状态由主代理收尾。
 
+§2–§3 保留第一轮验收快照；中断后续做的第二轮修复、最新全量结果和新增运行时证据见 §6。两轮及重复运行的检查数不累加。
+
 ## 1. 验证类型与统计口径
 
 | 标记 | 实际验证方式 | 不能据此推断 |
@@ -20,7 +22,7 @@
 - 后端 191 个方法映射冒烟属于后端套件；预期 4xx 仅说明拒绝路径正常，不能算业务成功。上传、消息投递、单位契约等专项也不在 893 之外重复加数。
 - 此前文档的 866/224/109、290/115 等数字属于早先阶段快照，本文件不与其累加。
 
-## 2. 功能矩阵
+## 2. 第一轮功能矩阵
 
 | 功能区域 | 已验证的流程 / 本轮补全 | 验证类型与证据 | 范围或未验边界 |
 | --- | --- | --- | --- |
@@ -50,7 +52,7 @@
 | 通用 UI、图标及国际化 | 删重复说明与全局表头装饰；明确图标有名称、不明确业务操作保留短名；危险取消、列设置零列保护、焦点循环与恢复、错误不假零、减弱动画 | U/C、S：[F1]–[F4]；B/F：[F5]；移动/插件对应证据 | 图标结构扫描/词典覆盖不是完整 AccName、WCAG 或翻译质量认证；生产业务名称及机器 CSV 头保持原值 |
 | 构建、部署配置与运维工具 | 移动类型检查/H5/微信构建；两插件新 JAR 字节核对；Nginx/CSP、Compose 参数、Windows 保护、只读 MCP 协议检查 | S：[M3]、[M4]、[O1]–[O4]；管理端最终构建待 §3 | 只验证本地配置/构建保护，不等于已部署、实际 MySQL/Redis/S3 运行、备份恢复/PITR 演练或远端 CI 成功 |
 
-## 3. 最终统计（不同类型不合并）
+## 3. 第一轮最终统计（不同类型不合并）
 
 | 验证集 | 最新确认结果 | 口径 / 状态 |
 | --- | --- | --- |
@@ -123,3 +125,47 @@ mvn -B -f plugins/quality-management/pom.xml test
 [O2]: ../output/functional-ops-compose-tests.log
 [O3]: ../output/functional-windows-guards.log
 [O4]: ../output/functional-mcp-tests.log
+
+## 6. 第二轮续做与最新验收（2026-11-24）
+
+从中断的逐功能检查继续，保留并完成原先未提交的部门修改和移动回归。以下不是“全部潜在 bug 清零”的保证，而是本轮明确复现、修复和验证的闭环。
+
+### 6.1 修复内容
+
+- **部门管理**：实际消费服务器查询/分页结果；未提交筛选不污染当前分页；失败保留旧页并重试原查询；成员加载失败不能清空原成员；取消、迟到请求、保存防重、删除后刷新失败和末页回退闭环。成员更新同时刷新父用户缓存。真实 English 创建弹窗又复现空成员提示未翻译，现仅翻译空提示，真实姓名（即使名为“保存”）保持原值。
+- **用户管理**：创建、编辑、权限、密码、解绑、状态六类写入统一防重/输入锁；确认与回复绑定原会话，不拿新登录 token 操作旧用户；密码快照和跨页选择保留。补可用的导入日志入口、服务器 20 条分页及失败同页重试，不再无提示截取历史。
+- **移动端**：迟到登录/照片/报工/现场事件/权限响应不覆盖新账号或新草稿；继续报工重读工序数量，重读失败阻止下一次提交；暂停工单直链不能提交。区分 Vue 卸载与 uni-app 隐藏页面，普通操作检查页面活动/路由 epoch，原生选图/扫码仅容许同页覆盖层，不盲目废弃正常回调。
+- **附件**：坏 MIME 和旧损坏元数据有可下载回退；中文/emoji 名使用 UTF-8 下载头；图片缺省 MIME 按已验证格式解析；签名检查处理短读；数据库保存失败/事务回滚清理未提交文件。普通附件生产/Compose 默认 20MB，报工图片业务限制仍为 10MB。
+- **单位缓存**：单位改名同步清除销售单与 BOM 列表缓存，真实缓存读回不再保留旧单位名。
+- **独立插件**：质量/设备记录改为参数化 JDBC、独立文件 H2、自增 ID 与 SQL 工厂隔离；写入失败不返回保存成功，重启与并发不复用 ID。Compose 各用独立命名数据卷。质量问题/状态/备注长度在写入前校验。旧版内存丢失数据不能自动恢复；生产备份和多实例部署仍需单独验收。
+
+### 6.2 最新结果（按类型分别记录）
+
+| 验证集 | 最新确认 | 本地证据 / 口径 |
+| --- | --- | --- |
+| 管理端完整 `npm test` | **479/479**，49 个 Vitest 文件；Node UI **16/16**、插件 UI **42/42**、国际化 **83/83** 分别通过 | `output/frontend-round2-all-complete.log`；新增 38 项包含在 479 内；空成员提示新回归先失败后通过 |
+| 后端完整 `clean package` | **914** 项，失败 0、错误 0、跳过 1；86 份 XML 汇总一致 | `backend/output/functional-backend-round2.log`；新增 21 项包含在 914 内；跳过为显式 opt-in MySQL，不算生产库已验 |
+| 后端真实 Servlet 专项 | **9/9** | 上述全量的子集；真实 12MB 普通附件、生产 multipart 默认、中文/emoji 下载、两处图片下载、MIME/单位缓存；Tomcat/H2 隔离，不是完整生产 profile 运行 |
+| 移动完整测试 | 默认及串行均 **161/161**；定向 **35/35** | `mobile/test/mobile-functional-round2-default-all.log`、`mobile/test/mobile-functional-round2-all.log`；新增 31 项包含在 161 内 |
+| 质量 / 设备插件 Java | **9/9** / **10/10**，两份最新 JAR 成功打包 | `output/functional-quality-round2-final.log`、`output/functional-inspection-round2-final.log`；真实文件数据库关闭重开、并发 24 次及厂隔离；NONE 上下文本身不称 HTTP |
+| 核心隔离 HTTP 业务 | **20/20** | `output/functional-http-scenario-round2-final.json`；真实 Spring/H2 登录、CRUD、webhook、BOM、报工审批、库存，不是合成 API |
+| 插件独立 HTTP / JVM 重启 | **12/12** | `output/functional-plugin-http-round2.json`；两份最新 JAR 自有 loopback 进程、签名 POST/GET、完整字段读回、终止重启与并发；首/次启动 JAR SHA-256 必须一致 |
+| 真实主系统→插件网关生命周期 | **33/33** | `output/functional-plugin-gateway-round2.json`；注册 READY、安装/启用、健康、配置、双厂隔离、伪上下文拒绝、激活/回滚、禁用/卸载立即 404；1.0.1 登记明确使用同一二进制，只验版本路由状态而非软件升级 |
+| 最新管理端→真实 API 浏览器 | **58/58**，**40** 工作区，0 pageerror / 0 非注入 5xx | `output/playwright/management-functional/browser-round2-result-final.json`；最终构建重跑，包含真实单位 CRUD、语言/主题/时区/键盘和页面控件，不冒称 40 个完整生产业务流程 |
+| 部门 / 用户新增实际操作浏览器 | **29/29**，0 pageerror，2 次明确注入 GET 503 | `output/playwright/management-functional/round2-operations-browser-result.json`；真实部门创建/编辑/删除/13 条分页/成员名称、真实 CSV 导入后用户与 USER 系统日志独立读回、重载后的历史入口及失败重试；原管理员 token/账号/SYS-CONFIG 保持不变，额外分页资料已清理 |
+| 最新 H5 页面活动 / 选图浏览器 | **25/25**：隐藏报工回复 17、选图/离开对照 8，0 pageerror | `output/playwright/mobile-functional/round2-hidden-browser-result.json`；真实 H5 `navigateTo` 证明旧 Vue 页面仍存活；API 是合成夹具，原生覆盖层仅调用真实 H5 onHide 钩子模拟，**没有**微信相机硬件/真机验收 |
+| 构建、配置和运维保护 | 管理端类型/生产构建、移动类型/H5/微信、后端与两个插件 package 成功；CSP **12/12**、Compose **16/16**、Windows **33**、UI/UX 工具 **14/14** | `output/frontend-round2-build-complete.log`、移动 round2 build 日志及对应 `output/functional-*-round2.log`；静态保护不当成实际部署/恢复 |
+
+冻结 API 的 7 个修改类和生产配置与最终后端构建逐一 SHA-256 相同，见 `output/functional-frozen-runtime-round2-verified.json`。插件 HTTP 与网关结果均记录实际 JAR 摘要。凭据、token、运行时 classpath、临时数据库和截图仍是忽略产物，不提交 Git。
+
+### 6.3 复跑与边界
+
+新增可复跑脚本位于 `tools/functional/`。`start-api.ps1` 将已编译类与 test 配置复制到独立临时目录，显式覆盖 H2、loopback、种子工厂、上传目录和外部连接；不应改成生产地址后执行。使用前生成 test-scope `backend/output/functional-classpath.txt`，并完成后端/管理端构建。
+
+```powershell
+node tools/functional/check-plugins.mjs
+# 主网关脚本必须明确传入当前隔离浏览器会话文件，不重新登录该管理员。
+node tools/functional/check-plugin-gateway.mjs output/functional-shared-session-round2-final.json
+```
+
+第一轮发布前未验边界（§5）仍保留，尤其真实微信/短信/相机、生产 MySQL/Redis/TLS/对象存储、生产备份恢复与容量。GitHub 更新与新提交 CI 的最终状态在交付回复中记录；本地通过不等于远端 CI 已执行。

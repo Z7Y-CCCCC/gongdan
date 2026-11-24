@@ -69,12 +69,16 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onHide, onShow } from '@dcloudio/uni-app'
 import { createFieldEvent, ensureLogin, fetchFieldEvents } from '../../services/api'
 import type { FieldEventRecord } from '../../types/api'
 import { usePageDraft } from '../../composables/usePageDraft'
 import IconButton from '../../components/IconButton.vue'
 import { navigatePage } from '../../utils/navigation'
+import { mobileSessionKey } from '../../utils/session-key'
+import { useMobilePageActivity } from '../../composables/useMobilePageActivity'
+
+const pageActivity = useMobilePageActivity()
 
 const eventTypes = ['异常', '停机', '质量', '物料', '换线']
 const events = ref<FieldEventRecord[]>([])
@@ -82,6 +86,8 @@ const loading = ref(false)
 const saving = ref(false)
 const errorMessage = ref('')
 let loadSequence = 0
+let pageAlive = true
+let activeSession = ''
 const form = reactive({
   eventType: '异常',
   title: '',
@@ -98,34 +104,60 @@ const { clearDraft: clearEventDraft } = usePageDraft({
 
 onMounted(() => loadEvents())
 onShow(() => loadEvents())
-onBeforeUnmount(() => { loadSequence += 1 })
+onHide(() => { loadSequence++; loading.value = false })
+onBeforeUnmount(() => { pageAlive = false; loadSequence += 1 })
 
 async function loadEvents(force = false) {
+  if (!pageAlive) return
+  const session = mobileSessionKey()
+  if (activeSession !== session) {
+    events.value = []
+    loading.value = false
+  }
   if (loading.value && !force) return
-  if (!ensureLogin()) return
+  if (!ensureLogin()) {
+    loadSequence++
+    events.value = []
+    errorMessage.value = ''
+    loading.value = false
+    return
+  }
   const requestId = ++loadSequence
+  activeSession = session
+  const isPageCurrent = pageActivity.capture()
+  const current = () => pageAlive && isPageCurrent() && requestId === loadSequence && session === mobileSessionKey()
   loading.value = true
   errorMessage.value = ''
   try {
     const result = await fetchFieldEvents()
-    if (requestId !== loadSequence) return
-    events.value = result.items || []
+    if (!current()) return
+    if (!result || !Array.isArray(result.items)) throw new Error('现场事件返回格式异常，请重试')
+    events.value = result.items
   } catch (error) {
-    if (requestId !== loadSequence) return
+    if (!current()) return
     errorMessage.value = error instanceof Error ? error.message : '加载失败'
     uni.showToast({ title: errorMessage.value, icon: 'none' })
   } finally {
-    if (requestId === loadSequence) loading.value = false
+    if (pageAlive && requestId === loadSequence) {
+      loading.value = false
+      if (session !== mobileSessionKey()) {
+        events.value = []
+        errorMessage.value = '登录状态已变更，请刷新'
+      }
+    }
   }
 }
 
 async function submitEvent() {
-  if (saving.value || !ensureLogin()) return
+  if (!pageAlive || saving.value || !ensureLogin()) return
   if (!form.title.trim()) {
     uni.showToast({ title: '请填写事件标题', icon: 'none' })
     return
   }
   saving.value = true
+  const session = mobileSessionKey()
+  const isPageCurrent = pageActivity.capture()
+  const current = () => pageAlive && isPageCurrent() && session === mobileSessionKey()
   try {
     await createFieldEvent({
       title: form.title.trim(),
@@ -137,6 +169,7 @@ async function submitEvent() {
         description: form.description.trim()
       })
     })
+    if (!current()) return
     uni.showToast({ title: '已上报', icon: 'success' })
     clearEventDraft()
     form.title = ''
@@ -146,9 +179,10 @@ async function submitEvent() {
     // A GET started before the POST must not hide the newly submitted event.
     await loadEvents(true)
   } catch (error) {
+    if (!current()) return
     uni.showToast({ title: error instanceof Error ? error.message : '提交失败', icon: 'none' })
   } finally {
-    saving.value = false
+    if (pageAlive) saving.value = false
   }
 }
 

@@ -1,15 +1,12 @@
 package com.heihu.plugins.quality;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,15 +18,18 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * A deliberately small standalone plugin used to verify registration, routing,
- * iframe mounting, health checks and rollback. Replace this in a real customer
- * plugin with its own database and domain services.
+ * iframe mounting, health checks and rollback. Records are durably stored in the
+ * plugin's own database; customer-specific domain workflows remain separate.
  */
 @RestController
 @RequestMapping("/api/plugin/quality-management")
 public class QualityManagementController {
 
-    private final AtomicLong sequence = new AtomicLong(1000);
-    private final Map<Long, QualityRecord> records = new ConcurrentHashMap<>();
+    private final QualityRecordRepository records;
+
+    public QualityManagementController(QualityRecordRepository records) {
+        this.records = records;
+    }
 
     @GetMapping("/ping")
     public Map<String, Object> ping() {
@@ -43,12 +43,7 @@ public class QualityManagementController {
 
     @GetMapping("/records")
     public List<QualityRecord> list(@RequestHeader("X-Plugin-Factory-Id") String factoryId) {
-        List<QualityRecord> result = new ArrayList<>();
-        for (QualityRecord record : records.values()) {
-            if (factoryId.equals(record.getFactoryId())) result.add(record);
-        }
-        result.sort(Comparator.comparing(QualityRecord::getCreatedAt).reversed());
-        return result;
+        return records.list(factoryId);
     }
 
     @PostMapping("/records")
@@ -57,24 +52,25 @@ public class QualityManagementController {
             @RequestHeader("X-Plugin-User-Id") String userId,
             @Valid @RequestBody QualityRecordRequest request) {
         QualityRecord record = new QualityRecord();
-        record.setId(sequence.incrementAndGet());
         record.setFactoryId(factoryId);
         record.setOperatorUserId(userId);
         record.setIssue(request.getIssue().trim());
         record.setStatus(request.getStatus().trim());
         record.setRemark(request.getRemark() == null ? "" : request.getRemark().trim());
         record.setCreatedAt(LocalDateTime.now().toString());
-        records.put(record.getId(), record);
-        return ResponseEntity.status(HttpStatus.CREATED).body(record);
+        return ResponseEntity.status(HttpStatus.CREATED).body(records.save(record));
     }
 
     public static class QualityRecordRequest {
         @NotBlank(message = "质量问题不能为空")
+        @Size(max = 500, message = "质量问题不能超过 500 个字符")
         private String issue;
 
         @NotBlank(message = "状态不能为空")
+        @Size(max = 32, message = "状态不能超过 32 个字符")
         private String status;
 
+        @Size(max = 500, message = "备注不能超过 500 个字符")
         private String remark;
 
         public String getIssue() { return issue; }

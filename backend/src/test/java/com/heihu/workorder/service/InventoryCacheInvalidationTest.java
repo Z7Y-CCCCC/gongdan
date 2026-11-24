@@ -30,6 +30,6 @@ class InventoryCacheInvalidationTest {
         assertThat(eviction.allEntries()).isTrue();
         assertThat(eviction.cacheNames()).contains("inventory.details", "inbound.receipts.list",
                 "inbound.receipts.detail", "outbound.receipts.list", "outbound.receipts.detail",
-                "workorders.list", "workorders.detail", "workorders.code");
+                "workorders.list", "workorders.detail", "workorders.code", "sales.orders.list", "boms.list");
     }
 }

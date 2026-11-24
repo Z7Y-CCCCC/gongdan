@@ -95,6 +95,30 @@ class WorkOrderReportServiceTest {
     }
 
     @Test
+    void uploadImageAcceptsValidSignaturesReadInShortChunks() throws Exception {
+        MockMultipartFile file = new MockMultipartFile("file", "photo.png", "image/png", pngBytes()) {
+            @Override public java.io.InputStream getInputStream() {
+                return new java.io.FilterInputStream(new java.io.ByteArrayInputStream(pngBytes())) {
+                    @Override public int read(byte[] bytes, int offset, int length) throws java.io.IOException {
+                        return super.read(bytes, offset, Math.min(length, 1));
+                    }
+                };
+            }
+        };
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, factory(1L))));
+        when(imageRepository.save(any(WorkOrderReportImage.class))).thenAnswer(invocation -> {
+            WorkOrderReportImage image = invocation.getArgument(0);
+            image.setId(99L);
+            return image;
+        });
+        assertThat(service.uploadImage(1L, 2L, file).getContentType()).isEqualTo("image/png");
+        try (java.util.stream.Stream<Path> files = Files.list(uploadDir)) {
+            Path stored = files.findFirst().get();
+            assertThat(Files.readAllBytes(stored)).containsExactly(pngBytes());
+        }
+    }
+
+    @Test
     void uploadImageSanitizesOriginalNameAndStoresServerGeneratedFile() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",

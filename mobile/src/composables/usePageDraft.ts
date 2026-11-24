@@ -103,6 +103,7 @@ export function usePageDraft<T>({ key, source, restore, debounceMs = 180, scope 
 
   return {
     clearDraft() {
+      if (!hydrated) return
       discardPending()
       try { if (matchesBinding()) uni.removeStorageSync(storageKey) } catch { /* best effort */ }
     }

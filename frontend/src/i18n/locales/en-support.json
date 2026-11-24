@@ -708,5 +708,16 @@
   "生产入库": "Production stock in",
   "退货入库": "Return stock in",
   "普通出库": "Standard stock out",
-  "销售出库": "Sales stock out"
+  "销售出库": "Sales stock out",
+  "部门已创建": "Department created",
+  "部门已更新": "Department updated",
+  "部门已删除": "Department deleted",
+  "删除部门": "Delete department",
+  "导入中...": "Importing...",
+  "导入日志加载失败": "Failed to load import history",
+  "导入已完成，但日志保存失败": "Import completed, but saving its log failed",
+  "暂无导入日志": "No import history",
+  "总计": "Total",
+  "错误": "Errors",
+  "导入日志分页": "Import history pagination"
 }

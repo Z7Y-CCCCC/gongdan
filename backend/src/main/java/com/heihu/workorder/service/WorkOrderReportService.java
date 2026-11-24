@@ -490,9 +490,19 @@ public class WorkOrderReportService {
 
     private void validateImageSignature(MultipartFile file, String ext) {
         byte[] header = new byte[12];
-        int length;
+        int length = 0;
         try (InputStream input = file.getInputStream()) {
-            length = input.read(header);
+            while (length < header.length) {
+                int read = input.read(header, length, header.length - length);
+                if (read < 0) break;
+                if (read == 0) {
+                    int next = input.read();
+                    if (next < 0) break;
+                    header[length++] = (byte) next;
+                } else {
+                    length += read;
+                }
+            }
         } catch (IOException ex) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "图片读取失败");
         }

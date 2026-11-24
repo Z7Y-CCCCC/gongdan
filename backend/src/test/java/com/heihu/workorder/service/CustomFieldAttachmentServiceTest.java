@@ -8,16 +8,26 @@ import com.heihu.workorder.model.Role;
 import com.heihu.workorder.repository.CustomFieldAttachmentRepository;
 import com.heihu.workorder.repository.UserRepository;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.io.ByteArrayInputStream;
+import java.io.FilterInputStream;
+import java.io.InputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -28,6 +38,7 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class CustomFieldAttachmentServiceTest {
+    @TempDir Path uploadDir;
 
     @Mock
     private CustomFieldAttachmentRepository attachmentRepository;
@@ -134,6 +145,101 @@ class CustomFieldAttachmentServiceTest {
         verify(attachmentRepository, org.mockito.Mockito.times(2)).save(captor.capture());
         CustomFieldAttachment saved = captor.getAllValues().get(1);
         assertThat(saved.getContentType()).isEqualTo("application/octet-stream");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-type", "text/p?lain", "application/*", "*/*", "foo/bar/baz"})
+    void uploadNormalizesUnusableContentTypesBeforePersisting(String contentType) {
+        MockMultipartFile file = new MockMultipartFile("file", "doc.txt", contentType,
+                "hello".getBytes(StandardCharsets.UTF_8));
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, factory(1L))));
+        when(attachmentRepository.save(any(CustomFieldAttachment.class))).thenAnswer(invocation -> {
+            CustomFieldAttachment attachment = invocation.getArgument(0);
+            attachment.setId(88L);
+            return attachment;
+        });
+
+        assertThat(service.upload(1L, 2L, "workorder", 10L, "file", file).getContentType())
+                .isEqualTo("application/octet-stream");
+    }
+
+    @Test
+    void uploadImageWithoutMimeTypePersistsItsValidatedImageType() {
+        MockMultipartFile file = new MockMultipartFile("file", "report.png", null, pngBytes());
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, factory(1L))));
+        when(attachmentRepository.save(any(CustomFieldAttachment.class))).thenAnswer(invocation -> {
+            CustomFieldAttachment attachment = invocation.getArgument(0);
+            attachment.setId(88L);
+            return attachment;
+        });
+
+        assertThat(service.upload(1L, 2L, "workorder", 10L, "image", file).getContentType())
+                .isEqualTo("image/png");
+    }
+
+    @Test
+    void uploadAcceptsValidImageWhenTheStreamReadsTheHeaderInShortChunks() {
+        MockMultipartFile file = new MockMultipartFile("file", "report.png", "image/png", pngBytes()) {
+            @Override public InputStream getInputStream() {
+                return new FilterInputStream(new ByteArrayInputStream(pngBytes())) {
+                    @Override public int read(byte[] bytes, int offset, int length) throws java.io.IOException {
+                        return super.read(bytes, offset, Math.min(length, 1));
+                    }
+                };
+            }
+        };
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, factory(1L))));
+        when(attachmentRepository.save(any(CustomFieldAttachment.class))).thenAnswer(invocation -> {
+            CustomFieldAttachment attachment = invocation.getArgument(0);
+            attachment.setId(88L);
+            return attachment;
+        });
+
+        assertThat(service.upload(1L, 2L, "workorder", 10L, "image", file).getContentType())
+                .isEqualTo("image/png");
+        verify(storage).store(org.mockito.ArgumentMatchers.startsWith("cf_"), org.mockito.ArgumentMatchers.eq(file));
+    }
+
+    @Test
+    void uploadDoesNotLeaveAnOrphanFileWhenSavingMetadataFails() throws Exception {
+        CustomFieldAttachmentService local = new CustomFieldAttachmentService(attachmentRepository, userRepository,
+                new LocalReportImageStorage(uploadDir.toString()));
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, factory(1L))));
+        when(attachmentRepository.save(any())).thenThrow(new IllegalStateException("metadata unavailable"));
+        MockMultipartFile file = new MockMultipartFile("file", "document.txt", "text/plain", new byte[] {1, 2, 3});
+        assertThatThrownBy(() -> local.upload(1L, 2L, "workorder", 10L, "file", file))
+                .isInstanceOf(IllegalStateException.class).hasMessage("metadata unavailable");
+        try (java.util.stream.Stream<Path> files = Files.list(uploadDir)) {
+            assertThat(files.count()).isZero();
+        }
+    }
+
+    @Test
+    void aLaterTransactionRollbackAlsoRemovesTheUploadedAttachment() throws Exception {
+        CustomFieldAttachmentService local = new CustomFieldAttachmentService(attachmentRepository, userRepository,
+                new LocalReportImageStorage(uploadDir.toString()));
+        when(userRepository.findByIdAndFactoryId(2L, 1L)).thenReturn(Optional.of(user(2L, factory(1L))));
+        when(attachmentRepository.save(any(CustomFieldAttachment.class))).thenAnswer(invocation -> {
+            CustomFieldAttachment attachment = invocation.getArgument(0);
+            attachment.setId(88L);
+            return attachment;
+        });
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            local.upload(1L, 2L, "workorder", 10L, "file",
+                    new MockMultipartFile("file", "document.txt", "text/plain", new byte[] {1, 2, 3}));
+            try (java.util.stream.Stream<Path> files = Files.list(uploadDir)) {
+                assertThat(files.count()).isEqualTo(1);
+            }
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+            }
+            try (java.util.stream.Stream<Path> files = Files.list(uploadDir)) {
+                assertThat(files.count()).isZero();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     @Test

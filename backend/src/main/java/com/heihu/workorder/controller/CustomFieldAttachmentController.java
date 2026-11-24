@@ -5,11 +5,12 @@ import com.heihu.workorder.service.AuthenticatedUser;
 import com.heihu.workorder.service.CustomFieldAttachmentService;
 import com.heihu.workorder.service.CustomFieldAttachmentService.AttachmentDownload;
 import com.heihu.workorder.service.TokenService;
+import com.heihu.workorder.util.AttachmentMediaTypes;
+import java.nio.charset.StandardCharsets;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -59,12 +60,12 @@ public class CustomFieldAttachmentController {
         AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
         AttachmentDownload download = attachmentService.getDownload(currentUser.getFactoryId(), attachmentId);
         return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(download.getAttachment().getContentType()))
+                .contentType(AttachmentMediaTypes.forDownload(download.getAttachment().getContentType()))
                 .cacheControl(CacheControl.noStore())
                 .header("X-Content-Type-Options", "nosniff")
                 .header(HttpHeaders.CONTENT_DISPOSITION, ("image".equals(download.getAttachment().getFieldType())
                         ? ContentDisposition.inline() : ContentDisposition.attachment())
-                        .filename(download.getAttachment().getOriginalFileName())
+                        .filename(download.getAttachment().getOriginalFileName(), StandardCharsets.UTF_8)
                         .build()
                         .toString())
                 .body(download.getResource());

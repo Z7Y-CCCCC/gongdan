@@ -1,5 +1,28 @@
 # 后端功能验收与新增配置
 
+## 第二轮补充修复（2026-11-24）
+
+- 普通附件现在只保存可用于 HTTP 响应的具体 MIME 类型；格式错误、通配符和超长类型回退为 `application/octet-stream`。历史记录中的坏 MIME 也可以正常下载，不必重传文件。经签名检查的图片在客户端未提供 MIME 时仍保存正确的 `image/png` 等类型。
+- 普通附件、管理端报工图片、移动端报工图片的下载头使用 UTF-8 `Content-Disposition` 编码，中文及 emoji 文件名不再被真实 Tomcat 丢弃。图片入口同时设置 `nosniff`；普通文件仍强制下载，不改为内联 HTML。
+- 普通附件的元数据保存失败或后续事务回滚时，删除本次已经写入的文件，避免残留没有数据库记录的孤儿附件。两条新增回归使用真实临时目录及文件，不只验证 mock 的删除调用。
+- 两类图片上传均循环读取签名头，避免合法输入流短读时被误判为损坏图片；仍保留原有后缀、MIME 与签名检查。
+- `application-prod.properties` 单文件 multipart 默认也由 10MB 改为 20MB，与普通附件业务限制一致；总请求默认仍为 90MB，显式环境变量覆盖仍生效。报工图片自身的 10MB 限制不放宽。
+- 单位改名补齐 `sales.orders.list` 与 `boms.list` 缓存清除，刷新后销售明细、BOM 成品及子件单位立即反映新名称，不保留旧缓存。
+
+真实 HTTP 验证由 `FunctionalUploadHttpIntegrationTest` 执行，使用 loopback Tomcat、独立 H2 与自有临时上传目录。测试读取生产文件中的 **multipart 默认值**，并实际完成普通 12MB 附件上传/下载及拒绝 12MB 报工图片；没有启用完整生产 profile、真实微信或生产数据库。其缓存回归实际启用 `ConcurrentMapCacheManager`、确认两个列表已缓存，再修改单位并重新发出 HTTP 查询。图片字节用于签名与传输核对，不声称完成全部图片格式解码认证。
+
+修复前证据分别位于 `output/functional-attachment-before-round2.log`（坏 MIME、中文下载头、缺省图片 MIME、短读失败）、`output/functional-attachment-rollback-before-round2.log`（两个真实孤儿文件失败）和 `output/functional-unit-cache-before-round2.log`（改名后销售单位仍返回旧值）。这些故障不是主动注入的预期成功检查。
+
+第二轮最终 `mvn -B clean package` 成功（2026-11-24 16:33:48 +08:00）：**914 项、0 失败、0 错误、1 跳过**；86 份 Surefire XML 重新汇总一致。新增 21 项已经包含在 914 项中，不额外累计。最新 JAR 已重新打包，包含新的 MIME 工具、下载控制器、单位缓存修复及生产配置。完整日志为 `output/functional-backend-round2.log`。
+
+| 第二轮专项 | 最新结果 / 口径 |
+| --- | --- |
+| 真实 Servlet 上传、下载、Unicode 文件名、MIME、生产 multipart 默认与单位缓存 | `FunctionalUploadHttpIntegrationTest` **9/9**；真实网络与 H2，不替代生产验收 |
+| 普通附件服务、短读及真实临时文件回滚 | `CustomFieldAttachmentServiceTest` **14/14**；服务单元回归，含实际本机文件读写 |
+| 报工服务及图片签名短读 | `WorkOrderReportServiceTest` **20/20**；保留原有报工与图片边界回归 |
+| 普通/生产 multipart 默认及显式覆盖 | `MultipartConfigurationTest` **3/3**；配置回归，不能单独证明部署成功 |
+| 依赖视图缓存清除契约 | `InventoryCacheInvalidationTest` **2/2**；另有上面的真实 HTTP 缓存验证 |
+
 ## 本轮修复
 
 - 内部沟通联系人预览以前读取整个工厂最近 5,000 条消息，混入别人之间的私聊并产生错误未读数。现在按当前用户参与的会话取最后一条，单独聚合收到的未读数；第三方会话和超过 5,000 条干扰不会覆盖自己的记录。
@@ -49,8 +72,8 @@ APP_MESSAGE_WECHAT_MP_ACCESS_TOKEN=TOKEN
 | 消息发送 | `MessageDeliveryIntegrationTest` 本机真实 HTTP 接收器验证三种请求、公众号服务端 token、下游拒绝、重定向不跟随、损坏/过大响应与并发防重；不发送真实微信或第三方地址。 |
 | 外部数据源、插件、报表和所有核心 API 映射 | 既有适配器/策略/代理测试；路由冒烟扩至外部数据源及 UReport，191 个方法映射无 5xx。路由冒烟中的预期 4xx 不算业务成功。 |
 
-最终 `mvn -B clean package` 成功（2026-11-24 14:36:08 +08:00）：893 项、0 失败、0 错误；1 个显式 opt-in 的本机 MySQL 迁移测试类未开启。新增功能集成 17 项、真实 Servlet 上传 1 项、本机消息投递 7 项均通过；191 个 API 方法映射冒烟无 5xx。单位契约专项先以 34 项回归验证通过，再完成全量打包。JAR 已重新打包。
+第一轮 `mvn -B clean package` 成功（2026-11-24 14:36:08 +08:00）：893 项、0 失败、0 错误；1 个显式 opt-in 的本机 MySQL 迁移测试类未开启。第一轮新增功能集成 17 项、真实 Servlet 上传 1 项、本机消息投递 7 项均通过；191 个 API 方法映射冒烟无 5xx。单位契约专项先以 34 项回归验证通过。最新第二轮完整统计见上文，不与第一轮重复累计。
 
-完整打包日志位于 `output/functional-backend-final.log`。独立数据切片现在显式导入字段验证器，5 项切片回归也单独通过，不能通过禁用生产验证或删除回归测试获得通过。
+第一轮完整打包日志位于 `output/functional-backend-final.log`，最新第二轮日志为 `output/functional-backend-round2.log`。独立数据切片现在显式导入字段验证器，5 项切片回归也单独通过，不能通过禁用生产验证或删除回归测试获得通过。
 
 真实微信终端、实际短信、企业 TLS/数据库凭据、生产容量及生产备份恢复仍需要部署环境和对应凭据。本轮测试使用私有 H2、临时文件与明确的 loopback 接收器，不操作生产业务库。

@@ -3793,6 +3793,7 @@ function activateSidebarItem(event: KeyboardEvent) {
             @notice="msg => actionMessage = msg"
             @confirm="payload => { confirmState.title = payload.title; confirmState.message = payload.message; confirmState.action = payload.action; confirmState.show = true }"
             @reload-departments="loadDepartments"
+            @reload-users="loadUsers"
           />
         </KeepAlive>
       </div>

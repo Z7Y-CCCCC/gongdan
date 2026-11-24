@@ -18,6 +18,10 @@ import { scannedWorkOrderRoute } from '../utils/scan-target'
 import { QR_MAX_FILE_BYTES, readQrImage } from '../utils/qr-image'
 import { navigatePage } from '../utils/navigation'
 import { ensureLogin } from '../services/api'
+import { mobileSessionKey } from '../utils/session-key'
+import { useMobilePageActivity } from '../composables/useMobilePageActivity'
+
+const pageActivity = useMobilePageActivity()
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
@@ -51,22 +55,26 @@ function open() {
   catch (cause) { error.value = cause instanceof Error ? cause.message : '二维码内容无效' }
 }
 function choose(source: 'camera' | 'album') {
-  if (busy.value) return
+  if (busy.value || !ensureLogin()) return
+  const session = mobileSessionKey()
+  const isPageCurrent = pageActivity.capture(true)
   const current = ++generation
+  const valid = () => isPageCurrent() && generation === current && props.modelValue && session === mobileSessionKey()
   busy.value = true; error.value = ''
   uni.chooseImage({ count: 1, sourceType: [source], success: async result => {
     try {
+      if (!valid()) return
       const file = Array.isArray(result.tempFiles) ? result.tempFiles[0] : result.tempFiles
       if (file && file.size > QR_MAX_FILE_BYTES) throw new Error('图片不能超过10MB')
       const value = await readQrImage(result.tempFilePaths[0])
-      if (generation !== current || !props.modelValue) return
+      if (!valid()) return
       input.value = value
       fromImage.value = true
       busy.value = false
       open()
-    } catch (cause) { if (generation === current) error.value = cause instanceof Error ? cause.message : '二维码识别失败' }
+    } catch (cause) { if (valid()) error.value = cause instanceof Error ? cause.message : '二维码识别失败' }
     finally { if (generation === current) busy.value = false }
-  }, fail: failure => { if (generation === current) { busy.value = false; if (!failure.errMsg?.includes('cancel')) error.value = '选择图片失败，请重试' } } })
+  }, fail: failure => { if (generation === current) { busy.value = false; if (valid() && !failure.errMsg?.includes('cancel')) error.value = '选择图片失败，请重试' } } })
 }
 </script>
 

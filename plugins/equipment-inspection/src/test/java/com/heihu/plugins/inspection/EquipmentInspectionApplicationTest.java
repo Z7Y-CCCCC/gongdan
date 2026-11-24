@@ -17,7 +17,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(properties = "plugin.gateway.secret=test-plugin-gateway-secret")
+@SpringBootTest(properties = {
+        "plugin.gateway.secret=test-plugin-gateway-secret",
+        "spring.datasource.url=jdbc:h2:mem:inspection_api_test;DB_CLOSE_DELAY=-1"
+})
 @AutoConfigureMockMvc
 class EquipmentInspectionApplicationTest {
 

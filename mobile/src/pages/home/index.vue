@@ -91,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { clearSession, ensureLogin } from '../../services/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
@@ -99,12 +99,18 @@ import IconButton from '../../components/IconButton.vue'
 import { navigatePage } from '../../utils/navigation'
 import { useMobileDashboard } from '../../composables/useMobileDashboard'
 import { scannedWorkOrderRoute } from '../../utils/scan-target'
+import { mobileSessionKey } from '../../utils/session-key'
+import { useMobilePageActivity } from '../../composables/useMobilePageActivity'
+
+const pageActivity = useMobilePageActivity()
 // #ifdef H5
 import ScanWorkOrderDialog from '../../components/ScanWorkOrderDialog.vue'
 const showScan = ref(false)
 // #endif
 
 const userInfo = ref<any>({})
+let pageAlive = true
+onBeforeUnmount(() => { pageAlive = false })
 const currentDate = ref('')
 const { dashboard, loading: statsLoading, errorMessage: statsError, load: loadDashboard } = useMobileDashboard()
 const todayGood = computed(() => dashboard.value?.todayGood || 0)
@@ -127,7 +133,10 @@ async function loadStats() {
 }
 
 const handleScan = () => {
-  if (!ensureLogin()) return
+  if (!pageAlive || !ensureLogin()) return
+  const session = mobileSessionKey()
+  const isPageCurrent = pageActivity.capture(true)
+  const current = () => pageAlive && isPageCurrent() && session === mobileSessionKey()
   // #ifdef H5
   if (typeof window !== 'undefined' && window.location) {
     showScan.value = true
@@ -136,10 +145,11 @@ const handleScan = () => {
   // #endif
   uni.scanCode({
     success: (res) => {
+      if (!current()) return
       try { navigatePage(scannedWorkOrderRoute(String(res.result || ''))) }
       catch (error) { uni.showToast({ title: error instanceof Error ? error.message : '不是工单二维码', icon: 'none' }) }
     },
-    fail: error => { if (!error.errMsg?.includes('cancel')) uni.showToast({ title: '扫码失败，请重试', icon: 'none' }) }
+    fail: error => { if (current() && !error.errMsg?.includes('cancel')) uni.showToast({ title: '扫码失败，请重试', icon: 'none' }) }
   })
 }
 
@@ -148,13 +158,16 @@ const navigateTo = (url: string) => {
 }
 
 const handleLogout = () => {
+  if (!pageAlive) return
+  const session = mobileSessionKey()
+  const isPageCurrent = pageActivity.capture()
   uni.showModal({
     title: '提示',
     content: '确定要退出当前登录吗？微信绑定关系将保留。',
     cancelText: '取消',
     confirmText: '退出',
     success: (res) => {
-      if (res.confirm) {
+      if (res.confirm && pageAlive && isPageCurrent() && session === mobileSessionKey()) {
         clearSession()
         navigatePage('/pages/bind/index?manual=1', true)
       }

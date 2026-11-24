@@ -173,8 +173,11 @@ import ListLimitNotice from '../../components/ListLimitNotice.vue'
 import IconButton from '../../components/IconButton.vue'
 import ReportImages from '../../components/ReportImages.vue'
 import { mobileSessionKey } from '../../utils/session-key'
+import { useMobilePageActivity } from '../../composables/useMobilePageActivity'
 import { canReportTask } from '../../utils/report-permission'
 import { navigatePage, safeDecode } from '../../utils/navigation'
+
+const pageActivity = useMobilePageActivity()
 
 const order = ref<WorkOrderInfo>({
   id: 0,
@@ -393,16 +396,23 @@ const handleNoPermission = () => {
 }
 
 const handleReport = async (step: any) => {
-  if (checkingPermission || !ensureLogin()) return
+  if (!mounted || checkingPermission || !ensureLogin()) return
+  const session = mobileSessionKey()
+  const targetOrder = order.value
+  const isPageCurrent = pageActivity.capture()
+  const current = () => mounted && isPageCurrent() && targetOrder === order.value
   checkingPermission = true
   try {
-    const users = await fetchWorkOrderReporters(order.value.id, step.sequenceNo)
+    const users = await fetchWorkOrderReporters(targetOrder.id, step.sequenceNo)
+    if (!current()) return
+    if (session !== mobileSessionKey()) throw new Error('登录状态已变更，请刷新')
     if (!users.some(user => user.id === uni.getStorageSync('user')?.id)) throw new Error('您没有此工序的报工权限')
   } catch (e: any) {
+    if (!current()) return
     uni.showToast({ title: e.message || '报工权限确认失败，请重试', icon: 'none' })
     return
   } finally {
-    checkingPermission = false
+    if (mounted) checkingPermission = false
   }
   const url = `/pages/report-form/index?orderId=${order.value.id}&processNo=${step.sequenceNo || 1}&processName=${encodeURIComponent(step.processName || '')}&plannedQty=${step.plannedQuantity || order.value.plannedQuantity || 0}&completedQty=${step.completedQuantity || 0}&defectQty=${step.defectQuantity || 0}&reportPermission=${encodeURIComponent(step.reportPermission || '')}`
   navigatePage(url)

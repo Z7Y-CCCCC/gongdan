@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import UiIcon from './UiIcon.vue'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import {
   fetchDepartments, createDepartment, updateDepartment, deleteDepartment,
   fetchUsers,
-  type DepartmentInfo, type CreateDepartmentPayload, type UpdateDepartmentPayload, type UserInfo
+  type DepartmentInfo, type CreateDepartmentPayload, type UserInfo
 } from '../api'
 import TableConfigButton from './TableConfigButton.vue'
+import { t } from '../i18n'
 
 const props = defineProps<{
   token: string
@@ -19,16 +22,24 @@ const emit = defineEmits<{
   (e: 'notice', msg: string): void
   (e: 'confirm', payload: { title: string; message: string; action: () => void }): void
   (e: 'reload-departments'): void
+  (e: 'reload-users'): void
 }>()
-
-const errorMessage = ref('')
-const actionMessage = ref('')
-watch(errorMessage, (v) => { if (v) emit('error', v) })
-watch(actionMessage, (v) => { if (v) emit('notice', v) })
 
 const loading = ref(false)
 const departmentsLoading = ref(false)
+const displayedDepartments = ref<DepartmentInfo[]>([...props.departments])
+const displayedTotal = ref(props.departmentTotal)
+const departmentLoadError = ref('')
+const usersLoading = ref(false)
+const usersLoadError = ref('')
+const membershipReady = ref(false)
+const beginDepartments = useLatestRequest()
+const beginUsers = useLatestRequest()
+let sessionGeneration = 0
+let modalGeneration = 0
 const departmentFilterForm = reactive({ code: '', name: '', page: 1, size: 10 })
+const displayedPageSize = ref(10)
+let appliedDepartmentQuery = { code: '', name: '', page: 1, size: 10 }
 const showDepartmentModal = ref(false)
 const editingDepartment = ref<DepartmentInfo | null>(null)
 const departmentForm = reactive<CreateDepartmentPayload>({ code: '', name: '', userIds: [] })
@@ -52,6 +63,7 @@ const formatDateTime = (val: string) => {
 }
 
 function openUserSelectDropdown() {
+  if (usersLoading.value || !membershipReady.value || loading.value) return
   if (userSelectTriggerRef.value) {
     const rect = userSelectTriggerRef.value.getBoundingClientRect()
     dropdownStyle.value = {
@@ -64,7 +76,7 @@ function openUserSelectDropdown() {
 }
 
 const selectedUserNames = computed(() => {
-  if (!departmentForm.userIds || departmentForm.userIds.length === 0) return '请选择部门人员'
+  if (!departmentForm.userIds || departmentForm.userIds.length === 0) return t('请选择部门人员')
   return allUsersList.value
     .filter(u => departmentForm.userIds?.includes(u.id))
     .map(u => u.name)
@@ -72,46 +84,79 @@ const selectedUserNames = computed(() => {
 })
 
 async function loadDepartments() {
-  if (!props.token) return
+  const token = props.token
+  const isLatest = beginDepartments()
+  if (!token) { departmentsLoading.value = false; return }
+  const params = { ...appliedDepartmentQuery }
+  const current = () => isLatest() && props.token === token
   departmentsLoading.value = true
+  departmentLoadError.value = ''
   try {
-    const res = await fetchDepartments(props.token, departmentFilterForm)
-    // Data is managed by parent, just emit reload
-    emit('reload-departments')
+    const res = await fetchDepartments(token, params)
+    if (!current()) return
+    const maximum = Math.max(1, Math.ceil(res.total / params.size))
+    if (params.page > maximum) { appliedDepartmentQuery.page = maximum; await loadDepartments(); return }
+    displayedDepartments.value = res.items
+    displayedTotal.value = res.total
+    departmentFilterForm.page = params.page
+    departmentFilterForm.size = params.size
+    displayedPageSize.value = params.size
   } catch (error) {
-    emit('error', error instanceof Error ? error.message : '部门加载失败')
+    if (!current()) return
+    departmentFilterForm.size = displayedPageSize.value
+    departmentLoadError.value = error instanceof Error ? error.message : '部门加载失败'
+    emit('error', departmentLoadError.value)
   } finally {
-    departmentsLoading.value = false
+    if (current()) departmentsLoading.value = false
   }
 }
 
+function queryDepartments() {
+  if (loading.value) return
+  appliedDepartmentQuery = {
+    code: departmentFilterForm.code.trim(), name: departmentFilterForm.name.trim(),
+    page: 1, size: departmentFilterForm.size
+  }
+  void loadDepartments()
+}
+
 async function loadAllUsersForDepartment() {
-  if (!props.token) return
+  const token = props.token
+  const modal = modalGeneration
+  const departmentId = editingDepartment.value?.id
+  const isLatest = beginUsers()
+  const current = () => isLatest() && props.token === token && modalGeneration === modal && showDepartmentModal.value
+  if (!token) return
+  usersLoading.value = true
+  usersLoadError.value = ''
+  membershipReady.value = false
   try {
-    const allUsers = await fetchUsers(props.token)
+    const allUsers = await fetchUsers(token)
+    if (!current()) return
     allUsersList.value = allUsers
+    if (departmentId) departmentForm.userIds = allUsers.filter(user => user.departmentId === departmentId).map(user => user.id)
+    membershipReady.value = true
   } catch (error) {
-    console.error('Failed to load all users', error)
+    if (current()) usersLoadError.value = error instanceof Error ? error.message : '用户列表加载失败'
+  } finally {
+    if (current()) usersLoading.value = false
   }
 }
 
 function handleDepartmentPageChange(dir: number) {
   const newPage = departmentFilterForm.page + dir
   if (newPage < 1) return
-  const maxPage = Math.ceil(props.departmentTotal / departmentFilterForm.size) || 1
+  if (departmentsLoading.value || loading.value || departmentLoadError.value) return
+  const maxPage = Math.ceil(displayedTotal.value / displayedPageSize.value) || 1
   if (newPage > maxPage) return
-  departmentFilterForm.page = newPage
-  loadDepartments()
-}
-
-function resetDepartmentFilter() {
-  departmentFilterForm.code = ''
-  departmentFilterForm.name = ''
-  departmentFilterForm.page = 1
-  loadDepartments()
+  appliedDepartmentQuery = { ...appliedDepartmentQuery, page: newPage }
+  void loadDepartments()
 }
 
 function openCreateDepartmentModal() {
+  if (loading.value) return
+  modalGeneration++
+  showUserSelectDropdown.value = false
   editingDepartment.value = null
   departmentForm.code = ''
   departmentForm.name = ''
@@ -121,53 +166,98 @@ function openCreateDepartmentModal() {
 }
 
 function openEditDepartmentModal(dept: DepartmentInfo) {
+  if (loading.value) return
+  modalGeneration++
+  showUserSelectDropdown.value = false
   editingDepartment.value = dept
   departmentForm.code = dept.code
   departmentForm.name = dept.name
-  loadAllUsersForDepartment().then(() => {
-    departmentForm.userIds = allUsersList.value
-      .filter(u => u.departmentId === dept.id)
-      .map(u => u.id)
-    showDepartmentModal.value = true
-  })
+  departmentForm.userIds = []
+  showDepartmentModal.value = true
+  void loadAllUsersForDepartment()
+}
+
+function closeDepartmentModal() {
+  if (loading.value) return
+  modalGeneration++; beginUsers(); usersLoading.value = false
+  showUserSelectDropdown.value = false; showDepartmentModal.value = false
 }
 
 async function handleSaveDepartment() {
-  if (!props.token) return
+  if (!props.token || !showDepartmentModal.value || loading.value || usersLoading.value || !membershipReady.value) return
+  if (!departmentForm.name.trim()) { emit('error', '请输入部门名称'); return }
+  const token = props.token
+  const generation = sessionGeneration
+  const modal = modalGeneration
+  const id = editingDepartment.value?.id
+  const payload = { name: departmentForm.name.trim(), code: departmentForm.code.trim(), userIds: [...(departmentForm.userIds || [])] }
+  const current = () => props.token === token && sessionGeneration === generation
+  beginDepartments()
+  departmentsLoading.value = false
   loading.value = true
   try {
-    if (editingDepartment.value) {
-      await updateDepartment(props.token, editingDepartment.value.id, departmentForm)
+    if (id) {
+      await updateDepartment(token, id, payload)
     } else {
-      await createDepartment(props.token, departmentForm)
+      await createDepartment(token, payload)
     }
-    showDepartmentModal.value = false
+    if (!current()) return
+    if (modal === modalGeneration) {
+      modalGeneration++; beginUsers(); showUserSelectDropdown.value = false; showDepartmentModal.value = false
+    }
+    emit('notice', id ? '部门已更新' : '部门已创建')
     emit('reload-departments')
+    emit('reload-users')
+    await loadDepartments()
   } catch (error) {
-    emit('error', error instanceof Error ? error.message : '保存失败')
+    if (current()) emit('error', error instanceof Error ? error.message : '保存失败')
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 function confirmDeleteDepartment(dept: DepartmentInfo) {
+  if (loading.value) return
+  const token = props.token
+  const generation = sessionGeneration
   emit('confirm', {
-    title: '删除确认',
+    title: '删除部门',
     message: `是否确要删除「${dept.name}」？其下用户的部门信息将被清空。`,
     action: async () => {
-      if (!props.token) return
+      if (!token || props.token !== token || generation !== sessionGeneration || loading.value) return
+      beginDepartments(); departmentsLoading.value = false
       loading.value = true
       try {
-        await deleteDepartment(props.token, dept.id)
+        await deleteDepartment(token, dept.id)
+        if (props.token !== token || generation !== sessionGeneration) return
+        const rowWasVisible = displayedDepartments.value.some(row => row.id === dept.id)
+        displayedDepartments.value = displayedDepartments.value.filter(row => row.id !== dept.id)
+        if (rowWasVisible) displayedTotal.value = Math.max(0, displayedTotal.value - 1)
+        emit('notice', '部门已删除')
         emit('reload-departments')
+        emit('reload-users')
+        await loadDepartments()
       } catch (error) {
-        emit('error', error instanceof Error ? error.message : '删除失败')
+        if (props.token === token && generation === sessionGeneration) emit('error', error instanceof Error ? error.message : '删除失败')
       } finally {
-        loading.value = false
+        if (props.token === token && generation === sessionGeneration) loading.value = false
       }
     }
   })
 }
+onMounted(loadDepartments)
+useRefreshOnActivated(loadDepartments)
+watch(() => props.token, () => {
+  loading.value = false; departmentsLoading.value = false
+  sessionGeneration++; beginDepartments(); beginUsers(); closeDepartmentModal()
+  displayedDepartments.value = []; displayedTotal.value = 0
+  allUsersList.value = []; membershipReady.value = false; usersLoadError.value = ''
+  Object.assign(departmentFilterForm, { code: '', name: '', page: 1, size: 10 })
+  displayedPageSize.value = 10
+  appliedDepartmentQuery = { code: '', name: '', page: 1, size: 10 }
+  void loadDepartments()
+}, { flush: 'sync' })
+onBeforeUnmount(() => { sessionGeneration++; modalGeneration++; beginDepartments(); beginUsers() })
 </script>
 
 <template>
@@ -175,14 +265,14 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
         <div class="filters">
           <label>
             <span>部门名称</span>
-            <input v-model="departmentFilterForm.name" placeholder="请输入部门名称" />
+            <input v-model="departmentFilterForm.name" placeholder="请输入部门名称" @keydown.enter="queryDepartments" />
           </label>
           <label>
             <span>部门编码</span>
-            <input v-model="departmentFilterForm.code" placeholder="请输入部门编码" />
+            <input v-model="departmentFilterForm.code" placeholder="请输入部门编码" @keydown.enter="queryDepartments" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadDepartments" title="查询" aria-label="查询"><UiIcon name="search" /></button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" :disabled="loading" @click="queryDepartments" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
 
@@ -191,7 +281,9 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
           <TableConfigButton table-id="department-list-table" />
         </div>
 
-        <div class="table-container">
+        <p v-if="departmentsLoading" role="status">加载中...</p>
+        <p v-if="departmentLoadError" role="alert">{{ departmentLoadError }} <button class="ui-icon-button" type="button" :disabled="loading" @click="loadDepartments" title="重试" aria-label="重试"><UiIcon name="refresh" /></button></p>
+        <div class="table-container" :aria-busy="departmentsLoading">
           <table id="department-list-table" class="data-table">
             <thead>
               <tr>
@@ -203,7 +295,7 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="dept in departments" :key="dept.id">
+              <tr v-for="dept in displayedDepartments" :key="dept.id">
                 <td>{{ dept.name }}</td>
                 <td>{{ dept.code }}</td>
                 <td>{{ formatDateTime(dept.createdAt) }}</td>
@@ -213,7 +305,7 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
                   <button class="action-link danger ui-icon-button" type="button" @click="confirmDeleteDepartment(dept)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                 </td>
               </tr>
-              <tr v-if="departments.length === 0">
+              <tr v-if="displayedDepartments.length === 0 && !departmentsLoading && !departmentLoadError">
                 <td colspan="5" style="text-align:center;color:#aaa;padding:32px">暂无部门数据</td>
               </tr>
             </tbody>
@@ -221,11 +313,11 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
         </div>
 
         <div class="pagination">
-          <span class="page-total">共 {{ departmentTotal }} 条结果</span>
-          <button class="page-btn ui-icon-button" type="button" :disabled="departmentFilterForm.page <= 1" @click="handleDepartmentPageChange(-1)" title="上一页" aria-label="上一页"><UiIcon name="arrowLeft" /></button>
+          <span class="page-total">共 {{ displayedTotal }} 条结果</span>
+          <button class="page-btn ui-icon-button" type="button" :disabled="loading || departmentsLoading || !!departmentLoadError || departmentFilterForm.page <= 1" @click="handleDepartmentPageChange(-1)" title="上一页" aria-label="上一页"><UiIcon name="arrowLeft" /></button>
           <span class="page-num">{{ departmentFilterForm.page }}</span>
-          <button class="page-btn ui-icon-button" type="button" :disabled="departmentFilterForm.page >= Math.ceil(departmentTotal / departmentFilterForm.size) || departmentTotal === 0" @click="handleDepartmentPageChange(1)" title="下一页" aria-label="下一页"><UiIcon name="arrowRight" /></button>
-          <select class="size-select" v-model="departmentFilterForm.size" @change="loadDepartments">
+          <button class="page-btn ui-icon-button" type="button" :disabled="loading || departmentsLoading || !!departmentLoadError || departmentFilterForm.page >= Math.ceil(displayedTotal / displayedPageSize) || displayedTotal === 0" @click="handleDepartmentPageChange(1)" title="下一页" aria-label="下一页"><UiIcon name="arrowRight" /></button>
+          <select class="size-select" :disabled="loading" v-model="departmentFilterForm.size" @change="queryDepartments">
             <option :value="10">10条/页</option>
             <option :value="20">20条/页</option>
             <option :value="50">50条/页</option>
@@ -238,9 +330,12 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingDepartment ? '编辑部门' : '新建部门' }}</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="showDepartmentModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <button class="close-btn ui-icon-button" type="button" :disabled="loading" @click="closeDepartmentModal" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleSaveDepartment">
+        <p v-if="usersLoading" role="status">加载中...</p>
+        <p v-if="usersLoadError" role="alert">{{ usersLoadError }} <button class="ui-icon-button" type="button" @click="loadAllUsersForDepartment" title="重试" aria-label="重试"><UiIcon name="refresh" /></button></p>
+        <fieldset :disabled="loading" class="department-fields">
         <label>
           <span><em>*</em> 部门名称</span>
           <input v-model="departmentForm.name" placeholder="请输入部门名称" required />
@@ -252,18 +347,18 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
         <label style="align-items: flex-start;">
           <span style="padding-top: 8px;">部门人员</span>
           <div class="custom-multiselect">
-            <div ref="userSelectTriggerRef" class="multiselect-trigger" @click.stop="openUserSelectDropdown">
+            <button type="button" ref="userSelectTriggerRef" class="multiselect-trigger" style="width:100%;text-align:left" :disabled="loading || usersLoading || !membershipReady" :aria-expanded="showUserSelectDropdown" aria-label="部门人员" @click.stop="openUserSelectDropdown" @keydown.esc.stop="showUserSelectDropdown = false">
               <span :class="{ placeholder: !departmentForm.userIds || departmentForm.userIds?.length === 0 }">
                 {{ selectedUserNames }}
               </span>
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" :style="{ transform: showUserSelectDropdown ? 'rotate(180deg)' : '', transition: 'transform 0.2s' }">
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
-            </div>
+            </button>
             <Teleport to="body">
               <div v-if="showUserSelectDropdown" class="multiselect-dropdown multiselect-dropdown-fixed" :style="dropdownStyle" @click.stop>
                 <label v-for="u in allUsersList" :key="u.id" class="multiselect-option">
-                  <input type="checkbox" :value="u.id" v-model="departmentForm.userIds" />
+                  <input type="checkbox" :disabled="loading" :value="u.id" v-model="departmentForm.userIds" />
                   <span>{{ u.name }} ({{ u.username }})</span>
                 </label>
                 <div v-if="allUsersList.length === 0" style="padding:8px 12px;color:#aaa;font-size:13px">暂无人员</div>
@@ -271,12 +366,17 @@ function confirmDeleteDepartment(dept: DepartmentInfo) {
             </Teleport>
           </div>
         </label>
+        </fieldset>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="showDepartmentModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
-          <button class="primary-btn wide" :disabled="loading" type="submit">确定</button>
+          <button class="ghost-btn wide ui-icon-button" type="button" :disabled="loading" @click="closeDepartmentModal" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="primary-btn wide" :disabled="loading || usersLoading || !membershipReady" type="submit">{{ loading ? '保存中...' : '保存' }}</button>
         </footer>
       </form>
     </section>
   </div>
 
 </template>
+
+<style scoped>
+.department-fields { display: contents; border: 0; padding: 0; margin: 0; }
+</style>

@@ -17,7 +17,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest(properties = "plugin.gateway.secret=test-plugin-gateway-secret")
+@SpringBootTest(properties = {
+        "plugin.gateway.secret=test-plugin-gateway-secret",
+        "spring.datasource.url=jdbc:h2:mem:quality_api_test;DB_CLOSE_DELAY=-1"
+})
 @AutoConfigureMockMvc
 class QualityManagementApplicationTest {
 
@@ -56,6 +59,27 @@ class QualityManagementApplicationTest {
         mockMvc.perform(get(path).headers(gatewayHeaders("GET", path, "202", "22")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isEmpty());
+    }
+
+    @Test
+    void oversizedFieldsAreRejectedBeforeSaving() throws Exception {
+        String path = "/api/plugin/quality-management/records";
+        String[] bodies = {
+                "{\"issue\":\"" + oversized(501) + "\",\"status\":\"OPEN\"}",
+                "{\"issue\":\"valid\",\"status\":\"" + oversized(33) + "\"}",
+                "{\"issue\":\"valid\",\"status\":\"OPEN\",\"remark\":\"" + oversized(501) + "\"}"
+        };
+        for (String body : bodies) {
+            mockMvc.perform(post(path).headers(gatewayHeaders("POST", path, "303", "33", body))
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(get(path).headers(gatewayHeaders("GET", path, "303", "33")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+    }
+
+    private String oversized(int size) {
+        return new String(new char[size]).replace('\0', 'x');
     }
 
     private HttpHeaders gatewayHeaders(String method, String path, String factoryId, String userId) throws Exception {

@@ -1,6 +1,7 @@
 // Unit-test the rendered-config guard with synthetic data; never invokes Docker or a service.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
@@ -82,3 +83,20 @@ test('rejects external source configuration in any image build arguments', () =>
   config.services.backend.build = { args: { APP_EXTERNAL_DATA_KEYS: 'must-not-be-in-image' } }
   assert.notEqual(validate(config).status, 0)
 })
+
+test('normal attachment deployment defaults retain the supported 20MB upload limit', () => {
+  const compose = readFileSync(new URL('../docker-compose.yml', import.meta.url), 'utf8')
+  assert.match(compose, /SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:\s*\$\{SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-20MB\}/)
+})
+
+for (const [service, volume] of [['quality-plugin', 'quality-plugin-data'], ['inspection-plugin', 'inspection-plugin-data']]) {
+  test(`${service} retains records in an independent named data volume`, () => {
+    const compose = readFileSync(new URL('../docker-compose.yml', import.meta.url), 'utf8')
+    const block = compose.match(new RegExp(`^  ${service}:\\s*\\r?\\n([\\s\\S]*?)(?=^  [a-z]|^volumes:|$(?![\\s\\S]))`, 'm'))?.[1]
+    assert.ok(block, `missing ${service} service`)
+    assert.match(block, /PLUGIN_DATA_DIR:\s*\/var\/lib\/gongdan-plugin/)
+    assert.ok(block.includes(`${volume}:/var/lib/gongdan-plugin`), 'database path must be mounted')
+    const declarations = compose.slice(compose.lastIndexOf('\nvolumes:'))
+    assert.ok(declarations.includes(`\n  ${volume}:`), 'named volume must be declared')
+  })
+}
