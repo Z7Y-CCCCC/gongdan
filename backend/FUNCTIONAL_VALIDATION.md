@@ -1,5 +1,15 @@
 # 后端功能验收与新增配置
 
+## CI 补充：库存时间映射（2026-11-24）
+
+首个第二轮 CI 实际执行了 **916** 项：MySQL 迁移 **3/3** 通过，但库存精确时间边界回归返回 0 条而非应有的 3 条。用未改源码的单测和 `-DargLine=-Duser.timezone=UTC` 在本机复现，不能用本机 GMT+8 的成功掩盖它。
+
+根因是 Hibernate 5 的 JPA 写入使用 JDBC `Timestamp`，库存原生查询却混用无时区的 JDBC `LocalDateTime` 绑定/读取；驱动会话时区与 JVM 默认时区不同或启动中变更时，两者不等价。现在过滤参数、读取均与 JPA 的 `Timestamp` 映射一致，空时间仍返回 `null`，库存缓存键升级 `page-v3`，不读取旧错误 DTO。没有改 CI 时区配置、关闭测试或降低原断言。
+
+新增 **4 项**：UTC / +08:00 / America/New_York 的独立 H2 会话 3 项，以及真实 JPA 写入后改变 JVM 默认时区并恢复它的 1 项。最新完整 **UTC JVM `clean package`：918 项，0 失败、0 错误、1 本机 MySQL opt-in 跳过**；87 份 XML 汇总一致，新增 4 项包含在 918 内。日志为 `output/functional-ci-backend-utc-final.log`；最新 JAR 已核对库存修改类。
+
+最新隔离 HTTP 另验证 **6/6**：两条入库与一条出库实际写入，精确 start=end 返回 3 条、两页读回原 12 点及真实单位、范围移后一秒返回 0、真实库存仍为 17。证据为 `../output/functional-inventory-http-final.json`。新提交的远端 CI / 启用 MySQL 结果在交付回复中单列；不是生产数据库验收。
+
 ## 第二轮补充修复（2026-11-24）
 
 - 普通附件现在只保存可用于 HTTP 响应的具体 MIME 类型；格式错误、通配符和超长类型回退为 `application/octet-stream`。历史记录中的坏 MIME 也可以正常下载，不必重传文件。经签名检查的图片在客户端未提供 MIME 时仍保存正确的 `image/png` 等类型。
@@ -13,7 +23,7 @@
 
 修复前证据分别位于 `output/functional-attachment-before-round2.log`（坏 MIME、中文下载头、缺省图片 MIME、短读失败）、`output/functional-attachment-rollback-before-round2.log`（两个真实孤儿文件失败）和 `output/functional-unit-cache-before-round2.log`（改名后销售单位仍返回旧值）。这些故障不是主动注入的预期成功检查。
 
-第二轮最终 `mvn -B clean package` 成功（2026-11-24 16:33:48 +08:00）：**914 项、0 失败、0 错误、1 跳过**；86 份 Surefire XML 重新汇总一致。新增 21 项已经包含在 914 项中，不额外累计。最新 JAR 已重新打包，包含新的 MIME 工具、下载控制器、单位缓存修复及生产配置。完整日志为 `output/functional-backend-round2.log`。
+第二轮初版 `mvn -B clean package` 成功（2026-11-24 16:33:48 +08:00）：**914 项、0 失败、0 错误、1 跳过**；86 份 Surefire XML 重新汇总一致。初版新增 21 项包含在 914 内，不额外累计。此快照包含 MIME 工具、下载控制器、单位缓存修复及生产配置；日志为 `output/functional-backend-round2.log`。后续 CI 时间映射修复及最新完整统计见上文。
 
 | 第二轮专项 | 最新结果 / 口径 |
 | --- | --- |

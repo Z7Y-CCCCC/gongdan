@@ -2,6 +2,8 @@ package com.heihu.workorder.service;
 
 import com.heihu.workorder.dto.InventoryDetailPageResponse;
 import com.heihu.workorder.dto.InventoryDetailResponse;
+import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,11 +43,11 @@ public class InventoryDetailService {
         boolean needsProduct = appendProductFilters(filters, params, productCode, productName, productSpec, productAttribute);
         if (startTime != null) {
             filters.append(" AND r.operation_time >= :startTime");
-            params.addValue("startTime", startTime);
+            params.addValue("startTime", Timestamp.valueOf(startTime), Types.TIMESTAMP);
         }
         if (endTime != null) {
             filters.append(" AND r.operation_time <= :endTime");
-            params.addValue("endTime", endTime);
+            params.addValue("endTime", Timestamp.valueOf(endTime), Types.TIMESTAMP);
         }
 
         String source = normalize(sourceType);
@@ -65,11 +67,17 @@ public class InventoryDetailService {
         List<InventoryDetailResponse> items = jdbc.query(
                 String.join(" UNION ALL ", rows) +
                         " ORDER BY operation_time DESC, source_type ASC, item_id DESC LIMIT :limit OFFSET :offset",
-                params, (rs, row) -> new InventoryDetailResponse(rs.getString("source_type"), rs.getString("receipt_code"),
-                            rs.getString("receipt_type"), rs.getObject("operation_time", LocalDateTime.class),
+                params, (rs, row) -> {
+                    // Hibernate 5 persists LocalDateTime through JDBC Timestamp. Use the same
+                    // driver conversion in both directions, rather than mixing JDBC 4.2's
+                    // timezone-less LocalDateTime binding with the JPA-written values.
+                    Timestamp time = rs.getTimestamp("operation_time");
+                    return new InventoryDetailResponse(rs.getString("source_type"), rs.getString("receipt_code"),
+                            rs.getString("receipt_type"), time == null ? null : time.toLocalDateTime(),
                             rs.getString("remark"), rs.getString("product_code"), rs.getString("product_name"),
                             rs.getString("spec"), rs.getString("attribute"), rs.getString("unit_name"),
-                            rs.getInt("quantity"), rs.getInt("change_qty")));
+                            rs.getInt("quantity"), rs.getInt("change_qty"));
+                });
         return new InventoryDetailPageResponse(items, total);
     }
 
@@ -114,7 +122,7 @@ public class InventoryDetailService {
     }
 
     public static String cacheKey(Object[] args) {
-        StringBuilder key = new StringBuilder("page-v2:");
+        StringBuilder key = new StringBuilder("page-v3:");
         for (Object arg : args) {
             String value = arg instanceof String ? normalize((String) arg) : arg == null ? null : arg.toString();
             if (value == null) key.append("-:");

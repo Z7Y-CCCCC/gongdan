@@ -292,6 +292,34 @@ class BusinessIntegrityIntegrationTest {
     }
 
     @Test
+    void inventoryTimeQueriesFollowTheJpaTimestampMappingWhenTheJvmDefaultZoneChanges() {
+        java.util.TimeZone previous = java.util.TimeZone.getDefault();
+        try {
+            // The H2 session already exists. This reproduces the inverse of the
+            // UTC-CI bootstrap mismatch without depending on this host's zone.
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));
+            LocalDateTime time = LocalDateTime.of(2026, 9, 11, 12, 0);
+            InboundReceiptRequest incoming = inbound(product.getId(), 10, "UTC-IN");
+            incoming.setItems(Arrays.asList(incoming.getItems().get(0), incoming.getItems().get(0)));
+            inboundService.create(factory.getId(), null, incoming);
+            outboundService.create(factory.getId(), null, outbound(product.getId(), 3, "UTC-OUT"));
+
+            InventoryDetailPageResponse first = inventoryDetails.list(factory.getId(), null, null, null,
+                    null, null, null, null, "自制", time, time, 1, 2);
+            assertThat(first.getTotal()).isEqualTo(3);
+            assertThat(first.getItems()).extracting("changeQty").containsExactly(10, 10);
+            assertThat(first.getItems()).extracting("operationTime").containsOnly(time);
+            InventoryDetailPageResponse second = inventoryDetails.list(factory.getId(), null, null, null,
+                    null, null, null, null, null, time, time, 2, 2);
+            assertThat(second.getTotal()).isEqualTo(3);
+            assertThat(second.getItems()).extracting("changeQty").containsExactly(-3);
+            assertThat(second.getItems()).extracting("operationTime").containsExactly(time);
+        } finally {
+            java.util.TimeZone.setDefault(previous);
+        }
+    }
+
+    @Test
     void dashboardUnderstandsStatusAliasesAndExcludesAllTerminalStatesFromOverdue() {
         LocalDateTime now = LocalDateTime.now();
         order.setPlanEnd(now.minusHours(1));

@@ -137,6 +137,7 @@ mvn -B -f plugins/quality-management/pom.xml test
 - **移动端**：迟到登录/照片/报工/现场事件/权限响应不覆盖新账号或新草稿；继续报工重读工序数量，重读失败阻止下一次提交；暂停工单直链不能提交。区分 Vue 卸载与 uni-app 隐藏页面，普通操作检查页面活动/路由 epoch，原生选图/扫码仅容许同页覆盖层，不盲目废弃正常回调。
 - **附件**：坏 MIME 和旧损坏元数据有可下载回退；中文/emoji 名使用 UTF-8 下载头；图片缺省 MIME 按已验证格式解析；签名检查处理短读；数据库保存失败/事务回滚清理未提交文件。普通附件生产/Compose 默认 20MB，报工图片业务限制仍为 10MB。
 - **单位缓存**：单位改名同步清除销售单与 BOM 列表缓存，真实缓存读回不再保留旧单位名。
+- **库存时间映射 / CI**：远端首次实际运行又暴露 UTC 下精确时间范围 3 条变 0 条；MySQL 迁移本身 3/3 通过。库存原生 JDBC 的时间读写已与 JPA `Timestamp` 对齐，保留空时间，缓存键升 v3；原失败断言不改，新增 4 项跨时区/JPA 回归。
 - **独立插件**：质量/设备记录改为参数化 JDBC、独立文件 H2、自增 ID 与 SQL 工厂隔离；写入失败不返回保存成功，重启与并发不复用 ID。Compose 各用独立命名数据卷。质量问题/状态/备注长度在写入前校验。旧版内存丢失数据不能自动恢复；生产备份和多实例部署仍需单独验收。
 
 ### 6.2 最新结果（按类型分别记录）
@@ -144,19 +145,20 @@ mvn -B -f plugins/quality-management/pom.xml test
 | 验证集 | 最新确认 | 本地证据 / 口径 |
 | --- | --- | --- |
 | 管理端完整 `npm test` | **479/479**，49 个 Vitest 文件；Node UI **16/16**、插件 UI **42/42**、国际化 **83/83** 分别通过 | `output/frontend-round2-all-complete.log`；新增 38 项包含在 479 内；空成员提示新回归先失败后通过 |
-| 后端完整 `clean package` | **914** 项，失败 0、错误 0、跳过 1；86 份 XML 汇总一致 | `backend/output/functional-backend-round2.log`；新增 21 项包含在 914 内；跳过为显式 opt-in MySQL，不算生产库已验 |
+| 后端完整 UTC JVM `clean package` | **918** 项，失败 0、错误 0、跳过 1；87 份 XML 汇总一致 | `backend/output/functional-ci-backend-utc-final.log`；第二轮新增 25 项包含在 918 内；本机跳过为显式 opt-in MySQL；远端开启迁移的结果另列 |
 | 后端真实 Servlet 专项 | **9/9** | 上述全量的子集；真实 12MB 普通附件、生产 multipart 默认、中文/emoji 下载、两处图片下载、MIME/单位缓存；Tomcat/H2 隔离，不是完整生产 profile 运行 |
 | 移动完整测试 | 默认及串行均 **161/161**；定向 **35/35** | `mobile/test/mobile-functional-round2-default-all.log`、`mobile/test/mobile-functional-round2-all.log`；新增 31 项包含在 161 内 |
 | 质量 / 设备插件 Java | **9/9** / **10/10**，两份最新 JAR 成功打包 | `output/functional-quality-round2-final.log`、`output/functional-inspection-round2-final.log`；真实文件数据库关闭重开、并发 24 次及厂隔离；NONE 上下文本身不称 HTTP |
-| 核心隔离 HTTP 业务 | **20/20** | `output/functional-http-scenario-round2-final.json`；真实 Spring/H2 登录、CRUD、webhook、BOM、报工审批、库存，不是合成 API |
+| 核心隔离 HTTP 业务 | **20/20** | `output/functional-http-scenario-ci-final.json`；库存 CI 补丁后的最新 Spring/H2 登录、CRUD、webhook、BOM、报工审批、库存，不是合成 API |
+| 库存时间边界真实 HTTP | **6/6** | `output/functional-inventory-http-final.json`；最新控制器/JPA 写两条入库及一条出库，精确 12 点 start=end 分页/时间/单位一致，范围移一秒排除记录，库存 17；不能替代全部生产时区/数据库组合 |
 | 插件独立 HTTP / JVM 重启 | **12/12** | `output/functional-plugin-http-round2.json`；两份最新 JAR 自有 loopback 进程、签名 POST/GET、完整字段读回、终止重启与并发；首/次启动 JAR SHA-256 必须一致 |
 | 真实主系统→插件网关生命周期 | **33/33** | `output/functional-plugin-gateway-round2.json`；注册 READY、安装/启用、健康、配置、双厂隔离、伪上下文拒绝、激活/回滚、禁用/卸载立即 404；1.0.1 登记明确使用同一二进制，只验版本路由状态而非软件升级 |
-| 最新管理端→真实 API 浏览器 | **58/58**，**40** 工作区，0 pageerror / 0 非注入 5xx | `output/playwright/management-functional/browser-round2-result-final.json`；最终构建重跑，包含真实单位 CRUD、语言/主题/时区/键盘和页面控件，不冒称 40 个完整生产业务流程 |
+| 最新管理端→真实 API 浏览器 | **58/58**，**40** 工作区，0 pageerror / 0 非注入 5xx | `output/playwright/management-functional/browser-ci-inventory-final.json`；库存 CI 补丁后的最终构建重跑，包含真实单位 CRUD、语言/主题/时区/键盘和页面控件，不冒称 40 个完整生产业务流程 |
 | 部门 / 用户新增实际操作浏览器 | **29/29**，0 pageerror，2 次明确注入 GET 503 | `output/playwright/management-functional/round2-operations-browser-result.json`；真实部门创建/编辑/删除/13 条分页/成员名称、真实 CSV 导入后用户与 USER 系统日志独立读回、重载后的历史入口及失败重试；原管理员 token/账号/SYS-CONFIG 保持不变，额外分页资料已清理 |
 | 最新 H5 页面活动 / 选图浏览器 | **25/25**：隐藏报工回复 17、选图/离开对照 8，0 pageerror | `output/playwright/mobile-functional/round2-hidden-browser-result.json`；真实 H5 `navigateTo` 证明旧 Vue 页面仍存活；API 是合成夹具，原生覆盖层仅调用真实 H5 onHide 钩子模拟，**没有**微信相机硬件/真机验收 |
 | 构建、配置和运维保护 | 管理端类型/生产构建、移动类型/H5/微信、后端与两个插件 package 成功；CSP **12/12**、Compose **16/16**、Windows **33**、UI/UX 工具 **14/14** | `output/frontend-round2-build-complete.log`、移动 round2 build 日志及对应 `output/functional-*-round2.log`；静态保护不当成实际部署/恢复 |
 
-冻结 API 的 7 个修改类和生产配置与最终后端构建逐一 SHA-256 相同，见 `output/functional-frozen-runtime-round2-verified.json`。插件 HTTP 与网关结果均记录实际 JAR 摘要。凭据、token、运行时 classpath、临时数据库和截图仍是忽略产物，不提交 Git。
+库存 CI 补丁后的冻结 API 的 8 个修改类和生产配置与最终后端构建逐一 SHA-256 相同，见 `output/functional-frozen-runtime-ci-verified.json`。插件 HTTP 与网关结果均记录实际 JAR 摘要。凭据、token、运行时 classpath、临时数据库和截图仍是忽略产物，不提交 Git。
 
 ### 6.3 复跑与边界
 
@@ -166,6 +168,8 @@ mvn -B -f plugins/quality-management/pom.xml test
 node tools/functional/check-plugins.mjs
 # 主网关脚本必须明确传入当前隔离浏览器会话文件，不重新登录该管理员。
 node tools/functional/check-plugin-gateway.mjs output/functional-shared-session-round2-final.json
+# 使用当前 loopback 夹具打印的真实端口，不能使用生产地址。
+node tools/functional/check-inventory-http.mjs http://127.0.0.2:PORT
 ```
 
 第一轮发布前未验边界（§5）仍保留，尤其真实微信/短信/相机、生产 MySQL/Redis/TLS/对象存储、生产备份恢复与容量。GitHub 更新与新提交 CI 的最终状态在交付回复中记录；本地通过不等于远端 CI 已执行。
