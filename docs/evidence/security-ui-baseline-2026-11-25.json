@@ -1,0 +1,949 @@
+{
+  "schemaVersion": 1,
+  "evidenceDate": "2026-11-25",
+  "timeZone": "Asia/Hong_Kong",
+  "snapshotKind": "pre-mobile-dependency-remediation local verification baseline",
+  "baselineCommit": "6a707ad",
+  "productionConnected": false,
+  "scope": "Historical source/UI verification before the new SSR/Intlify dependency integration; not final dependency-remediation or newly published GitHub CI evidence",
+  "tests": {
+    "frontend": {
+      "files": 65,
+      "passed": 782,
+      "failed": 0,
+      "skipped": 0,
+      "pretest": {
+        "ui": 16,
+        "plugin": 42,
+        "i18n": 83
+      }
+    },
+    "mobile": {
+      "passed": 186,
+      "failed": 0
+    },
+    "backend": {
+      "run": 1016,
+      "passed": 1015,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 1,
+      "timezone": "UTC",
+      "xmlFiles": 96
+    }
+  },
+  "builds": {
+    "frontend": true,
+    "mobileH5": true,
+    "mobileWeixin": true,
+    "backendJar": true
+  },
+  "browser": {
+    "managementSyntheticApi": {
+      "passed": 28,
+      "pageerrors": 0,
+      "outsideRequests": 0
+    },
+    "managementRealH2": {
+      "passed": 58,
+      "workspaces": 40,
+      "pageerrors": 0,
+      "nonInjectedServer5xx": 0
+    },
+    "nativeUReport": {
+      "passed": 15,
+      "templateWrites": 0
+    },
+    "mobile": {
+      "passed": 333,
+      "screens": 42,
+      "interactions": 16
+    }
+  },
+  "independentChecks": {
+    "securityHttp": 27,
+    "coreHttp": 20,
+    "downloadedXlsx": 5,
+    "opsUnit": 22,
+    "composeRenders": 4,
+    "allProfilesServices": 7
+  },
+  "dependencyAuditBeforeRemediation": {
+    "frontendAffectedNodes": 0,
+    "mobile": {
+      "high": 22,
+      "moderate": 0,
+      "scope": "Propagated affected package nodes, not 22 independent demonstrated attack chains"
+    },
+    "javaSca": "Not completed"
+  },
+  "recordedLockSha256BeforeRemediation": {
+    "frontend": "f45f68fd536503a8ecf2d4fc5dc22cfddfd14723c4ffe0f4f233d6b847554614",
+    "mobile": "24dcd89381692487859da3acd78fd01ed8c882565d9cac2c941436182da817b1"
+  },
+  "jarSha256BeforeRemediation": "e5e93700643f9ae820f0602d1891c80ac67024b386a64df3df3675ec7b6784b7",
+  "countsMustNotBeSummed": true,
+  "artifactPolicy": "Only repository-relative artifact names, byte lengths and SHA-256 digests are public. Complete logs, screenshots, runtime configuration, cookies and local user paths are not included.",
+  "sourceReportsAtCollection": [
+    {
+      "reportName": "docs/SECURITY_UI_REVIEW_2026-11-25.md",
+      "sha256AtCollection": "7e01630cbbedb78c1b901a1a0f941e1e55c43e147768b0a1ebdd06d4480fb0e9"
+    },
+    {
+      "reportName": "frontend/SECURITY_UI_AUDIT_2026-11-24.md",
+      "sha256AtCollection": "6f794878e1cc600e4811f43575954ef6535bb89b92198a41fa178a4e6f0aabcd"
+    },
+    {
+      "reportName": "mobile/SECURITY_UI_AUDIT_2026-11-25.md",
+      "sha256AtCollection": "e3bbdac4de2d556cdd81925af43e845f7e4d8601dfe8fde17f916a0bd7172b2a"
+    },
+    {
+      "reportName": "backend/SECURITY_AUDIT_2026-11-24.md",
+      "sha256AtCollection": "9fc736d22caedaf7acf860c8cc0dc8fda9bb71d112dbdedd3417bbe279898aec"
+    }
+  ],
+  "artifactRecords": [
+    {
+      "artifactName": "backend/output/resource-cookie-security-after-20261125.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 106432,
+      "sha256": "72789f28d29bd3f0a18854958c0dff81d5a1604db221366e191264f0ec5713eb",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 47,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-cookie-security-baseline-20261125.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 40644,
+      "sha256": "f6273f5a9e5a44c75f54f842dd9389c061bc0f297429e71abdc62d5285942fc6",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 12,
+          "failures": 3,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-logout-tests.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 176085,
+      "sha256": "059e95910819205c296d06ebccb7dff76f5f6ba47b212b53f20007163280ef8f",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 40,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-logout-ureport-tests.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 176204,
+      "sha256": "6a2413b934e6a27da634860fa5cf99e6cfce8907cb80de0233f1a14161feed37",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 47,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-monitor-pagination-after-final-20261125.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 73187,
+      "sha256": "bea53f8f635e50711361bdd3d3ec37f28d31de3f096e3ebc233d7dc5f4813c06",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 10,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-monitor-pagination-baseline-20261125.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 116783,
+      "sha256": "7adfb9dc8d5ca8017a2e76b7f7e01b53998689876d424edf6aff14d3f96fe59e",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 10,
+          "failures": 4,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-ownership-baseline-tests.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 142960,
+      "sha256": "76b787670d25d85db477730d9c9bb14c9c45f8eb1df63a55b350fe14ef7004d7",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 308,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-photo-ownership-after.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2501,
+      "sha256": "75a228fc302def3ea90f857d8f24bc51d4d1b747008a4e4072cbf19fca254e2c",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 34,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-photo-ownership-before.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 3480,
+      "sha256": "30be5e362e2fb2fb63e8f92037c7d16e00a5a8ce838df60d0b57b1db2b21ee84",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 1,
+          "failures": 1,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-photo-ownership-http.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 45715,
+      "sha256": "783f71ddd670fba24b62a75257afa6c38c27f7592932e811bbeddc8406e0d0b1",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-route-inventory-tests.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 180526,
+      "sha256": "97b1cb1b2402a90011f3d99a656496dfe40fbd087ddf612e61632a3ac700161b",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 1,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-final-default-attempt1.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2350036,
+      "sha256": "57a6c3b1a9797e913129e88ee7b7e8915ce24919caa48dce5b6c0b40ce697fab",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 994,
+          "failures": 1,
+          "errors": 0,
+          "skipped": 1
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-final-default.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2082351,
+      "sha256": "45eb53c0ca1a0d9dae6ea6a846598f09ed72c82f7a8a28464a13f7bb809572f9",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 994,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-final-source-utc-20261125.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2078675,
+      "sha256": "5b70c4d92e4021f6dc7d3db462e21304f50d22e6f2b1c1f2b9d3cb968fcdb6b3",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 1016,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-final-source-utc-proof-20261125.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 5227,
+      "sha256": "a704a93d71dc0c31df608df11bc35bbafd8bb23e53fea868561e24d5271ed0c0",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 1015
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-final-utc.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2051029,
+      "sha256": "e6aec596a4c655ffef5338b9dfe82411746abc34764dd34df87bbe8c8de4a569",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 994,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-full-default.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 1954839,
+      "sha256": "b33b82b66914fe654fa241086d235782d1da57af2a19cb1a1b5a21e9ac32cdac",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 971,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-resume-default-proof-20261125.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 4950,
+      "sha256": "6644c015a5db812d2818987ecc0c174f01de0923414792af97c42d8ce8abd5b2",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 1005
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-resume-final-default-20261125.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2004902,
+      "sha256": "e2e4ebaa393e5e25a96ec4e9d9319a1bb02d54487386dcd27edd1e7f905af0a7",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 1006,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-resume-final-utc-20261125.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2037746,
+      "sha256": "aa3744f186d81ffeda78811ffabef6b1466df9df1562a39555a5ad81a5c57395",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 1006,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 1
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-security-resume-utc-before-pagination-proof-20261125.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 4950,
+      "sha256": "e8cee163c17f3c27d040467287516a4d6b6172a3e63cab0c050c5b86c2fae90b",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 1005
+      }
+    },
+    {
+      "artifactName": "backend/output/resource-trusted-proxy-tests.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 6061,
+      "sha256": "2df542f1f3e5f8ddd45c461d373caec55f3a718b225fad248816e8696a3079a4",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastMavenSummary": {
+          "run": 37,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    {
+      "artifactName": "backend/output/security-api-runtime-round3.json",
+      "rawContentIncluded": false,
+      "status": "missing",
+      "alternateArtifactName": "output/security-api-runtime-round3.json",
+      "note": "The historical backend report used an ambiguous output-relative path; the root-level artifact is retained separately below, without pretending the original link resolved."
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui",
+      "rawContentIncluded": false,
+      "status": "directory_available_locally",
+      "fileCount": 82,
+      "directoryManifestSha256": "5005387476f850817e98559c874a1442ab744f76e1c56f3b55338b53e26d5ecb"
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/final-resume-browser.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 84367,
+      "sha256": "987dd9d1106488d37a8542d81e67e9bdb8e62a1abee98e0a741068750d25cda1",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 333,
+        "failedItems": 0,
+        "checksItems": 333,
+        "screensItems": 42,
+        "interactionsItems": 16,
+        "pageerrorsItems": 0,
+        "outboundAttemptsItems": 0,
+        "passedChecks": 333,
+        "failedChecks": 0,
+        "complete": true
+      }
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/final-resume-browser.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 79701,
+      "sha256": "dcce44bba2ef25600d26dc37b1fce652a0a315701225cf52da521c82e3a7b10f"
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/icon-contrast-baseline.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 87840,
+      "sha256": "6deb58467aff5b243cbd19aca4780a71e7103867b377466354c3673c2d1cb98a",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 325,
+        "failedItems": 8,
+        "checksItems": 333,
+        "screensItems": 42,
+        "interactionsItems": 16,
+        "pageerrorsItems": 0,
+        "outboundAttemptsItems": 0,
+        "passedChecks": 325,
+        "failedChecks": 8,
+        "complete": true
+      }
+    },
+    {
+      "artifactName": "output/basedata-import-session-final-2026-11-25.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 420,
+      "sha256": "74f96189b177acde325dfd01656f5aecca606c6a08d8ca20e46440d9ae6ae923",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastVitestSummary": {
+          "passed": 85,
+          "failed": 0,
+          "total": 85
+        },
+        "lastVitestFiles": {
+          "passed": 1,
+          "failed": 0,
+          "total": 1
+        }
+      }
+    },
+    {
+      "artifactName": "output/basedata-late-picker-baseline-2026-11-25.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 13305,
+      "sha256": "93287730ec073b7a66e5d8651bc70527406dbe2887c5e1e7a7def2c34c71d3fe"
+    },
+    {
+      "artifactName": "output/frontend-security-ui-baseline-round3.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 21064,
+      "sha256": "fb6bdab89276fe51c636997162aaf85aeefa1c579999dad28cd525b05349338e"
+    },
+    {
+      "artifactName": "output/frontend-security-ui-corners-baseline-round3.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 12419,
+      "sha256": "fa375f0bb959a0843751f4574bc57c49126c71cf495a55fb8c940ea44b8863d8"
+    },
+    {
+      "artifactName": "output/frontend-security-ui-expanded-round3.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 250,
+      "sha256": "c082e0d7d8d19a591970f4d55c7f0b1685456f8d716a81ef0b5505f1c0531682",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastVitestSummary": {
+          "passed": 54,
+          "failed": 0,
+          "total": 54
+        },
+        "lastVitestFiles": {
+          "passed": 7,
+          "failed": 0,
+          "total": 7
+        }
+      }
+    },
+    {
+      "artifactName": "output/frontend-security-ui-logs-baseline-round3.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 9638,
+      "sha256": "fadcce2675236a8eda8be2b470efbf634ec81f20fb9565e19f38b3d18b54de6f"
+    },
+    {
+      "artifactName": "output/mobile-security-resume-audit-final.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 13472,
+      "sha256": "26387bef96419745a1b99e701c057a14c0d51395e5a3bb0727bdfc872100de74",
+      "countsExtractedFromHistoricalArtifact": {
+        "npmAuditAffectedNodes": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 22,
+          "critical": 0,
+          "total": 22
+        }
+      }
+    },
+    {
+      "artifactName": "output/mobile-security-resume-final-summary.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 748,
+      "sha256": "8afb88a7b65da389234e9c853702149a6137324f3764d1e4ab324ef1817dfb17"
+    },
+    {
+      "artifactName": "output/mobile-security-resume-h5-final.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 647,
+      "sha256": "2272edd78ed65f8adfca1d022937865a134b04ad28e51bc31f67df5f5679c8a2"
+    },
+    {
+      "artifactName": "output/mobile-security-resume-icon-theme-fixed.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 388,
+      "sha256": "4d4a83fdfee33e3e69b7802028dde7ca47456407c6323a86d5f91c4685cb883a",
+      "countsExtractedFromHistoricalArtifact": {
+        "nodeTestSummaries": [
+          {
+            "tests": 1,
+            "pass": 1,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        ]
+      }
+    },
+    {
+      "artifactName": "output/mobile-security-resume-minimatch-ci-offline.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 223,
+      "sha256": "299e38f852ce0bc1f5f236ade93a1024fe63ecd171fbe9247bce8a6834653acc"
+    },
+    {
+      "artifactName": "output/mobile-security-resume-minimatch-ci.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2268,
+      "sha256": "21166b0d2d5974200aab104e17605f6451cd6d054e4ca3fc1452aea92bcaf35c"
+    },
+    {
+      "artifactName": "output/mobile-security-resume-minimatch-fixed.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 349,
+      "sha256": "bd254d558005560dbde78ca4a6b343a832926a4fd788262addf69a326d49fb6c",
+      "countsExtractedFromHistoricalArtifact": {
+        "nodeTestSummaries": [
+          {
+            "tests": 1,
+            "pass": 1,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        ]
+      }
+    },
+    {
+      "artifactName": "output/mobile-security-resume-photo-release-baseline.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2424,
+      "sha256": "fa60ad7e1851d249ac2c4bf3a548a37965c5de5a24122f6d58ac9f096fc31008",
+      "countsExtractedFromHistoricalArtifact": {
+        "nodeTestSummaries": [
+          {
+            "tests": 3,
+            "pass": 1,
+            "fail": 2,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        ]
+      }
+    },
+    {
+      "artifactName": "output/mobile-security-resume-photo-release-fixed.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 781,
+      "sha256": "18cf0b42c3fe190fa93cfb834c2e6cad6347d0454624e7f785db3f6c82acaa91",
+      "countsExtractedFromHistoricalArtifact": {
+        "nodeTestSummaries": [
+          {
+            "tests": 3,
+            "pass": 3,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        ]
+      }
+    },
+    {
+      "artifactName": "output/mobile-security-resume-tests-final.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 46459,
+      "sha256": "0cb53f54ec9af59faa04dd023c27e61cbe0aa339d9007846222db6077a4f9078",
+      "countsExtractedFromHistoricalArtifact": {
+        "nodeTestSummaries": [
+          {
+            "tests": 186,
+            "pass": 186,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        ]
+      }
+    },
+    {
+      "artifactName": "output/mobile-security-resume-versions.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 129,
+      "sha256": "0781bc6307cbb76c1c5887f62b4bda4403f8c54fa3f057937992512bbd5dd10a"
+    },
+    {
+      "artifactName": "output/mobile-security-resume-weixin-final.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 532,
+      "sha256": "ee157969296419c1694791c15ff182bd68a7a18db7fbe43a732ef7d29799c5d4"
+    },
+    {
+      "artifactName": "output/security-api-runtime-round3.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 17510,
+      "sha256": "48ca294e1e287ca591dc409a3308c383667f901d47a3629d00d2c43f4f49aab6",
+      "reportedBy": "backend/SECURITY_AUDIT_2026-11-24.md"
+    },
+    {
+      "artifactName": "output/security-resume-app-virtual-before.ts",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 537885,
+      "sha256": "6ce65fb348e585f8b4c2d654818bbcf1cc293c5e8d093ee7c82e5c9a4397c531"
+    },
+    {
+      "artifactName": "output/security-resume-browser-xlsx-proof.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 371,
+      "sha256": "89dc3f33c2a6e229618ceba37c9197124737b99f2925a70bf8e4bdb6690f372b",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 5
+      }
+    },
+    {
+      "artifactName": "output/security-resume-compose-render-proof.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 3841,
+      "sha256": "eebcb91405c15590949af350cb6854bd10d48d0657e44716a883487370b49949"
+    },
+    {
+      "artifactName": "output/security-resume-core-http-final.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 1167,
+      "sha256": "95cf42293f822a277705ac8ce00291a2e5199f41b7eb4ac4eee34a45df68a843",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 20,
+        "checksItems": 20
+      }
+    },
+    {
+      "artifactName": "output/security-resume-department-keyboard-after.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 249,
+      "sha256": "591572bc207fe8a9d9a317e6039c35eaa9388e46dbcb47e22615670df6a7656c",
+      "countsExtractedFromHistoricalArtifact": {
+        "lastVitestSummary": {
+          "passed": 39,
+          "failed": 0,
+          "total": 39
+        },
+        "lastVitestFiles": {
+          "passed": 3,
+          "failed": 0,
+          "total": 3
+        }
+      }
+    },
+    {
+      "artifactName": "output/security-resume-department-keyboard-baseline.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 3685,
+      "sha256": "25367e3044b08b89387f64c6b357b8bf41c4ac41f00b3218bd4853a214851a7a"
+    },
+    {
+      "artifactName": "output/security-resume-frontend-all-final.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 33252,
+      "sha256": "985fbd32683da27f2664015fc16507f104c2298f407810dfdf90295c535dbb15",
+      "countsExtractedFromHistoricalArtifact": {
+        "nodeTestSummaries": [
+          {
+            "tests": 16,
+            "pass": 16,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          {
+            "tests": 42,
+            "pass": 42,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          },
+          {
+            "tests": 83,
+            "pass": 83,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        ],
+        "lastVitestSummary": {
+          "passed": 782,
+          "failed": 0,
+          "total": 782
+        },
+        "lastVitestFiles": {
+          "passed": 65,
+          "failed": 0,
+          "total": 65
+        }
+      }
+    },
+    {
+      "artifactName": "output/security-resume-frontend-audit.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 387,
+      "sha256": "aeda688748299ee0b4ccb6a8d7ac9f88868d67328b9e7100300ca3fa30161b13",
+      "countsExtractedFromHistoricalArtifact": {
+        "npmAuditAffectedNodes": {
+          "info": 0,
+          "low": 0,
+          "moderate": 0,
+          "high": 0,
+          "critical": 0,
+          "total": 0
+        }
+      }
+    },
+    {
+      "artifactName": "output/security-resume-frontend-build-final.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 9507,
+      "sha256": "895735ea9839e6bb28298afad205a09c9edeec5660895a340ee70398d59f0eea"
+    },
+    {
+      "artifactName": "output/security-resume-frontend-build-verified.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 9507,
+      "sha256": "96b4c6229d467ce9fd7dc23f9c9e75f44cd419eaaa75ba2984d3738e503cf022"
+    },
+    {
+      "artifactName": "output/security-resume-frontend-build.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 19763,
+      "sha256": "4cc7eb270e4b57799b513c830daa75649891580401c569d04df1a5208aa4cb4b"
+    },
+    {
+      "artifactName": "output/security-resume-frontend-typecheck-boolean-assertion.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "artifactName": "output/security-resume-http-final.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 15381,
+      "sha256": "65ece21d7356a7d39d38dbdf9eac7296380b3aaf9a042f69870216276c68a287",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 27,
+        "failedItems": 0,
+        "checksItems": 27,
+        "passedChecks": 27,
+        "failedChecks": 0,
+        "completed": true
+      }
+    },
+    {
+      "artifactName": "output/security-resume-legacy-boolean-render-after.js",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 181,
+      "sha256": "988ab9c73a21f692f1eae54d955ce36ecc910aa319464fbc03646d3663757295"
+    },
+    {
+      "artifactName": "output/security-resume-management-real-browser.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 6427,
+      "sha256": "9388d0f1d560c95854a0ba81a86f857a52a2dfabdf8ec8b65e44644377cb30b6",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 58,
+        "checksItems": 58
+      }
+    },
+    {
+      "artifactName": "output/security-resume-management-ui-browser.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2267,
+      "sha256": "bd9f76dcef9923c1983c158ebad536dc55a953345f4dcf56ac38f4ce914a9d56",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 28,
+        "checksItems": 28
+      }
+    },
+    {
+      "artifactName": "output/security-resume-ops-all.log",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 4161,
+      "sha256": "21aba7639aabca33927ebe607c60924a2d075abb777ad245937b91485d857e0c",
+      "countsExtractedFromHistoricalArtifact": {
+        "nodeTestSummaries": [
+          {
+            "tests": 22,
+            "pass": 22,
+            "fail": 0,
+            "cancelled": 0,
+            "skipped": 0,
+            "todo": 0
+          }
+        ]
+      }
+    },
+    {
+      "artifactName": "output/security-resume-ureport-browser-final.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2124,
+      "sha256": "a80962c7f194734f8c532eeb64b2c76bd7888337fbe5960ee92efc3f6d74e50c",
+      "countsExtractedFromHistoricalArtifact": {
+        "passed": 15,
+        "templateWrites": 0,
+        "checksItems": 15,
+        "completed": true
+      }
+    },
+    {
+      "artifactName": "output/security-ui-review-final-2026-11-25.json",
+      "rawContentIncluded": false,
+      "status": "available_locally",
+      "byteLength": 2384,
+      "sha256": "62eb5127b5fec04cc136360ba5b581495a89a9ec670e7868f1674bddbf759260"
+    }
+  ],
+  "limitations": [
+    "Local isolated fixtures and synthetic APIs only; production was not connected.",
+    "The mobile 186-test, H5/WeChat build and 22-high audit counts are historical pre-remediation results, not certification of the new dependency graph.",
+    "Java software-composition advisories were not exhaustively matched.",
+    "Production TLS/CSP/proxy chains, MySQL/Redis recovery, backup capacity, WeChat physical devices and real SMS/WeChat/enterprise services were not certified."
+  ]
+}

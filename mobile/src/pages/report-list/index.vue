@@ -1,5 +1,6 @@
 <template>
-  <view class="container">
+  <view class="container" role="main" aria-label="报工记录">
+    <text class="sr-only" role="heading" aria-level="1">报工记录</text>
     <!-- 顶部筛选 -->
     <view class="dashboard-header">
       <view class="filter-row">
@@ -86,7 +87,7 @@
           </view>
         </view>
 
-        <ReportImages :images="item.images || []" />
+        <ReportImages :images="item.images || []" :active="pageActive" />
         <view v-if="canRetry(item)" class="button-row"><button class="retry-button" @click="retryReport(item)">重新报工</button></view>
       </view>
       
@@ -108,7 +109,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onHide, onShow } from '@dcloudio/uni-app'
 import { fetchReportPage, ensureLogin } from '../../services/api'
 import type { WorkOrderReport } from '../../types/api'
 import MobileTabBar from '../../components/MobileTabBar.vue'
@@ -127,6 +128,8 @@ const reportTotal = ref(0)
 const loadError = ref('')
 const hasMore = ref(false)
 const pageSize = 20
+const pageActive = ref(true)
+onHide(() => { pageActive.value = false })
 let nextPage = 1
 type ReportQuery = { session: string; period: string; status: string }
 let activeQuery: ReportQuery | undefined
@@ -231,6 +234,7 @@ onBeforeUnmount(() => {
 })
 
 onShow(() => {
+  pageActive.value = true
   if (uni.getStorageSync('token')) {
     loadOnReturn()
   }
@@ -248,56 +252,56 @@ function loadOnReturn() {
 </script>
 
 <style scoped>
-.container { background: #f6f7f7; height: 100vh; display: flex; flex-direction: column; }
+.container { background: var(--mobile-bg, #f6f7f7); height: 100vh; display: flex; flex-direction: column; }
 
-.dashboard-header { background: white; padding: 20rpx; }
+.dashboard-header { background: var(--mobile-surface, white); padding: 20rpx; }
 .filter-row { display: flex; align-items: center; margin-bottom: 20rpx; gap: 12rpx; }
 .filter-row .dropdown { flex: 1; }
-.quantity-summary { display: flex; gap: 28rpx; padding: 12rpx 0 24rpx; font-size: 26rpx; color: #71847e; }
+.quantity-summary { display: flex; gap: 28rpx; padding: 12rpx 0 24rpx; font-size: 26rpx; color: var(--mobile-muted, #64756d); }
 .status-badge { padding: 6rpx 12rpx; font-size: 22rpx; border-radius: 12rpx; white-space: nowrap; }
-.decision-approved { color: #008869; background: #e7f5ef; }
-.decision-rejected { color: #b53b3b; background: #fff0ef; }
-.decision-pending { color: #8a6726; background: #fff4dc; }
+.decision-approved { color: var(--mobile-link, #007a60); background: var(--mobile-subtle, #e7f5ef); }
+.decision-rejected { color: var(--mobile-error, #b53b3b); background: var(--mobile-warning-bg, #fff0ef); }
+.decision-pending { color: var(--mobile-warning, #8a6726); background: var(--mobile-warning-bg, #fff4dc); }
 .dropdown {
   padding: 10rpx 24rpx;
-  background: #f1f3f3;
+  background: var(--mobile-subtle, #f1f3f3);
   border-radius: 30rpx;
   font-size: 24rpx;
-  color: #666;
+  color: var(--mobile-muted, #666);
 }
 .dropdown.active { background: #00856b; color: white; font-weight: 700; text-decoration: underline; text-underline-offset: 6rpx; }
 
 .stat-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 15rpx; margin-bottom: 30rpx; }
-.stat-card { border-radius: 12rpx; padding: 20rpx; color: #202926; display: flex; flex-direction: column; background: #f7f9f8; border-left: 5rpx solid #64756d; }
-.stat-card.green { border-left-color: #00856b; }
-.stat-card.blue { border-left-color: #4080ff; }
-.stat-card.orange { border-left-color: #f59e0b; }
-.stat-card.red { border-left-color: #ef4444; }
-.st { font-size: 20rpx; color: #64756d; margin-bottom: 10rpx; }
-.sv { font-size: 32rpx; font-weight: bold; color: #202926; }
+.stat-card { border-radius: 12rpx; padding: 20rpx; color: var(--mobile-text, #202926); display: flex; flex-direction: column; background: var(--mobile-bg, #f7f9f8); border-left: 5rpx solid var(--mobile-border, #64756d); }
+.stat-card.green { border-left-color: var(--mobile-link, #00856b); }
+.stat-card.blue { border-left-color: var(--mobile-info, #2459a6); }
+.stat-card.orange { border-left-color: var(--mobile-border, #f59e0b); }
+.stat-card.red { border-left-color: var(--mobile-border, #ef4444); }
+.st { font-size: 20rpx; color: var(--mobile-muted, #64756d); margin-bottom: 10rpx; }
+.sv { font-size: 32rpx; font-weight: bold; color: var(--mobile-text, #202926); }
 
-.tab-row { display: flex; justify-content: space-between; gap: 8rpx; border-bottom: 1px solid #eee; }
-.tab { padding: 20rpx 0; font-size: 24rpx; color: #666; position: relative; background: transparent; border-radius: 0; flex: 1; }
-.tab.active { color: #00856b; font-weight: bold; }
+.tab-row { display: flex; justify-content: space-between; gap: 8rpx; border-bottom: 1px solid var(--mobile-border, #eee); }
+.tab { padding: 20rpx 0; font-size: 24rpx; color: var(--mobile-muted, #666); position: relative; background: transparent; border-radius: 0; flex: 1; }
+.tab.active { color: var(--mobile-link, #00856b); font-weight: bold; }
 .tab.active .line { position: absolute; bottom: 0; left: 0; right: 0; height: 4rpx; background: #00856b; }
 
 .list-content { flex: 1; height: 0; min-height: 0; padding: 20rpx 20rpx 130rpx; box-sizing: border-box; }
-.report-card { background: white; border-radius: 16rpx; padding: 30rpx; margin-bottom: 20rpx; position: relative; overflow: hidden; }
-.card-header { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; border-bottom: 1px solid #f8f8f8; padding-bottom: 20rpx; margin-bottom: 20rpx; }
-.user-info { font-size: 28rpx; font-weight: bold; color: #333; }
+.report-card { background: var(--mobile-surface, white); border-radius: 16rpx; padding: 30rpx; margin-bottom: 20rpx; position: relative; overflow: hidden; }
+.card-header { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; border-bottom: 1px solid var(--mobile-border, #f8f8f8); padding-bottom: 20rpx; margin-bottom: 20rpx; }
+.user-info { font-size: 28rpx; font-weight: bold; color: var(--mobile-text, #333); }
 
 .field { display: flex; align-items: flex-start; margin-bottom: 12rpx; }
 .field-icon { margin-right: 8rpx; flex-shrink: 0; }
-.fl { font-size: 24rpx; color: #64756d; width: 90rpx; flex-shrink: 0; }
-.fv { font-size: 24rpx; color: #666; }
+.fl { font-size: 24rpx; color: var(--mobile-muted, #64756d); width: 90rpx; flex-shrink: 0; }
+.fv { font-size: 24rpx; color: var(--mobile-muted, #666); }
 .decision { position: relative; z-index: 1; }
 .decision-note { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.retry-button { position: relative; z-index: 1; margin: 16rpx 0 0; padding: 0 24rpx; display: flex; align-items: center; justify-content: center; border-radius: 20rpx; font-size: 26rpx; color: #007c63; background: #e6f7f3; }
+.retry-button { position: relative; z-index: 1; margin: 16rpx 0 0; padding: 0 24rpx; display: flex; align-items: center; justify-content: center; border-radius: 20rpx; font-size: 26rpx; color: var(--mobile-link, #007c63); background: var(--mobile-subtle, #e6f7f3); }
 .decision .fl { width: 126rpx; }
-.quantity-green { color: #00856b; }
-.quantity-red { color: #ff4d4f; }
+.quantity-green { color: var(--mobile-link, #00856b); }
+.quantity-red { color: var(--mobile-error, #b53b3b); }
 
-.no-more { text-align: center; font-size: 24rpx; color: #ccc; padding: 40rpx 0; }
-.loading-hint { text-align: center; padding: 40rpx 0; font-size: 28rpx; color: #64756d; }
+.no-more { text-align: center; font-size: 24rpx; color: var(--mobile-muted, #64756d); padding: 40rpx 0; }
+.loading-hint { text-align: center; padding: 40rpx 0; font-size: 28rpx; color: var(--mobile-muted, #64756d); }
 
 </style>

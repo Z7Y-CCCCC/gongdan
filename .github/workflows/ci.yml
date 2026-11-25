@@ -27,6 +27,7 @@ jobs:
           npm ci
           npm test
           node --test scripts/test-plugin-csp.mjs
+          npm audit --audit-level=low --registry=https://registry.npmjs.org
           npm run build
 
       - name: 上传前端产物包 (dist)
@@ -93,6 +94,8 @@ jobs:
         run: |
           npm ci
           npm test
+          # Unit tests also verify the real, documented uni security backports.
+          npm audit --audit-level=low --registry=https://registry.npmjs.org
           npm run build
           npm run build:mp-weixin
 
@@ -122,7 +125,7 @@ jobs:
           node-version: 22
           cache: 'npm'
           cache-dependency-path: ops/mcp/package-lock.json
-      - run: node --test ops/test-compose-config.test.mjs
+      - run: node --test ops/test-compose-config.test.mjs ops/test-network-boundary-config.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

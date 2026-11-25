@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch, type CSSProperties } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch, type CSSProperties } from 'vue'
 import QRCode from 'qrcode'
-import { t } from '../i18n'
+import { t, formatUiDate } from '../i18n'
+import { downloadXlsx, prepareXlsxCell } from '../utils/spreadsheet'
+import { parseCsvRows } from '../utils/csv'
 import { printSheetName } from '../utils/printHtml'
 import {
   createWorkOrder,
@@ -39,6 +41,8 @@ import {
 } from '../api'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import { useLatestRequest } from '../composables/useLatestRequest'
+import { usePageOperationScope } from '../composables/usePageOperationScope'
+import { useDialogFocus } from '../composables/useDialogFocus'
 import { fetchAllPages } from '../utils/pagination'
 import { bomMaterialQuantity } from '../utils/bomDecimal'
 import { normalizeWorkOrderStatus } from '../utils/workOrderStatus'
@@ -276,9 +280,13 @@ const workOrderImportLogs = ref<any[]>([])
 const showLogs = ref(false)
 const logs = ref<any[]>([])
 
-async function refreshImportLogs() {
+async function refreshImportLogs(requestToken = props.token, guard: () => boolean = () => true) {
+  const epoch = exportEpoch
+  const current = () => guard() && exportActive && !exportDisposed && requestToken === props.token && epoch === exportEpoch
+  if (!requestToken || !current()) return
   try {
-    const res = await fetchSystemImportLogs(props.token, 'WORK_ORDER')
+    const res = await fetchSystemImportLogs(requestToken, 'WORK_ORDER')
+    if (!current()) return
     workOrderImportLogs.value = res.items.map(item => ({
       id: String(item.id),
       fileName: item.fileName,
@@ -295,10 +303,13 @@ async function refreshImportLogs() {
   }
 }
 
-async function refreshLogs() {
+async function refreshLogs(requestToken = props.token, guard: () => boolean = () => true) {
+  const epoch = exportEpoch
+  const current = () => guard() && exportActive && !exportDisposed && requestToken === props.token && epoch === exportEpoch
+  if (!requestToken || !current()) return
   try {
-    const res = await fetchSystemOperationLogs(props.token, 'WORK_ORDER')
-    logs.value = res.items
+    const res = await fetchSystemOperationLogs(requestToken, 'WORK_ORDER')
+    if (current()) logs.value = res.items
   } catch (e) {
     // ignore
   }
@@ -309,7 +320,10 @@ async function openLogs() {
   await refreshLogs()
 }
 
-async function addOperationLog(message: string) {
+async function addOperationLog(message: string, requestToken = props.token, guard: () => boolean = () => true) {
+  const epoch = exportEpoch
+  const current = () => guard() && exportActive && !exportDisposed && requestToken === props.token && epoch === exportEpoch
+  if (!requestToken || !current()) return
   let actionType = 'OPERATE'
   if (message.includes('创建')) actionType = 'CREATE'
   else if (message.includes('修改')) actionType = 'UPDATE'
@@ -317,12 +331,12 @@ async function addOperationLog(message: string) {
   else if (message.includes('状态变更为')) actionType = 'BATCH_STATUS'
 
   try {
-    await createSystemOperationLog(props.token, {
+    await createSystemOperationLog(requestToken, {
       module: 'WORK_ORDER',
       actionType: actionType,
       detail: message
     })
-    await refreshLogs()
+    if (current()) await refreshLogs(requestToken, current)
   } catch (e) {
     // ignore
   }
@@ -424,7 +438,7 @@ const filteredOrders = computed(() => {
 
     const text = `${item.code}${item.productCode}${item.productName}`.toLowerCase()
     const keywordOk = !keyword.value || text.includes(keyword.value.toLowerCase())
-    
+
     // 高级筛选过滤
     let advPriorityOk = true
     if (filterParams.value.priority !== 'all') {
@@ -507,17 +521,19 @@ function resetForm() {
   })
 }
 
-async function loadData() {
-  const isCurrent = beginLoad()
+async function loadData(requestToken = props.token, guard: () => boolean = () => true) {
+  const latest = beginLoad(), epoch = exportEpoch
+  const isCurrent = () => latest() && guard() && exportActive && !exportDisposed && props.token === requestToken && exportEpoch === epoch
+  if (!requestToken || !isCurrent()) return
   try {
     const [orderRes, productRes, processRes, routeRes, fieldRes, categoryRes, bomRes] = await Promise.all([
-      fetchAllPages(params => fetchWorkOrders(props.token, params), 500, isCurrent),
-      fetchAllPages(params => fetchProducts(props.token, params), 500, isCurrent),
-      fetchAllPages(params => fetchProcesses(props.token, params), 500, isCurrent),
-      fetchAllPages(params => fetchProcessRoutes(props.token, params), 500, isCurrent),
-      fetchCustomFields(props.token, 'workorder'),
-      fetchWorkOrderCategories(props.token),
-      fetchAllPages(params => fetchBoms(props.token, params), 500, isCurrent)
+      fetchAllPages(params => fetchWorkOrders(requestToken, params), 500, isCurrent),
+      fetchAllPages(params => fetchProducts(requestToken, params), 500, isCurrent),
+      fetchAllPages(params => fetchProcesses(requestToken, params), 500, isCurrent),
+      fetchAllPages(params => fetchProcessRoutes(requestToken, params), 500, isCurrent),
+      fetchCustomFields(requestToken, 'workorder'),
+      fetchWorkOrderCategories(requestToken),
+      fetchAllPages(params => fetchBoms(requestToken, params), 500, isCurrent)
     ])
     if (!isCurrent()) return
     workOrders.value = orderRes.items
@@ -529,7 +545,7 @@ async function loadData() {
     boms.value = bomRes.items
 
     try {
-      const pref = await fetchUserPreference(props.token, 'WORK_ORDER_COLUMNS')
+      const pref = await fetchUserPreference(requestToken, 'WORK_ORDER_COLUMNS')
       if (!isCurrent()) return
       if (pref && pref.value) {
         const savedColumns = JSON.parse(pref.value)
@@ -542,7 +558,7 @@ async function loadData() {
     }
 
     try {
-      const heightPref = await fetchUserPreference(props.token, 'WORK_ORDER_ROW_HEIGHT')
+      const heightPref = await fetchUserPreference(requestToken, 'WORK_ORDER_ROW_HEIGHT')
       if (!isCurrent()) return
       if (heightPref?.value && ['normal', 'compact', 'loose'].includes(heightPref.value)) {
         rowHeight.value = heightPref.value as 'normal' | 'compact' | 'loose'
@@ -552,9 +568,9 @@ async function loadData() {
     }
 
     if (!isCurrent()) return
-    await refreshImportLogs()
+    await refreshImportLogs(requestToken, isCurrent)
     if (!isCurrent()) return
-    await refreshLogs()
+    await refreshLogs(requestToken, isCurrent)
   } catch (e: any) {
     if (isCurrent()) emit('notice', e.message || '加载工单失败')
   }
@@ -575,24 +591,30 @@ async function handleSaveCategory() {
 
 async function removeCategory(item: any, event: Event) {
   event.stopPropagation()
-  if (!item.key.startsWith('cat_')) return
+  if (!item.key.startsWith('cat_') || saving.value || deleteLoading.value) return
+  const context = mutationScope.capture()
+  if (!context.isCurrent()) return
   const catId = Number(item.key.replace('cat_', ''))
   const catName = item.label
-  
+
   const confirmed = await deleteConfirm({ message: `确定要删除分类 "${catName}" 吗？` })
-  if (!confirmed) return
-  
+  if (!confirmed || !context.isCurrent()) return
+  deleteLoading.value = true
+
   try {
-    await deleteWorkOrderCategory(props.token, catId)
+    await deleteWorkOrderCategory(context.token, catId)
+    if (!context.isCurrent()) return
     emit('notice', '分类删除成功')
-    
+
     if (categoryFilter.value === item.key) {
       categoryFilter.value = 'all'
     }
-    
-    await loadData()
+
+    await loadData(context.token, context.isCurrent)
   } catch (e: any) {
-    emit('notice', e.message || '删除分类失败')
+    if (context.isCurrent()) emit('notice', e.message || '删除分类失败')
+  } finally {
+    if (context.isCurrent()) { deleteLoading.value = false; deleteVisible.value = false }
   }
 }
 
@@ -654,16 +676,16 @@ function openEdit(item: WorkOrderInfo) {
 function syncCustomValues() {
   form.customValues = customFields.value.map(field => {
     const existing = form.customValues.find(item => item.fieldId === field.id || item.fieldName === field.name)
-    const defaultValue = field.fieldType === 'multiple_select' 
-      ? (field.defaultValues || []) 
-      : (field.defaultValues && field.defaultValues.length > 0 
-          ? (field.fieldType === 'number' ? Number(field.defaultValues[0]) : field.defaultValues[0]) 
+    const defaultValue = field.fieldType === 'multiple_select'
+      ? (field.defaultValues || [])
+      : (field.defaultValues && field.defaultValues.length > 0
+          ? (field.fieldType === 'number' ? Number(field.defaultValues[0]) : field.defaultValues[0])
           : (field.fieldType === 'number' ? null : ''))
 
     if (existing) {
-      const isEmpty = existing.value === null || 
-                      existing.value === undefined || 
-                      existing.value === '' || 
+      const isEmpty = existing.value === null ||
+                      existing.value === undefined ||
+                      existing.value === '' ||
                       (Array.isArray(existing.value) && existing.value.length === 0)
       if (isEmpty) {
         existing.value = defaultValue
@@ -719,7 +741,7 @@ async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
     formData.append('scope', 'workorder')
     formData.append('fieldId', String(field.id))
     formData.append('fieldType', field.fieldType)
-    
+
     const data = await uploadCustomFieldAttachment(props.token, formData)
     const currentVal = String(getCustomValue(field) || '')
     const newPath = data.accessPath
@@ -848,8 +870,8 @@ const taskSelectorSelectedRoutes = ref<any[]>([])
 const filteredProcesses = computed(() => {
   const kw = taskSelectorKeyword.value.trim().toLowerCase()
   if (!kw) return processes.value
-  return processes.value.filter(p => 
-    p.name.toLowerCase().includes(kw) || 
+  return processes.value.filter(p =>
+    p.name.toLowerCase().includes(kw) ||
     (p.code && p.code.toLowerCase().includes(kw))
   )
 })
@@ -857,8 +879,8 @@ const filteredProcesses = computed(() => {
 const filteredRoutes = computed(() => {
   const kw = taskSelectorKeyword.value.trim().toLowerCase()
   if (!kw) return routes.value
-  return routes.value.filter(r => 
-    r.name.toLowerCase().includes(kw) || 
+  return routes.value.filter(r =>
+    r.name.toLowerCase().includes(kw) ||
     (r.code && r.code.toLowerCase().includes(kw))
   )
 })
@@ -993,7 +1015,7 @@ function flattenRouteSteps(steps: any[]): any[] {
 
 function addTaskFromRoute(r: any) {
   if (!r.steps) return
-  
+
   const flatProcesses = flattenRouteSteps(r.steps)
   const newTasks = flatProcesses.map((process: any) => {
     return {
@@ -1007,7 +1029,7 @@ function addTaskFromRoute(r: any) {
       enabled: true
     }
   }) as WorkOrderTaskPayload[]
-  
+
   form.tasks.push(...newTasks)
   // 重排
   form.tasks.forEach((t, i) => t.sequenceNo = i + 1)
@@ -1019,7 +1041,7 @@ function openTaskEdit(idx?: number) {
     selectedTaskIndexes.value = [idx]
   }
   if (selectedTaskIndexes.value.length === 0) return
-  
+
   const first = form.tasks[selectedTaskIndexes.value[0]]
   taskEditForm.plannedQuantity = first.plannedQuantity || 0
   taskEditForm.planDeadline = toInputTime(first.planDeadline)
@@ -1058,7 +1080,7 @@ function onTaskDrop(idx: number) {
   taskDragOverIdx.value = -1
   taskDraggingIdx.value = -1
   if (dragIdx === -1 || dragIdx === idx) return
-  
+
   const moved = form.tasks.splice(dragIdx, 1)[0]
   form.tasks.splice(idx, 0, moved)
   // 重排
@@ -1118,6 +1140,8 @@ function normalizedMaterials() {
 
 async function saveOrder() {
   if (saving.value) return
+  const context = mutationScope.capture()
+  if (!context.isCurrent()) return
   if (!form.productId) {
     emit('notice', '请选择产品')
     activeTab.value = 'basic'
@@ -1153,42 +1177,47 @@ async function saveOrder() {
     materials: normalizedMaterials(),
     version: editing.value ? form.version : undefined
   }
+  const target = editing.value ? { id: editing.value.id, code: editing.value.code } : null
   saving.value = true
   try {
-    if (editing.value) {
-      await updateWorkOrder(props.token, editing.value.id, payload)
+    if (target) {
+      await updateWorkOrder(context.token, target.id, payload)
+      if (!context.isCurrent()) return
       emit('notice', '工单已更新')
-      addOperationLog(`修改了工单 ${editing.value.code} 的基本配置或任务详情`)
+      void addOperationLog(`修改了工单 ${target.code} 的基本配置或任务详情`, context.token, context.isCurrent)
     } else {
-      const res = await createWorkOrder(props.token, payload)
+      const res = await createWorkOrder(context.token, payload)
+      if (!context.isCurrent()) return
       emit('notice', '工单已创建')
-      addOperationLog(`创建了新工单 ${payload.code || (res && res.code) || ''}，计划数 ${payload.plannedQuantity} 件`)
+      void addOperationLog(`创建了新工单 ${payload.code || (res && res.code) || ''}，计划数 ${payload.plannedQuantity} 件`, context.token, context.isCurrent)
     }
     showModal.value = false
-    await loadData()
+    await loadData(context.token, context.isCurrent)
   } catch (e: any) {
-    emit('notice', e.message || '操作失败')
+    if (context.isCurrent()) emit('notice', e.message || '操作失败')
   } finally {
-    saving.value = false
+    if (context.isCurrent()) saving.value = false
   }
 }
 
 async function removeOrder(item: WorkOrderInfo) {
   if (deleteLoading.value || saving.value) return
+  const context = mutationScope.capture(), target = { id: item.id, code: item.code }
+  if (!context.isCurrent()) return
   const confirmed = await deleteConfirm({ message: `确认删除工单「${item.code}」？` })
-  if (!confirmed) return
+  if (!confirmed || !context.isCurrent()) return
   deleteLoading.value = true
   try {
-    await deleteWorkOrder(props.token, item.id)
+    await deleteWorkOrder(context.token, target.id)
+    if (!context.isCurrent()) return
     emit('notice', '工单已删除')
-    addOperationLog(`删除了工单 ${item.code}`)
-    selectedIds.value = selectedIds.value.filter(id => id !== item.id)
-    await loadData()
+    void addOperationLog(`删除了工单 ${target.code}`, context.token, context.isCurrent)
+    selectedIds.value = selectedIds.value.filter(id => id !== target.id)
+    await loadData(context.token, context.isCurrent)
   } catch (e: any) {
-    emit('notice', e.message || '删除失败')
+    if (context.isCurrent()) emit('notice', e.message || '删除失败')
   } finally {
-    deleteLoading.value = false
-    deleteVisible.value = false
+    if (context.isCurrent()) { deleteLoading.value = false; deleteVisible.value = false }
   }
 }
 
@@ -1222,24 +1251,14 @@ function toggleRowHeight() {
   }
 }
 
-function handleExport() {
-  const targets = selectedIds.value.length > 0 
+function workOrderExportData() {
+  const targets = selectedIds.value.length > 0
     ? filteredOrders.value.filter(o => selectedIds.value.includes(o.id))
     : filteredOrders.value
 
   if (targets.length === 0) {
     emit('notice', '没有可导出的数据')
     return
-  }
-
-  // CSV 单元格转义：含逗号、换行、双引号时用双引号包裹
-  function csvEscape(val: any): string {
-    if (val === null || val === undefined) return ''
-    const str = String(val)
-    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
-      return '"' + str.replace(/"/g, '""') + '"'
-    }
-    return str
   }
 
   // 计算最大工序数和最大物料数
@@ -1293,19 +1312,19 @@ function handleExport() {
     })
 
     // 工序列
-    const taskCols: string[] = []
+    const taskCols: (string | number)[] = []
     for (let t = 0; t < maxTasks; t++) {
       const task = item.tasks?.[t]
       if (task) {
         taskCols.push(
           task.processName || '',
           task.processCode || '',
-          task.sequenceNo != null ? String(task.sequenceNo) : '',
-          task.plannedQuantity != null ? String(task.plannedQuantity) : '',
-          task.completedQuantity != null ? String(task.completedQuantity) : '',
-          task.defectQuantity != null ? String(task.defectQuantity) : '',
-          task.approvedQuantity != null ? String(task.approvedQuantity) : '',
-          task.unapprovedQuantity != null ? String(task.unapprovedQuantity) : '',
+          task.sequenceNo ?? '',
+          task.plannedQuantity ?? '',
+          task.completedQuantity ?? '',
+          task.defectQuantity ?? '',
+          task.approvedQuantity ?? '',
+          task.unapprovedQuantity ?? '',
           task.assignee || '',
           task.planDeadline || '',
           task.reportPermission || '',
@@ -1318,7 +1337,7 @@ function handleExport() {
     }
 
     // 物料列
-    const materialCols: string[] = []
+    const materialCols: (string | number)[] = []
     for (let m = 0; m < maxMaterials; m++) {
       const mat = item.materials?.[m]
       if (mat) {
@@ -1326,7 +1345,7 @@ function handleExport() {
           mat.materialCode || '',
           mat.materialName || '',
           mat.materialSpec || '',
-          mat.quantity != null ? String(mat.quantity) : ''
+          mat.quantity ?? ''
         )
       } else {
         materialCols.push('', '', '', '')
@@ -1358,13 +1377,66 @@ function handleExport() {
       ...taskCols,
       ...materialCols,
       ...customCols
-    ].map(csvEscape)
+    ]
   })
 
+  return { headers, rows, fixedHeaderCount: fixedHeaders.length + taskHeaders.length + materialHeaders.length }
+}
+
+const exporting = ref(false)
+const exportError = ref('')
+const importing = ref(false), importError = ref('')
+let importInput: HTMLInputElement | null = null, importReader: FileReader | null = null
+function invalidateImport() {
+  if (importInput) importInput.onchange = null
+  importInput = null
+  const reader = importReader
+  importReader = null
+  if (reader && reader.readyState === FileReader.LOADING) reader.abort()
+  importing.value = false; importError.value = ''
+}
+const printPreparing = ref(false), printScheduled = ref(false), qrLoading = ref(false), printError = ref('')
+let exportEpoch = 0, exportDisposed = false, exportActive = true, printGeneration = 0, qrGeneration = 0
+const mutationScope = usePageOperationScope(() => props.token, () => {
+  deleteHandleCancel()
+  deleteLoading.value = false
+  saving.value = false
+})
+let printTimer: ReturnType<typeof setTimeout> | undefined
+function invalidatePrint() {
+  printGeneration++; qrGeneration++
+  printPreparing.value = false; printScheduled.value = false; qrLoading.value = false; printError.value = ''
+  showPrintModal.value = false; qrDataUrls.value = {}
+  if (printTimer !== undefined) clearTimeout(printTimer)
+  printTimer = undefined
+}
+const exportScopeText = computed(() => {
+  const count = selectedIds.value.length ? filteredOrders.value.filter(item => selectedIds.value.includes(item.id)).length : filteredOrders.value.length
+  return selectedIds.value.length ? t('导出范围：选中匹配的 {0} 条', [count]) : t('导出范围：已加载的 {0} 条', [count])
+})
+watch(() => props.token, () => { exportEpoch++; exporting.value = false; exportError.value = ''; invalidatePrint(); invalidateImport() }, { flush: 'sync' })
+onActivated(() => { exportActive = true })
+onDeactivated(() => { exportActive = false; exportEpoch++; exporting.value = false; exportError.value = ''; invalidatePrint(); invalidateImport() })
+onBeforeUnmount(() => { exportEpoch++; exportDisposed = true; exportActive = false; invalidatePrint(); invalidateImport() })
+function handleExport() {
+  if (exporting.value || saving.value || importing.value) return
+  const data = workOrderExportData()
+  if (!data) return
+  const { headers, rows } = data
+  // CSV 单元格转义：含逗号、换行、双引号时用双引号包裹
+  function csvEscape(val: any): string {
+    if (val === null || val === undefined) return ''
+    const str = String(val)
+    if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+      return '"' + str.replace(/"/g, '""') + '"'
+    }
+    return str
+  }
+
   const csvContent = [headers.map(csvEscape).join(',')]
-    .concat(rows.map(row => row.join(',')))
+    .concat(rows.map(row => row.map(csvEscape).join(',')))
     .join('\n')
-  
+
   const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -1375,369 +1447,386 @@ function handleExport() {
   emit('notice', '已导出 CSV 文件')
 }
 
+async function exportXlsx() {
+  if (exporting.value || saving.value || importing.value || !props.token || !exportActive) return
+  const data = workOrderExportData()
+  if (!data) return
+  const token = props.token, epoch = exportEpoch
+  const current = () => exportActive && !exportDisposed && props.token === token && exportEpoch === epoch
+  exportError.value = ''; exporting.value = true
+  try {
+    const headers = data.headers.map((header, index) => {
+      if (index >= data.fixedHeaderCount) return header
+      const dynamic = /^(工序|物料)([0-9]+)-(.+)$/.exec(header)
+      return dynamic ? `${t(dynamic[1])} ${dynamic[2]} - ${t(dynamic[3])}` : t(header)
+    })
+    const rows = data.rows.map(row => row.map((value, index) => index === 4 || index === 5 ? t(value) : value))
+    const downloaded = await downloadXlsx(`${t('工单列表')}_${formatUiDate(new Date()).slice(0, 10)}.xlsx`, t('工单'), [headers, ...rows], current)
+    if (downloaded && current()) emit('notice', '导出Excel成功')
+  } catch (error) { if (current()) { exportError.value = error instanceof Error ? error.message : '导出失败'; emit('notice', exportError.value) } }
+  finally { if (current()) exporting.value = false }
+}
+
 function handleImport() {
+  if (!props.token || !exportActive || exportDisposed || importing.value || importInput || saving.value || exporting.value) return
+  const requestToken = props.token, epoch = exportEpoch
+  const current = () => exportActive && !exportDisposed && props.token === requestToken && exportEpoch === epoch
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = '.csv'
+  importInput = input
+  input.addEventListener('cancel', () => { if (importInput === input) importInput = null }, { once: true })
   input.onchange = async (e) => {
+    if (importInput !== input || !current() || importing.value) return
+    importInput = null
     const file = (e.target as HTMLInputElement).files?.[0]
     if (!file) return
+    importing.value = true; importError.value = ''
+    const productSnapshot = products.value.map(item => ({ ...item }))
+    const categorySnapshot = categories.value.map(item => ({ ...item }))
+    const fieldsSnapshot = customFields.value.map(item => ({ ...item }))
 
     emit('notice', `正在解析并上传 CSV 文件: ${file.name}...`)
     const reader = new FileReader()
+    importReader = reader
     reader.onload = async (event) => {
-      const text = event.target?.result as string
-      if (!text) {
-        emit('notice', '文件内容为空')
-        return
-      }
-
-      // 按行分割 CSV 内容
-      const lines = text.split(/\r?\n/)
-      if (lines.length <= 1) {
-        emit('notice', '导入数据为空')
-        return
-      }
-
-      // 提取表头 — 支持带双引号的 CSV 字段
-      const headerLine = lines[0].replace(/^\ufeff/, '').trim()
-
-      // CSV 行解析器：正确处理双引号包裹的字段（含逗号、换行、双引号转义）
-      function parseCsvLine(line: string): string[] {
-        const result: string[] = []
-        let current = ''
-        let inQuotes = false
-        for (let c = 0; c < line.length; c++) {
-          const ch = line[c]
-          if (inQuotes) {
-            if (ch === '"') {
-              if (c + 1 < line.length && line[c + 1] === '"') {
-                current += '"'
-                c++ // skip escaped quote
-              } else {
-                inQuotes = false
-              }
-            } else {
-              current += ch
-            }
-          } else {
-            if (ch === '"') {
-              inQuotes = true
-            } else if (ch === ',') {
-              result.push(current.trim())
-              current = ''
-            } else {
-              current += ch
-            }
-          }
-        }
-        result.push(current.trim())
-        return result
-      }
-
-      const cols = parseCsvLine(headerLine)
-      
-      // 标准固定列
-      const idxCode = cols.indexOf('工单编号')
-      const idxProductCode = cols.indexOf('产品编号')
-      const idxProductName = cols.indexOf('产品名称')
-      const idxProductSpec = cols.indexOf('产品规格')
-      const idxStatus = cols.indexOf('状态')
-      const idxPriority = cols.indexOf('优先级')
-      const idxPlannedQty = cols.indexOf('计划数')
-      const idxGoodQty = cols.indexOf('良品数')
-      const idxDefectQty = cols.indexOf('不良品数')
-      // 新增字段列索引
-      const idxDefectRate = cols.indexOf('不良率')
-      const idxPlanStart = cols.indexOf('计划开始')
-      const idxPlanEnd = cols.indexOf('计划结束')
-      const idxRelatedOrder = cols.indexOf('关联订单号')
-      const idxRemark = cols.indexOf('备注')
-      const idxCategory = cols.indexOf('分类')
-
-      // 动态工序列索引检测：工序1-名称, 工序1-编号, ..., 工序N-名称, ...
-      const taskColGroups: { name: number; code: number; seq: number; planned: number; completed: number; defect: number; approved: number; unapproved: number; assignee: number; deadline: number; permission: number; lastReport: number; enabled: number }[] = []
-      for (let t = 1; t <= 50; t++) {
-        const nameIdx = cols.indexOf(`工序${t}-名称`)
-        if (nameIdx === -1) break
-        taskColGroups.push({
-          name: nameIdx,
-          code: cols.indexOf(`工序${t}-编号`),
-          seq: cols.indexOf(`工序${t}-序号`),
-          planned: cols.indexOf(`工序${t}-计划数`),
-          completed: cols.indexOf(`工序${t}-完成数`),
-          defect: cols.indexOf(`工序${t}-不良数`),
-          approved: cols.indexOf(`工序${t}-已审数`),
-          unapproved: cols.indexOf(`工序${t}-未审数`),
-          assignee: cols.indexOf(`工序${t}-负责人`),
-          deadline: cols.indexOf(`工序${t}-截止时间`),
-          permission: cols.indexOf(`工序${t}-报工权限`),
-          lastReport: cols.indexOf(`工序${t}-最后报工`),
-          enabled: cols.indexOf(`工序${t}-启用`)
-        })
-      }
-
-      // 动态物料列索引检测：物料1-编号, 物料1-名称, ..., 物料N-编号, ...
-      const materialColGroups: { code: number; name: number; spec: number; qty: number }[] = []
-      for (let m = 1; m <= 50; m++) {
-        const nameIdx = cols.indexOf(`物料${m}-名称`)
-        if (nameIdx === -1) break
-        materialColGroups.push({
-          code: cols.indexOf(`物料${m}-编号`),
-          name: nameIdx,
-          spec: cols.indexOf(`物料${m}-规格`),
-          qty: cols.indexOf(`物料${m}-数量`)
-        })
-      }
-
-      // 自定义字段列索引映射
-      const customFieldIdxMap: { fieldId: number; fieldName: string; fieldType: string; colIdx: number }[] = []
-      customFields.value.forEach(field => {
-        const idx = cols.indexOf(field.name)
-        if (idx !== -1) {
-          customFieldIdxMap.push({ fieldId: field.id!, fieldName: field.name, fieldType: field.fieldType, colIdx: idx })
-        }
-      })
-
-      if (idxProductCode === -1 && idxProductName === -1) {
-        emit('notice', 'CSV文件格式不正确，缺少产品编号或产品名称列')
-        return
-      }
-
-      let successCount = 0
-      let failCount = 0
-      const errorsList: string[] = []
-
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim()
-        if (!line) continue // 忽略空行
-
-        const rowValues = parseCsvLine(line)
-        if (rowValues.length < 2) continue
-
-        const pCode = idxProductCode !== -1 ? rowValues[idxProductCode] : ''
-        const pName = idxProductName !== -1 ? rowValues[idxProductName] : ''
-        
-        // 1. 根据产品编号或名称寻找真实的产品
-        const matchedProduct = products.value.find(p => 
-          (pCode && p.code === pCode) || (pName && p.name === pName)
-        )
-
-        if (!matchedProduct) {
-          failCount++
-          errorsList.push(`第 ${i} 行：未匹配到系统已有的产品编号/名称 (${pCode || pName})`)
-          continue
-        }
-
-        // 2. 转换状态和优先级
-        let priorityVal = 'NORMAL'
-        if (idxPriority !== -1 && rowValues[idxPriority]) {
-          const csvPriority = rowValues[idxPriority]
-          if (csvPriority === '加急' || csvPriority === 'URGENT') priorityVal = 'URGENT'
-          else if (csvPriority === '高' || csvPriority === 'HIGH') priorityVal = 'HIGH'
-          else if (csvPriority === '低' || csvPriority === 'LOW') priorityVal = 'LOW'
-          else if (csvPriority === '正常' || csvPriority === 'NORMAL') priorityVal = 'NORMAL'
-        }
-
-        let statusVal = 'NOT_STARTED'
-        if (idxStatus !== -1 && rowValues[idxStatus]) {
-          const csvStatus = rowValues[idxStatus]
-          if (csvStatus === '执行中' || csvStatus === '运行中' || csvStatus === 'EXECUTING') statusVal = 'EXECUTING'
-          else if (csvStatus === '已暂停' || csvStatus === 'PAUSED') statusVal = 'PAUSED'
-          else if (csvStatus === '已完成' || csvStatus === '已结束' || csvStatus === 'COMPLETED') statusVal = 'COMPLETED'
-          else if (csvStatus === '已取消' || csvStatus === 'CANCELLED') statusVal = 'CANCELLED'
-          else if (csvStatus === '未开始' || csvStatus === 'NOT_STARTED') statusVal = 'NOT_STARTED'
-        }
-
-        const plannedQty = idxPlannedQty !== -1 ? Number(rowValues[idxPlannedQty] || 0) : 0
-        if (plannedQty <= 0) {
-          failCount++
-          errorsList.push(`第 ${i} 行：计划数必须大于 0`)
-          continue
-        }
-
-        // 3. 分类匹配
-        let categoryId: number | undefined = undefined
-        if (idxCategory !== -1 && rowValues[idxCategory]) {
-          const catName = rowValues[idxCategory]
-          const matchedCat = categories.value.find(c => c.name === catName)
-          if (matchedCat) categoryId = matchedCat.id
-        }
-
-        // 4. 自定义字段值
-        const importedCustomValues: { fieldId: number; fieldName: string; fieldType: string; value: any }[] = []
-        customFieldIdxMap.forEach(mapping => {
-          const raw = rowValues[mapping.colIdx] || ''
-          if (!raw) return
-          let val: any = raw
-          if (mapping.fieldType === 'number') {
-            val = Number(raw) || 0
-          } else if (mapping.fieldType === 'multiple_select') {
-            val = raw.split(/[；;]/).map(s => s.trim()).filter(Boolean)
-          }
-          importedCustomValues.push({
-            fieldId: mapping.fieldId,
-            fieldName: mapping.fieldName,
-            fieldType: mapping.fieldType,
-            value: val
-          })
-        })
-
-        // 5. 构建工单 Payload 并调用接口创建
-        const payload: any = {
-          code: idxCode !== -1 ? rowValues[idxCode] || undefined : undefined,
-          productId: matchedProduct.id,
-          plannedQuantity: plannedQty,
-          status: statusVal,
-          priority: priorityVal,
-          goodQuantity: idxGoodQty !== -1 ? Number(rowValues[idxGoodQty] || 0) : 0,
-          defectQuantity: idxDefectQty !== -1 ? Number(rowValues[idxDefectQty] || 0) : 0,
-          defectRate: idxDefectRate !== -1 ? rowValues[idxDefectRate] || undefined : undefined,
-          planStart: idxPlanStart !== -1 ? rowValues[idxPlanStart] || undefined : undefined,
-          planEnd: idxPlanEnd !== -1 ? rowValues[idxPlanEnd] || undefined : undefined,
-          relatedOrderCode: idxRelatedOrder !== -1 ? rowValues[idxRelatedOrder] || undefined : undefined,
-          remark: idxRemark !== -1 ? rowValues[idxRemark] || undefined : undefined,
-          categoryId,
-          customValues: importedCustomValues,
-          tasks: [] as any[],
-          materials: [] as any[]
-        }
-
-        // 解析工序数据
-        taskColGroups.forEach((g, tIdx) => {
-          const tName = g.name !== -1 ? rowValues[g.name] || '' : ''
-          if (!tName) return // 工序名称为空则跳过
-          payload.tasks.push({
-            processName: tName,
-            processCode: g.code !== -1 ? rowValues[g.code] || '' : '',
-            sequenceNo: g.seq !== -1 ? Number(rowValues[g.seq] || (tIdx + 1)) : (tIdx + 1),
-            plannedQuantity: g.planned !== -1 ? Number(rowValues[g.planned] || 0) : plannedQty,
-            completedQuantity: g.completed !== -1 ? Number(rowValues[g.completed] || 0) : 0,
-            defectQuantity: g.defect !== -1 ? Number(rowValues[g.defect] || 0) : 0,
-            approvedQuantity: g.approved !== -1 ? Number(rowValues[g.approved] || 0) : 0,
-            unapprovedQuantity: g.unapproved !== -1 ? Number(rowValues[g.unapproved] || 0) : 0,
-            assignee: g.assignee !== -1 ? rowValues[g.assignee] || '' : '',
-            planDeadline: g.deadline !== -1 ? rowValues[g.deadline] || '' : '',
-            reportPermission: g.permission !== -1 ? rowValues[g.permission] || '' : '',
-            lastReportTime: g.lastReport !== -1 ? rowValues[g.lastReport] || '' : '',
-            enabled: g.enabled !== -1 ? (rowValues[g.enabled] !== '否') : true
-          })
-        })
-
-        // 解析物料数据
-        materialColGroups.forEach(g => {
-          const mName = g.name !== -1 ? rowValues[g.name] || '' : ''
-          if (!mName) return // 物料名称为空则跳过
-          payload.materials.push({
-            materialCode: g.code !== -1 ? rowValues[g.code] || '' : '',
-            materialName: mName,
-            materialSpec: g.spec !== -1 ? rowValues[g.spec] || '' : '',
-            quantity: g.qty !== -1 ? Number(rowValues[g.qty] || 0) : 0
-          })
-        })
-
-        try {
-          await createWorkOrder(props.token, payload)
-          successCount++
-        } catch (err: any) {
-          failCount++
-          errorsList.push(`第 ${i} 行：导入失败 (${err.message || '创建接口异常'})`)
-        }
-      }
-
-      // 4. 重载数据并记录导入日志
-      await loadData()
-      
-      const status = errorsList.length === 0 ? '成功' : successCount > 0 ? '部分成功' : '失败'
+      if (!current()) return
       try {
-        await createSystemImportLog(props.token, {
-          module: 'WORK_ORDER',
-          fileName: file.name,
-          totalCount: successCount + failCount,
-          successCount,
-          failCount,
-          status,
-          errors: errorsList.length > 0 ? errorsList.join('\n') : undefined
+        const text = event.target?.result as string
+        if (!text) {
+          emit('notice', '文件内容为空')
+          return
+        }
+
+        // Validate every logical CSV row before any business write, including a malformed final record.
+        const lines = parseCsvRows(text)
+        if (lines.length <= 1) {
+          importError.value = '导入数据为空'
+          emit('notice', importError.value)
+          return
+        }
+        const cols = lines[0].map(value => value.trim())
+
+        // 标准固定列
+        const idxCode = cols.indexOf('工单编号')
+        const idxProductCode = cols.indexOf('产品编号')
+        const idxProductName = cols.indexOf('产品名称')
+        const idxProductSpec = cols.indexOf('产品规格')
+        const idxStatus = cols.indexOf('状态')
+        const idxPriority = cols.indexOf('优先级')
+        const idxPlannedQty = cols.indexOf('计划数')
+        const idxGoodQty = cols.indexOf('良品数')
+        const idxDefectQty = cols.indexOf('不良品数')
+        // 新增字段列索引
+        const idxDefectRate = cols.indexOf('不良率')
+        const idxPlanStart = cols.indexOf('计划开始')
+        const idxPlanEnd = cols.indexOf('计划结束')
+        const idxRelatedOrder = cols.indexOf('关联订单号')
+        const idxRemark = cols.indexOf('备注')
+        const idxCategory = cols.indexOf('分类')
+
+        // 动态工序列索引检测：工序1-名称, 工序1-编号, ..., 工序N-名称, ...
+        const taskColGroups: { name: number; code: number; seq: number; planned: number; completed: number; defect: number; approved: number; unapproved: number; assignee: number; deadline: number; permission: number; lastReport: number; enabled: number }[] = []
+        for (let t = 1; t <= 50; t++) {
+          const nameIdx = cols.indexOf(`工序${t}-名称`)
+          if (nameIdx === -1) break
+          taskColGroups.push({
+            name: nameIdx,
+            code: cols.indexOf(`工序${t}-编号`),
+            seq: cols.indexOf(`工序${t}-序号`),
+            planned: cols.indexOf(`工序${t}-计划数`),
+            completed: cols.indexOf(`工序${t}-完成数`),
+            defect: cols.indexOf(`工序${t}-不良数`),
+            approved: cols.indexOf(`工序${t}-已审数`),
+            unapproved: cols.indexOf(`工序${t}-未审数`),
+            assignee: cols.indexOf(`工序${t}-负责人`),
+            deadline: cols.indexOf(`工序${t}-截止时间`),
+            permission: cols.indexOf(`工序${t}-报工权限`),
+            lastReport: cols.indexOf(`工序${t}-最后报工`),
+            enabled: cols.indexOf(`工序${t}-启用`)
+          })
+        }
+
+        // 动态物料列索引检测：物料1-编号, 物料1-名称, ..., 物料N-编号, ...
+        const materialColGroups: { code: number; name: number; spec: number; qty: number }[] = []
+        for (let m = 1; m <= 50; m++) {
+          const nameIdx = cols.indexOf(`物料${m}-名称`)
+          if (nameIdx === -1) break
+          materialColGroups.push({
+            code: cols.indexOf(`物料${m}-编号`),
+            name: nameIdx,
+            spec: cols.indexOf(`物料${m}-规格`),
+            qty: cols.indexOf(`物料${m}-数量`)
+          })
+        }
+
+        // 自定义字段列索引映射
+        const customFieldIdxMap: { fieldId: number; fieldName: string; fieldType: string; colIdx: number }[] = []
+        fieldsSnapshot.forEach(field => {
+          const idx = cols.indexOf(field.name)
+          if (idx !== -1) {
+            customFieldIdxMap.push({ fieldId: field.id!, fieldName: field.name, fieldType: field.fieldType, colIdx: idx })
+          }
         })
-        await refreshImportLogs()
-      } catch (e) {
-        // ignore
+
+        if (idxProductCode === -1 && idxProductName === -1) {
+          importError.value = 'CSV文件格式不正确，缺少产品编号或产品名称列'
+          emit('notice', importError.value)
+          return
+        }
+
+        let successCount = 0
+        let failCount = 0
+        const errorsList: string[] = []
+
+        for (let i = 1; i < lines.length; i++) {
+          if (!current()) return
+          const rowValues = lines[i]
+          if (rowValues.every(value => !value.trim())) continue
+          if (rowValues.length < 2) continue
+
+          const pCode = idxProductCode !== -1 ? rowValues[idxProductCode] : ''
+          const pName = idxProductName !== -1 ? rowValues[idxProductName] : ''
+
+          // 1. 根据产品编号或名称寻找真实的产品
+          const matchedProduct = productSnapshot.find(p =>
+            (pCode && p.code === pCode) || (pName && p.name === pName)
+          )
+
+          if (!matchedProduct) {
+            failCount++
+            errorsList.push(`第 ${i} 行：未匹配到系统已有的产品编号/名称 (${pCode || pName})`)
+            continue
+          }
+
+          // 2. 转换状态和优先级
+          let priorityVal = 'NORMAL'
+          if (idxPriority !== -1 && rowValues[idxPriority]) {
+            const csvPriority = rowValues[idxPriority]
+            if (csvPriority === '加急' || csvPriority === 'URGENT') priorityVal = 'URGENT'
+            else if (csvPriority === '高' || csvPriority === 'HIGH') priorityVal = 'HIGH'
+            else if (csvPriority === '低' || csvPriority === 'LOW') priorityVal = 'LOW'
+            else if (csvPriority === '正常' || csvPriority === 'NORMAL') priorityVal = 'NORMAL'
+          }
+
+          let statusVal = 'NOT_STARTED'
+          if (idxStatus !== -1 && rowValues[idxStatus]) {
+            const csvStatus = rowValues[idxStatus]
+            if (csvStatus === '执行中' || csvStatus === '运行中' || csvStatus === 'EXECUTING') statusVal = 'EXECUTING'
+            else if (csvStatus === '已暂停' || csvStatus === 'PAUSED') statusVal = 'PAUSED'
+            else if (csvStatus === '已完成' || csvStatus === '已结束' || csvStatus === 'COMPLETED') statusVal = 'COMPLETED'
+            else if (csvStatus === '已取消' || csvStatus === 'CANCELLED') statusVal = 'CANCELLED'
+            else if (csvStatus === '未开始' || csvStatus === 'NOT_STARTED') statusVal = 'NOT_STARTED'
+          }
+
+          const plannedQty = idxPlannedQty !== -1 ? Number(rowValues[idxPlannedQty] || 0) : 0
+          if (plannedQty <= 0) {
+            failCount++
+            errorsList.push(`第 ${i} 行：计划数必须大于 0`)
+            continue
+          }
+
+          // 3. 分类匹配
+          let categoryId: number | undefined = undefined
+          if (idxCategory !== -1 && rowValues[idxCategory]) {
+            const catName = rowValues[idxCategory]
+            const matchedCat = categorySnapshot.find(c => c.name === catName)
+            if (matchedCat) categoryId = matchedCat.id
+          }
+
+          // 4. 自定义字段值
+          const importedCustomValues: { fieldId: number; fieldName: string; fieldType: string; value: any }[] = []
+          customFieldIdxMap.forEach(mapping => {
+            const raw = rowValues[mapping.colIdx] || ''
+            if (!raw) return
+            let val: any = raw
+            if (mapping.fieldType === 'number') {
+              val = Number(raw) || 0
+            } else if (mapping.fieldType === 'multiple_select') {
+              val = raw.split(/[；;]/).map(s => s.trim()).filter(Boolean)
+            }
+            importedCustomValues.push({
+              fieldId: mapping.fieldId,
+              fieldName: mapping.fieldName,
+              fieldType: mapping.fieldType,
+              value: val
+            })
+          })
+
+          // 5. 构建工单 Payload 并调用接口创建
+          const payload: any = {
+            code: idxCode !== -1 ? rowValues[idxCode] || undefined : undefined,
+            productId: matchedProduct.id,
+            plannedQuantity: plannedQty,
+            status: statusVal,
+            priority: priorityVal,
+            goodQuantity: idxGoodQty !== -1 ? Number(rowValues[idxGoodQty] || 0) : 0,
+            defectQuantity: idxDefectQty !== -1 ? Number(rowValues[idxDefectQty] || 0) : 0,
+            defectRate: idxDefectRate !== -1 ? rowValues[idxDefectRate] || undefined : undefined,
+            planStart: idxPlanStart !== -1 ? rowValues[idxPlanStart] || undefined : undefined,
+            planEnd: idxPlanEnd !== -1 ? rowValues[idxPlanEnd] || undefined : undefined,
+            relatedOrderCode: idxRelatedOrder !== -1 ? rowValues[idxRelatedOrder] || undefined : undefined,
+            remark: idxRemark !== -1 ? rowValues[idxRemark] || undefined : undefined,
+            categoryId,
+            customValues: importedCustomValues,
+            tasks: [] as any[],
+            materials: [] as any[]
+          }
+
+          // 解析工序数据
+          taskColGroups.forEach((g, tIdx) => {
+            const tName = g.name !== -1 ? rowValues[g.name] || '' : ''
+            if (!tName) return // 工序名称为空则跳过
+            payload.tasks.push({
+              processName: tName,
+              processCode: g.code !== -1 ? rowValues[g.code] || '' : '',
+              sequenceNo: g.seq !== -1 ? Number(rowValues[g.seq] || (tIdx + 1)) : (tIdx + 1),
+              plannedQuantity: g.planned !== -1 ? Number(rowValues[g.planned] || 0) : plannedQty,
+              completedQuantity: g.completed !== -1 ? Number(rowValues[g.completed] || 0) : 0,
+              defectQuantity: g.defect !== -1 ? Number(rowValues[g.defect] || 0) : 0,
+              approvedQuantity: g.approved !== -1 ? Number(rowValues[g.approved] || 0) : 0,
+              unapprovedQuantity: g.unapproved !== -1 ? Number(rowValues[g.unapproved] || 0) : 0,
+              assignee: g.assignee !== -1 ? rowValues[g.assignee] || '' : '',
+              planDeadline: g.deadline !== -1 ? rowValues[g.deadline] || '' : '',
+              reportPermission: g.permission !== -1 ? rowValues[g.permission] || '' : '',
+              lastReportTime: g.lastReport !== -1 ? rowValues[g.lastReport] || '' : '',
+              enabled: g.enabled !== -1 ? (rowValues[g.enabled] !== '否') : true
+            })
+          })
+
+          // 解析物料数据
+          materialColGroups.forEach(g => {
+            const mName = g.name !== -1 ? rowValues[g.name] || '' : ''
+            if (!mName) return // 物料名称为空则跳过
+            payload.materials.push({
+              materialCode: g.code !== -1 ? rowValues[g.code] || '' : '',
+              materialName: mName,
+              materialSpec: g.spec !== -1 ? rowValues[g.spec] || '' : '',
+              quantity: g.qty !== -1 ? Number(rowValues[g.qty] || 0) : 0
+            })
+          })
+
+          try {
+            if (!current()) return
+            await createWorkOrder(requestToken, payload)
+            if (!current()) return
+            successCount++
+          } catch (err: any) {
+            if (!current()) return
+            failCount++
+            errorsList.push(`第 ${i} 行：导入失败 (${err.message || '创建接口异常'})`)
+          }
+        }
+
+        // 4. 重载数据并记录导入日志
+        if (!current()) return
+        await loadData(requestToken, current)
+        if (!current()) return
+
+        const status = errorsList.length === 0 ? '成功' : successCount > 0 ? '部分成功' : '失败'
+        try {
+          await createSystemImportLog(requestToken, {
+            module: 'WORK_ORDER',
+            fileName: file.name,
+            totalCount: successCount + failCount,
+            successCount,
+            failCount,
+            status,
+            errors: errorsList.length > 0 ? errorsList.join('\n') : undefined
+          })
+          if (!current()) return
+          await refreshImportLogs(requestToken, current)
+      } catch (error) {
+        if (current()) { importError.value = '导入已完成，但日志保存失败'; emit('notice', importError.value) }
       }
+      if (!current()) return
 
       if (failCount === 0) {
         emit('notice', `导入完成：成功 ${successCount} 条，全部导入成功`)
       } else {
+        importError.value = `导入完成：成功 ${successCount} 条，失败 ${failCount} 条` + (errorsList[0] ? `：${errorsList[0]}` : '')
         emit('notice', `导入完成：成功 ${successCount} 条，失败 ${failCount} 条`)
       }
+      } catch (error) {
+        if (current()) { importError.value = error instanceof Error ? error.message : '导入失败'; emit('notice', importError.value) }
+      } finally {
+        if (importReader === reader) importReader = null
+        if (current()) importing.value = false
+      }
     }
-    reader.readAsText(file)
+    const readFailed = () => {
+      if (importReader === reader) importReader = null
+      if (current()) { importing.value = false; importError.value = reader.error?.message || '文件读取失败'; emit('notice', importError.value) }
+    }
+    reader.onerror = readFailed
+    try { reader.readAsText(file) } catch { readFailed() }
   }
   input.click()
 }
 
 async function handleBulkStatus(status: string) {
   if (saving.value) return
+  const context = mutationScope.capture()
+  if (!context.isCurrent()) return
   if (selectedIds.value.length === 0) {
     emit('notice', '请先选择工单')
     return
   }
+  // Snapshot every payload before the first await, not just the selected IDs.
+  const targets = workOrders.value.filter(item => selectedIds.value.includes(item.id)).map(item => ({
+    id: item.id, code: item.code,
+    payload: {
+      code: item.code, productId: item.productId, plannedQuantity: item.plannedQuantity,
+      categoryId: item.categoryId, status, priority: item.priority, planStart: item.planStart, planEnd: item.planEnd,
+      relatedOrderCode: item.relatedOrderCode, remark: item.remark, goodQuantity: item.goodQuantity,
+      defectQuantity: item.defectQuantity, defectRate: item.defectRate, version: item.version,
+      customValues: item.customValues?.map(value => ({ ...value, value: Array.isArray(value.value) ? [...value.value] : value.value })),
+      tasks: item.tasks?.map(task => ({ ...task })), materials: item.materials?.map(material => ({ ...material }))
+    }
+  }))
   saving.value = true
   let updated = 0
   try {
-    for (const id of [...selectedIds.value]) {
-      const item = workOrders.value.find(o => o.id === id)
-      if (item) {
-        await updateWorkOrder(props.token, id, {
-          code: item.code,
-          productId: item.productId,
-          plannedQuantity: item.plannedQuantity,
-          categoryId: item.categoryId,
-          status,
-          priority: item.priority,
-          planStart: item.planStart,
-          planEnd: item.planEnd,
-          relatedOrderCode: item.relatedOrderCode,
-          remark: item.remark,
-          goodQuantity: item.goodQuantity,
-          defectQuantity: item.defectQuantity,
-          defectRate: item.defectRate,
-          customValues: item.customValues,
-          tasks: item.tasks,
-          materials: item.materials,
-          version: item.version
-        })
-        updated += 1
-        addOperationLog(`将工单 ${item.code} 的状态变更为 [${statusLabel(status)}]`)
-      }
+    for (const target of targets) {
+      if (!context.isCurrent()) return
+      await updateWorkOrder(context.token, target.id, target.payload)
+      if (!context.isCurrent()) return
+      updated += 1
+      void addOperationLog(`将工单 ${target.code} 的状态变更为 [${statusLabel(status)}]`, context.token, context.isCurrent)
     }
     emit('notice', '状态更新成功')
   } catch (e: any) {
-    emit('notice', `已更新 ${updated} 条工单；${e.message || '状态更新失败，请刷新后重试'}`)
+    if (context.isCurrent()) emit('notice', `已更新 ${updated} 条工单；${e.message || '状态更新失败，请刷新后重试'}`)
   } finally {
-    await loadData()
-    saving.value = false
+    if (context.isCurrent()) await loadData(context.token, context.isCurrent)
+    if (context.isCurrent()) saving.value = false
   }
 }
 
 async function handleDeleteSelected() {
   if (deleteLoading.value || saving.value) return
+  const context = mutationScope.capture()
+  if (!context.isCurrent()) return
   const ids = [...selectedIds.value]
   if (ids.length === 0) {
     emit('notice', '请先选择工单')
     return
   }
   const confirmed = await deleteConfirm({ message: `确认删除选中的 ${ids.length} 个工单？` })
-  if (!confirmed) return
+  if (!confirmed || !context.isCurrent()) return
   deleteLoading.value = true
   let deleted = 0
   const failedIds = new Set<number>()
   let failureMessage = ''
   try {
     for (const id of ids) {
+      if (!context.isCurrent()) return
       try {
-        await deleteWorkOrder(props.token, id)
+        await deleteWorkOrder(context.token, id)
+        if (!context.isCurrent()) return
         deleted += 1
       } catch (e: any) {
+        if (!context.isCurrent()) return
         failedIds.add(id)
         if (!failureMessage) failureMessage = e.message || '删除失败'
       }
@@ -1747,10 +1836,9 @@ async function handleDeleteSelected() {
     selectedIds.value = selectedIds.value.filter(id => !targetIds.has(id) || failedIds.has(id))
     emit('notice', failureMessage ? `已删除 ${deleted} 条工单；${failureMessage}` : '删除成功')
     deleteVisible.value = false
-    await loadData()
+    await loadData(context.token, context.isCurrent)
   } finally {
-    deleteLoading.value = false
-    deleteVisible.value = false
+    if (context.isCurrent()) { deleteLoading.value = false; deleteVisible.value = false }
   }
 }
 
@@ -1764,6 +1852,10 @@ function handleEditSelected() {
 }
 
 const showPrintModal = ref(false)
+const printDialogRef = ref<HTMLElement | null>(null)
+const printTitleId = `work-order-print-title-${Math.random().toString(36).slice(2, 9)}`
+function closePrint() { if (!exporting.value && !printPreparing.value) showPrintModal.value = false }
+useDialogFocus(printDialogRef, () => showPrintModal.value, closePrint)
 const selectedBuiltIn = ref<'flow' | 'qr-thermal' | 'qr-30-40' | 'qr-80-60'>('flow')
 const selectedExcelTpl = ref<'flow' | 'qr' | 'list' | 'materials'>('flow')
 const excelMultiImage = ref(false)
@@ -1891,12 +1983,17 @@ function getMobileBaseUrl() {
 
 async function generateAllQrs() {
   loadCustomTemplates()
+  const token = props.token, epoch = exportEpoch, generation = ++qrGeneration
+  const ids = [...selectedIds.value], builtIn = selectedBuiltIn.value
+  const currentTpl = builtIn === 'qr-30-40' ? customTemplates.value.qr_30_40 : customTemplates.value.qr_80_60
+  const source = currentTpl.qrSource
+  const current = () => exportActive && !exportDisposed && token === props.token && epoch === exportEpoch && generation === qrGeneration
+  if (!token || !current()) return false
+  qrLoading.value = true
   const newUrls: Record<number, string> = {}
-  for (const id of selectedIds.value) {
+  for (const id of ids) {
     const order = workOrders.value.find(o => o.id === id)
     if (!order) continue
-    const currentTpl = selectedBuiltIn.value === 'qr-30-40' ? customTemplates.value.qr_30_40 : customTemplates.value.qr_80_60
-    const source = currentTpl.qrSource
     let qrText = ''
     if (source === '工单外链') {
       const mobileBase = getMobileBaseUrl()
@@ -1906,11 +2003,16 @@ async function generateAllQrs() {
     }
     try {
       newUrls[id] = await QRCode.toDataURL(qrText, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } })
+      if (!current()) return false
     } catch (e) {
-      console.error('QR Generate Error:', e)
+      if (current()) { printError.value = '二维码生成失败，请重试'; qrLoading.value = false }
+      return false
     }
   }
+  if (!current()) return false
   qrDataUrls.value = newUrls
+  qrLoading.value = false
+  return true
 }
 
 watch([selectedIds, selectedBuiltIn], () => {
@@ -1922,19 +2024,37 @@ function getWorkOrder(id: number) {
 }
 
 async function openPrint() {
+  if (!props.token || !exportActive || exportDisposed || exporting.value || saving.value || importing.value || printPreparing.value || printScheduled.value) return
   if (selectedIds.value.length === 0) {
     emit('notice', '请先选择需要打印的工单')
     return
   }
+  const token = props.token, epoch = exportEpoch, generation = ++printGeneration
+  const selection = JSON.stringify([selectedIds.value, selectedBuiltIn.value])
+  const current = () => exportActive && !exportDisposed && props.token === token && exportEpoch === epoch && printGeneration === generation
+  printPreparing.value = true; printError.value = ''
   loadCustomTemplates()
-  await generateAllQrs() // 弹窗前确保二维码已全部生成并完成状态更新
-  showPrintModal.value = true
+  try {
+    const prepared = await generateAllQrs()
+    if (current() && selection === JSON.stringify([selectedIds.value, selectedBuiltIn.value])) {
+      if (prepared) showPrintModal.value = true
+      else if (printError.value) emit('notice', printError.value)
+    }
+  } finally { if (current()) printPreparing.value = false }
 }
 
 function doPrint() {
+  if (!props.token || !exportActive || exportDisposed || exporting.value || saving.value || importing.value || printPreparing.value || printScheduled.value || qrLoading.value) return
+  const token = props.token, epoch = exportEpoch
+  const selection = JSON.stringify([selectedIds.value, selectedBuiltIn.value])
+  const current = () => exportActive && !exportDisposed && props.token === token && exportEpoch === epoch
+  printScheduled.value = true
   showPrintModal.value = false
-  setTimeout(() => {
-    window.print()
+  printTimer = setTimeout(() => {
+    printTimer = undefined
+    if (!current()) return
+    try { if (selection === JSON.stringify([selectedIds.value, selectedBuiltIn.value])) window.print() }
+    finally { if (current()) printScheduled.value = false }
   }, 100)
 }
 
@@ -1948,268 +2068,288 @@ function printedPriorityLabel(value: string) {
 }
 
 async function doExcelPrint(action: 'wps' | 'download') {
+  if (!props.token || !exportActive || exportDisposed || exporting.value || saving.value || importing.value || printPreparing.value || printScheduled.value) return
   const targets = selectedIds.value.length > 0
-    ? workOrders.value.filter(o => selectedIds.value.includes(o.id))
+    ? workOrders.value.filter(o => selectedIds.value.includes(o.id)).map(order => ({ ...order,
+      tasks: order.tasks?.map(task => ({ ...task })), materials: order.materials?.map(material => ({ ...material })),
+      customValues: order.customValues?.map(value => ({ ...value, value: Array.isArray(value.value) ? [...value.value] : value.value })) }))
     : []
   if (targets.length === 0) {
     emit('notice', '请先选择需要打印的工单')
     return
   }
 
-  const [{ default: ExcelJS }, { saveAs }] = await Promise.all([
-    import('exceljs'),
-    import('file-saver')
-  ])
+  const token = props.token, epoch = exportEpoch
+  const current = () => exportActive && !exportDisposed && props.token === token && exportEpoch === epoch
   const tplType = selectedExcelTpl.value
-  const wb = new ExcelJS.Workbook()
-  wb.creator = t('小工单管理系统')
-  const sheetNames = new Set<string>()
-  wb.created = new Date()
+  const fieldsSnapshot = customFields.value.map(field => ({ ...field }))
+  exporting.value = true; printError.value = ''
+  try {
+    const [{ default: ExcelJS }, { saveAs }] = await Promise.all([
+      import('exceljs'),
+      import('file-saver')
+    ])
+    if (!current()) return
+    const wb = new ExcelJS.Workbook()
+    wb.creator = t('小工单管理系统')
+    const sheetNames = new Set<string>()
+    wb.created = new Date()
 
-  if (tplType === 'flow') {
-    // ====== 工单流转卡模板 ======
-    for (const item of targets) {
-      const ws = wb.addWorksheet(printSheetName(t('工单流转卡'), item.code, sheetNames))
-      ws.columns = [
-        { width: 16 }, { width: 30 }, { width: 30 }
-      ]
-      // 标题行
-      ws.mergeCells('A1:C1')
-      const titleCell = ws.getCell('A1')
-      titleCell.value = t('工单流转卡')
-      titleCell.font = { bold: true, size: 18 }
-      titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
-      titleCell.border = { bottom: { style: 'medium' } }
-      ws.getRow(1).height = 36
+    if (tplType === 'flow') {
+      // ====== 工单流转卡模板 ======
+      for (const item of targets) {
+        const ws = wb.addWorksheet(printSheetName(t('工单流转卡'), item.code, sheetNames))
+        ws.columns = [
+          { width: 16 }, { width: 30 }, { width: 30 }
+        ]
+        // 标题行
+        ws.mergeCells('A1:C1')
+        const titleCell = ws.getCell('A1')
+        titleCell.value = t('工单流转卡')
+        titleCell.font = { bold: true, size: 18 }
+        titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+        titleCell.border = { bottom: { style: 'medium' } }
+        ws.getRow(1).height = 36
 
-      const fields = [
-        [t('工单编号'), item.code],
-        [t('产品编号'), item.productCode],
-        [t('产品名称'), item.productName],
-        [t('产品规格'), item.productSpec || '-'],
-        [t('工单计划数'), item.plannedQuantity],
-        [t('良品数'), item.goodQuantity],
-        [t('不良品数'), item.defectQuantity],
-        [t('不良率'), item.defectRate || '-'],
-        [t('状态'), printedStatusLabel(item.status)],
-        [t('优先级'), printedPriorityLabel(item.priority)],
-        [t('工艺路线'), item.routeName || '-'],
-        [t('工单分类'), item.categoryName || '-'],
-        [t('计划开始'), item.planStart || '-'],
-        [t('计划结束'), item.planEnd || '-'],
-        [t('关联订单号'), item.relatedOrderCode || '-'],
-        [t('客户名称'), item.customerName || '-'],
-        [t('备注'), item.remark || '']
-      ]
+        const fields = [
+          [t('工单编号'), item.code],
+          [t('产品编号'), item.productCode],
+          [t('产品名称'), item.productName],
+          [t('产品规格'), item.productSpec || '-'],
+          [t('工单计划数'), item.plannedQuantity],
+          [t('良品数'), item.goodQuantity],
+          [t('不良品数'), item.defectQuantity],
+          [t('不良率'), item.defectRate || '-'],
+          [t('状态'), printedStatusLabel(item.status)],
+          [t('优先级'), printedPriorityLabel(item.priority)],
+          [t('工艺路线'), item.routeName || '-'],
+          [t('工单分类'), item.categoryName || '-'],
+          [t('计划开始'), item.planStart || '-'],
+          [t('计划结束'), item.planEnd || '-'],
+          [t('关联订单号'), item.relatedOrderCode || '-'],
+          [t('客户名称'), item.customerName || '-'],
+          [t('备注'), item.remark || '']
+        ]
 
-      // 动态自定义字段值
-      customFields.value.forEach(field => {
-        const cv = item.customValues?.find(v => v.fieldId === field.id || v.fieldName === field.name)
-        let valStr = '-'
-        if (cv && cv.value !== null && cv.value !== undefined) {
-          if (Array.isArray(cv.value)) {
-            valStr = cv.value.join('；')
-          } else {
-            valStr = String(cv.value)
+        // 动态自定义字段值
+        fieldsSnapshot.forEach(field => {
+          const cv = item.customValues?.find(v => v.fieldId === field.id || v.fieldName === field.name)
+          let valStr = '-'
+          if (cv && cv.value !== null && cv.value !== undefined) {
+            if (Array.isArray(cv.value)) {
+              valStr = cv.value.join('；')
+            } else {
+              valStr = String(cv.value)
+            }
           }
+          fields.push([field.name, valStr])
+        })
+
+        fields.forEach((pair, idx) => {
+          const row = ws.getRow(idx + 2)
+          row.getCell(1).value = pair[0] as string
+          row.getCell(1).font = { bold: true }
+          row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' }
+          ws.mergeCells(idx + 2, 2, idx + 2, 3)
+          row.getCell(2).value = pair[1] as any
+          row.getCell(2).alignment = { vertical: 'middle', wrapText: true }
+          row.eachCell(c => {
+            c.border = {
+              top: { style: 'thin' }, bottom: { style: 'thin' },
+              left: { style: 'thin' }, right: { style: 'thin' }
+            }
+          })
+        })
+
+        // 工序信息
+        let lastRowIdx = fields.length + 1
+        if (item.tasks && item.tasks.length > 0) {
+          const startRow = lastRowIdx + 2
+          ws.mergeCells(startRow, 1, startRow, 3)
+          const secTitle = ws.getCell(startRow, 1)
+          secTitle.value = t('生产任务（工序）')
+          secTitle.font = { bold: true, size: 12 }
+          secTitle.alignment = { horizontal: 'center' }
+          secTitle.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+          const headerRow = ws.getRow(startRow + 1)
+          const taskHeaders = ['工序名称', '计划数', '完成数'].map(label => t(label))
+          taskHeaders.forEach((h, ci) => {
+            const cell = headerRow.getCell(ci + 1)
+            cell.value = h
+            cell.font = { bold: true }
+            cell.alignment = { horizontal: 'center' }
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
+            cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+          })
+
+          item.tasks.forEach((task, ti) => {
+            const row = ws.getRow(startRow + 2 + ti)
+            row.getCell(1).value = task.processName
+            row.getCell(2).value = task.plannedQuantity
+            row.getCell(3).value = task.completedQuantity || 0
+            row.eachCell(c => {
+              c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+            })
+          })
+          lastRowIdx = startRow + 1 + item.tasks.length
         }
-        fields.push([field.name, valStr])
-      })
 
-      fields.forEach((pair, idx) => {
+        // 用料清单 (物料信息)
+        if (item.materials && item.materials.length > 0) {
+          const matStartRow = lastRowIdx + 2
+          ws.mergeCells(matStartRow, 1, matStartRow, 3)
+          const matTitle = ws.getCell(matStartRow, 1)
+          matTitle.value = t('生产用料（物料）')
+          matTitle.font = { bold: true, size: 12 }
+          matTitle.alignment = { horizontal: 'center' }
+          matTitle.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+
+          const matHeaderRow = ws.getRow(matStartRow + 1)
+          const matHeaders = ['物料编号', '物料名称', '需求数量'].map(label => t(label))
+          matHeaders.forEach((h, ci) => {
+            const cell = matHeaderRow.getCell(ci + 1)
+            cell.value = h
+            cell.font = { bold: true }
+            cell.alignment = { horizontal: 'center' }
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
+            cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+          })
+
+          item.materials.forEach((mat, mi) => {
+            const row = ws.getRow(matStartRow + 2 + mi)
+            row.getCell(1).value = mat.materialCode || ''
+            row.getCell(2).value = mat.materialName || ''
+            row.getCell(3).value = mat.quantity || 0
+            row.eachCell(c => {
+              c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+            })
+          })
+        }
+      }
+    } else if (tplType === 'qr') {
+      // ====== 工单二维码模板 ======
+      const ws = wb.addWorksheet(printSheetName(t('工单二维码'), '', sheetNames))
+      ws.columns = [{ width: 20 }, { width: 30 }, { width: 25 }]
+      ws.getRow(1).values = ['工单编号', '产品名称', '二维码链接'].map(label => t(label))
+      ws.getRow(1).eachCell(c => {
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B889' } }
+        c.alignment = { horizontal: 'center' }
+        c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+      })
+      targets.forEach((item, idx) => {
         const row = ws.getRow(idx + 2)
-        row.getCell(1).value = pair[0] as string
-        row.getCell(1).font = { bold: true }
-        row.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' }
-        ws.mergeCells(idx + 2, 2, idx + 2, 3)
-        row.getCell(2).value = pair[1] as any
-        row.getCell(2).alignment = { vertical: 'middle', wrapText: true }
-        row.eachCell(c => {
-          c.border = {
-            top: { style: 'thin' }, bottom: { style: 'thin' },
-            left: { style: 'thin' }, right: { style: 'thin' }
-          }
-        })
-      })
-
-      // 工序信息
-      let lastRowIdx = fields.length + 1
-      if (item.tasks && item.tasks.length > 0) {
-        const startRow = lastRowIdx + 2
-        ws.mergeCells(startRow, 1, startRow, 3)
-        const secTitle = ws.getCell(startRow, 1)
-        secTitle.value = t('生产任务（工序）')
-        secTitle.font = { bold: true, size: 12 }
-        secTitle.alignment = { horizontal: 'center' }
-        secTitle.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-
-        const headerRow = ws.getRow(startRow + 1)
-        const taskHeaders = ['工序名称', '计划数', '完成数'].map(label => t(label))
-        taskHeaders.forEach((h, ci) => {
-          const cell = headerRow.getCell(ci + 1)
-          cell.value = h
-          cell.font = { bold: true }
-          cell.alignment = { horizontal: 'center' }
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
-          cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-        })
-
-        item.tasks.forEach((task, ti) => {
-          const row = ws.getRow(startRow + 2 + ti)
-          row.getCell(1).value = task.processName
-          row.getCell(2).value = task.plannedQuantity
-          row.getCell(3).value = task.completedQuantity || 0
-          row.eachCell(c => {
-            c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-          })
-        })
-        lastRowIdx = startRow + 1 + item.tasks.length
-      }
-
-      // 用料清单 (物料信息)
-      if (item.materials && item.materials.length > 0) {
-        const matStartRow = lastRowIdx + 2
-        ws.mergeCells(matStartRow, 1, matStartRow, 3)
-        const matTitle = ws.getCell(matStartRow, 1)
-        matTitle.value = t('生产用料（物料）')
-        matTitle.font = { bold: true, size: 12 }
-        matTitle.alignment = { horizontal: 'center' }
-        matTitle.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-
-        const matHeaderRow = ws.getRow(matStartRow + 1)
-        const matHeaders = ['物料编号', '物料名称', '需求数量'].map(label => t(label))
-        matHeaders.forEach((h, ci) => {
-          const cell = matHeaderRow.getCell(ci + 1)
-          cell.value = h
-          cell.font = { bold: true }
-          cell.alignment = { horizontal: 'center' }
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } }
-          cell.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-        })
-
-        item.materials.forEach((mat, mi) => {
-          const row = ws.getRow(matStartRow + 2 + mi)
-          row.getCell(1).value = mat.materialCode || ''
-          row.getCell(2).value = mat.materialName || ''
-          row.getCell(3).value = mat.quantity || 0
-          row.eachCell(c => {
-            c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-          })
-        })
-      }
-    }
-  } else if (tplType === 'qr') {
-    // ====== 工单二维码模板 ======
-    const ws = wb.addWorksheet(printSheetName(t('工单二维码'), '', sheetNames))
-    ws.columns = [{ width: 20 }, { width: 30 }, { width: 25 }]
-    ws.getRow(1).values = ['工单编号', '产品名称', '二维码链接'].map(label => t(label))
-    ws.getRow(1).eachCell(c => {
-      c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B889' } }
-      c.alignment = { horizontal: 'center' }
-      c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-    })
-    targets.forEach((item, idx) => {
-      const row = ws.getRow(idx + 2)
-      row.getCell(1).value = item.code
-      row.getCell(2).value = item.productName
-      row.getCell(3).value = getFieldValue(item, '工单外链')
-      row.eachCell(c => {
-        c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-      })
-    })
-  } else if (tplType === 'list') {
-    // ====== 工单列表模板 ======
-    const ws = wb.addWorksheet(printSheetName(t('工单列表'), '', sheetNames))
-    const listHeaders = [
-      '工单编号', '产品编号', '产品名称', '产品规格',
-      '状态', '优先级', '计划数', '良品数', '不良品数', '不良率',
-      '进度', '工艺路线', '分类', '计划开始', '计划结束', '关联订单号',
-      '客户名称', '备注', '创建人', '创建时间'
-    ].map(label => t(label))
-    // 动态加入自定义字段表头
-    customFields.value.forEach(f => {
-      listHeaders.push(f.name)
-    })
-
-    ws.columns = listHeaders.map(h => ({ header: h, width: h.length > 4 ? 18 : 12 }))
-    ws.getRow(1).eachCell(c => {
-      c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B889' } }
-      c.alignment = { horizontal: 'center' }
-      c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-    })
-    targets.forEach(item => {
-      const baseValues = [
-        item.code, item.productCode, item.productName, item.productSpec || '',
-        printedStatusLabel(item.status), printedPriorityLabel(item.priority),
-        item.plannedQuantity, item.goodQuantity, item.defectQuantity, item.defectRate || '',
-        item.progressPercent != null ? item.progressPercent + '%' : '',
-        item.routeName || '', item.categoryName || '',
-        item.planStart || '', item.planEnd || '', item.relatedOrderCode || '',
-        item.customerName || '', item.remark || '', item.creator || '', item.createdAt || ''
-      ]
-      
-      // 动态自定义字段值
-      const customValues = customFields.value.map(field => {
-        const cv = item.customValues?.find(v => v.fieldId === field.id || v.fieldName === field.name)
-        if (!cv || cv.value === null || cv.value === undefined) return ''
-        if (Array.isArray(cv.value)) return cv.value.join('；')
-        return String(cv.value)
-      })
-
-      const row = ws.addRow([...baseValues, ...customValues])
-      row.eachCell(c => {
-        c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-      })
-    })
-  } else {
-    // ====== 用料清单模板 ======
-    const ws = wb.addWorksheet(printSheetName(t('用料清单'), '', sheetNames))
-    ws.columns = [
-      { header: t('工单编号'), width: 20 },
-      { header: t('产品名称'), width: 20 },
-      { header: t('物料编号'), width: 18 },
-      { header: t('物料名称'), width: 20 },
-      { header: t('物料规格'), width: 18 },
-      { header: t('需求数量'), width: 12 }
-    ]
-    ws.getRow(1).eachCell(c => {
-      c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B889' } }
-      c.alignment = { horizontal: 'center' }
-      c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-    })
-    targets.forEach(item => {
-      if (item.materials && item.materials.length > 0) {
-        item.materials.forEach(mat => {
-          const row = ws.addRow([
-            item.code, item.productName,
-            mat.materialCode || '', mat.materialName || '',
-            mat.materialSpec || '', mat.quantity
-          ])
-          row.eachCell(c => {
-            c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-          })
-        })
-      } else {
-        const row = ws.addRow([item.code, item.productName, '', t('(无物料)'), '', 0])
+        row.getCell(1).value = item.code
+        row.getCell(2).value = item.productName
+        row.getCell(3).value = getFieldValue(item, '工单外链')
         row.eachCell(c => {
           c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
         })
-      }
-    })
-  }
+      })
+    } else if (tplType === 'list') {
+      // ====== 工单列表模板 ======
+      const ws = wb.addWorksheet(printSheetName(t('工单列表'), '', sheetNames))
+      const listHeaders = [
+        '工单编号', '产品编号', '产品名称', '产品规格',
+        '状态', '优先级', '计划数', '良品数', '不良品数', '不良率',
+        '进度', '工艺路线', '分类', '计划开始', '计划结束', '关联订单号',
+        '客户名称', '备注', '创建人', '创建时间'
+      ].map(label => t(label))
+      // 动态加入自定义字段表头
+      fieldsSnapshot.forEach(f => {
+        listHeaders.push(f.name)
+      })
 
-  // 生成并下载
-  const tplLabel = tplType === 'flow' ? '工单流转卡'
-    : tplType === 'qr' ? '工单二维码'
-    : tplType === 'list' ? '工单列表'
-    : '用料清单'
-  const fileName = `${t(tplLabel)}_${new Date().toISOString().slice(0, 10)}.xlsx`
+      ws.columns = listHeaders.map(h => ({ header: h, width: h.length > 4 ? 18 : 12 }))
+      ws.getRow(1).eachCell(c => {
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B889' } }
+        c.alignment = { horizontal: 'center' }
+        c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+      })
+      targets.forEach(item => {
+        const baseValues = [
+          item.code, item.productCode, item.productName, item.productSpec || '',
+          printedStatusLabel(item.status), printedPriorityLabel(item.priority),
+          item.plannedQuantity, item.goodQuantity, item.defectQuantity, item.defectRate || '',
+          item.progressPercent != null ? item.progressPercent + '%' : '',
+          item.routeName || '', item.categoryName || '',
+          item.planStart || '', item.planEnd || '', item.relatedOrderCode || '',
+          item.customerName || '', item.remark || '', item.creator || '', item.createdAt || ''
+        ]
 
-  try {
+        // 动态自定义字段值
+        const customValues = fieldsSnapshot.map(field => {
+          const cv = item.customValues?.find(v => v.fieldId === field.id || v.fieldName === field.name)
+          if (!cv || cv.value === null || cv.value === undefined) return ''
+          if (Array.isArray(cv.value)) return cv.value.join('；')
+          return String(cv.value)
+        })
+
+        const row = ws.addRow([...baseValues, ...customValues])
+        row.eachCell(c => {
+          c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+        })
+      })
+    } else {
+      // ====== 用料清单模板 ======
+      const ws = wb.addWorksheet(printSheetName(t('用料清单'), '', sheetNames))
+      ws.columns = [
+        { header: t('工单编号'), width: 20 },
+        { header: t('产品名称'), width: 20 },
+        { header: t('物料编号'), width: 18 },
+        { header: t('物料名称'), width: 20 },
+        { header: t('物料规格'), width: 18 },
+        { header: t('需求数量'), width: 12 }
+      ]
+      ws.getRow(1).eachCell(c => {
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00B889' } }
+        c.alignment = { horizontal: 'center' }
+        c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+      })
+      targets.forEach(item => {
+        if (item.materials && item.materials.length > 0) {
+          item.materials.forEach(mat => {
+            const row = ws.addRow([
+              item.code, item.productName,
+              mat.materialCode || '', mat.materialName || '',
+              mat.materialSpec || '', mat.quantity
+            ])
+            row.eachCell(c => {
+              c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+            })
+          })
+        } else {
+          const row = ws.addRow([item.code, item.productName, '', t('(无物料)'), '', 0])
+          row.eachCell(c => {
+            c.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
+          })
+        }
+      })
+    }
+
+    // Prepare each merged master only once; OOXML must not rewrite business text.
+    for (const sheet of wb.worksheets) {
+      const masters = new Set<import('exceljs').Cell>()
+      sheet.eachRow(row => row.eachCell(cell => {
+        const master = cell.master
+        if (masters.has(master)) return
+        masters.add(master)
+        master.value = prepareXlsxCell(master.value) ?? null
+      }))
+    }
+
+    // 生成并下载
+    const tplLabel = tplType === 'flow' ? '工单流转卡'
+      : tplType === 'qr' ? '工单二维码'
+      : tplType === 'list' ? '工单列表'
+      : '用料清单'
+    const fileName = `${t(tplLabel)}_${new Date().toISOString().slice(0, 10)}.xlsx`
+
     const buffer = await wb.xlsx.writeBuffer()
+    if (!current()) return
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
 
     if (action === 'download') {
@@ -2220,11 +2360,15 @@ async function doExcelPrint(action: 'wps' | 'download') {
       saveAs(blob, fileName)
       emit('notice', `已生成 ${fileName}，请用 WPS 打开后打印`)
     }
+    if (current()) showPrintModal.value = false
   } catch (err: any) {
-    emit('notice', `生成 Excel 失败: ${err.message || '未知错误'}`)
+    if (current()) {
+      printError.value = `生成 Excel 失败: ${err.message || '未知错误'}`
+      emit('notice', printError.value)
+    }
+  } finally {
+    if (current()) exporting.value = false
   }
-
-  showPrintModal.value = false
 }
 
 import { onUnmounted } from 'vue'
@@ -2352,10 +2496,15 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <p class="export-scope-note">{{ exportScopeText }} · CSV仅用于备份，不宜直接用Excel打开</p>
+    <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
+    <p v-if="importing" role="status">导入中...</p>
+    <p v-if="importError" class="import-error export-error" role="alert">{{ importError }}</p>
     <div class="toolbar" v-if="selectedIds.length === 0">
       <button class="primary-btn create-btn ui-icon-button" type="button" @click="openCreate" title="创建工单" aria-label="创建工单"><UiIcon name="plus" /></button>
-      <button class="toolbar-btn ui-icon-button" type="button" @click="handleExport" title="导出工单" aria-label="导出工单"><UiIcon name="download" /></button>
-      <button class="toolbar-btn ui-icon-button" type="button" @click="handleImport" title="导入工单" aria-label="导入工单"><UiIcon name="upload" /></button>
+      <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || saving || importing" @click="exportXlsx" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+      <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || saving || importing" @click="handleExport()" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+      <button class="toolbar-btn ui-icon-button" type="button" :disabled="importing || saving || exporting" :aria-busy="importing" @click="handleImport" title="导入工单" aria-label="导入工单"><UiIcon name="upload" /></button>
       <button class="table-config-trigger ui-icon-button" type="button" style="margin-left: 8px;" title="字段配置" @click="showColumnModal = true" aria-label="字段配置">
         <UiIcon name="table-columns" :size="16" />
       </button>
@@ -2392,8 +2541,9 @@ onUnmounted(() => {
 
     <div class="toolbar" v-else style="background: #fdfdfd; border: 1px solid #dce3e0;">
       <span style="font-size: 13px; color: #00b889; margin: 0 12px; font-weight: 500;">已选 {{ selectedIds.length }} 条</span>
-      
-      <button class="toolbar-btn ui-icon-button" type="button" @click="handleExport" title="导出工单" aria-label="导出工单"><UiIcon name="download" /></button>
+
+      <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || saving || importing" @click="exportXlsx" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+      <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || saving || importing" @click="handleExport()" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
       <button class="toolbar-btn ui-action-button" type="button" @click="handleBulkStatus('EXECUTING')" title="开始选中工单" aria-label="开始选中工单">
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
         开始
@@ -2410,7 +2560,7 @@ onUnmounted(() => {
         <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
         关闭
       </button>
-      <button class="toolbar-btn ui-icon-button" type="button" @click="openPrint" title="打印工单" aria-label="打印工单"><UiIcon name="print" /></button>
+      <button class="toolbar-btn ui-icon-button" type="button" :disabled="exporting || saving || printPreparing || printScheduled" :aria-busy="printPreparing" @click="openPrint" title="打印工单" aria-label="打印工单"><UiIcon name="print" /></button>
       <button class="toolbar-btn ui-icon-button" type="button" @click="handleEditSelected" title="编辑选中工单" aria-label="编辑选中工单"><UiIcon name="edit" /></button>
       <button class="toolbar-btn ui-icon-button" type="button" @click="handleDeleteSelected" style="color: #e74c3c;" title="删除选中工单" aria-label="删除选中工单"><UiIcon name="trash" /></button>
 
@@ -2540,7 +2690,7 @@ onUnmounted(() => {
         <div v-if="activeTab === 'basic'" class="create-form two-column">
           <label><span>工单编号</span><input v-model="form.code" placeholder="请输入，忽略将自动生成" /></label>
           <label><span>产品信息</span><select v-model="form.productId"><option value="">请选择</option><option v-for="p in products" :key="p.id" :value="p.id">{{ p.code }} - {{ p.name }}</option></select></label>
-          
+
           <!-- 核心！将卡片独立提取到 label 外部，并指定 grid-column: 2，既让上层输入框完美平齐，又仅占右半屏一半宽度 -->
           <div v-if="selectedProduct" style="grid-column: 2; display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border: 1.5px dashed #dce3e0; border-radius: 8px; background: #fafbfc; margin-bottom: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.01);">
             <!-- 左侧产品详细属性 -->
@@ -2588,15 +2738,15 @@ onUnmounted(() => {
                 <option v-for="option in field.options" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
             </label>
-            
+
             <!-- 复选框 (multiple_select) -->
             <div v-else-if="field.fieldType === 'multiple_select'" class="custom-checkbox-group-row">
               <span>{{ field.name }}</span>
               <div style="display:flex; flex-wrap:wrap; gap:16px; min-height:38px; align-items:center; width: 100%;">
                 <label v-for="opt in field.options" :key="opt.value" style="display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-weight:normal; width:auto; padding:0; margin:0;">
-                  <input 
-                    type="checkbox" 
-                    :value="opt.value" 
+                  <input
+                    type="checkbox"
+                    :value="opt.value"
                     :checked="Array.isArray(getCustomValue(field)) ? (getCustomValue(field) as string[]).includes(opt.value) : false"
                     @change="toggleMultipleSelectValue(field, opt.value, ($event.target as HTMLInputElement).checked)"
                     style="width:16px; height:16px; accent-color:#00b889;"
@@ -2605,63 +2755,63 @@ onUnmounted(() => {
                 </label>
               </div>
             </div>
-            
+
             <!-- 数字 (number) -->
             <label v-else-if="field.fieldType === 'number'">
               <span>{{ field.name }}</span>
               <input :value="String(getCustomValue(field) || '')" type="number" @input="setCustomValue(field, ($event.target as HTMLInputElement).value)" />
             </label>
-            
+
             <!-- 时间 (date) -->
             <label v-else-if="field.fieldType === 'date'">
               <span>{{ field.name }}</span>
               <input :value="String(getCustomValue(field) || '')" type="date" @input="setCustomValue(field, ($event.target as HTMLInputElement).value)" />
             </label>
-            
+
             <!-- 图片 (image) -->
             <label v-else-if="field.fieldType === 'image'">
               <span>{{ field.name }}</span>
               <div style="flex:1; display:flex; flex-direction:column; gap:6px; min-width: 0;">
                 <div style="display:flex; gap:8px; align-items:center; width: 100%;">
-                  <input 
-                    :value="String(getCustomValue(field) || '')" 
-                    type="text" 
-                    placeholder="请输入图片链接或点击上传" 
-                    @input="setCustomValue(field, ($event.target as HTMLInputElement).value)" 
+                  <input
+                    :value="String(getCustomValue(field) || '')"
+                    type="text"
+                    placeholder="请输入图片链接或点击上传"
+                    @input="setCustomValue(field, ($event.target as HTMLInputElement).value)"
                     style="flex:1;"
                   />
-                  <button 
-                    class="toolbar-btn" 
-                    type="button" 
+                  <button
+                    class="toolbar-btn"
+                    type="button"
                     @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                     style="height:34px; margin:0; white-space:nowrap;"
                    title="上传附件" aria-label="上传附件">
                     <UiIcon name="upload" />
                     {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
                   </button>
-                  <input 
-                    type="file" 
+                  <input
+                    type="file"
                     accept="image/*"
-                    style="display:none;" 
+                    style="display:none;"
                     @change="handleCustomFieldUpload(field, $event)"
                   />
                 </div>
                 <div v-if="getCustomValue(field)" style="margin-top:6px; display:flex; flex-wrap:wrap; gap:8px;">
-                  <div 
-                    v-for="(path, pIdx) in String(getCustomValue(field) || '').split(',').filter(Boolean)" 
-                    :key="path" 
+                  <div
+                    v-for="(path, pIdx) in String(getCustomValue(field) || '').split(',').filter(Boolean)"
+                    :key="path"
                     style="position:relative; display:inline-block; width: fit-content;"
                   >
-                    <img 
+                    <img
                       v-if="customFieldPreview(path)"
                       :src="customFieldPreview(path)"
-                      alt="预览" 
-                      style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
+                      alt="预览"
+                      style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;"
                       @error="($event.target as HTMLElement).style.display='none'"
                     />
-                    <button 
-                      type="button" 
-                      @click="removeCustomFieldPath(field, pIdx)" 
+                    <button
+                      type="button"
+                      @click="removeCustomFieldPath(field, pIdx)"
                       style="position:absolute; top:-6px; right:-6px; width:16px; height:16px; border-radius:50%; background:#ff5a5a; color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:9px; line-height:1; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.15); padding:0; z-index:10;"
                       title="移除附件"
                      class="ui-icon-button" aria-label="移除附件"><UiIcon name="close" /></button>
@@ -2669,50 +2819,50 @@ onUnmounted(() => {
                 </div>
               </div>
             </label>
-            
+
             <!-- 附件 (file) -->
             <label v-else-if="field.fieldType === 'file'">
               <span>{{ field.name }}</span>
               <div style="flex:1; display:flex; flex-direction:column; gap:6px; min-width: 0;">
                 <div style="display:flex; gap:8px; align-items:center; width: 100%;">
-                  <input 
-                    :value="String(getCustomValue(field) || '')" 
-                    type="text" 
-                    placeholder="请输入附件链接或点击上传" 
-                    @input="setCustomValue(field, ($event.target as HTMLInputElement).value)" 
+                  <input
+                    :value="String(getCustomValue(field) || '')"
+                    type="text"
+                    placeholder="请输入附件链接或点击上传"
+                    @input="setCustomValue(field, ($event.target as HTMLInputElement).value)"
                     style="flex:1;"
                   />
-                  <button 
-                    class="toolbar-btn" 
-                    type="button" 
+                  <button
+                    class="toolbar-btn"
+                    type="button"
                     @click="(($event.currentTarget as HTMLElement).nextElementSibling as HTMLInputElement)?.click()"
                     style="height:34px; margin:0; white-space:nowrap;"
                    title="上传附件" aria-label="上传附件">
                     <UiIcon name="upload" />
                     {{ uploadingFieldId === field.id ? '上传中...' : '上传' }}
                   </button>
-                  <input 
-                    type="file" 
-                    style="display:none;" 
+                  <input
+                    type="file"
+                    style="display:none;"
                     @change="handleCustomFieldUpload(field, $event)"
                   />
                 </div>
                 <div v-if="getCustomValue(field)" style="margin-top:6px; display:flex; flex-wrap:wrap; gap:8px;">
-                  <div 
-                    v-for="(path, pIdx) in String(getCustomValue(field) || '').split(',').filter(Boolean)" 
-                    :key="path" 
+                  <div
+                    v-for="(path, pIdx) in String(getCustomValue(field) || '').split(',').filter(Boolean)"
+                    :key="path"
                     style="position:relative; display:inline-block; width: fit-content;"
                   >
-                    <img 
+                    <img
                       v-if="customFieldPreview(path)"
                       :src="customFieldPreview(path)"
-                      alt="预览" 
-                      style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;" 
+                      alt="预览"
+                      style="max-width:80px; max-height:80px; object-fit:cover; border:1px solid #dce3e0; border-radius:4px; display:block;"
                       @error="($event.target as HTMLElement).style.display='none'"
                     />
-                    <button 
-                      type="button" 
-                      @click="removeCustomFieldPath(field, pIdx)" 
+                    <button
+                      type="button"
+                      @click="removeCustomFieldPath(field, pIdx)"
                       style="position:absolute; top:-6px; right:-6px; width:16px; height:16px; border-radius:50%; background:#ff5a5a; color:#fff; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:9px; line-height:1; font-weight:bold; box-shadow:0 1px 3px rgba(0,0,0,0.15); padding:0; z-index:10;"
                       title="移除附件"
                      class="ui-icon-button" aria-label="移除附件"><UiIcon name="close" /></button>
@@ -2720,13 +2870,13 @@ onUnmounted(() => {
                 </div>
               </div>
             </label>
-            
+
             <!-- 关联对象 (reference) -->
             <label v-else-if="field.fieldType === 'reference'">
               <span>{{ field.name }}</span>
               <input :value="String(getCustomValue(field) || '')" type="text" placeholder="请输入关联对象编号" @input="setCustomValue(field, ($event.target as HTMLInputElement).value)" />
             </label>
-            
+
             <!-- 默认/文本 (text) -->
             <label v-else>
               <span>{{ field.name }}</span>
@@ -2917,40 +3067,42 @@ onUnmounted(() => {
       @cancel="showColumnModal = false"
     />
 
-    <div v-if="showPrintModal" class="modal-backdrop">
-      <div class="modal workorder-modal" style="width: 760px;">
+    <div v-if="showPrintModal" class="modal-backdrop" role="dialog" aria-modal="true" :aria-labelledby="printTitleId">
+      <div ref="printDialogRef" class="modal workorder-modal" tabindex="-1" style="width: 760px;">
         <div class="modal-header">
-          <h2>选择打印模板</h2>
-          <button class="close-btn ui-icon-button" type="button" @click="showPrintModal = false" title="关闭打印窗口" aria-label="关闭打印窗口"><UiIcon name="close" /></button>
+          <h2 :id="printTitleId">选择打印模板</h2>
+          <button class="close-btn ui-icon-button" type="button" :disabled="exporting || printPreparing" @click="closePrint" title="关闭打印窗口" aria-label="关闭打印窗口"><UiIcon name="close" /></button>
         </div>
+        <p v-if="exporting" role="status" class="print-status">生成中…</p>
+        <p v-if="printError" role="alert" class="print-status">{{ printError }}</p>
         <div style="display: flex; padding: 24px; min-height: 300px;">
           <!-- 内置打印 -->
           <div style="flex: 1; border-right: 1px dashed #dce3e0; padding-right: 24px;">
             <div style="font-weight: bold; margin-bottom: 16px; color: #586360;">内置打印</div>
             <div style="display: flex; flex-direction: column; gap: 16px;">
               <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;" :style="{ color: selectedBuiltIn === 'flow' ? '#00b889' : '#586360', fontWeight: selectedBuiltIn === 'flow' ? 'bold' : 'normal' }">
-                <input type="radio" name="builtIn" value="flow" v-model="selectedBuiltIn" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
+                <input type="radio" name="builtIn" :disabled="exporting || printPreparing" value="flow" v-model="selectedBuiltIn" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
                 <svg viewBox="0 0 24 24" width="16" height="16" :stroke="selectedBuiltIn === 'flow' ? '#00b889' : 'currentColor'" stroke-width="2" fill="none"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                 <span style="font-size: 14px;">工单流转卡-A4 / A5纸</span>
               </label>
               <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;" :style="{ color: selectedBuiltIn === 'qr-thermal' ? '#00b889' : '#586360', fontWeight: selectedBuiltIn === 'qr-thermal' ? 'bold' : 'normal' }">
-                <input type="radio" name="builtIn" value="qr-thermal" v-model="selectedBuiltIn" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
+                <input type="radio" name="builtIn" :disabled="exporting || printPreparing" value="qr-thermal" v-model="selectedBuiltIn" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
                 <svg viewBox="0 0 24 24" width="16" height="16" :stroke="selectedBuiltIn === 'qr-thermal' ? '#00b889' : 'currentColor'" stroke-width="2" fill="none"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                 <span style="font-size: 14px;">工单二维码-热敏打印</span>
               </label>
               <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;" :style="{ color: selectedBuiltIn === 'qr-30-40' ? '#00b889' : '#586360', fontWeight: selectedBuiltIn === 'qr-30-40' ? 'bold' : 'normal' }">
-                <input type="radio" name="builtIn" value="qr-30-40" v-model="selectedBuiltIn" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
+                <input type="radio" name="builtIn" :disabled="exporting || printPreparing" value="qr-30-40" v-model="selectedBuiltIn" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
                 <svg viewBox="0 0 24 24" width="16" height="16" :stroke="selectedBuiltIn === 'qr-30-40' ? '#00b889' : 'currentColor'" stroke-width="2" fill="none"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                 <span style="font-size: 14px;">工单二维码 (30*40mm)</span>
               </label>
               <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;" :style="{ color: selectedBuiltIn === 'qr-80-60' ? '#00b889' : '#586360', fontWeight: selectedBuiltIn === 'qr-80-60' ? 'bold' : 'normal' }">
-                <input type="radio" name="builtIn" value="qr-80-60" v-model="selectedBuiltIn" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
+                <input type="radio" name="builtIn" :disabled="exporting || printPreparing" value="qr-80-60" v-model="selectedBuiltIn" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
                 <svg viewBox="0 0 24 24" width="16" height="16" :stroke="selectedBuiltIn === 'qr-80-60' ? '#00b889' : 'currentColor'" stroke-width="2" fill="none"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                 <span style="font-size: 14px;">工单二维码 (80*60mm)</span>
               </label>
             </div>
             <div style="text-align: center; margin-top: 32px;">
-              <button class="primary-btn ui-action-button" type="button" @click="doPrint" style="padding: 0 32px;" title="直接打印" aria-label="直接打印"><UiIcon name="print" /><span>打印</span></button>
+              <button class="primary-btn ui-action-button" type="button" :disabled="exporting || printPreparing || printScheduled || qrLoading" @click="doPrint" style="padding: 0 32px;" title="直接打印" aria-label="直接打印"><UiIcon name="print" /><span>打印</span></button>
             </div>
           </div>
           <!-- Excel 模板打印 -->
@@ -2958,37 +3110,37 @@ onUnmounted(() => {
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
               <div style="font-weight: bold; color: #586360;">Excel模板打印</div>
               <div style="font-size: 12px; color: #586360; display: flex; align-items: center; gap: 4px;">
-                <input type="checkbox" v-model="excelMultiImage" style="accent-color: #00b889; cursor: pointer;" id="excelMultiImage" />
+                <input type="checkbox" v-model="excelMultiImage" :disabled="exporting || printPreparing" style="accent-color: #00b889; cursor: pointer;" id="excelMultiImage" />
                 <label for="excelMultiImage" style="cursor: pointer; margin-right: 8px;">多图模式</label>
-                <input type="checkbox" v-model="excelScaleImage" style="accent-color: #00b889; cursor: pointer;" id="excelScaleImage" />
+                <input type="checkbox" v-model="excelScaleImage" :disabled="exporting || printPreparing" style="accent-color: #00b889; cursor: pointer;" id="excelScaleImage" />
                 <label for="excelScaleImage" style="cursor: pointer;">图片等比缩放</label>
               </div>
             </div>
             <div style="display: flex; flex-direction: column; gap: 16px;">
               <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;" :style="{ color: selectedExcelTpl === 'flow' ? '#00b889' : '#586360', fontWeight: selectedExcelTpl === 'flow' ? 'bold' : 'normal' }">
-                <input type="radio" name="excelTpl" value="flow" v-model="selectedExcelTpl" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
+                <input type="radio" name="excelTpl" :disabled="exporting || printPreparing" value="flow" v-model="selectedExcelTpl" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
                 <svg viewBox="0 0 24 24" width="16" height="16" :stroke="selectedExcelTpl === 'flow' ? '#00b889' : 'currentColor'" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                 <span style="font-size: 14px;">工单流转卡.xlsx</span> <span style="font-size: 12px; color: #8a9693; background: #f0f2f1; padding: 2px 6px; border-radius: 2px;">系统模板</span>
               </label>
               <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;" :style="{ color: selectedExcelTpl === 'qr' ? '#00b889' : '#586360', fontWeight: selectedExcelTpl === 'qr' ? 'bold' : 'normal' }">
-                <input type="radio" name="excelTpl" value="qr" v-model="selectedExcelTpl" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
+                <input type="radio" name="excelTpl" :disabled="exporting || printPreparing" value="qr" v-model="selectedExcelTpl" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
                 <svg viewBox="0 0 24 24" width="16" height="16" :stroke="selectedExcelTpl === 'qr' ? '#00b889' : 'currentColor'" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                 <span style="font-size: 14px;">工单二维码.xlsx</span> <span style="font-size: 12px; color: #8a9693; background: #f0f2f1; padding: 2px 6px; border-radius: 2px;">系统模板</span>
               </label>
               <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;" :style="{ color: selectedExcelTpl === 'list' ? '#00b889' : '#586360', fontWeight: selectedExcelTpl === 'list' ? 'bold' : 'normal' }">
-                <input type="radio" name="excelTpl" value="list" v-model="selectedExcelTpl" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
+                <input type="radio" name="excelTpl" :disabled="exporting || printPreparing" value="list" v-model="selectedExcelTpl" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
                 <svg viewBox="0 0 24 24" width="16" height="16" :stroke="selectedExcelTpl === 'list' ? '#00b889' : 'currentColor'" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                 <span style="font-size: 14px;">工单列表.xlsx</span> <span style="font-size: 12px; color: #8a9693; background: #f0f2f1; padding: 2px 6px; border-radius: 2px;">系统模板</span>
               </label>
               <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;" :style="{ color: selectedExcelTpl === 'materials' ? '#00b889' : '#586360', fontWeight: selectedExcelTpl === 'materials' ? 'bold' : 'normal' }">
-                <input type="radio" name="excelTpl" value="materials" v-model="selectedExcelTpl" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
+                <input type="radio" name="excelTpl" :disabled="exporting || printPreparing" value="materials" v-model="selectedExcelTpl" style="accent-color: #00b889; width: 16px; height: 16px; cursor: pointer;" />
                 <svg viewBox="0 0 24 24" width="16" height="16" :stroke="selectedExcelTpl === 'materials' ? '#00b889' : 'currentColor'" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                 <span style="font-size: 14px;">用料清单.xlsx</span> <span style="font-size: 12px; color: #8a9693; background: #f0f2f1; padding: 2px 6px; border-radius: 2px;">系统模板</span>
               </label>
             </div>
             <div style="text-align: center; margin-top: 32px; display: flex; justify-content: center; gap: 16px;">
-              <button class="primary-btn ui-action-button" type="button" @click="doExcelPrint('wps')" style="padding: 0 24px; background: #00b889;" title="WPS打印" aria-label="WPS打印"><UiIcon name="print" /><span>WPS打印</span></button>
-              <button class="ghost-btn ui-action-button" type="button" @click="doExcelPrint('download')" style="padding: 0 24px; color: #00b889; border-color: #00b889;" title="下载打印" aria-label="下载打印"><UiIcon name="download" /><span>下载</span></button>
+              <button class="primary-btn ui-action-button" type="button" :disabled="exporting || printPreparing || printScheduled" @click="doExcelPrint('wps')" style="padding: 0 24px; background: #00b889;" title="WPS打印" aria-label="WPS打印"><UiIcon name="print" /><span>WPS打印</span></button>
+              <button class="ghost-btn ui-action-button" type="button" :disabled="exporting || printPreparing || printScheduled" @click="doExcelPrint('download')" style="padding: 0 24px; color: #00b889; border-color: #00b889;" title="下载打印" aria-label="下载打印"><UiIcon name="download" /><span>下载</span></button>
             </div>
           </div>
         </div>
@@ -3091,9 +3243,9 @@ onUnmounted(() => {
         <div style="display: flex; gap: 16px; margin-bottom: 16px; align-items: center; flex-shrink: 0;">
           <!-- Tab 控制器 -->
           <div style="display: flex; background: #f0f4f2; padding: 3px; border-radius: 6px; border: 1px solid #e2e8e6;">
-            <button 
-              type="button" 
-              @click="taskSelectorActiveTab = 'process'" 
+            <button
+              type="button"
+              @click="taskSelectorActiveTab = 'process'"
               :style="{
                 border: 'none',
                 background: taskSelectorActiveTab === 'process' ? '#fff' : 'transparent',
@@ -3109,9 +3261,9 @@ onUnmounted(() => {
             >
               按工序添加
             </button>
-            <button 
-              type="button" 
-              @click="taskSelectorActiveTab = 'route'" 
+            <button
+              type="button"
+              @click="taskSelectorActiveTab = 'route'"
               :style="{
                 border: 'none',
                 background: taskSelectorActiveTab === 'route' ? '#fff' : 'transparent',
@@ -3132,16 +3284,16 @@ onUnmounted(() => {
           <!-- 搜索过滤输入框 -->
           <div style="flex: 1; position: relative; display: flex; align-items: center;">
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="#8a9693" stroke-width="2" fill="none" style="position: absolute; left: 12px; pointer-events: none;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input 
-              v-model="taskSelectorKeyword" 
-              type="text" 
-              :placeholder="taskSelectorActiveTab === 'process' ? '输入工序名称、工序编码搜索...' : '输入工艺路线名称搜索...'" 
+            <input
+              v-model="taskSelectorKeyword"
+              type="text"
+              :placeholder="taskSelectorActiveTab === 'process' ? '输入工序名称、工序编码搜索...' : '输入工艺路线名称搜索...'"
               class="selector-search-input"
             />
-            <button 
-              v-if="taskSelectorKeyword" 
-              type="button" 
-              @click="taskSelectorKeyword = ''" 
+            <button
+              v-if="taskSelectorKeyword"
+              type="button"
+              @click="taskSelectorKeyword = ''"
               style="position: absolute; right: 10px; border: none; background: transparent; color: #8a9693; font-size: 16px; cursor: pointer;"
              class="ui-icon-button" title="清除搜索" aria-label="清除搜索"><UiIcon name="close" /></button>
           </div>
@@ -3161,9 +3313,9 @@ onUnmounted(() => {
 
           <!-- 工序选择列表 (Grid) -->
           <div v-if="taskSelectorActiveTab === 'process'" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
-            <div 
-              v-for="p in filteredProcesses" 
-              :key="`sel-proc-${p.id}`" 
+            <div
+              v-for="p in filteredProcesses"
+              :key="`sel-proc-${p.id}`"
               @click="toggleSelectProcessInSelector(p)"
               @dblclick="addTaskFromProcess(p)"
               :style="{
@@ -3211,9 +3363,9 @@ onUnmounted(() => {
                 </div>
               </div>
               <!-- 单独极速添加按钮 -->
-              <button 
-                type="button" 
-                @click.stop="addTaskFromProcess(p)" 
+              <button
+                type="button"
+                @click.stop="addTaskFromProcess(p)"
                 style="border: none; background: transparent; padding: 4px; border-radius: 4px; cursor: pointer; color: #bdc7c4; transition: color var(--motion-base);"
                 title="直接单选添加"
                 onmouseover="this.style.color='#00b889'; this.style.background='#eefcf7';"
@@ -3226,9 +3378,9 @@ onUnmounted(() => {
 
           <!-- 工艺路线选择列表 (Grid) -->
           <div v-if="taskSelectorActiveTab === 'route'" style="display: flex; flex-direction: column; gap: 12px;">
-            <div 
-              v-for="r in filteredRoutes" 
-              :key="`sel-route-${r.id}`" 
+            <div
+              v-for="r in filteredRoutes"
+              :key="`sel-route-${r.id}`"
               @click="toggleSelectRouteInSelector(r)"
               @dblclick="addTaskFromRoute(r)"
               :style="{
@@ -3285,9 +3437,9 @@ onUnmounted(() => {
                 </div>
               </div>
               <!-- 单独极速添加按钮 -->
-              <button 
-                type="button" 
-                @click.stop="addTaskFromRoute(r)" 
+              <button
+                type="button"
+                @click.stop="addTaskFromRoute(r)"
                 style="border: none; background: transparent; padding: 4px; border-radius: 4px; cursor: pointer; color: #bdc7c4; transition: color var(--motion-base); align-self: center;"
                 title="直接单选添加工艺路线"
                 onmouseover="this.style.color='#00b889'; this.style.background='#eefcf7';"
@@ -3315,10 +3467,10 @@ onUnmounted(() => {
         </div>
         <div style="display: flex; gap: 12px;">
           <button class="ghost-btn" type="button" @click="showTaskSelector = false" style="padding: 8px 20px; font-size: 13px;"><UiIcon name="close" />取消</button>
-          <button 
-            class="primary-btn" 
-            type="button" 
-            @click="handleConfirmSelectorAdd" 
+          <button
+            class="primary-btn"
+            type="button"
+            @click="handleConfirmSelectorAdd"
             :disabled="taskSelectorActiveTab === 'process' ? taskSelectorSelectedProcesses.length === 0 : taskSelectorSelectedRoutes.length === 0"
             :style="{
               padding: '8px 24px',
@@ -3357,6 +3509,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.print-status { margin: 8px 24px; overflow-wrap: anywhere; }
 .work-order-focus { margin-bottom: 16px; padding: 12px 16px; border: 1px solid var(--border-default, #dfe7e4); border-radius: 8px; background: var(--surface-raised, #fff); }
 .work-order-focus header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .work-order-focus h2 { margin: 0; font-size: 16px; overflow-wrap: anywhere; }

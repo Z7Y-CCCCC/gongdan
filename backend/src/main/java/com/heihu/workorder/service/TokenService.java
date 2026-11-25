@@ -6,6 +6,7 @@ import com.heihu.workorder.model.Role;
 import com.heihu.workorder.model.UserSession;
 import com.heihu.workorder.repository.UserSessionRepository;
 import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.util.ClientIpResolver;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -33,6 +34,7 @@ public class TokenService {
     private final UserSessionRepository sessionRepository;
     private final UserRepository userRepository;
     private final IpLocationService ipLocationService;
+    @Autowired private ClientIpResolver clientIpResolver = new ClientIpResolver("");
 
     public TokenService() {
         this(Duration.ofMinutes(720L), null, null, null);
@@ -133,6 +135,23 @@ public class TokenService {
         return token;
     }
 
+    /**
+     * Revoke only the supplied session, including an expired or already kicked one.
+     * Do not resolve the user or rotate their sessions: an old logout may finish
+     * after the same user has logged in again.
+     */
+    @Transactional
+    public void revoke(String authorization) {
+        if (!StringUtils.hasText(authorization)) return;
+        String token = extractToken(authorization);
+        if (!StringUtils.hasText(token)) return;
+        if (sessionRepository != null) {
+            sessionRepository.deleteByTokenHash(hashToken(token));
+            return;
+        }
+        sessions.remove(token);
+    }
+
     public AuthenticatedUser requireSuperAdmin(String authorization) {
         AuthenticatedUser user = requireUser(authorization);
         if (user.getRole() != Role.ADMIN || !"ADMIN".equalsIgnoreCase(user.getFactoryCode())) {
@@ -156,7 +175,7 @@ public class TokenService {
     public void refreshSessionMetadata(String authorization, HttpServletRequest request) {
         if (sessionRepository == null || request == null) return;
         String token = extractToken(authorization);
-        String remoteAddress = com.heihu.workorder.util.IpAddressUtils.getClientIp(request);
+        String remoteAddress = clientIpResolver.getClientIp(request);
         String userAgent = request.getHeader("User-Agent");
         String location = ipLocationService == null ? "内网IP" : ipLocationService.searchLocation(remoteAddress);
         // Update only metadata: merging a previously read session can undo a concurrent kick.

@@ -9,7 +9,7 @@ import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.Role;
 import com.heihu.workorder.repository.FactoryRepository;
 import com.heihu.workorder.repository.UserRepository;
-import com.heihu.workorder.util.IpAddressUtils;
+import com.heihu.workorder.util.ClientIpResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.Optional;
@@ -32,6 +32,7 @@ public class AuthService {
     private final TokenService tokenService;
     private final AuthAttemptLimiter authAttemptLimiter;
     private final IpLocationService ipLocationService;
+    @Autowired private ClientIpResolver clientIpResolver = new ClientIpResolver("");
 
     @Autowired
     public AuthService(
@@ -84,6 +85,11 @@ public class AuthService {
         return authenticate(request, httpRequest, true);
     }
 
+    @Transactional
+    public void logout(String authorization) {
+        tokenService.revoke(authorization);
+    }
+
     private AuthResponse authenticate(LoginRequest request, HttpServletRequest httpRequest, boolean mobile) {
         String factoryCode = normalize(request.getFactoryCode()).toUpperCase();
         String account = normalize(request.getUsername());
@@ -114,7 +120,7 @@ public class AuthService {
 
         authAttemptLimiter.recordSuccess(limitKey);
         String userAgent = httpRequest == null ? null : httpRequest.getHeader("User-Agent");
-        String ipAddress = httpRequest == null ? null : IpAddressUtils.getClientIp(httpRequest);
+        String ipAddress = clientIpResolver.getClientIp(httpRequest);
         String loginLocation = ipLocationService == null ? "内网IP" : ipLocationService.searchLocation(ipAddress);
         log.info("用户 [{}] 于工厂 [{}] 登录成功，解析客户端真实IP: [{}], 归属地: [{}]", account, factoryCode, ipAddress, loginLocation);
 

@@ -1,0 +1,89 @@
+{
+  "date": "2026-11-25",
+  "kind": "transparent compatibility facade over real security-fixed upstream packages; not a v9 fork",
+  "facade": {
+    "name": "@gongdan/uni-intlify-core-compat",
+    "version": "1.0.0"
+  },
+  "uni": {
+    "version": "3.0.0-4020920240930001",
+    "legacyCoreImporterSymbols": 20,
+    "legacySharedImporterSymbols": 16,
+    "legacyDevtoolsConstants": 3
+  },
+  "packages": [
+    {
+      "name": "@intlify/core-base",
+      "version": "11.4.23",
+      "tarball": "https://registry.npmjs.org/@intlify/core-base/-/core-base-11.4.23.tgz",
+      "integrity": "sha512-V8a3BQ7iTVPDetJ/LJfGn3lDx4Ir35OjjO4BLgVrFuL+0egWzwUyfdLIPAEYWlMGdo14eC5p6uk3tSlTYY0YmQ==",
+      "distHashes": {
+        "core-base.cjs": "a2d1b10a82549cb842fe91fc4ca5d14de89aafa4c38da5fb556e452440ea4e24",
+        "core-base.mjs": "4b08086cdfaa5018d87bce2ce651fe6314e5a906016735e8ba4de37112cf155d",
+        "core-base.prod.cjs": "bb5eddfbb80c22fda62560d61888f901c0aa231643cd5056c48acbcef69ebe0a"
+      }
+    },
+    {
+      "name": "@intlify/shared",
+      "version": "11.4.23",
+      "tarball": "https://registry.npmjs.org/@intlify/shared/-/shared-11.4.23.tgz",
+      "integrity": "sha512-1iqGalDCOlHZ8y7LOC3yisSm52K5AmkTmaNO23XGFYWU6Z1oIX8VeAGRq9rn2KrDFb8nMtQaxNyMa1n8EeDm5g==",
+      "distHashes": {
+        "shared.cjs": "ff0dde0b93d6a609714496cdebdaa055772a4d270a5e6d3b282a64bc9bc922d0",
+        "shared.mjs": "ca715dad37738711ca111aa0278b11a4c2b36a56a1404e47221dc456218488d8",
+        "shared.prod.cjs": "50c9daac062dac60465f840c4d21362c296f806edcd1683115bcbd8420e97037"
+      }
+    },
+    {
+      "name": "@intlify/message-compiler",
+      "version": "11.4.23",
+      "tarball": "https://registry.npmjs.org/@intlify/message-compiler/-/message-compiler-11.4.23.tgz",
+      "integrity": "sha512-HgmnQV/lBBX8KgxoNwngzzq8DLw/jECJgz9eBfQGdkEYte7Bw1RSqhIskcWp0DEWrSg2wijUi6dJjpq1WUD+zg==",
+      "distHashes": {
+        "message-compiler.cjs": "0c6471dbfce5b4a7fde705e7abb2811758f4fe5dfab1930ceb309819a5f67857",
+        "message-compiler.mjs": "3cc996978976262e19bd89be6a617622cc2ab5d035349ec87cae5ffa413e9084",
+        "message-compiler.node.mjs": "7c517914f86fcf04d6b04abfbb61c3a6d1b5df37141b235e919beedc638c9da7",
+        "message-compiler.prod.cjs": "ad8670e772047708cfdcaa38519367d16aa74e29029dae9f85bf3aadc228fdd9"
+      }
+    },
+    {
+      "name": "@intlify/devtools-types",
+      "version": "11.4.23",
+      "tarball": "https://registry.npmjs.org/@intlify/devtools-types/-/devtools-types-11.4.23.tgz",
+      "integrity": "sha512-zuWkolaeK8ej5z7L9Ss7FLIBHgE8ZF+XcwV1o/vQ7IKagiDg/IosA7fOa2HUFVMW5yT2ugph9rshevHGzcowBQ==",
+      "distHashes": {
+        "devtools-types.cjs": "a58fd84da9456088801716ee7b7134b1eff345d80b13b675db2fe7075b2b48cc",
+        "devtools-types.mjs": "93576685f75d744932bdcc0048e50444f9ce71b803c24b1f4636a4c734819631",
+        "devtools-types.prod.cjs": "a58fd84da9456088801716ee7b7134b1eff345d80b13b675db2fe7075b2b48cc"
+      }
+    }
+  ],
+  "upstreamFixes": [
+    {
+      "ghsa": "GHSA-83rm-6c8r-g728",
+      "firstFixed": "11.4.14",
+      "commit": "43391d20e7c85403cb59bdb21b5d542819f54042",
+      "url": "https://github.com/intlify/vue-i18n/commit/43391d20e7c85403cb59bdb21b5d542819f54042",
+      "patchSha256": "e040755c32fddff594df69cc8970acf9f8c7f99d6aedeecf66338b4d1571c4fc"
+    },
+    {
+      "ghsa": "GHSA-8rc2-428q-7ww3",
+      "firstFixed": "11.4.14",
+      "commit": "d657ce8f4b3b6b198a8f6e3d09e2b57a5d019fb8",
+      "url": "https://github.com/intlify/vue-i18n/commit/d657ce8f4b3b6b198a8f6e3d09e2b57a5d019fb8",
+      "patchSha256": "6ee91d71636ebf36e9e68904d3da2d72a23cd5e12208b8cfc4ec15745705683b"
+    }
+  ],
+  "adapterNotes": [
+    "getLocaleChain delegates to fixed fallbackWithLocaleChain with the same context/fallback/locale argument order",
+    "compileToFunction delegates to upstream JIT compile",
+    "handleFlatJson is authored compatibility code with own-property/unsafe-segment and AST protections; translation and sanitization are never replaced"
+  ],
+  "sourceReference": {
+    "url": "https://registry.npmjs.org/@intlify/vue-i18n-core/-/vue-i18n-core-11.4.23.tgz",
+    "integrity": "sha512-n13XgJLiA8067DWhga+RMEOecKVUUIfGqAwovLVvhkHu13D0MVwSZAOxgBGxutJR87GShVri6pnBCeNCH3oTVg==",
+    "notes": "Flat dictionary/AST collision behavior reviewed against handleFlatJson; no Vue binding package is installed by this facade"
+  },
+  "localName": "@gongdan/uni-intlify-core-compat",
+  "scope": "Transparent legacy compatibility facade over official @intlify/core-base 11.4.23; not an upstream release"
+}

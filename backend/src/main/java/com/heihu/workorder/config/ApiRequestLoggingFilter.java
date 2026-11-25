@@ -3,7 +3,9 @@ package com.heihu.workorder.config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import com.heihu.workorder.util.ClientIpResolver;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import javax.servlet.FilterChain;
@@ -25,6 +27,7 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
     private static final String REQUEST_ID_HEADER = "X-Request-ID";
 
     private final long slowRequestThresholdMs;
+    @Autowired private ClientIpResolver clientIpResolver = new ClientIpResolver("");
 
     public ApiRequestLoggingFilter(
             @Value("${app.logging.slow-request-threshold-ms:1000}") long slowRequestThresholdMs
@@ -86,11 +89,6 @@ public class ApiRequestLoggingFilter extends OncePerRequestFilter {
     }
 
     private String clientAddress(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.trim().isEmpty()) {
-            int separator = forwarded.indexOf(',');
-            return (separator >= 0 ? forwarded.substring(0, separator) : forwarded).trim();
-        }
-        return request.getRemoteAddr();
+        return clientIpResolver.getClientIp(request);
     }
 }

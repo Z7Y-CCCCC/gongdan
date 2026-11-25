@@ -1,0 +1,62 @@
+{
+  "upstreamPackage": "@vue/server-renderer",
+  "upstreamVersion": "3.4.34",
+  "tarballUrl": "https://registry.npmjs.org/@vue/server-renderer/-/server-renderer-3.4.34.tgz",
+  "tarballIntegrity": "sha512-GeyEUfMVRZMD/mZcNONEqg7MiU10QQ1DB3O/Qr6+8uXpbwdlmVgQ5Qs1/ZUAFX1X2UUtqMoGrDRbxdWfOJFT7Q==",
+  "tarballSha256": "b427fcd2a0571780fea90821ba9cc945a44b24b5693ebcdcd67b6c2048910263",
+  "advisoryUrl": "https://github.com/vuejs/core/security/advisories/GHSA-g2v6-rqmx-r4w6",
+  "officialFixCommit": "a2b40db9a83b36ed9da3a16403cf8f040262d73f",
+  "officialFixUrl": "https://github.com/vuejs/core/commit/a2b40db9a83b36ed9da3a16403cf8f040262d73f",
+  "officialFixedVersions": [
+    "3.5.42",
+    "3.6.0-rc.6"
+  ],
+  "localName": "@gongdan/uni-server-renderer",
+  "localVersion": "3.4.34-gongdan.1",
+  "scope": "Compatibility source backport, not an upstream 3.5.42 upgrade",
+  "upstreamFileSha256": {
+    "LICENSE": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "index.js": "649f9ecc1d681df415cfe6e0a94bcab03c8ac7a98c2f14dee08afeeec43e1880",
+    "dist/server-renderer.cjs.js": "d6596b6f1dd150a9cc9d56d2db67b83f639143c36e0b2fb68a736b37a8fe5d1c",
+    "dist/server-renderer.cjs.prod.js": "b35ea396886ee0f4a07e6c5f41aa90f9377d2877712f039b28b116a115404609",
+    "dist/server-renderer.esm-browser.js": "90c6b10b06c9675b8ed27c7d93ac02053f6fcc05ddd409c17e2d16458389755a",
+    "dist/server-renderer.esm-browser.prod.js": "9ba333085501f332a041e72b9254ee20515b3f3a320c193b84cc8c48ec42fb03",
+    "dist/server-renderer.esm-bundler.js": "8c9bab701343b8f5de8e836d5547caebfa754e4f93526a388832fbc93dccff86",
+    "package.json": "3aa81b36bf531858898c7435edfd121ffd0dc07bc591a5b75dbaf64bfd2b3b66",
+    "README.md": "d73367211cc62b0d3fbccc39417745536170081c7fbe9ba007b79c430bdbd3a1",
+    "dist/server-renderer.d.ts": "4afda81256053af77e2ea4b41643c7fc5eff941d2400d85fd8f06bebe182ae0d"
+  },
+  "patches": [
+    {
+      "path": "dist/server-renderer.esm-browser.js",
+      "kind": "official-add-CR-blacklist-embedded-shared",
+      "originalSha256": "90c6b10b06c9675b8ed27c7d93ac02053f6fcc05ddd409c17e2d16458389755a",
+      "patchedSha256": "d2ccb987e60a423c0ca130a386c945ddfd7b25090090d0393e9c42bd52aa2ebf"
+    },
+    {
+      "path": "dist/server-renderer.esm-browser.prod.js",
+      "kind": "official-add-CR-blacklist-embedded-shared",
+      "originalSha256": "9ba333085501f332a041e72b9254ee20515b3f3a320c193b84cc8c48ec42fb03",
+      "patchedSha256": "98b630bb5a3ab37e5e1d0c390ee88f7d27af28a44fb344dc9e3b1463dc83e426"
+    }
+  ],
+  "integration": {
+    "externalSharedDistributionsUnchanged": [
+      "dist/server-renderer.cjs.js",
+      "dist/server-renderer.cjs.prod.js",
+      "dist/server-renderer.esm-bundler.js"
+    ],
+    "rootAliases": {
+      "@vue/server-renderer": "file:vendor/uni-server-renderer",
+      "@vue/shared": "file:vendor/uni-vue-shared"
+    },
+    "peerDependencies": {
+      "vue": "3.4.34",
+      "@vue/compiler-ssr": "3.4.34",
+      "@vue/shared": "3.4.34-gongdan.1"
+    },
+    "reason": "Root-managed peers keep the unchanged external-shared distributions and the compiler on the patched root shared alias; no separately installed unpatched compiler/shared tree inside the file package"
+  },
+  "licenseSource": "https://raw.githubusercontent.com/vuejs/core/v3.4.34/LICENSE",
+  "licenseSha256": "49190d1f742dd61e47fe816df4963e5186a2a62100d9122f9883a60ea32973ac"
+}

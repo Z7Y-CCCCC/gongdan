@@ -1,5 +1,5 @@
 <template>
-  <view class="container">
+  <view class="container" role="main" aria-label="工单详情">
     <!-- 顶部工单基本信息 -->
     <view v-if="!loadError && order.id" class="header">
       <view class="ui-page-head detail-head">
@@ -9,7 +9,7 @@
           <button class="meta-action" aria-label="查看工单优先级" @click="showPriority"><uni-icons type="flag" size="18" aria-hidden="true" /><text>优先级</text></button>
         </view>
       </view>
-      <text class="order-code">{{ order.code || '' }}</text>
+      <text class="order-code" role="heading" aria-level="1">{{ order.code || '工单详情' }}</text>
       <view class="status-row">
         <view class="status-tag" :class="statusClass(order.status)">{{ statusLabel(order.status) }}</view>
         <view v-if="daysRemain !== null" class="remain-tag" :class="{ overdue: daysRemain < 0 }">
@@ -151,7 +151,7 @@
         <view v-if="item.status === 'REJECTED'" class="history-note">
           <text>驳回原因：{{ item.approvalRemark || '未填写' }}</text>
         </view>
-        <ReportImages :images="item.images || []" />
+        <ReportImages :images="item.images || []" :active="pageActive" />
       </view>
       <view v-if="historyError" class="empty-hint" role="alert"><text>{{ historyError }}</text><IconButton icon="refreshempty" label="重试生产履历" @click="retryHistory" /></view>
       <view v-if="historyHasMore && !historyLoading && !historyError" class="empty-hint"><IconButton icon="arrow-down" label="加载更多生产履历" @click="loadHistoryMore" /></view>
@@ -161,12 +161,15 @@
     <view v-if="loading" class="loading-mask">
       <text>加载中...</text>
     </view>
+    <!-- #ifdef H5 -->
+    <MobileMessageDialog v-model="pageMessage.message.visible" :title="pageMessage.message.title" :content="pageMessage.message.content" :confirm-text="pageMessage.message.confirmText" :cancel-text="pageMessage.message.cancelText" @confirm="pageMessage.decide(true)" @cancel="pageMessage.decide(false)" />
+    <!-- #endif -->
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { onLoad, onShow } from '@dcloudio/uni-app'
+import { onHide, onLoad, onShow } from '@dcloudio/uni-app'
 import { fetchReportPage, fetchWorkOrder, fetchWorkOrderByCode, fetchWorkOrderReporters, ensureLogin } from '../../services/api'
 import type { WorkOrderInfo, WorkOrderReport } from '../../types/api'
 import ListLimitNotice from '../../components/ListLimitNotice.vue'
@@ -174,10 +177,17 @@ import IconButton from '../../components/IconButton.vue'
 import ReportImages from '../../components/ReportImages.vue'
 import { mobileSessionKey } from '../../utils/session-key'
 import { useMobilePageActivity } from '../../composables/useMobilePageActivity'
+import { usePageMessage } from '../../composables/usePageMessage'
+// #ifdef H5
+import MobileMessageDialog from '../../components/MobileMessageDialog.vue'
+// #endif
 import { canReportTask } from '../../utils/report-permission'
 import { navigatePage, safeDecode } from '../../utils/navigation'
 
 const pageActivity = useMobilePageActivity()
+const pageMessage = usePageMessage()
+const pageActive = ref(true)
+onHide(() => { pageActive.value = false })
 
 const order = ref<WorkOrderInfo>({
   id: 0,
@@ -235,7 +245,7 @@ onMounted(async () => {
   }
   await loadData()
 })
-onShow(() => { if (mounted) void loadData() })
+onShow(() => { pageActive.value = true; if (mounted) void loadData() })
 onBeforeUnmount(() => { mounted = false; activeLoad = undefined; historySequence++ })
 
 const loadData = async () => {
@@ -419,7 +429,7 @@ const handleReport = async (step: any) => {
 }
 
 const viewStepDetail = (step: any) => {
-  uni.showModal({
+  pageMessage.open({
     title: step.processName || '工序详情',
     confirmText: '关闭',
     content: `计划数：${step.plannedQuantity || order.value.plannedQuantity || 0}\n良品数：${step.completedQuantity || 0}\n不良数：${step.defectQuantity || 0}\n报工权限：${step.reportPermission || '所有人'}`,
@@ -428,7 +438,7 @@ const viewStepDetail = (step: any) => {
 }
 
 const showMore = () => {
-  uni.showModal({
+  pageMessage.open({
     title: '工单备注',
     confirmText: '关闭',
     content: order.value.remark || '暂无备注',
@@ -437,7 +447,7 @@ const showMore = () => {
 }
 
 const showPriority = () => {
-  uni.showModal({
+  pageMessage.open({
     title: '优先级',
     confirmText: '关闭',
     content: priorityLabel(order.value.priority),
@@ -458,16 +468,16 @@ function priorityLabel(priority?: string) {
 
 <style scoped>
 .detail-head { margin-bottom: 20rpx; }
-.meta-action { display: flex; align-items: center; justify-content: center; gap: 8rpx; padding: 0 16rpx; background: #edf5f2; color: #41635a; border-radius: 20rpx; font-size: 24rpx; }
+.meta-action { display: flex; align-items: center; justify-content: center; gap: 8rpx; padding: 0 16rpx; background: var(--mobile-bg, #edf5f2); color: var(--mobile-text, #41635a); border-radius: 20rpx; font-size: 24rpx; }
 .container {
-  background: #f6f7f7;
+  background: var(--mobile-bg, #f6f7f7);
   height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
 .header {
-  background: white;
+  background: var(--mobile-surface, white);
   padding: 30rpx;
   position: relative;
 }
@@ -486,23 +496,23 @@ function priorityLabel(priority?: string) {
   display: inline-block;
 }
 
-.status-green { background: #e6f7f3; color: #00856b; }
-.status-gray { background: #f0f0f0; color: #64756d; }
-.status-orange { background: #fff4e6; color: #ff9900; }
-.status-blue { background: #eef3fe; color: #4080ff; }
-.status-red { background: #fff0f0; color: #ff4d4f; }
+.status-green { background: var(--mobile-subtle, #e6f7f3); color: var(--mobile-link, #00856b); }
+.status-gray { background: var(--mobile-bg, #f0f0f0); color: var(--mobile-muted, #64756d); }
+.status-orange { background: var(--mobile-warning-bg, #fff4e6); color: var(--mobile-warning, #8b5908); }
+.status-blue { background: var(--mobile-info-bg, #eef3fe); color: var(--mobile-info, #2459a6); }
+.status-red { background: var(--mobile-warning-bg, #fff0f0); color: var(--mobile-error, #b53b3b); }
 
 .remain-tag {
   font-size: 20rpx;
   padding: 4rpx 16rpx;
   border-radius: 20rpx;
-  background: #fff4e6;
-  color: #ff9900;
+  background: var(--mobile-warning-bg, #fff4e6);
+  color: var(--mobile-warning, #8b5908);
 }
 
 .remain-tag.overdue {
-  background: #fff0f0;
-  color: #ff4d4f;
+  background: var(--mobile-warning-bg, #fff0f0);
+  color: var(--mobile-error, #b53b3b);
 }
 
 .order-code {
@@ -519,9 +529,9 @@ function priorityLabel(priority?: string) {
 }
 
 .info-icon { margin-right: 6rpx; flex-shrink: 0; }
-.info-label { font-size: 24rpx; color: #64756d; }
-.info-val { font-size: 24rpx; color: #666; flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.green-link { color: #00856b; }
+.info-label { font-size: 24rpx; color: var(--mobile-muted, #64756d); }
+.info-val { font-size: 24rpx; color: var(--mobile-muted, #666); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.green-link { color: var(--mobile-link, #00856b); }
 
 .progress-bar-wrap {
   display: flex;
@@ -533,7 +543,7 @@ function priorityLabel(priority?: string) {
 .progress-bar {
   flex: 1;
   height: 12rpx;
-  background: #eee;
+  background: var(--mobile-bg, #eee);
   border-radius: 6rpx;
   overflow: hidden;
 }
@@ -547,7 +557,7 @@ function priorityLabel(priority?: string) {
 
 .progress-text {
   font-size: 22rpx;
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
   font-weight: bold;
   min-width: 60rpx;
   text-align: right;
@@ -555,8 +565,8 @@ function priorityLabel(priority?: string) {
 
 .tabs {
   display: flex;
-  background: white;
-  border-bottom: 1px solid #f0f0f0;
+  background: var(--mobile-surface, white);
+  border-bottom: 1px solid var(--mobile-border, #f0f0f0);
 }
 
 .tab-item {
@@ -565,12 +575,12 @@ function priorityLabel(priority?: string) {
   height: 90rpx;
   line-height: 90rpx;
   font-size: 28rpx;
-  color: #666;
+  color: var(--mobile-muted, #666);
   position: relative;
 }
 
 .tab-item.active {
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
   font-weight: bold;
 }
 
@@ -594,12 +604,12 @@ function priorityLabel(priority?: string) {
 .empty-hint {
   text-align: center;
   padding: 100rpx 0;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   font-size: 28rpx;
 }
 
 .process-card {
-  background: white;
+  background: var(--mobile-surface, white);
   border-radius: 16rpx;
   padding: 30rpx;
   margin-bottom: 20rpx;
@@ -627,9 +637,9 @@ function priorityLabel(priority?: string) {
 
 .step-name { font-size: 30rpx; font-weight: bold; }
 .step-status { font-size: 24rpx; padding: 4rpx 16rpx; border-radius: 16rpx; }
-.step-status-green { background: #e6f7f3; color: #00856b; }
-.step-status-blue { background: #eef3fe; color: #4080ff; }
-.step-status-gray { background: #f0f0f0; color: #64756d; }
+.step-status-green { background: var(--mobile-subtle, #e6f7f3); color: var(--mobile-link, #00856b); }
+.step-status-blue { background: var(--mobile-info-bg, #eef3fe); color: var(--mobile-info, #2459a6); }
+.step-status-gray { background: var(--mobile-bg, #f0f0f0); color: var(--mobile-muted, #64756d); }
 
 .card-content {
   display: flex;
@@ -649,27 +659,27 @@ function priorityLabel(priority?: string) {
   flex-direction: column;
 }
 
-.cl { font-size: 20rpx; color: #64756d; margin-bottom: 10rpx; }
+.cl { font-size: 20rpx; color: var(--mobile-muted, #64756d); margin-bottom: 10rpx; }
 .cv { font-size: 30rpx; font-weight: bold; }
-.cv.green { color: #00856b; }
-.cv.red { color: #ff4d4f; }
+.cv.green { color: var(--mobile-link, #00856b); }
+.cv.red { color: var(--mobile-error, #b53b3b); }
 
 .circle-box {
   width: 90rpx;
   height: 90rpx;
-  border: 6rpx solid #eef3fe;
+  border: 6rpx solid var(--mobile-border, #eef3fe);
   border-radius: 50%;
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
-.percent-txt { font-size: 20rpx; color: #4080ff; font-weight: bold; }
+.percent-txt { font-size: 20rpx; color: var(--mobile-info, #2459a6); font-weight: bold; }
 
 .card-extra {
   margin-bottom: 20rpx;
   padding-top: 16rpx;
-  border-top: 1px solid #f8f8f8;
+  border-top: 1px solid var(--mobile-border, #f8f8f8);
 }
 
 .extra-row {
@@ -679,8 +689,8 @@ function priorityLabel(priority?: string) {
 }
 
 .extra-icon { margin-right: 8rpx; flex-shrink: 0; }
-.extra-label { font-size: 22rpx; color: #64756d; }
-.extra-val { font-size: 22rpx; color: #666; }
+.extra-label { font-size: 22rpx; color: var(--mobile-muted, #64756d); }
+.extra-val { font-size: 22rpx; color: var(--mobile-muted, #666); }
 
 .card-btns {
   display: flex;
@@ -699,12 +709,12 @@ function priorityLabel(priority?: string) {
   gap: 8rpx;
 }
 
-.btn.ghost { border: 1px solid #ddd; color: #666; }
+.btn.ghost { border: 1px solid var(--mobile-border, #ddd); color: var(--mobile-muted, #666); }
 .btn.primary { border: 1px solid #00856b; background: #00856b; color: #fff; }
-.btn.disabled { border: 1px solid #eee; background: #fafafa; color: #64756d; cursor: not-allowed; }
+.btn.disabled { border: 1px solid var(--mobile-border, #eee); background: var(--mobile-bg, #fafafa); color: var(--mobile-muted, #64756d); cursor: not-allowed; }
 
 .history-card {
-  background: white;
+  background: var(--mobile-surface, white);
   border-radius: 16rpx;
   padding: 28rpx;
   margin-bottom: 20rpx;
@@ -725,7 +735,7 @@ function priorityLabel(priority?: string) {
 .history-title {
   font-size: 30rpx;
   font-weight: 600;
-  color: #222;
+  color: var(--mobile-text, #222);
 }
 
 .history-status {
@@ -734,46 +744,46 @@ function priorityLabel(priority?: string) {
   border-radius: 999rpx;
 }
 
-.report-status-pending { background: #fff7e6; color: #fa8c16; }
-.report-status-approved { background: #e6f7f3; color: #00a870; }
-.report-status-rejected { background: #fff1f0; color: #ff4d4f; }
+.report-status-pending { background: var(--mobile-warning-bg, #fff7e6); color: var(--mobile-warning, #8b5908); }
+.report-status-approved { background: var(--mobile-subtle, #e6f7f3); color: var(--mobile-link, #007a60); }
+.report-status-rejected { background: var(--mobile-error-bg, #fff1f0); color: var(--mobile-error, #b53b3b); }
 
 .history-meta {
   font-size: 24rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   margin-bottom: 18rpx;
 }
 
 .history-qty {
   font-size: 26rpx;
-  color: #555;
+  color: var(--mobile-text, #555);
 }
 
-.history-qty .green { color: #00856b; }
-.history-qty .red { color: #ff4d4f; }
+.history-qty .green { color: var(--mobile-link, #00856b); }
+.history-qty .red { color: var(--mobile-error, #b53b3b); }
 
 .history-note {
   margin-top: 16rpx;
   padding-top: 16rpx;
-  border-top: 1px solid #f2f2f2;
+  border-top: 1px solid var(--mobile-border, #f2f2f2);
   font-size: 24rpx;
-  color: #777;
+  color: var(--mobile-muted, #777);
 }
 
 .material-time {
   padding-top: 16rpx;
-  border-top: 1px solid #f2f2f2;
+  border-top: 1px solid var(--mobile-border, #f2f2f2);
   font-size: 24rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
 }
 
 .footer {
   height: 110rpx;
-  background: white;
+  background: var(--mobile-surface, white);
   display: flex;
   padding: 10rpx 20rpx;
   padding-bottom: env(safe-area-inset-bottom);
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--mobile-border, #f0f0f0);
 }
 
 .f-btn {
@@ -782,8 +792,8 @@ function priorityLabel(priority?: string) {
   justify-content: center;
   align-items: center;
   font-size: 28rpx;
-  color: #666;
-  background: #f8f9f9;
+  color: var(--mobile-muted, #666);
+  background: var(--mobile-bg, #f8f9f9);
   margin: 10rpx;
   border-radius: 10rpx;
 }
@@ -794,12 +804,12 @@ function priorityLabel(priority?: string) {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255,255,255,0.8);
+  background: var(--mobile-overlay, rgba(255,255,255,0.8));
   display: flex;
   justify-content: center;
   align-items: center;
   font-size: 28rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   z-index: 999;
 }
 </style>

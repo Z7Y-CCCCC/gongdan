@@ -5,7 +5,7 @@ import type { UserInfo } from '../../api'
 import { setUiLocale } from '../../i18n'
 
 const api = vi.hoisted(() => ({ createUser: vi.fn(), updateUser: vi.fn(), updateUserPermission: vi.fn(), resetUserPassword: vi.fn(),
-  unbindUserPhone: vi.fn(), updateUserStatus: vi.fn(), importUsersCsv: vi.fn(), exportUsersCsv: vi.fn(),
+  unbindUserPhone: vi.fn(), updateUserStatus: vi.fn(), importUsersCsv: vi.fn(), exportUsersCsv: vi.fn(), fetchUsersExportBlob: vi.fn(),
   createSystemImportLog: vi.fn(), fetchSystemImportLogs: vi.fn() }))
 vi.mock('../../api', async original => ({ ...await original<typeof import('../../api')>(), ...api }))
 const user = (id = 1, name = '用户一'): UserInfo => ({ id, name, username: `user${id}`, phone: '13800000000',
@@ -41,6 +41,7 @@ beforeEach(() => {
   api.createSystemImportLog.mockResolvedValue({})
   api.importUsersCsv.mockResolvedValue({ total: 1, success: 1, fail: 0, errors: [] })
   api.exportUsersCsv.mockResolvedValue(undefined)
+  api.fetchUsersExportBlob.mockResolvedValue({ text: async () => '账号,姓名\nuser1,用户一' } as Blob)
 })
 afterEach(() => { wrappers.splice(0).reverse().forEach(wrapper => wrapper.unmount()); vi.restoreAllMocks() })
 

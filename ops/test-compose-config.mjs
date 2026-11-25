@@ -8,6 +8,12 @@ assert.ok(args.length <= 1 && args.every(value => ['--external-data-defaults', '
 const config = JSON.parse(readFileSync(0, 'utf8').replace(/^\uFEFF/, ''))
 const redis = config.services.redis
 const backend = config.services.backend
+for (const name of ['APP_NETWORK_TRUSTED_PROXIES', 'APP_UREPORT_COOKIE_SECURE']) {
+  assert.ok(Object.hasOwn(backend.environment, name) && typeof backend.environment[name] === 'string',
+    `Backend must explicitly receive ${name}`)
+}
+assert.ok(['true', 'false'].includes(backend.environment.APP_UREPORT_COOKIE_SECURE),
+  'Report cookie TLS override must be an explicit boolean')
 assert.equal(redis.environment.REDIS_PASSWORD, backend.environment.SPRING_REDIS_PASSWORD,
   'Redis and backend must use the same configured password')
 const command = redis.command.join(' ')

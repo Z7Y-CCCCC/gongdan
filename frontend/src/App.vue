@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch, watchEffect } from 'vue'
 import QRCode from 'qrcode'
 import {
   createUser,
@@ -7,6 +7,7 @@ import {
   fetchUsers,
   importUsersCsv,
   login,
+  logoutSession,
   resetUserPassword,
   unbindUserPhone,
   updateUser,
@@ -76,6 +77,7 @@ import { buildWorkshopDashboard } from './utils/workshopDashboard'
 import { setUiLocale, uiLocale, t, uiTimezone, setUiTimezone, formatUiDate } from './i18n'
 import { buildWorkspaceUrl, readWorkspaceRoute } from './utils/workspaceRoute'
 import { notificationHeading, notificationBody } from './utils/notificationLocale'
+import { createWorkspaceLeaveGuards, workspaceLeaveGuardsKey } from './utils/workspaceLeaveGuards'
 
 const ProductDefinitionPage = defineAsyncComponent(() => import('./components/ProductDefinitionPage.vue'))
 const BomPage = defineAsyncComponent(() => import('./components/BomPage.vue'))
@@ -161,13 +163,37 @@ const resetPasswordForm = reactive({
   confirmPassword: ''
 })
 const showUserDropdown = ref(false)
+const signingOut = ref(false)
+const signOutError = ref('')
+let signOutRun = 0
+let signOutController: AbortController | undefined
 const showNotificationDropdown = ref(false)
 const notificationsLoading = ref(false)
 const notificationError = ref('')
 const showNewPassword = ref(false)
 const showConfirmPassword = ref(false)
 const activeConfigMenu = ref('department') // default to department based on user request
-const activeMainMenu = ref('home') // 'home' | 'sysconfig' | 'basedata' | 'super-admin' | ...
+const workspaceLeaveGuards = createWorkspaceLeaveGuards()
+provide(workspaceLeaveGuardsKey, workspaceLeaveGuards)
+const activeMainMenuValue = ref('home')
+// Every sidebar, quick-app, search and programmatic main-menu assignment uses the same gate.
+// It runs before Vue can deactivate and destroy an edited native iframe.
+const activeMainMenu = computed({
+  get: () => activeMainMenuValue.value,
+  set: next => {
+    if (next === activeMainMenuValue.value) return
+    if (next === 'analytics' && !isSuperAdmin.value) { showAction('高级报表仅平台超级管理员可用'); return }
+    if (activeMainMenuValue.value === 'analytics' && !workspaceLeaveGuards.canLeave(['analytics'], 'navigate')) return
+    activeMainMenuValue.value = next
+  }
+})
+watch(isSuperAdmin, allowed => {
+  if (!allowed && activeMainMenuValue.value === 'analytics') {
+    // Permission/session changes are authoritative, not a user-controlled navigation choice.
+    workspaceLeaveGuards.clear()
+    activeMainMenuValue.value = 'home'
+  }
+}, { flush: 'sync' })
 const activeBasedataMenu = ref('unit') // default to unit
 const activeProductionMenu = ref('workorder')
 const workOrderFocusTarget = ref<{ id: number } | null>(null)
@@ -339,6 +365,7 @@ function syncWorkspaceTab() {
 
 function activateWorkspaceTab(tab: WorkspaceTab) {
   activeMainMenu.value = tab.main
+  if (activeMainMenu.value !== tab.main) return
   if (tab.config) activeConfigMenu.value = tab.config
   if (tab.basedata) activeBasedataMenu.value = tab.basedata
   if (tab.production) activeProductionMenu.value = tab.production
@@ -372,10 +399,13 @@ function closeWorkspaceTab(id: string) {
   const index = workspaceTabs.value.findIndex(tab => tab.id === id)
   const tab = workspaceTabs.value[index]
   if (!tab || !tab.closable || tab.pinned) return
-  workspaceTabs.value.splice(index, 1)
-  if (activeWorkspaceTabId.value === id) {
-    activateWorkspaceTab(workspaceTabs.value[Math.max(0, index - 1)] || workspaceTabs.value[0])
-  }
+  if (!workspaceLeaveGuards.canLeave([id], 'close')) return
+  workspaceLeaveGuards.withAcceptedChange(() => {
+    workspaceTabs.value.splice(index, 1)
+    if (activeWorkspaceTabId.value === id) {
+      activateWorkspaceTab(workspaceTabs.value[Math.max(0, index - 1)] || workspaceTabs.value[0])
+    }
+  })
   closeTabContextMenu()
 }
 
@@ -393,8 +423,13 @@ function toggleTabPinned() {
 
 function closeTabsWhere(predicate: (tab: WorkspaceTab, index: number) => boolean) {
   const currentId = activeWorkspaceTabId.value
-  workspaceTabs.value = workspaceTabs.value.filter((tab, index) => tab.pinned || !tab.closable || !predicate(tab, index))
-  if (!workspaceTabs.value.some(tab => tab.id === currentId)) activateWorkspaceTab(workspaceTabs.value[0])
+  const retained = workspaceTabs.value.filter((tab, index) => tab.pinned || !tab.closable || !predicate(tab, index))
+  const removed = workspaceTabs.value.filter(tab => !retained.includes(tab)).map(tab => tab.id)
+  if (!workspaceLeaveGuards.canLeave(removed, 'close')) return
+  workspaceLeaveGuards.withAcceptedChange(() => {
+    workspaceTabs.value = retained
+    if (!retained.some(tab => tab.id === currentId)) activateWorkspaceTab(retained[0])
+  })
   closeTabContextMenu()
 }
 
@@ -414,8 +449,14 @@ function closeOtherTabs() {
 }
 
 function closeAllTabs() {
-  workspaceTabs.value = workspaceTabs.value.filter(tab => tab.pinned || !tab.closable)
-  activateWorkspaceTab(workspaceTabs.value[0])
+  const retained = workspaceTabs.value.filter(tab => tab.pinned || !tab.closable)
+  const removed = workspaceTabs.value.filter(tab => !retained.includes(tab)).map(tab => tab.id)
+  // Closing all also leaves the active pinned page, even if it stays in the tab list.
+  if (!workspaceLeaveGuards.canLeave([...removed, activeWorkspaceTabId.value], 'close')) return
+  workspaceLeaveGuards.withAcceptedChange(() => {
+    workspaceTabs.value = retained
+    activateWorkspaceTab(retained[0])
+  })
   showChromeQuickMenu.value = false
   closeTabContextMenu()
 }
@@ -438,6 +479,7 @@ function openCurrentTabInNewWindow() {
 
 function jumpFromQuickApp(main: string, sub = '') {
   activeMainMenu.value = main
+  if (activeMainMenu.value !== main) return
   if (main === 'production' && sub) activeProductionMenu.value = sub
   if (main === 'inventory' && sub) activeInventoryMenu.value = sub
   if (main === 'basedata' && sub) activeBasedataMenu.value = sub
@@ -454,6 +496,7 @@ function viewHomeWorkOrder(id: number) {
     return
   }
   activeMainMenu.value = 'production'
+  if (activeMainMenu.value !== 'production') return
   activeProductionMenu.value = 'workorder'
   expandedMenus.production = true
   // A fresh target also refreshes the same order when its KeepAlive page is reused.
@@ -462,6 +505,7 @@ function viewHomeWorkOrder(id: number) {
 
 function openRuntimePlugin(pluginKey: string) {
   activeMainMenu.value = 'plugin'
+  if (activeMainMenu.value !== 'plugin') return
   activePluginKey.value = pluginKey
   expandedMenus.plugins = true
 }
@@ -887,6 +931,7 @@ async function markAllNotificationsAsRead() {
 
 function openNotificationCenter() {
   activeMainMenu.value = 'notifications'
+  if (activeMainMenu.value !== 'notifications') return
   showNotificationDropdown.value = false
   showUserDropdown.value = false
 }
@@ -910,6 +955,7 @@ async function openNotification(item: NotificationInfo) {
     }
     if (token.value !== requestToken) return
     activeMainMenu.value = item.targetMain || 'home'
+    if (activeMainMenu.value !== (item.targetMain || 'home')) return
     if (item.targetMain === 'production') {
       activeProductionMenu.value = item.targetSub || 'workorder'
       expandedMenus.production = true
@@ -2136,7 +2182,7 @@ function handleSearch() {
     { label: '缓存监控', mainMenu: 'monitor', subMenu: 'cache', expandedMenu: 'monitor' },
     { label: '缓存列表', mainMenu: 'monitor', subMenu: 'cacheList', expandedMenu: 'monitor' },
     { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' },
-    { label: '高级报表', mainMenu: 'analytics', subMenu: '', expandedMenu: 'report' },
+    ...(isSuperAdmin.value ? [{ label: '高级报表', mainMenu: 'analytics', subMenu: '', expandedMenu: 'report' }] : []),
     { label: 'SOP', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '文档库', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
     { label: '消息推送', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
@@ -2161,6 +2207,7 @@ function handleSearch() {
   const match = menuMap.find(m => m.label.toLowerCase().includes(query) || t(m.label).toLowerCase().includes(query))
   if (match) {
     activeMainMenu.value = match.mainMenu
+    if (activeMainMenu.value !== match.mainMenu) return
     if (match.expandedMenu) {
       expandedMenus[match.expandedMenu as keyof typeof expandedMenus] = true
     }
@@ -2805,6 +2852,13 @@ function handlePrintTemplate() {
 }
 
 function resetAuthenticatedWorkspace() {
+  // A revoked or replaced login must clear old data, never wait for a discard confirmation.
+  workspaceLeaveGuards.clear()
+  signOutRun++
+  signOutController?.abort()
+  signOutController = undefined
+  signingOut.value = false
+  signOutError.value = ''
   workspaceBootstrapRun += 1
   workspaceLoadingVisible.value = false
   users.value = []
@@ -2857,7 +2911,7 @@ function resetAuthenticatedWorkspace() {
   }
   showNotificationDropdown.value = false
   // 退出登录时重置主菜单和子菜单的焦点
-  activeMainMenu.value = 'home'
+  activeMainMenuValue.value = 'home'
   activeConfigMenu.value = 'department'
 }
 
@@ -2865,8 +2919,44 @@ watch(token, (nextToken, previousToken) => {
   if (previousToken && previousToken !== nextToken) resetAuthenticatedWorkspace()
 }, { flush: 'sync' })
 
-function logout() {
+async function logout() {
+  if (signingOut.value || !token.value) return
+  if (!workspaceLeaveGuards.canLeave(undefined, 'logout')) return
+  const requestToken = token.value, run = ++signOutRun
+  const controller = new AbortController()
+  signOutController = controller
+  signingOut.value = true
+  signOutError.value = ''
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  try {
+    await logoutSession(requestToken, controller.signal)
+    if (run === signOutRun && token.value === requestToken) sharedAuth.logout()
+  } catch (error) {
+    if (run !== signOutRun || token.value !== requestToken) return
+    // A timeout may occur after the server already processed the request: do not claim it failed or succeeded.
+    signOutError.value = t('服务器退出未确认，请重试') + (error instanceof Error && error.name !== 'AbortError' ? `：${error.message}` : '')
+    showUserDropdown.value = true
+  } finally {
+    clearTimeout(timeout)
+    if (run === signOutRun && token.value === requestToken) {
+      signingOut.value = false
+      signOutController = undefined
+    }
+  }
+}
+
+function logoutLocally() {
+  if (signingOut.value || !signOutError.value) return
+  if (!workspaceLeaveGuards.canLeave(undefined, 'logout')) return
+  if (!window.confirm(t('仅退出本机不会撤销服务器会话，仍然退出？'))) return
   sharedAuth.logout()
+  showAction('已退出本机，服务器会话可能仍有效')
+}
+
+function guardBrowserDeparture(event: BeforeUnloadEvent) {
+  if (!token.value || !workspaceLeaveGuards.hasUnsavedChanges()) return
+  event.preventDefault()
+  event.returnValue = ''
 }
 
 function handleShellClick(e: MouseEvent) {
@@ -2892,6 +2982,7 @@ function handleShellKeydown(event: KeyboardEvent) {
 
 onMounted(() => {
   document.addEventListener('fullscreenchange', syncNativeFullscreenState)
+  window.addEventListener('beforeunload', guardBrowserDeparture)
 
   if (token.value && currentUser.value && !isInternalChatWindow.value) {
     // 页面刷新后默认进入主页仪表盘，并显示可诊断的初始化进度。
@@ -2908,6 +2999,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncNativeFullscreenState)
+  window.removeEventListener('beforeunload', guardBrowserDeparture)
+  workspaceLeaveGuards.clear()
+  signOutRun++
+  signOutController?.abort()
   window.removeEventListener('click', handleShellClick)
   window.removeEventListener('keydown', handleShellKeydown)
   clearInterval(dashboardClock)
@@ -3214,7 +3309,7 @@ function activateSidebarItem(event: KeyboardEvent) {
           <Transition name="sidebar-expand">
             <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
               <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'"><UiIcon name="activity" :size="15" />生产报表</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'analytics' }" @click="activeMainMenu = 'analytics'"><UiIcon name="table-columns" :size="15" />高级报表</a>
+              <a v-if="isSuperAdmin" role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'analytics' }" @click="activeMainMenu = 'analytics'"><UiIcon name="table-columns" :size="15" />高级报表</a>
             </div>
           </Transition>
         </div>
@@ -3499,10 +3594,12 @@ function activateSidebarItem(event: KeyboardEvent) {
             </button>
             <Transition name="dropdown-motion">
               <div v-if="showUserDropdown" class="user-dropdown">
-                <button type="button" @click.stop="logout">
+                <p v-if="signOutError" class="signout-error" role="alert">{{ signOutError }}</p>
+                <button type="button" :disabled="signingOut" :aria-busy="signingOut" @click.stop="logout">
                   <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                  退出登录
+                  {{ signingOut ? t('退出中...') : t(signOutError ? '重试退出' : '退出登录') }}
                 </button>
+                <button v-if="signOutError" type="button" :disabled="signingOut" @click.stop="logoutLocally">仅退出本机</button>
               </div>
             </Transition>
           </div>
@@ -3827,7 +3924,9 @@ function activateSidebarItem(event: KeyboardEvent) {
         <div class="empty-state">请选择左侧已开放模块。</div>
       </section>
 
-      <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit'">
+      <!-- Legacy inline views stay inert. The boolean assertion preserves Volar's
+           ref narrowing in TS; Vite erases it to a statically removable false. -->
+      <section class="content" v-if="(false as boolean)" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit'">
         <div class="filters">
           <label>
             <span>名称</span>
@@ -3875,7 +3974,7 @@ function activateSidebarItem(event: KeyboardEvent) {
       </section>
 
       <!-- 不良品项管理 -->
-      <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'defect'">
+      <section class="content" v-if="(false as boolean)" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'defect'">
         <div class="filters">
           <label>
             <span style="white-space:nowrap">不良品项编号</span>
@@ -3923,7 +4022,7 @@ function activateSidebarItem(event: KeyboardEvent) {
       </section>
 
       <!-- 工序管理 - 列表 -->
-      <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && processView === 'list'">
+      <section class="content" v-if="(false as boolean)" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && processView === 'list'">
         <div class="filters">
           <label>
             <span>工序编号</span>
@@ -4007,7 +4106,7 @@ function activateSidebarItem(event: KeyboardEvent) {
       </section>
 
       <!-- 工序管理 - 创建/编辑表单 -->
-      <section class="content process-form-page" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && (processView === 'create' || processView === 'edit')">
+      <section class="content process-form-page" v-if="(false as boolean)" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' && (processView === 'create' || processView === 'edit')">
         <h2 class="process-form-title">{{ processView === 'edit' ? '编辑工序' : '创建工序' }}</h2>
         <div class="process-form">
           <!-- 工序编号 -->
@@ -4219,7 +4318,7 @@ function activateSidebarItem(event: KeyboardEvent) {
       </section>
 
       <!-- 工艺路线 - 列表 -->
-      <section class="content" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView === 'list'">
+      <section class="content" v-if="(false as boolean)" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView === 'list'">
         <div class="filters">
           <label>
             <span>工艺路线编号</span>
@@ -4283,7 +4382,7 @@ function activateSidebarItem(event: KeyboardEvent) {
       </section>
 
       <!-- 工艺路线 - 创建/编辑 -->
-      <section class="process-form-page" v-if="false" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView !== 'list'">
+      <section class="process-form-page" v-if="(false as boolean)" v-show="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' && routeView !== 'list'">
         <div class="process-form-scroll">
           <h2 class="process-form-title">{{ routeView === 'create' ? '创建工艺路线' : '编辑工艺路线' }}</h2>
           <!-- 基本信息 -->
@@ -4411,7 +4510,7 @@ function activateSidebarItem(event: KeyboardEvent) {
       </section>
 
       <!-- 用户管理 -->
-      <section class="content" v-if="false" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'">
+      <section class="content" v-if="(false as boolean)" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user'">
         <div class="filters">
           <label>
             <span>姓名</span>
@@ -4530,7 +4629,7 @@ function activateSidebarItem(event: KeyboardEvent) {
       </section>
 
       <!-- 部门管理 -->
-      <section class="content" v-if="false" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'">
+      <section class="content" v-if="(false as boolean)" v-show="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department'">
         <div class="filters">
           <label>
             <span>部门名称</span>
@@ -4887,7 +4986,7 @@ function activateSidebarItem(event: KeyboardEvent) {
   </div>
 
   <!-- 导入日志弹窗 -->
-  <div v-if="false" class="modal-backdrop">
+  <div v-if="(false as boolean)" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>导入结果</h2>
@@ -4905,7 +5004,7 @@ function activateSidebarItem(event: KeyboardEvent) {
   </div>
 
   <!-- 新增用户弹窗 -->
-  <div v-if="false" class="modal-backdrop">
+  <div v-if="(false as boolean)" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>新增用户</h2>
@@ -4955,7 +5054,7 @@ function activateSidebarItem(event: KeyboardEvent) {
   </div>
 
   <!-- 编辑用户弹窗 -->
-  <div v-if="false" class="modal-backdrop">
+  <div v-if="(false as boolean)" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>编辑用户</h2>
@@ -5001,7 +5100,7 @@ function activateSidebarItem(event: KeyboardEvent) {
   </div>
 
   <!-- 重置密码弹窗 -->
-  <div v-if="false" class="modal-backdrop">
+  <div v-if="(false as boolean)" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>重置密码</h2>
@@ -5041,7 +5140,7 @@ function activateSidebarItem(event: KeyboardEvent) {
   </div>
 
   <!-- 权限配置弹窗 -->
-  <div v-if="false" class="modal-backdrop">
+  <div v-if="(false as boolean)" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>权限配置</h2>
@@ -5064,7 +5163,7 @@ function activateSidebarItem(event: KeyboardEvent) {
   </div>
 
   <!-- 新建用户成功弹窗 -->
-  <div v-if="false" class="modal-backdrop">
+  <div v-if="(false as boolean)" class="modal-backdrop">
     <section class="modal success-modal">
       <div class="success-icon">
         <svg viewBox="0 0 24 24" width="48" height="48" stroke="#0c9d82" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
@@ -5105,7 +5204,7 @@ function activateSidebarItem(event: KeyboardEvent) {
   </div>
 
   <!-- 部门弹窗 -->
-  <div v-if="false" class="modal-backdrop">
+  <div v-if="(false as boolean)" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingDepartment ? '编辑部门' : '新建部门' }}</h2>
@@ -5151,7 +5250,7 @@ function activateSidebarItem(event: KeyboardEvent) {
   </div>
 
   <!-- 单位弹窗 -->
-  <div v-if="false" class="modal-backdrop">
+  <div v-if="(false as boolean)" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingUnit ? '编辑单位' : '创建单位' }}</h2>
@@ -5175,7 +5274,7 @@ function activateSidebarItem(event: KeyboardEvent) {
   </div>
 
   <!-- 不良品项弹窗 -->
-  <div v-if="false" class="modal-backdrop">
+  <div v-if="(false as boolean)" class="modal-backdrop">
     <section class="modal">
       <header class="modal-header">
         <h2>{{ editingDefect ? '编辑不良品项' : '创建不良品项' }}</h2>

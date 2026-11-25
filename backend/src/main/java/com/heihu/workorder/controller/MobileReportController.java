@@ -56,7 +56,7 @@ public class MobileReportController {
             @PathVariable Long imageId
     ) {
         AuthenticatedUser currentUser = tokenService.requireUser(authorization);
-        ReportImageDownload download = reportService.getImageDownload(currentUser.getFactoryId(), imageId);
+        ReportImageDownload download = reportService.getImageDownload(currentUser.getFactoryId(), currentUser.getUserId(), imageId);
         return ResponseEntity.ok()
                 .contentType(AttachmentMediaTypes.forDownload(download.getImage().getContentType()))
                 .cacheControl(CacheControl.noStore())

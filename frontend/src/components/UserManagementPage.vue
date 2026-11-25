@@ -2,10 +2,12 @@
 import UiIcon from './UiIcon.vue'
 import { formatUiDate, t, uiLocale } from '../i18n'
 import { escapePrintHtml as escapeHtml, printLabel } from '../utils/printHtml'
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
 import { useLatestRequest } from '../composables/useLatestRequest'
+import { parseCsvRows } from '../utils/csv'
+import { downloadXlsx } from '../utils/spreadsheet'
 import {
-  createUser, exportUsersCsv, fetchUsers, importUsersCsv,
+  createUser, exportUsersCsv, fetchUsersExportBlob, fetchUsers, importUsersCsv,
   resetUserPassword, unbindUserPhone, updateUser, updateUserPermission, updateUserStatus,
   type CreateUserPayload, type Role, type UpdateUserPayload, type UserInfo, type DepartmentInfo,
   fetchSystemImportLogs, createSystemImportLog
@@ -42,11 +44,16 @@ const importLogsPages = computed(() => Math.max(1, Math.ceil(importLogsTotal.val
 let attemptedImportLogsPage = 1
 const beginImportLogs = useLatestRequest()
 let sessionGeneration = 0
+let exportGeneration = 0, exportActive = true
 
 function captureSession() {
   const token = props.token
   const generation = sessionGeneration
   return { token, current: () => props.token === token && sessionGeneration === generation }
+}
+function captureExportSession() {
+  const session = captureSession(), generation = exportGeneration
+  return { token: session.token, current: () => exportActive && generation === exportGeneration && session.current() }
 }
 
 async function refreshImportLogs(targetPage = importLogsPage.value) {
@@ -93,6 +100,9 @@ const showConfirmPassword = ref(false)
 const loading = ref(false)
 const importing = ref(false)
 const exporting = ref(false)
+const exportError = ref('')
+onActivated(() => { exportActive = true })
+onDeactivated(() => { exportActive = false; exportGeneration++; exporting.value = false; exportError.value = '' })
 const writing = computed(() => loading.value || importing.value)
 const errorMessage = ref('')
 watch(errorMessage, (v) => { if (v) emit('error', v) })
@@ -318,7 +328,7 @@ async function handleResetPassword() {
     return
   }
   await runUserMutation(token => resetUserPassword(token, user.id, newPassword), () => {
-    showAction(`用户「${user.name}」的密码已重置，新密码：${newPassword}`)
+    showAction(t('用户「{0}」的密码已重置', [user.name]))
     showResetPasswordModal.value = false
     resetPasswordForm.password = ''; resetPasswordForm.confirmPassword = ''
   }, '重置密码失败')
@@ -405,16 +415,32 @@ function printUserRole(user: UserInfo) {
   return user.role === 'ADMIN' ? t('管理员') : user.role === 'PRODUCTION' ? t('生产人员') : user.roleLabel
 }
 
+async function exportXlsx() {
+  if (!props.token || exporting.value || writing.value || !exportActive) return
+  const session = captureExportSession()
+  exportError.value = ''; exporting.value = true
+  try {
+    const blob = await fetchUsersExportBlob(session.token)
+    if (!session.current()) return
+    const matrix = parseCsvRows(await blob.text(), { preserveWhitespace: true })
+    if (!session.current()) return
+    const downloaded = await downloadXlsx(`${t('用户列表')}_${formatUiDate(new Date()).slice(0, 10)}.xlsx`, t('用户'), matrix, session.current)
+    if (downloaded && session.current()) showAction('导出Excel成功')
+  } catch (error) { if (session.current()) { exportError.value = error instanceof Error ? error.message : '导出失败'; errorMessage.value = exportError.value } }
+  finally { if (session.current()) exporting.value = false }
+}
+
 async function handleExport() {
+  if (!exportActive) return
   if (!props.token) {
     errorMessage.value = '请先登录'
     return
   }
   if (exporting.value || writing.value) return
-  const session = captureSession()
+  const session = captureExportSession()
   exporting.value = true
   try {
-    await exportUsersCsv(session.token)
+    await exportUsersCsv(session.token, session.current)
     if (session.current()) showAction('用户数据导出成功（含密码哈希）')
   } catch (err) {
     if (session.current()) errorMessage.value = err instanceof Error ? err.message : '导出失败'
@@ -487,7 +513,7 @@ function openImportLog() {
 
 watch(() => props.token, () => {
   sessionGeneration++; beginImportLogs()
-  loading.value = false; importing.value = false; exporting.value = false; importLogsLoading.value = false
+  loading.value = false; importing.value = false; exporting.value = false; exportError.value = ''; importLogsLoading.value = false
   showCreateModal.value = false; showEditModal.value = false; showPermissionModal.value = false
   showResetPasswordModal.value = false; showImportLogModal.value = false
   successUser.value = null; successUserPassword.value = ''; selectedUserIds.value = []
@@ -609,7 +635,10 @@ function handlePrintTemplate() {
         <div class="toolbar">
           <div class="toolbar-left">
             <button class="primary-btn ui-icon-button" type="button" @click="openCreateUser" :disabled="writing" title="新增用户" aria-label="新增用户"><UiIcon name="plus" /></button>
-            <button class="ghost-btn ui-icon-button" type="button" @click="handleExport" :disabled="exporting || writing" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+            <button class="ghost-btn ui-action-button" type="button" @click="exportXlsx" :disabled="exporting || writing" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+            <button class="ghost-btn ui-action-button" type="button" @click="handleExport" :disabled="exporting || writing" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+            <span class="export-scope-note">导出范围：当前工厂全部用户 · Excel不含密码哈希；CSV完整备份含密码哈希，不宜直接用Excel打开</span>
+            <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
             <label class="ghost-btn" style="cursor:pointer">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               导入

@@ -1,0 +1,725 @@
+{
+  "schemaVersion": 1,
+  "evidenceDate": "2026-11-25",
+  "timeZone": "Asia/Hong_Kong",
+  "collectedAt": "2026-11-25T17:48:05.891251+08:00",
+  "scope": "Local source and production H5 / isolated synthetic API dependency-remediation verification; not old CI or production-device certification",
+  "baselineCommit": "6a707ad",
+  "productionConnected": false,
+  "environment": {
+    "node": "22.13.1",
+    "npm": "10.9.2"
+  },
+  "audit": {
+    "registry": "https://registry.npmjs.org",
+    "testAndAuditWindowUtc": {
+      "started": "2026-11-25T09:44:49.3898746+00:00",
+      "finished": "2026-11-25T09:45:12.9479989+00:00"
+    },
+    "before": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 22,
+      "critical": 0,
+      "total": 22
+    },
+    "after": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "frontendAfter": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "afterAuditReportVersion": 2,
+    "afterDependencies": {
+      "prod": 334,
+      "dev": 248,
+      "optional": 49,
+      "peer": 3,
+      "peerOptional": 0,
+      "total": 608
+    },
+    "exitCode": 0,
+    "advisoriesRemediated": [
+      "GHSA-g2v6-rqmx-r4w6",
+      "GHSA-83rm-6c8r-g728",
+      "GHSA-8rc2-428q-7ww3"
+    ],
+    "affectedNodesAreNotIndependentAttackChains": true,
+    "privateForksRequireSourceAndBehaviorVerification": true
+  },
+  "localAliases": [
+    {
+      "consumerName": "@vue/server-renderer",
+      "fileDependency": "file:vendor/uni-server-renderer",
+      "actualName": "@gongdan/uni-server-renderer",
+      "actualVersion": "3.4.34-gongdan.1",
+      "manifestSha256": "fdb5a1b7d739be59c8c206c9929c3b2eae7eecb37eed63633314416cc8d39176"
+    },
+    {
+      "consumerName": "@vue/shared",
+      "fileDependency": "file:vendor/uni-vue-shared",
+      "actualName": "@gongdan/uni-vue-shared",
+      "actualVersion": "3.4.34-gongdan.1",
+      "manifestSha256": "0e08bdce225c164352a802647f3df902ed21f2169c0b338cbf0c8ef27617e133"
+    },
+    {
+      "consumerName": "@intlify/core-base",
+      "fileDependency": "file:vendor/uni-intlify-core",
+      "actualName": "@gongdan/uni-intlify-core-compat",
+      "actualVersion": "1.0.0",
+      "manifestSha256": "f7838658bf3f2e8ab476926b12562739237d9e405aa908bb3ffdaef720a3f7fe"
+    }
+  ],
+  "actualFixedRegistryPackages": [
+    {
+      "installedName": "intlify-core-modern",
+      "upstreamName": "@intlify/core-base",
+      "version": "11.4.23",
+      "integrity": "sha512-V8a3BQ7iTVPDetJ/LJfGn3lDx4Ir35OjjO4BLgVrFuL+0egWzwUyfdLIPAEYWlMGdo14eC5p6uk3tSlTYY0YmQ==",
+      "resolved": "https://registry.npmjs.org/@intlify/core-base/-/core-base-11.4.23.tgz"
+    },
+    {
+      "installedName": "@intlify/shared",
+      "upstreamName": "@intlify/shared",
+      "version": "11.4.23",
+      "integrity": "sha512-1iqGalDCOlHZ8y7LOC3yisSm52K5AmkTmaNO23XGFYWU6Z1oIX8VeAGRq9rn2KrDFb8nMtQaxNyMa1n8EeDm5g==",
+      "resolved": "https://registry.npmjs.org/@intlify/shared/-/shared-11.4.23.tgz"
+    },
+    {
+      "installedName": "@intlify/message-compiler",
+      "upstreamName": "@intlify/message-compiler",
+      "version": "11.4.23",
+      "integrity": "sha512-HgmnQV/lBBX8KgxoNwngzzq8DLw/jECJgz9eBfQGdkEYte7Bw1RSqhIskcWp0DEWrSg2wijUi6dJjpq1WUD+zg==",
+      "resolved": "https://registry.npmjs.org/@intlify/message-compiler/-/message-compiler-11.4.23.tgz"
+    }
+  ],
+  "vueCompatibility": {
+    "vue": "3.4.34",
+    "uni": "3.0.0-4020920240930001",
+    "embeddedUniClientRuntime": "3.4.21",
+    "backportVersion": "3.4.34-gongdan.1",
+    "sharedPatchedDistributions": 3,
+    "embeddedSsrBrowserPatchedDistributions": 2,
+    "rendererOtherJsBytesEqualUpstream": true,
+    "modernLanguageCoreCompilerAndShared": "3.5.46",
+    "notAWholeVue35Upgrade": true,
+    "ssrPeersManagedByRoot": true,
+    "verifiedVendorBytesPreservedByGitAttributes": true,
+    "upstreamDistWhitespacePreservedOnlyForByteVerifiedDistributions": true
+  },
+  "cleanInstall": {
+    "command": "npm ci --registry=https://registry.npmjs.org",
+    "exitCode": 0,
+    "installedPackages": 565,
+    "reportedAuditedPackages": 571,
+    "staleVendorDependenciesRemovedFromResolutionByLocalBackup": true
+  },
+  "unitTests": {
+    "run": 217,
+    "passed": 217,
+    "failed": 0,
+    "skipped": 0,
+    "cancelled": 0,
+    "ssrSubset": 12,
+    "intlifySubset": 17,
+    "packagingSubset": 2,
+    "subsetsIncludedInTotal": true
+  },
+  "builds": {
+    "typecheck": true,
+    "h5": true,
+    "weixin": true,
+    "h5FileCount": 47,
+    "finalH5TreeSha256": "c4af900ad427ad05ad1d5219c46e13feb936cb7981077659582344fff889d56c",
+    "finalH5BytesEqualPassingBrowserBuild": true
+  },
+  "browser": {
+    "complete": true,
+    "phase": "final",
+    "evidencePrefix": "dependency-remediation",
+    "passed": 333,
+    "failed": 0,
+    "screens": 42,
+    "interactions": 16,
+    "pageerrors": 0,
+    "outsideOriginAttempts": 0,
+    "syntheticApiOnly": true,
+    "visuallyInspectedScreens": [
+      "bind-failure",
+      "report-form-dark",
+      "field-events-dark"
+    ],
+    "dedicatedBrowserClosed": true,
+    "dedicatedFixturePortVerifiedClosed": true
+  },
+  "sourceDigests": [
+    {
+      "artifactName": "mobile/package.json",
+      "byteLength": 2713,
+      "sha256": "2a287e710d037eba557714f4399e27c1f6e948d49f3232710ff67125e8274f65",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "c5f80a9e39be4f862c5f17ce8c5cafce3c16e03abb506277ea78d0758475d3fc",
+      "gitBlobByteLength": 2632,
+      "gitLineEndingNormalizationOnly": true
+    },
+    {
+      "artifactName": "mobile/package-lock.json",
+      "byteLength": 258017,
+      "sha256": "3e56da6fe80606fdceb8c9dda2f53988e76c9485fe4dcaa03680028c8e03596f",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "156e680f5723fa6d87b0cf53ca834d985a57ed6f1b9f22924f90b517e6d0af96",
+      "gitBlobByteLength": 250091,
+      "gitLineEndingNormalizationOnly": true
+    },
+    {
+      "artifactName": "mobile/vendor/uni-server-renderer/package.json",
+      "byteLength": 1768,
+      "sha256": "fdb5a1b7d739be59c8c206c9929c3b2eae7eecb37eed63633314416cc8d39176",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "fdb5a1b7d739be59c8c206c9929c3b2eae7eecb37eed63633314416cc8d39176",
+      "gitBlobByteLength": 1768,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/vendor/uni-server-renderer/PROVENANCE.json",
+      "byteLength": 3385,
+      "sha256": "9c3fc5277bb9eac6590fae6ed46893e92bef058d61ff68fb4173293989983e1d",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "9c3fc5277bb9eac6590fae6ed46893e92bef058d61ff68fb4173293989983e1d",
+      "gitBlobByteLength": 3385,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/vendor/uni-vue-shared/package.json",
+      "byteLength": 1520,
+      "sha256": "0e08bdce225c164352a802647f3df902ed21f2169c0b338cbf0c8ef27617e133",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "0e08bdce225c164352a802647f3df902ed21f2169c0b338cbf0c8ef27617e133",
+      "gitBlobByteLength": 1520,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/vendor/uni-vue-shared/PROVENANCE.json",
+      "byteLength": 2616,
+      "sha256": "bdfc2906ec344ee39e3c4f113c7d443c07c50dbd9321d63ff1767c020875a5b0",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "bdfc2906ec344ee39e3c4f113c7d443c07c50dbd9321d63ff1767c020875a5b0",
+      "gitBlobByteLength": 2616,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/vendor/uni-intlify-core/package.json",
+      "byteLength": 744,
+      "sha256": "f7838658bf3f2e8ab476926b12562739237d9e405aa908bb3ffdaef720a3f7fe",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "f7838658bf3f2e8ab476926b12562739237d9e405aa908bb3ffdaef720a3f7fe",
+      "gitBlobByteLength": 744,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/vendor/uni-intlify-core/PROVENANCE.json",
+      "byteLength": 4542,
+      "sha256": "34ced8d7ecadc0f8630f65caa860b5b47e8688f5b456b2ce7887523873463cd6",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "34ced8d7ecadc0f8630f65caa860b5b47e8688f5b456b2ce7887523873463cd6",
+      "gitBlobByteLength": 4542,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/vendor/uni-intlify-core/index.cjs",
+      "byteLength": 453,
+      "sha256": "d10fd16a2d8af7417a27512816c1699e987080c2f2d4f1cc4b365415a14a1d70",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "d10fd16a2d8af7417a27512816c1699e987080c2f2d4f1cc4b365415a14a1d70",
+      "gitBlobByteLength": 453,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/vendor/uni-intlify-core/index.mjs",
+      "byteLength": 372,
+      "sha256": "4bb6c00df88adea0736ab7c5092ca04125ef1eef4297b1a300411ddcae89b463",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "4bb6c00df88adea0736ab7c5092ca04125ef1eef4297b1a300411ddcae89b463",
+      "gitBlobByteLength": 372,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/vendor/uni-intlify-core/legacy.cjs",
+      "byteLength": 1558,
+      "sha256": "0cc6ff53ffb5de5f369eb1e076b426217000ec5162d26cc663b4a1e5a6b74161",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "0cc6ff53ffb5de5f369eb1e076b426217000ec5162d26cc663b4a1e5a6b74161",
+      "gitBlobByteLength": 1558,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/test/security-ssr.test.mjs",
+      "byteLength": 13713,
+      "sha256": "9320cfea26c169e4c641d3cd192402b8dc72b33e24ead115666932d4b2145c11",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "9320cfea26c169e4c641d3cd192402b8dc72b33e24ead115666932d4b2145c11",
+      "gitBlobByteLength": 13713,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/test/security-intlify.test.mjs",
+      "byteLength": 17401,
+      "sha256": "c5b9380fae3062151fd6e32eb5ff496383c7e0d21d54afeb02a3937d8f44d1d3",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "c5b9380fae3062151fd6e32eb5ff496383c7e0d21d54afeb02a3937d8f44d1d3",
+      "gitBlobByteLength": 17401,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/test/toolchain-compat.test.mjs",
+      "byteLength": 7212,
+      "sha256": "509f25e7d18a12a930314959c77ab9cae8b85000fc09a9b8106c0d70c6f71fe3",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "509f25e7d18a12a930314959c77ab9cae8b85000fc09a9b8106c0d70c6f71fe3",
+      "gitBlobByteLength": 7212,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/test/security-dependency-packaging.test.mjs",
+      "byteLength": 2956,
+      "sha256": "7951d7dd89ca34528dd6851683a0c7e606d274624a9c0717b0934c888d46595f",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "7951d7dd89ca34528dd6851683a0c7e606d274624a9c0717b0934c888d46595f",
+      "gitBlobByteLength": 2956,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/test/security-ui-browser.mjs",
+      "byteLength": 23340,
+      "sha256": "267482a2261c6270c1bd12f9a659bcb59aaacbbc1ebf6e310366e9bdfd945fc3",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "267482a2261c6270c1bd12f9a659bcb59aaacbbc1ebf6e310366e9bdfd945fc3",
+      "gitBlobByteLength": 23340,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": "mobile/test/browser-fixture.mjs",
+      "byteLength": 13142,
+      "sha256": "79ba384c34c71e0c3dc3204b1fa27b815cda5eea14c828b915c694097b408233",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "79ba384c34c71e0c3dc3204b1fa27b815cda5eea14c828b915c694097b408233",
+      "gitBlobByteLength": 13142,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": ".github/workflows/ci.yml",
+      "byteLength": 4160,
+      "sha256": "78f8d0cecccfe9aeed33f9b37e01f7e0aaf70994cb407c9baac065f46cf0ec8a",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "9df431795264032ad13dcb560ec2527a07cc11427b3d7229f653bf83a3efbf11",
+      "gitBlobByteLength": 4068,
+      "gitLineEndingNormalizationOnly": true
+    },
+    {
+      "artifactName": ".gitignore",
+      "byteLength": 916,
+      "sha256": "bc3a1ce4db6c2f7e48e3e6beaae9dcdd5db44691f062d05a6a48f70f740d9fc4",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "515cb278eaa7f4f831fa412610a0388f408e44dd52b7acea8ea10dcf39dc51a8",
+      "gitBlobByteLength": 857,
+      "gitLineEndingNormalizationOnly": true
+    },
+    {
+      "artifactName": "deploy/docker/Dockerfile.dockerignore",
+      "byteLength": 588,
+      "sha256": "c3e9dd02472530ca82ae752d34f5243dabefc2df69d15d31fb47d99777f50f95",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "c3e9dd02472530ca82ae752d34f5243dabefc2df69d15d31fb47d99777f50f95",
+      "gitBlobByteLength": 588,
+      "gitLineEndingNormalizationOnly": false
+    },
+    {
+      "artifactName": ".gitattributes",
+      "byteLength": 684,
+      "sha256": "782ace7b3fdea734b457ae12e7076a0bb9d7eb264078cf722ff04d694c018651",
+      "rawContentIncluded": false,
+      "gitBlobSha256": "782ace7b3fdea734b457ae12e7076a0bb9d7eb264078cf722ff04d694c018651",
+      "gitBlobByteLength": 684,
+      "gitLineEndingNormalizationOnly": false
+    }
+  ],
+  "localArtifactDigests": [
+    {
+      "artifactName": "output/mobile-dependency-remediation-baseline-audit.json",
+      "byteLength": 13472,
+      "sha256": "26387bef96419745a1b99e701c057a14c0d51395e5a3bb0727bdfc872100de74",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-final-audit.json",
+      "byteLength": 387,
+      "sha256": "0544842d69e01bfb52e8dae9f5e3720e63e1e0c52cc6fb5a71205b9e8572f224",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-lock-final.log",
+      "byteLength": 89,
+      "sha256": "8cf596e7b560ba7061f30b2b5e5087eb99c353401176122f4a603d84991c89c0",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-ci-final.log",
+      "byteLength": 276,
+      "sha256": "417301da49cc1233048fa255292689c7f6e4f9d265ed78ddad0f052ebfe3bdd4",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-all-tests-final.log",
+      "byteLength": 53745,
+      "sha256": "eebd05abed104a2aea025effee665f6e645e4136f07a46810c3399fcb52c398f",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-test-audit-meta.json",
+      "byteLength": 543,
+      "sha256": "c4c337d2648d731d85d44a4521ef6ba82d63d9e8dd5106586eee4337058c7009",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-ssr-checks.log",
+      "byteLength": 2843,
+      "sha256": "bf310a553fd7e6990ef9463343a66c6bb9433f58ef8f003e1361038f2f1cfb91",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-intlify-tests-final.log",
+      "byteLength": 4183,
+      "sha256": "7a9b613c23b06b7643d5891cc9aa555d5c2f9cad2d30b023ba0dc5ca0bfb6940",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-h5-final.log",
+      "byteLength": 647,
+      "sha256": "2272edd78ed65f8adfca1d022937865a134b04ad28e51bc31f67df5f5679c8a2",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-weixin-final.log",
+      "byteLength": 532,
+      "sha256": "ee157969296419c1694791c15ff182bd68a7a18db7fbe43a732ef7d29799c5d4",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-browser.json",
+      "byteLength": 88513,
+      "sha256": "10907ac20b45f652ba588dee9337fb43001c615b2268faa5cfef7448cfc4a50f",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-browser-close.log",
+      "byteLength": 50,
+      "sha256": "c2f4ba60508f0ff00ff575a5e88465d2620eaa110ae4d23c77081373ca888eb3",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/mobile-dependency-remediation-tested-h5-build.json",
+      "byteLength": 8041,
+      "sha256": "2c3a2d107a2d67dedfc5478f6c131098742c2a05fb2f944caa74a2af2f93a62d",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/dependency-remediation-frontend-audit.json",
+      "byteLength": 387,
+      "sha256": "aeda688748299ee0b4ccb6a8d7ac9f88868d67328b9e7100300ca3fa30161b13",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "output/dependency-remediation-ops-final.log",
+      "byteLength": 4158,
+      "sha256": "ba8186efc0fc16c94c910d0f03775dc28a74d315ab1e7073a83c168cff5bfe00",
+      "rawContentIncluded": false
+    }
+  ],
+  "screenshotDigests": [
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-bind-light.png",
+      "byteLength": 14750,
+      "sha256": "f4fe5bee6a3acae7a11fb1bb56436d5f64f93831d3aca29b495bf27fe9aebd6a",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-bind-dark.png",
+      "byteLength": 15116,
+      "sha256": "5a247e60fb773f5ae1ac4684b24df888cb648d973b64fe153c55c81aeb267fc5",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-bind-wide.png",
+      "byteLength": 15769,
+      "sha256": "06d549acbaaa2dc910ebbb764157c388e75f91d495795e9bb10991d61442bf65",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-bind-failure.png",
+      "byteLength": 16648,
+      "sha256": "085264407648c2b4efc37712ab92dc834cf65aa47c3898c2b5b5d39e6e6a839d",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-home-light.png",
+      "byteLength": 21286,
+      "sha256": "7bbbd0875c5ae091c84f366f9fd5012610e73ac951f66b896b46257365ba43d3",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-home-dark.png",
+      "byteLength": 20754,
+      "sha256": "3bab9ddb00d6b92a3028295b358f73ccce71206f0d58d8c3d9abc0fad2df4502",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-home-wide.png",
+      "byteLength": 22450,
+      "sha256": "1fab8f1465ac244b78295c127eaa0099f7183231b40ab06c67f45d599c274c42",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-scan-dialog.png",
+      "byteLength": 20814,
+      "sha256": "07502ad79136e433c18f5845f120b7b4eafe684492cfdebe28cc7ed9fdbac2d7",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-board-light.png",
+      "byteLength": 33830,
+      "sha256": "66113ac6e594db058b9c91ef7c24ae7911845116d1aed78b1e9cebae59c52725",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-board-dark.png",
+      "byteLength": 33521,
+      "sha256": "f582d21e7eb82ad481e8c258b45761d7976ae94b4f477c28f34ace45975ca2b0",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-board-wide.png",
+      "byteLength": 45315,
+      "sha256": "b7e7025c131d8294a33c5e08725a3cf77e602042ac35eb73fc362cb8ed4fa972",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-tasks-light.png",
+      "byteLength": 31607,
+      "sha256": "94ffcde644dff425adf4a8a852dba37e67b7331debffcc8e770d86e482681a01",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-tasks-dark.png",
+      "byteLength": 30885,
+      "sha256": "f578625334d5c8c549309cc3e1c1ed94ad033c4f6c30444df1d324e67724138d",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-tasks-wide.png",
+      "byteLength": 36134,
+      "sha256": "b6cc74d3be53ec66a34f7cbecdbc64f4f4a433df8c362587da32f8e04234386d",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-tasks-failure.png",
+      "byteLength": 29655,
+      "sha256": "35aa652a1d10db18708e4053903cfbaab762062b2c7ebe84b587cc4a4170220c",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-work-orders-light.png",
+      "byteLength": 35615,
+      "sha256": "fdc19c66ae71de53dedc9b2438aa6cc6691e96093a80a8d862a444d0700d933c",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-work-orders-dark.png",
+      "byteLength": 35543,
+      "sha256": "dc476d067f2253c9a7fe13204eef401f13c3a7e79b65c7d337c9e83cc8abd968",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-work-orders-wide.png",
+      "byteLength": 40742,
+      "sha256": "342477abc68f756a5c62edf7a62a299e6d24b949262ee323d44a8095f0a56a22",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-work-orders-search.png",
+      "byteLength": 20125,
+      "sha256": "5859753e2550c45e36fb2b37cf20b318f3503db46ed0dd4cf9aff14dcbf6dbdc",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-work-order-detail-light.png",
+      "byteLength": 33215,
+      "sha256": "7276b609d1df87e68df5af69a575d28d08bc9f5aefdad6ca3b99cf230a0f74ef",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-work-order-detail-dark.png",
+      "byteLength": 33691,
+      "sha256": "449ebee3ce06121f566d08ce58cd29316d0c85c2843bddbe4987a874aac0ab80",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-work-order-detail-wide.png",
+      "byteLength": 34748,
+      "sha256": "d1e8fcee0d3114e9ac899a68db0ac971c96e5f945386f04c13b66213f2dd6451",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-order-note-dialog.png",
+      "byteLength": 26533,
+      "sha256": "f435e92bac7c15ce4a234a246ed8fe2e0d7d2b5d9f8b55c6f04b99fedafc9da5",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-priority-dialog.png",
+      "byteLength": 30624,
+      "sha256": "dfed78463e49bd450ae25299943276151fd545648018f75a68b9fd6240c3724c",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-step-detail-dialog.png",
+      "byteLength": 35350,
+      "sha256": "e2e0bbf0671cf2768eff256af1a7a9573c7c19292a1e9b242acff422bca62d2b",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-report-form-light.png",
+      "byteLength": 25172,
+      "sha256": "9657fe5f2709af3a540c071fdaacba16177de19e3a8a3eaf1d0170acd2609672",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-report-form-dark.png",
+      "byteLength": 25620,
+      "sha256": "36fd974ecc9129c65cb084fc1dc0ae414bb6d3cad87cad0888fc4df9a3d6ea24",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-report-form-wide.png",
+      "byteLength": 31747,
+      "sha256": "43ace1df9c8b139cd16ca45e7fa739868704e3b36870b2c8ec6dfc71f6a92156",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-reporter-dialog.png",
+      "byteLength": 25355,
+      "sha256": "6be22c09dd64142f59b2e450821b08082c2bff60d256e687b631ae0834996100",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-report-form-failure.png",
+      "byteLength": 26095,
+      "sha256": "4f3b69f69eb203f10590e17d40ff5a1e4e73ae10c1b13cc3fd4c06789bae13ad",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-report-list-light.png",
+      "byteLength": 39627,
+      "sha256": "296ed133a23b145c5057f511a91973fc447daa3d4064a1e519ebc5ec527b19a5",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-report-list-dark.png",
+      "byteLength": 39083,
+      "sha256": "cdb3fa57c1f4c21eb3508acc2d4d0e48fbd0a0e9bbb3fdebec1b0e873b3d412e",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-report-list-wide.png",
+      "byteLength": 52610,
+      "sha256": "8ea62de972ba576915a5ef14b0aa6363e82aeb978fff2a5cdafbd83ecbfff406",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-photo-gallery-concurrent.png",
+      "byteLength": 3643,
+      "sha256": "fa608e36b99d5d6ffde3448958c96245051bcea6b49afc9a49ba664eef456527",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-photo-gallery-hidden-owner.png",
+      "byteLength": 25044,
+      "sha256": "8c22e4fd2ad06c09c68d3036e8a5b9681cbf5fe8031c3e184224174ec8fe1c19",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-field-events-light.png",
+      "byteLength": 25044,
+      "sha256": "8c22e4fd2ad06c09c68d3036e8a5b9681cbf5fe8031c3e184224174ec8fe1c19",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-field-events-dark.png",
+      "byteLength": 24835,
+      "sha256": "8511f932a65bfa74ba449e8a772c0d3266ee1348d448cc0008629054180cd8e1",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-field-events-wide.png",
+      "byteLength": 33681,
+      "sha256": "0f308fee2871a9e1a40a45fc6b885fe87e2ebac794e86432b9ab904b2ea2448a",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-field-events-failure.png",
+      "byteLength": 25780,
+      "sha256": "d8e729d9c0423b9cab60529f117ec2145d3117b6f2fe391f20aec0adfdd95d60",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-logout-dialog.png",
+      "byteLength": 23960,
+      "sha256": "4f3c0f2476a42d9c45234b957b89fdd23ad4e90597536957d77db04abc5e46e7",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-logout-failure.png",
+      "byteLength": 26026,
+      "sha256": "3fbda14c3116cc7e0ce4d878942b4fb9c3a585b769ab376f2596b6cfd0c8c9de",
+      "rawContentIncluded": false
+    },
+    {
+      "artifactName": "mobile/output/playwright/security-ui/dependency-remediation-logout-complete.png",
+      "byteLength": 17193,
+      "sha256": "f97bbb1677fb7357cd6c782c53e0e2d23ff8c223ba2fc600f5ef66180ae5d30a",
+      "rawContentIncluded": false
+    }
+  ],
+  "countsMustNotBeSummedAcrossLayers": true,
+  "artifactPolicy": "Only relative artifact names, byte lengths, digests and sanitized result counts are public. Complete runtime logs, screenshots, cookies, credentials and databases are not included.",
+  "limitations": [
+    "npm audit does not inventory private fork source; official byte provenance and real regression inputs are mandatory separate evidence.",
+    "The bundled uni client remains 3.4.21; this is a narrow SSR safety backport, not a full uni/Vue upgrade.",
+    "Java software composition advisories have not been exhaustively matched.",
+    "Production TLS/CSP/proxy chains, physical WeChat devices and real SMS/WeChat/enterprise integrations were not certified.",
+    "GitHub publication and CI for the actual published SHA are verified separately; baseline CI is not reused."
+  ],
+  "independentOpsTests": {
+    "passed": 22,
+    "failed": 0,
+    "notSummedWithMobileTests": true
+  },
+  "sourceDigestConvention": "sha256/byteLength are verified local worktree bytes; gitBlobSha256/gitBlobByteLength are published Git blob bytes. Any difference is asserted to be CRLF-to-LF normalization only. All three vendor trees are exact byte matches in Git.",
+  "gitPublicationPreflight": {
+    "sourceDigests": 21,
+    "exactVendoredFiles": 31,
+    "lineEndingOnlySourceNormalizations": 4,
+    "stagedFiles": 161,
+    "forbiddenRuntimeArtifacts": 0
+  }
+}

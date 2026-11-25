@@ -1,0 +1,65 @@
+{
+  "name": "@gongdan/uni-server-renderer",
+  "version": "3.4.34-gongdan.1",
+  "description": "Transparent Vue 3.4.34 compatibility backport of GHSA-g2v6-rqmx-r4w6 (CR attribute-name rejection)",
+  "main": "index.js",
+  "module": "dist/server-renderer.esm-bundler.js",
+  "types": "dist/server-renderer.d.ts",
+  "files": [
+    "index.js",
+    "dist",
+    "LICENSE",
+    "PROVENANCE.json",
+    "README.md",
+    "UPSTREAM_README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/server-renderer.d.ts",
+      "node": {
+        "production": "./dist/server-renderer.cjs.prod.js",
+        "development": "./dist/server-renderer.cjs.js",
+        "default": "./index.js"
+      },
+      "module": "./dist/server-renderer.esm-bundler.js",
+      "import": "./dist/server-renderer.esm-bundler.js",
+      "require": "./index.js"
+    },
+    "./*": "./*"
+  },
+  "buildOptions": {
+    "name": "VueServerRenderer",
+    "formats": [
+      "esm-bundler",
+      "esm-browser",
+      "cjs"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vuejs/core.git",
+    "directory": "packages/server-renderer"
+  },
+  "keywords": [
+    "vue"
+  ],
+  "author": "Evan You",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/vuejs/core/issues"
+  },
+  "homepage": "https://github.com/vuejs/core/tree/main/packages/server-renderer#readme",
+  "peerDependencies": {
+    "vue": "3.4.34",
+    "@vue/compiler-ssr": "3.4.34",
+    "@vue/shared": "3.4.34-gongdan.1"
+  },
+  "private": true,
+  "gongdanSecurityBackport": {
+    "upstreamPackage": "@vue/server-renderer",
+    "upstreamVersion": "3.4.34",
+    "advisory": "GHSA-g2v6-rqmx-r4w6",
+    "officialFixCommit": "a2b40db9a83b36ed9da3a16403cf8f040262d73f",
+    "notAnOfficialVueSecurityRelease": true
+  }
+}

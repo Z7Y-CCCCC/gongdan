@@ -1,13 +1,15 @@
 <template>
-  <view class="container">
+  <view class="container" role="main" aria-label="现场事件">
     <view class="page-head ui-page-head">
       <IconButton icon="back" label="返回工作台" @click="navigatePage('/pages/home/index')" />
-      <text class="title">现场事件</text>
+      <text class="title" role="heading" aria-level="1">现场事件</text>
       <IconButton icon="refreshempty" label="刷新现场事件" :busy="loading" @click="loadEvents()" />
     </view>
 
     <view class="form-card">
-      <view class="type-grid">
+      <view v-if="submitError" class="form-error" role="alert"><text>{{ submitError }}</text></view>
+      <text class="label">事件类型</text>
+      <view class="type-grid" role="group" aria-label="事件类型">
         <button
           v-for="item in eventTypes"
           :key="item"
@@ -22,19 +24,19 @@
 
       <view class="field">
         <text class="label">事件标题</text>
-        <input v-model="form.title" :disabled="saving" placeholder="例如：A 线贴标机停机" />
+        <input v-model="form.title" aria-label="事件标题" aria-required="true" :aria-invalid="!!submitError && !form.title.trim()" :disabled="saving" placeholder="例如：A 线贴标机停机" />
       </view>
       <view class="field">
         <text class="label">工单编号</text>
-        <input v-model="form.workOrderCode" :disabled="saving" placeholder="可选" />
+        <input v-model="form.workOrderCode" aria-label="工单编号" :disabled="saving" placeholder="可选" />
       </view>
       <view class="field">
         <text class="label">工位/设备</text>
-        <input v-model="form.station" :disabled="saving" placeholder="例如：包装一工位" />
+        <input v-model="form.station" aria-label="工位或设备" :disabled="saving" placeholder="例如：包装一工位" />
       </view>
       <view class="field">
         <text class="label">详细描述</text>
-        <textarea v-model="form.description" :disabled="saving" placeholder="描述现场情况、影响数量、需要谁处理" />
+        <textarea v-model="form.description" aria-label="详细描述" :disabled="saving" placeholder="描述现场情况、影响数量、需要谁处理" />
       </view>
 
       <button class="submit-btn" :loading="saving" :aria-busy="saving" :disabled="saving" @click="submitEvent">上报</button>
@@ -48,17 +50,17 @@
       <view v-for="event in events" :key="event.id" class="event-card">
         <view class="event-top">
           <text class="event-title">{{ event.title }}</text>
-          <text class="status" :class="event.status.toLowerCase()">{{ statusLabel(event.status) }}</text>
+          <text class="status" :class="statusClass(event.status)">{{ statusLabel(event.status) }}</text>
         </view>
         <text v-if="payloadOf(event).description" class="event-desc">{{ payloadOf(event).description }}</text>
         <view class="event-meta">
           <text v-if="payloadOf(event).eventType">{{ payloadOf(event).eventType }}</text>
           <text v-if="payloadOf(event).workOrderCode">{{ payloadOf(event).workOrderCode }}</text>
           <text v-if="payloadOf(event).station">{{ payloadOf(event).station }}</text>
-          <text v-if="event.createdAt">{{ event.createdAt.replace('T', ' ').slice(0, 16) }}</text>
+          <text v-if="event.createdAt">{{ formatEventDate(event.createdAt) }}</text>
         </view>
       </view>
-      <view v-if="errorMessage" class="empty">
+      <view v-if="errorMessage" class="empty" role="alert">
         <text>{{ errorMessage }}</text>
         <IconButton icon="refreshempty" label="重试现场事件" @click="loadEvents()" />
       </view>
@@ -85,6 +87,7 @@ const events = ref<FieldEventRecord[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const errorMessage = ref('')
+const submitError = ref('')
 let loadSequence = 0
 let pageAlive = true
 let activeSession = ''
@@ -99,7 +102,12 @@ const form = reactive({
 const { clearDraft: clearEventDraft } = usePageDraft({
   key: 'gongdan:draft:field-event',
   source: () => ({ ...form }),
-  restore: (draft) => Object.assign(form, draft)
+  restore: draft => {
+    for (const key of ['title', 'workOrderCode', 'station', 'description'] as const) {
+      form[key] = typeof draft[key] === 'string' ? draft[key] : ''
+    }
+    form.eventType = eventTypes.includes(draft.eventType) ? draft.eventType : '异常'
+  }
 })
 
 onMounted(() => loadEvents())
@@ -150,7 +158,9 @@ async function loadEvents(force = false) {
 
 async function submitEvent() {
   if (!pageAlive || saving.value || !ensureLogin()) return
+  submitError.value = ''
   if (!form.title.trim()) {
+    submitError.value = '请填写事件标题'
     uni.showToast({ title: '请填写事件标题', icon: 'none' })
     return
   }
@@ -180,6 +190,7 @@ async function submitEvent() {
     await loadEvents(true)
   } catch (error) {
     if (!current()) return
+    submitError.value = error instanceof Error ? error.message : '提交失败，请重试'
     uni.showToast({ title: error instanceof Error ? error.message : '提交失败', icon: 'none' })
   } finally {
     if (pageAlive) saving.value = false
@@ -204,12 +215,18 @@ function statusLabel(status: string) {
   }
   return map[status] || status
 }
+function statusClass(status: string) {
+  return ['OPEN', 'PROCESSING', 'CLOSED'].includes(status) ? status.toLowerCase() : ''
+}
+function formatEventDate(value: unknown) {
+  return typeof value === 'string' ? value.replace('T', ' ').slice(0, 16) : ''
+}
 </script>
 
 <style scoped>
 .container {
   min-height: 100vh;
-  background: #f3f5f5;
+  background: var(--mobile-bg, #f3f5f5);
   padding: 30rpx;
   box-sizing: border-box;
 }
@@ -224,17 +241,17 @@ function statusLabel(status: string) {
 .title {
   font-size: 36rpx;
   font-weight: 700;
-  color: #1f2d2a;
+  color: var(--mobile-text, #1f2d2a);
 }
 
 .subtitle {
   font-size: 24rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
 }
 
 .form-card,
 .event-card {
-  background: #fff;
+  background: var(--mobile-surface, #fff);
   border-radius: 20rpx;
   padding: 28rpx;
 }
@@ -250,8 +267,8 @@ function statusLabel(status: string) {
   text-align: center;
   padding: 14rpx 0;
   border-radius: 12rpx;
-  background: #f1f3f3;
-  color: #586360;
+  background: var(--mobile-subtle, #f1f3f3);
+  color: var(--mobile-muted, #586360);
   font-size: 24rpx;
   border: 2rpx solid transparent;
 }
@@ -260,7 +277,7 @@ function statusLabel(status: string) {
   background: #00856b;
   color: #fff;
   font-weight: 700;
-  border-color: #006b51;
+  border-color: var(--mobile-border, #006b51);
 }
 
 .field {
@@ -272,17 +289,17 @@ function statusLabel(status: string) {
 
 .label {
   font-size: 24rpx;
-  color: #586360;
+  color: var(--mobile-muted, #586360);
 }
 
 input,
 textarea {
-  background: #f6f7f7;
+  background: var(--mobile-bg, #f6f7f7);
   border-radius: 12rpx;
   padding: 0 20rpx;
   font-size: 28rpx;
-  color: #1f2d2a;
-  border: 1rpx solid #dfe5e3;
+  color: var(--mobile-text, #1f2d2a);
+  border: 1rpx solid var(--mobile-border, #dfe5e3);
   box-sizing: border-box;
 }
 
@@ -320,12 +337,12 @@ textarea {
   align-items: center;
   font-size: 30rpx;
   font-weight: 600;
-  color: #1f2d2a;
+  color: var(--mobile-text, #1f2d2a);
   margin: 34rpx 0 18rpx;
 }
 
 .refresh {
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
   font-size: 24rpx;
   font-weight: 400;
 }
@@ -339,14 +356,16 @@ textarea {
 .event-top {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 16rpx;
 }
 
 .event-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 30rpx;
   font-weight: 600;
-  color: #1f2d2a;
+  color: var(--mobile-text, #1f2d2a);
 }
 
 .status {
@@ -354,19 +373,20 @@ textarea {
   padding: 6rpx 14rpx;
   border-radius: 8rpx;
   font-size: 22rpx;
-  background: #fff4e6;
-  color: #b45309;
+  background: var(--mobile-warning-bg, #fff4e6);
+  color: var(--mobile-warning, #b45309);
 }
 
 .status.closed {
-  background: #e8f7f3;
-  color: #00a77c;
+  background: var(--mobile-bg, #e8f7f3);
+  color: var(--mobile-link, #007a60);
 }
 
 .event-desc {
+  overflow-wrap: anywhere;
   display: block;
   margin-top: 14rpx;
-  color: #586360;
+  color: var(--mobile-muted, #586360);
   font-size: 26rpx;
   line-height: 1.5;
 }
@@ -379,8 +399,10 @@ textarea {
 }
 
 .event-meta text {
-  background: #f1f3f3;
-  color: #64756d;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  background: var(--mobile-subtle, #f1f3f3);
+  color: var(--mobile-muted, #64756d);
   border-radius: 8rpx;
   padding: 6rpx 12rpx;
   font-size: 22rpx;
@@ -388,14 +410,15 @@ textarea {
 
 .empty {
   text-align: center;
-  color: #9aa4a1;
+  color: var(--mobile-muted, #64756d);
   padding: 40rpx 0;
   font-size: 26rpx;
 }
+.form-error { margin-bottom: 18rpx; padding: 20rpx; border-radius: 8rpx; color: var(--mobile-error, #a0332c); background: var(--mobile-error-bg, #fff1f0); font-size: 26rpx; line-height: 1.6; overflow-wrap: anywhere; }
 
 .retry-btn {
   margin-top: 20rpx;
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
   font-size: 26rpx;
 }
 </style>

@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { t, formatUiDate } from '../i18n'
+import { downloadXlsx } from '../utils/spreadsheet'
 import UiIcon from './UiIcon.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { fetchInventoryDetails, type InventoryDetailInfo } from '../api'
 import TableConfigButton from './TableConfigButton.vue'
 import { useLatestRequest } from '../composables/useLatestRequest'
@@ -145,7 +147,30 @@ function toggleSort(key: keyof SummaryRow) {
   }
 }
 
+const exporting = ref(false)
+const exportError = ref('')
+let exportEpoch = 0, exportDisposed = false, exportActive = true
+watch(() => props.token, () => { exportEpoch++; exporting.value = false; exportError.value = '' }, { flush: 'sync' })
+onActivated(() => { exportActive = true })
+onDeactivated(() => { exportActive = false; exportEpoch++; exporting.value = false; exportError.value = '' })
+onBeforeUnmount(() => { exportEpoch++; exportDisposed = true; exportActive = false })
+async function exportXlsx() {
+  if (exporting.value || !props.token || loading.value || !exportActive) return
+  if (!sortedRows.value.length) { emit('notice', '暂无数据可导出'); return }
+  const token = props.token, epoch = exportEpoch
+  const current = () => exportActive && !exportDisposed && props.token === token && exportEpoch === epoch
+  const data = sortedRows.value.map((item, index) => [item.productCode, item.productName, item.productSpec, item.productAttribute, item.unitName, item.inboundQty, item.outboundQty, item.netQty, item.transactionCount, item.lastOperationTime])
+  const headers = ['产品编号', '产品名称', '规格', '属性', '单位', '入库数量', '出库数量', '净变动', '收发次数', '最后收发时间'].map(label => t(label))
+  exportError.value = ''; exporting.value = true
+  try {
+    const downloaded = await downloadXlsx(`${t('进销存汇总')}_${formatUiDate(new Date()).slice(0, 10)}.xlsx`, t('进销存汇总'), [headers, ...data], current)
+    if (downloaded && current()) emit('notice', '导出Excel成功')
+  } catch (error) { if (current()) { exportError.value = error instanceof Error ? error.message : '导出失败'; emit('notice', exportError.value) } }
+  finally { if (current()) exporting.value = false }
+}
+
 function exportCSV() {
+  if (exporting.value || loading.value) return
   if (sortedRows.value.length === 0) {
     emit('notice', '暂无数据可导出')
     return
@@ -251,7 +276,10 @@ onMounted(loadData)
     </div>
 
     <div class="toolbar" style="margin-bottom:16px">
-      <button class="toolbar-btn primary-stroke ui-icon-button" type="button" @click="exportCSV" title="导出库存汇总" aria-label="导出库存汇总"><UiIcon name="download" /></button>
+      <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || loading" @click="exportXlsx" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+      <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || loading" @click="exportCSV" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+      <span class="export-scope-note">已加载 {{ sortedRows.length }} 条 · CSV仅用于备份，不宜直接用Excel打开</span>
+      <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
       <TableConfigButton table-id="inventory-summary-table" />
     </div>
 

@@ -15,6 +15,11 @@ public interface UserSessionRepository extends JpaRepository<UserSession, Long> 
 
     Optional<UserSession> findByTokenHash(String tokenHash);
 
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Transactional
+    @Query("delete from UserSession s where s.tokenHash = :tokenHash")
+    int deleteByTokenHash(@Param("tokenHash") String tokenHash);
+
     List<UserSession> findByUserIdAndKickedFalse(Long userId);
 
     @Modifying(flushAutomatically = true)

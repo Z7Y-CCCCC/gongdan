@@ -21,7 +21,7 @@ body,
   width: 100%;
   min-height: 100%;
   margin: 0;
-  background: #f3f5f5;
+  background: var(--mobile-bg, #f3f5f5);
   overflow-x: hidden;
 }
 
@@ -31,8 +31,8 @@ page {
   --motion-change: 180ms;
   --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   min-height: 100%;
-  background: #f3f5f5;
-  color: #202926;
+  background: var(--mobile-bg, #f3f5f5);
+  color: var(--mobile-text, #202926);
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
@@ -55,7 +55,7 @@ button {
   font: inherit;
 }
 input { min-height: 44px; }
-input, textarea { border: 1rpx solid #dce6e1; border-radius: 16rpx; background: #f7faf8; color: #202926; }
+input, textarea { border: 1rpx solid var(--mobile-border, #dce6e1); border-radius: 16rpx; background: var(--mobile-bg, #f7faf8); color: var(--mobile-text, #202926); }
 
 button {
   border: 0;
@@ -79,13 +79,13 @@ button::after {
 }
 
 .card {
-  background: #fff;
+  background: var(--mobile-surface, #fff);
   border-radius: 14rpx;
   box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.04);
 }
 
 .green {
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
 }
 
 .primary {
@@ -94,13 +94,13 @@ button::after {
 }
 
 .ghost {
-  background: #fff;
-  color: #00856b;
-  border: 1rpx solid #9edbd0;
+  background: var(--mobile-surface, #fff);
+  color: var(--mobile-link, #00856b);
+  border: 1rpx solid var(--mobile-border, #9edbd0);
 }
 
 .muted {
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
 }
 
 .card,
@@ -167,7 +167,7 @@ button:active,
 .dropdown { transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease; }
 .button-row { display: flex; align-items: center; justify-content: flex-end; gap: 12rpx; }
 .ui-page-head { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
-.ui-meta { font-size: 24rpx; color: #71847e; line-height: 1.5; }
+.ui-meta { font-size: 24rpx; color: var(--mobile-muted, #64756d); line-height: 1.5; }
 .ui-card-button { text-align: left; line-height: 1.4; }
 .order-code { overflow-wrap: anywhere; word-break: break-word; }
 .empty .icon-action, .stats-state .icon-action, .list-state .icon-action { margin: 16rpx auto 0; }
@@ -191,5 +191,34 @@ scroll-view:focus-visible { outline: 2px solid #00856b; outline-offset: -2px; }
     scroll-behavior: auto !important;
   }
   button:active, .btn:active, .tab-item:active, .picker-item:active { transform: none !important; }
+}
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+input::placeholder, textarea::placeholder { color: var(--mobile-muted, #64756d); opacity: 1; }
+input, textarea, button, [tabindex] { scroll-margin-bottom: 110px; }
+[tabindex]:focus-visible { outline: 2px solid var(--mobile-link, #007a60); outline-offset: 3px; }
+.container .info-val, .container .val, .container .card-info, .container .task-info, .container .step-title, .container .history-title, .container .rank-main, .container .event-title, .container .order-product { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+.container .task-name, .container .step-name, .container .history-note, .container .event-desc, .container .event-meta, .container .order-product, .container .rank-name { overflow-wrap: anywhere; word-break: break-word; }
+
+/* Preserve each light-theme fallback; the system dark preference only changes
+   semantic surfaces/text. Native Mini Program dark rendering still needs a device check. */
+@media (prefers-color-scheme: dark) {
+  :root, page {
+    color-scheme: dark;
+    --mobile-bg: #101e18;
+    --mobile-surface: #182b22;
+    --mobile-subtle: #223d2f;
+    --mobile-text: #e6f4ed;
+    --mobile-muted: #b6ccbf;
+    --mobile-border: #4d705b;
+    --mobile-link: #63dcb6;
+    --mobile-info: #a8d2ff;
+    --mobile-info-bg: #1c3342;
+    --mobile-warning: #ffd28c;
+    --mobile-warning-bg: #3e3020;
+    --mobile-error: #ffc0b6;
+    --mobile-error-bg: #432c2b;
+    --mobile-overlay: rgba(16,30,24,.9);
+  }
 }
 </style>

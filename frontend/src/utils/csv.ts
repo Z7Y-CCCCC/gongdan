@@ -1,5 +1,5 @@
 /** Parse the complete CSV before any importer starts writing business records. */
-export function parseCsvRows(input: string): string[][] {
+export function parseCsvRows(input: string, options: { preserveWhitespace?: boolean } = {}): string[][] {
   const text = input.replace(/^\uFEFF/, '')
   const rows: string[][] = []
   let row: string[] = []
@@ -8,7 +8,7 @@ export function parseCsvRows(input: string): string[][] {
   let state: 'field' | 'quoted' | 'closed' = 'field'
   let line = 1
   const finishField = () => {
-    row.push(quoted ? field : field.trim())
+    row.push(quoted || options.preserveWhitespace ? field : field.trim())
     field = ''
     quoted = false
     state = 'field'

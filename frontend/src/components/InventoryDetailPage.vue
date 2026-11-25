@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, type CSSProperties } from 'vue'
+import { t, formatUiDate } from '../i18n'
+import { downloadXlsx } from '../utils/spreadsheet'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch, type CSSProperties } from 'vue'
 import {
   fetchInventoryDetails,
   type InventoryDetailInfo
@@ -167,7 +169,30 @@ function goPage(p: number) {
   }
 }
 
+const exporting = ref(false)
+const exportError = ref('')
+let exportEpoch = 0, exportDisposed = false, exportActive = true
+watch(() => props.token, () => { exportEpoch++; exporting.value = false; exportError.value = '' }, { flush: 'sync' })
+onActivated(() => { exportActive = true })
+onDeactivated(() => { exportActive = false; exportEpoch++; exporting.value = false; exportError.value = '' })
+onBeforeUnmount(() => { exportEpoch++; exportDisposed = true; exportActive = false })
+async function exportXlsx() {
+  if (exporting.value || !props.token || loading.value || !exportActive) return
+  if (!items.value.length) { emit('notice', '暂无数据可导出'); return }
+  const token = props.token, epoch = exportEpoch
+  const current = () => exportActive && !exportDisposed && props.token === token && exportEpoch === epoch
+  const data = items.value.map((item, index) => [index + 1, item.receiptCode, item.productCode, item.productName, item.productSpec, item.productAttribute, item.unitName, item.receiptQty, item.changeQty, item.receiptType, t(item.sourceType === 'IN' ? '入库单' : '出库单'), item.operationTime, item.remark])
+  const headers = ['序号', '单据编号', '产品编号', '产品名称', '产品规格', '产品属性', '库存单位', '单据数量', '库存变更数量', '单据类型', '来源', '收发时间', '备注'].map(label => t(label))
+  exportError.value = ''; exporting.value = true
+  try {
+    const downloaded = await downloadXlsx(`${t('库存收发明细')}_${formatUiDate(new Date()).slice(0, 10)}.xlsx`, t('库存收发明细'), [headers, ...data], current)
+    if (downloaded && current()) emit('notice', '导出Excel成功')
+  } catch (error) { if (current()) { exportError.value = error instanceof Error ? error.message : '导出失败'; emit('notice', exportError.value) } }
+  finally { if (current()) exporting.value = false }
+}
+
 function exportCSV() {
+  if (exporting.value || loading.value) return
   if (items.value.length === 0) {
     emit('notice', '暂无数据可导出')
     return
@@ -336,7 +361,10 @@ onMounted(() => {
 
     <!-- Action Toolbar -->
     <div class="toolbar" style="margin-bottom:16px">
-      <button class="toolbar-btn ui-icon-button" type="button" @click="exportCSV" title="导出库存明细" aria-label="导出库存明细"><UiIcon name="download" /></button>
+      <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || loading" @click="exportXlsx" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+      <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || loading" @click="exportCSV" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+      <span class="export-scope-note">已加载 {{ items.length }} 条 · CSV仅用于备份，不宜直接用Excel打开</span>
+      <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
 
       <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showColumnConfig = true">
         <UiIcon name="table-columns" :size="16" />

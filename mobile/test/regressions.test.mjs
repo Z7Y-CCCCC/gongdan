@@ -31,7 +31,7 @@ function deferred() {
   return { promise, resolve, reject }
 }
 
-function harness({ browser = false, services, mocks = {}, uniH5, storage: initialStorage = {}, now = () => Date.now() } = {}) {
+function harness({ browser = false, services, mocks = {}, uniH5, urlApi, storage: initialStorage = {}, now = () => Date.now() } = {}) {
   const storage = new Map(Object.entries({ token: 'old-token', user: defaultUser, ...initialStorage }))
   const requests = [], uploads = [], downloads = [], choices = [], scans = [], events = []
   const hooks = { mounted: [], unmounted: [], activated: [], deactivated: [], hide: [], show: [], load: [] }
@@ -110,7 +110,7 @@ function harness({ browser = false, services, mocks = {}, uniH5, storage: initia
     }
     vm.runInNewContext(output, {
       module, exports: module.exports, require: localRequire,
-      uni, window, console, Error, URLSearchParams: browser ? URLSearchParams : undefined,
+      uni, window, console, Error, URL: urlApi, URLSearchParams: browser ? URLSearchParams : undefined,
       getCurrentPages: () => currentPages, __env: { VITE_WECHAT_MOCK_ENABLED: 'false' },
       Date: class extends Date {
         constructor(...args) { super(...(args.length ? args : [now()])) }
@@ -422,12 +422,13 @@ test('manual H5 route registration wraps each view as a real uni page with query
   const pageWrapper = render()
   assert.equal(pageWrapper.type, PageComponent)
   const pageView = pageWrapper.children.page()[0]
-  assert.equal(pageView.props.id, '42')
-  assert.equal(pageView.props.code, 'A&B%')
+  assert.equal(pageView.props.__pageQuery.id, '42')
+  assert.equal(pageView.props.__pageQuery.code, 'A&B%')
+  assert.deepEqual(Object.keys(pageView.props).sort(), ['__pageQuery', 'ref'])
   app.$route.query = { id: '84', code: '新的工单' }
   const nextView = render().children.page()[0]
-  assert.equal(nextView.props.id, '84')
-  assert.equal(nextView.props.code, '新的工单')
+  assert.equal(nextView.props.__pageQuery.id, '84')
+  assert.equal(nextView.props.__pageQuery.code, '新的工单')
   assert.equal(typeof detail.loader, 'function')
   await detail.loader()
   assert.equal(initialized.length, 1)
@@ -1211,7 +1212,11 @@ test('logout has explicit action labels and removes the session before returning
   const confirmation = h.events.at(-1)[1]
   assert.equal(confirmation.cancelText, '取消')
   assert.equal(confirmation.confirmText, '退出')
-  confirmation.success({ confirm: true })
+  const loggingOut = confirmation.success({ confirm: true })
+  assert.equal(h.requests[0].method, 'POST')
+  assert.ok(h.requests[0].url.endsWith('/auth/logout'))
+  h.requests[0].success({ statusCode: 200, data: {} })
+  await loggingOut
   assert.equal(h.storage.has('token'), false)
   assert.equal(h.storage.has('user'), false)
   assert.equal(h.events.at(-1)[1].url, '/pages/bind/index?manual=1')
@@ -1269,6 +1274,73 @@ test('H5 attachment preview uses its own image dialog instead of the incompatibl
   assert.ok(h.events.every(([name]) => name !== 'previewImage'))
   page.trapPreview({ key: 'Escape', preventDefault() {} })
   assert.equal(page.showPreview.value, false)
+})
+
+test('shared mobile icon glyphs inherit the semantic theme color instead of freezing the light-theme color', () => {
+  const source = readFileSync(path.join(root, 'src/components/IconButton.vue'), 'utf8')
+  assert.match(source, /:color="primary \? '#ffffff' : 'inherit'"/)
+  assert.match(source, /color:\s*var\(--mobile-muted,\s*#41635a\)/)
+})
+
+test('a failed photo batch revokes both acquired and later successful Blob URLs', async () => {
+  const early = deferred(), failure = deferred(), late = deferred(), revoked = []
+  const h = harness({ browser: true, urlApi: { revokeObjectURL: url => revoked.push(url) }, services: {
+    ensureLogin: () => true,
+    downloadReportImage: id => ({ 11: early, 12: failure, 13: late })[id].promise
+  } })
+  const page = await h.page('src/components/ReportImages.vue', {}, true, { images: [{ id: 11 }, { id: 12 }, { id: 13 }] })
+  const pending = page.preview()
+  early.resolve('blob:https://fixture.invalid/early-photo')
+  await Promise.resolve()
+  failure.reject(new Error('one photo failed'))
+  await pending
+  late.resolve('blob:https://fixture.invalid/late-photo')
+  await late.promise
+  await Promise.resolve()
+  assert.equal(page.showPreview.value, false)
+  assert.equal(page.busy.value, false)
+  assert.equal(page.error.value, 'one photo failed')
+  assert.deepEqual(revoked.sort(), ['blob:https://fixture.invalid/early-photo', 'blob:https://fixture.invalid/late-photo'])
+  h.unmount()
+})
+
+test('late files from a failed photo batch cannot replace or release a successful retry', async () => {
+  const failure = deferred(), late = deferred(), revoked = [], counts = new Map()
+  const h = harness({ browser: true, urlApi: { revokeObjectURL: url => revoked.push(url) }, services: {
+    ensureLogin: () => true,
+    downloadReportImage: id => {
+      counts.set(id, (counts.get(id) || 0) + 1)
+      return counts.get(id) === 1 ? (id === 11 ? failure.promise : late.promise)
+        : Promise.resolve(`blob:https://fixture.invalid/current-${id}`)
+    }
+  } })
+  const page = await h.page('src/components/ReportImages.vue', {}, true, { images: [{ id: 11 }, { id: 12 }] })
+  const pending = page.preview()
+  failure.reject(new Error('retry this batch'))
+  await pending
+  await page.preview()
+  late.resolve('blob:https://fixture.invalid/former-late-photo')
+  await late.promise
+  await Promise.resolve()
+  assert.equal(page.showPreview.value, true)
+  assert.equal(page.busy.value, false)
+  assert.equal(page.error.value, '')
+  assert.deepEqual([...page.previewUrls.value], ['blob:https://fixture.invalid/current-11', 'blob:https://fixture.invalid/current-12'])
+  assert.deepEqual(revoked, ['blob:https://fixture.invalid/former-late-photo'])
+  h.unmount()
+})
+
+test('an API download discarded after an account change releases its generated Blob URL', async () => {
+  const revoked = []
+  const h = harness({ browser: true, urlApi: { revokeObjectURL: url => revoked.push(url) } })
+  const api = h.load('src/services/api.ts')
+  const pending = api.downloadReportImage(11)
+  h.storage.set('token', 'new-account-token')
+  h.downloads[0].success({ statusCode: 200, tempFilePath: 'blob:https://fixture.invalid/former-account' })
+  await assert.rejects(pending, /无法加载/)
+  assert.deepEqual(revoked, ['blob:https://fixture.invalid/former-account'])
+  assert.equal(h.storage.get('token'), 'new-account-token')
+  assert.equal(h.timers.size, 0)
 })
 
 test('failed report context can retry without losing entered values or bypassing permissions', async () => {
@@ -1742,7 +1814,7 @@ test('round2: a hidden login reply neither saves the session nor clears or redir
   await login
   h.flushTimers()
   assert.equal(saved, 0)
-  assert.equal(page.form.password, 'password')
+  assert.equal(page.form.password, '')
   assert.equal(h.events.some(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)), false)
 })
 
@@ -1816,4 +1888,295 @@ test('round2: merely hidden task and detail permission lookups cannot open the f
     await pending
     assert.equal(h.events.some(([kind]) => kind === 'navigateTo'), false)
   }
+})
+
+test('MSEC-001: untrusted work-order identifiers cannot change an authenticated API path', async () => {
+  const h = harness(), api = h.load('src/services/api.ts')
+  const request = api.fetchWorkOrder('../reports')
+  assert.equal(h.requests.length, 0)
+  await assert.rejects(request, /工单编号/)
+})
+
+test('MSEC-002: a hidden but mounted photo owner cannot open its late authenticated download over another page', async () => {
+  const download = deferred()
+  const h = harness({ browser: true, services: { ensureLogin: () => true, downloadReportImage: () => download.promise } })
+  const props = Vue.reactive({ images: [{ id: 11 }], active: true })
+  const page = await h.page('src/components/ReportImages.vue', {}, true, props)
+  const pending = page.preview()
+  props.active = false
+  await Vue.nextTick()
+  download.resolve('blob:https://fixture.invalid/private-photo')
+  await pending
+  assert.equal(page.showPreview.value, false)
+  assert.equal(page.previewUrls.value.length, 0)
+})
+
+test('MSEC-002: leaving the owner page closes an already open teleported photo gallery', async () => {
+  const h = harness({ browser: true, services: { ensureLogin: () => true, downloadReportImage: async () => 'blob:https://fixture.invalid/private-photo' } })
+  const props = Vue.reactive({ images: [{ id: 11 }], active: true })
+  const page = await h.page('src/components/ReportImages.vue', {}, true, props)
+  await page.preview()
+  assert.equal(page.showPreview.value, true)
+  props.active = false
+  await Vue.nextTick()
+  assert.equal(page.showPreview.value, false)
+})
+
+test('MUX-001: concurrent report photo buttons can own only one preview overlay', async () => {
+  const first = deferred(), second = deferred()
+  const h = harness({ browser: true, services: { ensureLogin: () => true, downloadReportImage: id => id === 11 ? first.promise : second.promise } })
+  const oldPage = await h.page('src/components/ReportImages.vue', {}, true, { images: [{ id: 11 }], active: true })
+  const newPage = await h.page('src/components/ReportImages.vue', {}, true, { images: [{ id: 12 }], active: true })
+  const oldPreview = oldPage.preview()
+  const newPreview = newPage.preview()
+  second.resolve('blob:https://fixture.invalid/current-photo')
+  await newPreview
+  first.resolve('blob:https://fixture.invalid/former-photo')
+  await oldPreview
+  assert.equal(newPage.showPreview.value, true)
+  assert.equal(oldPage.showPreview.value, false)
+})
+
+test('MSEC-003: a partially failed login persistence cannot leave a new token with the former user', () => {
+  const h = harness(), api = h.load('src/services/api.ts')
+  h.uni.setStorageSync = (key, value) => {
+    if (key === 'user') throw new Error('Storage quota failure')
+    h.storage.set(key, value)
+  }
+  assert.throws(() => api.saveSession({ token: 'new-session', user: { ...defaultUser, id: 8 } }))
+  assert.equal(h.storage.has('token'), false)
+  assert.equal(h.storage.has('user'), false)
+})
+
+test('MSEC-003: malformed session responses are rejected before replacing existing storage', () => {
+  const h = harness(), api = h.load('src/services/api.ts')
+  assert.throws(() => api.saveSession({ token: { token: 'not-a-string' }, user: { id: 0 } }), /登录响应/)
+  assert.equal(h.storage.get('token'), 'old-token')
+  assert.equal(h.storage.get('user').id, defaultUser.id)
+})
+
+test('MSEC-004: corrupt or prototype-bearing field-event drafts restore only known string fields', async () => {
+  const malicious = JSON.parse('{"title":{},"station":42,"description":"safe text","eventType":"unknown","__proto__":{"injected":true}}')
+  const h = harness({ storage: { 'gongdan:draft:field-event:user:global:7': malicious }, services: { ensureLogin: () => true, fetchFieldEvents: async () => ({ items: [] }) } })
+  const page = await h.page('src/pages/field-events/index.vue')
+  assert.equal(page.form.title, '')
+  assert.equal(page.form.station, '')
+  assert.equal(page.form.description, 'safe text')
+  assert.equal(page.form.eventType, '异常')
+  assert.equal(page.form.injected, undefined)
+  await page.submitEvent()
+  assert.match(page.submitError.value, /事件标题/)
+})
+
+test('MSEC-004: a malformed device account draft cannot poison login field types', async () => {
+  const h = harness({ browser: true, storage: { 'gongdan:draft:login-account': { factoryCode: {}, username: [] } } })
+  const page = await h.page('src/pages/bind/index.vue')
+  assert.equal(page.form.factoryCode, '')
+  assert.equal(page.form.username, '')
+  await page.handleBind()
+  assert.match(page.loginError.value, /填写完整信息/)
+})
+
+test('MSEC-001: all resource-ID rejection paths stop before any authenticated request while normal IDs work', async () => {
+  const h = harness(), api = h.load('src/services/api.ts')
+  for (const id of [0, -1, NaN, Infinity, '1/../reports', '%2e%2e', 'not-a-resource-id', '9007199254740992']) {
+    await assert.rejects(api.fetchWorkOrder(id), /工单编号/)
+    await assert.rejects(api.fetchWorkOrderReporters(id, 1), /工单编号/)
+  }
+  await assert.rejects(api.fetchWorkOrderReporters(42, 0), /工序编号/)
+  await assert.rejects(api.downloadReportImage(0), /照片编号/)
+  assert.equal(h.requests.length + h.downloads.length, 0)
+  const request = api.fetchWorkOrder('00042')
+  assert.ok(h.requests[0].url.endsWith('/mobile/work-orders/42'))
+  h.requests[0].success({ statusCode: 200, data: { id: 42 } })
+  assert.equal((await request).id, 42)
+})
+
+test('MSEC-003: a valid session still persists both values and resolves an expired redirect timer', () => {
+  const h = harness(), api = h.load('src/services/api.ts')
+  api.saveSession({ token: 'valid-session', user: defaultUser })
+  assert.equal(h.storage.get('token'), 'valid-session')
+  assert.equal(h.storage.get('user').id, defaultUser.id)
+  api.clearSession()
+  assert.equal(h.storage.has('token'), false)
+  assert.equal(h.storage.has('user'), false)
+})
+
+test('MUX-002: H5 messages invoke only their own pending decision, dismiss on hide, and preserve native fallback', () => {
+  const h = harness({ browser: true })
+  const messages = h.load('src/composables/usePageMessage.ts').usePageMessage()
+  const choices = []
+  messages.open({ title: '旧决定', content: '内容', showCancel: true }, value => choices.push(['old', value]))
+  messages.open({ title: '新决定', content: '内容', showCancel: true }, value => choices.push(['new', value]))
+  assert.equal(messages.message.visible, true)
+  assert.equal(messages.message.title, '新决定')
+  assert.deepEqual(choices, [['old', false]])
+  h.hooks.hide.forEach(callback => callback())
+  assert.equal(messages.message.visible, false)
+  assert.deepEqual(choices, [['old', false], ['new', false]])
+  const native = harness(), pageMessages = native.load('src/composables/usePageMessage.ts').usePageMessage()
+  let accepted = false
+  pageMessages.open({ title: '原生', content: '原生内容' }, result => { accepted = result })
+  native.events[0][1].success({ confirm: true })
+  assert.equal(accepted, true)
+})
+
+test('MUX-003: navigation arrows move keyboard focus without silently changing business tabs', async () => {
+  const h = harness(), page = await h.page('src/components/MobileTabBar.vue', {}, false, { current: 'home' })
+  let focused = -1, prevented = 0
+  const controls = Array.from({ length: 5 }, (_, index) => ({ focus: () => { focused = index } }))
+  const event = key => ({ key, preventDefault: () => { prevented++ }, currentTarget: { parentElement: { querySelectorAll: () => controls } } })
+  page.moveFocus(event('ArrowRight'), 2)
+  assert.equal(focused, 3)
+  page.moveFocus(event('ArrowLeft'), 0)
+  assert.equal(focused, 4)
+  page.moveFocus(event('Home'), 4)
+  assert.equal(focused, 0)
+  page.moveFocus(event('End'), 0)
+  assert.equal(focused, 4)
+  assert.equal(prevented, 4)
+  assert.equal(h.events.length, 0)
+})
+
+test('MUX-004: failed report validation and backend saves leave persistent feedback and preserve the draft', async () => {
+  const h = harness({ services: reportServices({ createReport: async () => { throw Error('保存失败，可重试') } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  await page.handleSubmit(false)
+  assert.match(page.submitError.value, /报工数/)
+  fillValidReport(page)
+  page.form.remark = 'keep me'
+  await page.handleSubmit(false)
+  assert.equal(page.submitError.value, '保存失败，可重试')
+  assert.equal(page.form.remark, 'keep me')
+  assert.equal(page.loading.value, false)
+})
+
+test('MUX-004: field-event save feedback remains separate from list errors and allows an unchanged retry', async () => {
+  let fail = true, writes = 0
+  const h = harness({ services: { ensureLogin: () => true, fetchFieldEvents: async () => ({ items: [] }), createFieldEvent: async () => { writes++; if (fail) throw Error('现场保存失败'); return { id: 1 } } } })
+  const page = await h.page('src/pages/field-events/index.vue')
+  page.form.title = 'retain title'
+  await page.submitEvent()
+  assert.equal(page.submitError.value, '现场保存失败')
+  assert.equal(page.errorMessage.value, '')
+  assert.equal(page.form.title, 'retain title')
+  fail = false
+  await page.submitEvent()
+  assert.equal(writes, 2)
+  assert.equal(page.form.title, '')
+  assert.equal(page.submitError.value, '')
+})
+
+test('MSEC-002: changing the photo list cancels the former authenticated preview without blocking a fresh request', async () => {
+  const old = deferred()
+  const h = harness({ browser: true, services: { ensureLogin: () => true, downloadReportImage: id => id === 11 ? old.promise : Promise.resolve('blob:https://fixture.invalid/current') } })
+  const props = Vue.reactive({ images: [{ id: 11 }], active: true })
+  const page = await h.page('src/components/ReportImages.vue', {}, true, props)
+  const pending = page.preview()
+  props.images = [{ id: 12 }]
+  await Vue.nextTick()
+  await page.preview()
+  old.resolve('blob:https://fixture.invalid/stale')
+  await pending
+  assert.equal(page.showPreview.value, true)
+  assert.equal(page.previewUrls.value[0], 'blob:https://fixture.invalid/current')
+})
+
+test('MSEC-001: malformed report-form deep links cannot be silently truncated to a different valid order', async () => {
+  let reads = 0, writes = 0
+  const h = harness({ services: reportServices({ fetchWorkOrder: async () => { reads++; return taskOrder(42) }, createReport: async () => { writes++; return { id: 1 } } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42not-an-id', processNo: '1' })
+  fillValidReport(page)
+  await page.handleSubmit(false)
+  assert.equal(reads, 0)
+  assert.equal(writes, 0)
+  assert.ok(page.loadError.value)
+})
+
+test('MSEC-005: logout failures keep the session, prevent duplicate posts, and permit an explicit retry', async () => {
+  const write = deferred()
+  let calls = 0
+  const h = harness({ browser: true, services: { logoutSession: () => ++calls === 1 ? write.promise : Promise.resolve(), clearSession: () => { h.storage.delete('token'); h.storage.delete('user') } } })
+  const page = await h.page('src/pages/home/index.vue', {}, false)
+  page.handleLogout()
+  const pending = page.pageMessage.decide(true)
+  page.handleLogout()
+  assert.equal(calls, 1)
+  assert.equal(page.logoutPending.value, true)
+  write.reject(Object.assign(Error('服务暂时不可用'), { status: 503 }))
+  await pending
+  assert.equal(h.storage.get('token'), 'old-token')
+  assert.match(page.logoutError.value, /登录仍保留/)
+  assert.equal(page.logoutPending.value, false)
+  await page.retryLogout()
+  assert.equal(calls, 2)
+  assert.equal(h.storage.has('token'), false)
+})
+
+test('MSEC-005: a late logout reply cannot clear a newer login or navigate a hidden page', async () => {
+  for (const changeSession of [true, false]) {
+    const write = deferred()
+    const h = harness({ browser: true, services: { logoutSession: () => write.promise, clearSession: () => { h.storage.delete('token'); h.storage.delete('user') } } })
+    const page = await h.page('src/pages/home/index.vue', {}, false)
+    page.handleLogout()
+    const pending = page.pageMessage.decide(true)
+    if (changeSession) { h.storage.set('token', 'new-login'); h.storage.set('user', { ...defaultUser, id: 8 }) }
+    else h.hooks.hide.forEach(callback => callback())
+    write.resolve()
+    await pending
+    assert.equal(h.storage.get('token'), changeSession ? 'new-login' : 'old-token')
+    assert.equal(h.events.some(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)), false)
+  }
+})
+
+test('MSEC-005: an expired own logout clears the client but an old 401 cannot erase a different new session', async () => {
+  for (const changeSession of [true, false]) {
+    const write = deferred()
+    const h = harness({ browser: true, services: { logoutSession: () => write.promise, clearSession: () => { h.storage.delete('token'); h.storage.delete('user') } } })
+    const page = await h.page('src/pages/home/index.vue', {}, false)
+    page.handleLogout()
+    const pending = page.pageMessage.decide(true)
+    if (changeSession) { h.storage.set('token', 'new-login'); h.storage.set('user', { ...defaultUser, id: 8 }) }
+    write.reject(Object.assign(Error('会话已失效'), { status: 401 }))
+    await pending
+    assert.equal(h.storage.has('token'), changeSession)
+    if (changeSession) assert.equal(h.storage.get('token'), 'new-login')
+  }
+})
+
+test('MUX-004: a temporary attachment download failure preserves the draft and verified reporter until retry', async () => {
+  const draftKey = 'gongdan:draft:report:42:1:user:global:7'
+  const downloads = [], writes = []
+  let failDownload = true
+  const h = harness({ storage: { [draftKey]: {
+    form: { reportQuantity: '10', goodQuantity: '10', defectQuantity: '0', startTime: '2026-09-11 08:00:00', endTime: '2026-09-11 09:00:00', remark: 'keep saved attachments' },
+    selectedReporterId: 7,
+    uploadedImages: [{ id: 11 }, { id: 12 }]
+  } }, services: reportServices({
+    downloadReportImage: async id => {
+      downloads.push(id)
+      if (id === 12 && failDownload) throw Object.assign(Error('图片暂时无法加载，请重试'), { status: 503 })
+      return `wxfile://restored-${id}`
+    },
+    createReport: async payload => { writes.push(payload); return { id: 1 } }
+  }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  assert.match(page.loadError.value, /无法加载/)
+  assert.deepEqual([...page.uploadedImages.value].map(image => image.id), [11, 12])
+  assert.equal(page.uploadedImages.value[0].previewPath, 'wxfile://restored-11')
+  assert.equal(page.uploadedImages.value[1].previewPath, undefined)
+  assert.equal(page.selectedReporterId.value, 7)
+  assert.equal(page.selectedReporterName.value, defaultUser.name)
+  assert.equal(page.form.remark, 'keep saved attachments')
+  h.flushTimers()
+  assert.deepEqual(h.storage.get(draftKey).uploadedImages.map(image => image.id), [11, 12])
+  await page.handleSubmit(true)
+  assert.equal(writes.length, 0)
+  failDownload = false
+  await page.loadReportContext()
+  assert.equal(page.loadError.value, '')
+  assert.deepEqual(downloads, [11, 12, 12])
+  await page.handleSubmit(true)
+  assert.equal(writes.length, 1)
+  assert.deepEqual([...writes[0].imageIds], [11, 12])
 })

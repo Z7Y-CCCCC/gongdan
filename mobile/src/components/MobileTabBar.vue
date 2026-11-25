@@ -4,11 +4,13 @@
   <!-- #endif -->
   <view class="mobile-tabbar" role="tablist" aria-label="主导航">
     <button
-      v-for="item in items"
+      v-for="(item, index) in items"
       :key="item.key"
       class="tab-item"
       :class="{ active: current === item.key }"
       role="tab" :aria-label="item.label" :aria-selected="current === item.key"
+      :tabindex="current === item.key ? 0 : -1"
+      @keydown="moveFocus($event, index)"
       @click="open(item.path)"
     >
       <uni-icons :type="item.icon" size="21" :color="current === item.key ? '#00a982' : '#64756d'" aria-hidden="true" />
@@ -52,6 +54,17 @@ onDeactivated(() => { visible.value = false })
 function open(path: string) {
   navigatePage(path)
 }
+function moveFocus(event: KeyboardEvent, index: number) {
+  let target: number
+  if (event.key === 'ArrowRight') target = (index + 1) % items.length
+  else if (event.key === 'ArrowLeft') target = (index + items.length - 1) % items.length
+  else if (event.key === 'Home') target = 0
+  else if (event.key === 'End') target = items.length - 1
+  else return
+  event.preventDefault()
+  const buttons = (event.currentTarget as HTMLElement)?.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+  buttons?.[target]?.focus()
+}
 </script>
 
 <style scoped>
@@ -65,8 +78,8 @@ function open(path: string) {
   padding-bottom: env(safe-area-inset-bottom);
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  background: #fff;
-  border-top: 1rpx solid #e8eceb;
+  background: var(--mobile-surface, #fff);
+  border-top: 1rpx solid var(--mobile-border, #e8eceb);
   box-sizing: border-box;
 }
 
@@ -77,7 +90,7 @@ function open(path: string) {
   align-items: center;
   justify-content: center;
   gap: 4rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   font-size: 20rpx;
   position: relative;
   width: 100%;
@@ -90,7 +103,7 @@ function open(path: string) {
 }
 
 .tab-item.active {
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
 }
 
 .tab-item::before {

@@ -1,13 +1,14 @@
 <template>
-  <view class="container">
+  <view class="container" role="main" aria-label="工单列表">
     <!-- 顶部导航与搜索 -->
     <view class="top-nav">
       <view class="nav-left">
-        <text>工单</text>
+        <text role="heading" aria-level="1">工单</text>
       </view>
       <view class="nav-right">
         <view class="search-box" v-if="showSearch">
-          <input class="search-input" v-model="keyword" placeholder="工单号 / 产品" maxlength="128" confirm-type="search" @confirm="doSearch" />
+          <text class="search-label">工单 / 产品</text>
+          <input class="search-input" v-model="keyword" aria-label="搜索工单或产品" placeholder="工单号 / 产品" maxlength="128" confirm-type="search" @confirm="doSearch" />
           <IconButton icon="search" label="搜索工单" @click="doSearch" />
           <IconButton icon="closeempty" label="清空并收起搜索" @click="clearSearch" />
         </view>
@@ -21,9 +22,10 @@
     <!-- 状态切换页签 -->
     <scroll-view scroll-x class="status-tabs">
       <view class="status-tab-row" role="tablist" aria-label="工单状态">
-      <button v-for="tab in statusTabs" :key="tab.key"
+      <button v-for="(tab, index) in statusTabs" :key="tab.key"
             class="tab" :class="{ active: currentTab === tab.key }"
             role="tab" :aria-selected="currentTab === tab.key"
+            :tabindex="currentTab === tab.key ? 0 : -1" @keydown="moveStatusFocus($event, index)"
             @click="selectTab(tab.key)">
         {{ tab.label }}
       </button>
@@ -72,7 +74,7 @@
       </button>
       
       <view v-if="loading" class="list-state">加载中…</view>
-      <view v-else-if="loadError" class="list-state">
+      <view v-else-if="loadError" class="list-state" role="alert">
         <text>{{ loadError }}</text>
         <IconButton icon="refreshempty" label="重试工单列表" @click="retryPage" />
       </view>
@@ -232,6 +234,16 @@ function selectTab(tab: TabKey) {
   currentTab.value = tab
   return loadOrders()
 }
+function moveStatusFocus(event: KeyboardEvent, index: number) {
+  let next: number
+  if (event.key === 'ArrowRight') next = (index + 1) % statusTabs.length
+  else if (event.key === 'ArrowLeft') next = (index + statusTabs.length - 1) % statusTabs.length
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = statusTabs.length - 1
+  else return
+  event.preventDefault()
+  ;(event.currentTarget as HTMLElement).parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+}
 
 function loadMore() {
   if (!loading.value && hasMore.value && !loadError.value && activeQuery) return requestPage(activeQuery, nextPage)
@@ -278,10 +290,10 @@ const handleScan = () => {
 </script>
 
 <style scoped>
-.container { background: #f6f7f7; height: 100vh; display: flex; flex-direction: column; }
+.container { background: var(--mobile-bg, #f6f7f7); height: 100vh; display: flex; flex-direction: column; }
 
 .top-nav {
-  background: white;
+  background: var(--mobile-surface, white);
   padding: 20rpx 30rpx;
   display: flex;
   justify-content: space-between;
@@ -299,12 +311,15 @@ const handleScan = () => {
   min-width: 0;
   gap: 10rpx;
 }
-.search-input { flex: 1; min-width: 0; font-size: 26rpx; height: 88rpx; background: #f3f5f5; border-radius: 20rpx; padding: 0 16rpx; }
-.search-submit { flex-shrink: 0; margin: 0; padding: 0 12rpx; color: #008a69; background: transparent; }
+.search-box { flex-wrap: wrap; }
+.search-label { flex: 0 0 100%; font-size: 24rpx; color: var(--mobile-muted, #536b60); }
+.search-box .search-input { flex-basis: 100rpx; }
+.search-input { flex: 1; min-width: 0; font-size: 26rpx; height: 88rpx; background: var(--mobile-bg, #f3f5f5); border-radius: 20rpx; padding: 0 16rpx; }
+.search-submit { flex-shrink: 0; margin: 0; padding: 0 12rpx; color: var(--mobile-link, #007a60); background: transparent; }
 .search-submit::after { border: 0; }
 
 .status-tabs {
-  background: white;
+  background: var(--mobile-surface, white);
   white-space: nowrap;
   padding: 0 20rpx 12rpx;
   flex-shrink: 0;
@@ -312,10 +327,10 @@ const handleScan = () => {
 .status-tab-row { display: inline-flex; gap: 12rpx; }
 .tab {
   padding: 10rpx 24rpx;
-  background: #f1f3f3;
+  background: var(--mobile-subtle, #f1f3f3);
   border-radius: 30rpx;
   font-size: 24rpx;
-  color: #666;
+  color: var(--mobile-muted, #666);
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -323,11 +338,11 @@ const handleScan = () => {
 }
 .tab.active { background: #00856b; color: white; font-weight: 700; box-shadow: inset 0 -4rpx 0 #006b51; }
 
-.total-count { padding: 20rpx 30rpx; font-size: 24rpx; color: #64756d; }
+.total-count { padding: 20rpx 30rpx; font-size: 24rpx; color: var(--mobile-muted, #64756d); }
 
 .order-list { flex: 1; height: 0; min-height: 0; padding: 0 20rpx 130rpx; box-sizing: border-box; }
 .order-card {
-  background: white;
+  background: var(--mobile-surface, white);
   border-radius: 16rpx;
   padding: 30rpx;
   margin-bottom: 20rpx;
@@ -340,19 +355,19 @@ const handleScan = () => {
 .info-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10rpx; }
 .tags { display: flex; gap: 10rpx; }
 .tag { font-size: 20rpx; padding: 2rpx 12rpx; border-radius: 4rpx; }
-.tag.urgent { background: #ff4d4f; color: white; }
-.tag.status { background: #e6f7ff; color: #1890ff; }
-.tag.status.status-EXECUTING, .tag.status.status-IN_PROGRESS { background: #e6f7f3; color: #00856b; }
-.tag.status.status-NOT_STARTED { background: #f0f0f0; color: #64756d; }
+.tag.urgent { background: #a0332c; color: white; }
+.tag.status { background: var(--mobile-info-bg, #e6f7ff); color: var(--mobile-info, #2459a6); }
+.tag.status.status-EXECUTING, .tag.status.status-IN_PROGRESS { background: var(--mobile-subtle, #e6f7f3); color: var(--mobile-link, #00856b); }
+.tag.status.status-NOT_STARTED { background: var(--mobile-bg, #f0f0f0); color: var(--mobile-muted, #64756d); }
 .tag.status.status-COMPLETED,
-.tag.status.status-FINISHED { background: #eef3fe; color: #4080ff; }
-.tag.status.status-PAUSED { background: #fff4e6; color: #ff9900; }
+.tag.status.status-FINISHED { background: var(--mobile-info-bg, #eef3fe); color: var(--mobile-info, #2459a6); }
+.tag.status.status-PAUSED { background: var(--mobile-warning-bg, #fff4e6); color: var(--mobile-warning, #8b5908); }
 
 .order-code { font-size: 30rpx; font-weight: bold; display: block; margin-bottom: 15rpx; }
 .info-field { display: flex; align-items: center; margin-bottom: 6rpx; }
 .field-icon { margin-right: 8rpx; flex-shrink: 0; }
-.info-field .label { font-size: 22rpx; color: #64756d; }
-.info-field .val { font-size: 22rpx; color: #666; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.info-field .label { font-size: 22rpx; color: var(--mobile-muted, #64756d); }
+.info-field .val { font-size: 22rpx; color: var(--mobile-muted, #666); flex: 1; min-width: 0; overflow-wrap: anywhere; }
 
 /* 底部进度轴 */
 .process-steps {
@@ -361,7 +376,7 @@ const handleScan = () => {
   position: relative;
   padding: 0 10rpx;
   margin-top: 10rpx;
-  border-top: 1px solid #f8f8f8;
+  border-top: 1px solid var(--mobile-border, #f8f8f8);
   padding-top: 20rpx;
 }
 .step-item {
@@ -369,35 +384,35 @@ const handleScan = () => {
   flex-direction: column;
   align-items: center;
   z-index: 1;
-  background: white;
+  background: var(--mobile-surface, white);
 }
 .step-circle {
   width: 50rpx;
   height: 50rpx;
-  border: 2rpx solid #eee;
+  border: 2rpx solid var(--mobile-border, #eee);
   border-radius: 50%;
   font-size: 16rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   display: flex;
   justify-content: center;
   align-items: center;
   margin-bottom: 8rpx;
 }
-.step-circle.step-active { border-color: #00856b; color: #00856b; }
-.step-circle.step-done { background: #00856b; border-color: #00856b; color: white; }
-.step-name { font-size: 20rpx; color: #64756d; max-width: 80rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-circle.step-active { border-color: var(--mobile-link, #00856b); color: var(--mobile-link, #00856b); }
+.step-circle.step-done { background: #00856b; border-color: var(--mobile-link, #00856b); color: white; }
+.step-name { font-size: 20rpx; color: var(--mobile-muted, #64756d); max-width: 80rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .step-line {
   position: absolute;
   top: 45rpx;
   left: 40rpx;
   right: 40rpx;
   height: 2rpx;
-  background: #eee;
+  background: var(--mobile-bg, #eee);
   z-index: 0;
 }
 
-.list-state { text-align: center; font-size: 24rpx; color: #586360; padding: 32rpx 0; }
-.list-action { margin-left: 12rpx; color: #008a69; }
+.list-state { text-align: center; font-size: 24rpx; color: var(--mobile-muted, #586360); padding: 32rpx 0; }
+.list-action { margin-left: 12rpx; color: var(--mobile-link, #007a60); }
 .load-more { display: flex; justify-content: center; margin: 20rpx auto; }
 
 /* 扫码悬浮按钮 */

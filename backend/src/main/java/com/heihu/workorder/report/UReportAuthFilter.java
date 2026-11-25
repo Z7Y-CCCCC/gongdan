@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** Protects the UReport servlet with the application's existing admin session. */
+/** The native UReport designer and global templates are platform-superadmin only. */
 @Component
 public class UReportAuthFilter extends OncePerRequestFilter {
 
@@ -25,13 +25,16 @@ public class UReportAuthFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        // Use the container-resolved mapping as well as the URI fallback. The
+        // servlet path excludes ordinary path parameters present in requestURI.
+        if (isReportPath(request.getServletPath())) return false;
         String path = request.getRequestURI();
         String contextPath = request.getContextPath();
         if (path == null) return true;
         if (contextPath != null && !contextPath.isEmpty() && path.startsWith(contextPath)) {
             path = path.substring(contextPath.length());
         }
-        return !("/ureport".equals(path) || path.startsWith("/ureport/"));
+        return !isReportPath(path);
     }
 
     @Override
@@ -45,13 +48,17 @@ public class UReportAuthFilter extends OncePerRequestFilter {
             if (!StringUtils.hasText(token)) {
                 throw new ApiException(org.springframework.http.HttpStatus.UNAUTHORIZED, "请先在工单系统中登录");
             }
-            tokenService.requireAdmin("Bearer " + token);
+            tokenService.requireSuperAdmin("Bearer " + token);
             filterChain.doFilter(request, response);
         } catch (ApiException ex) {
             response.setStatus(ex.getStatus().value());
             response.setContentType("application/json;charset=UTF-8");
             response.getWriter().write("{\"message\":\"" + escapeJson(ex.getMessage()) + "\"}");
         }
+    }
+
+    private boolean isReportPath(String path) {
+        return path != null && ("/ureport".equals(path) || path.startsWith("/ureport/"));
     }
 
     private String findCookie(HttpServletRequest request, String name) {

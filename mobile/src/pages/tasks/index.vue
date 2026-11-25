@@ -1,9 +1,10 @@
 <template>
-  <view class="container">
+  <view class="container" role="main" aria-label="工序任务">
     <view class="header ui-page-head">
-      <text class="title">任务</text>
+      <text class="title" role="heading" aria-level="1">任务</text>
       <IconButton icon="refreshempty" label="刷新任务" :busy="loading" @click="loadTasks" />
     </view>
+    <text class="search-label">工单 / 产品</text>
     <view class="search-row">
       <input v-model="keyword" maxlength="128" placeholder="工单号 / 产品" aria-label="搜索工单或产品" confirm-type="search" @confirm="loadTasks" />
       <IconButton v-if="keyword" icon="closeempty" label="清空任务搜索" @click="keyword = ''; loadTasks()" />
@@ -30,7 +31,7 @@
       <view v-if="tasks.length === 0 && !loading && !errorMessage" class="empty">
         <text class="empty-text">{{ hasMore ? '暂无可报工序，可继续加载' : '暂无可报工序' }}</text>
       </view>
-      <view v-if="errorMessage" class="state">
+      <view v-if="errorMessage" class="state" role="alert">
         <text>{{ errorMessage }}</text>
         <IconButton icon="refreshempty" label="重试任务列表" @click="retryPage" />
       </view>
@@ -230,7 +231,7 @@ async function handleTask(task: TaskCard) {
 <style scoped>
 .container {
   padding: 40rpx;
-  background: #f6f7f7;
+  background: var(--mobile-bg, #f6f7f7);
   min-height: 100vh;
   padding-bottom: 130rpx;
   box-sizing: border-box;
@@ -246,13 +247,13 @@ async function handleTask(task: TaskCard) {
 .title {
   font-size: 36rpx;
   font-weight: bold;
-  color: #333;
+  color: var(--mobile-text, #333);
   display: block;
 }
 
 .subtitle {
   font-size: 26rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   margin-top: 10rpx;
 }
 
@@ -263,15 +264,16 @@ async function handleTask(task: TaskCard) {
 }
 
 .search-row { display: flex; align-items: center; gap: 16rpx; }
-.search-row input { flex: 1; min-width: 0; background: #fff; border-radius: 12rpx; padding: 20rpx; font-size: 26rpx; }
-.search-btn { font-size: 24rpx; color: #00856b; margin: 0; }
-.coverage-notice { color: #71847e; padding: 16rpx 0; font-size: 24rpx; line-height: 1.5; }
+.search-label { display: block; margin-bottom: 10rpx; font-size: 24rpx; color: var(--mobile-muted, #536b60); }
+.search-row input { flex: 1; min-width: 0; background: var(--mobile-surface, #fff); border-radius: 12rpx; padding: 20rpx; font-size: 26rpx; }
+.search-btn { font-size: 24rpx; color: var(--mobile-link, #00856b); margin: 0; }
+.coverage-notice { color: var(--mobile-muted, #64756d); padding: 16rpx 0; font-size: 24rpx; line-height: 1.5; }
 .load-more { padding: 20rpx 0; display: flex; justify-content: center; }
 
 .task-list::-webkit-scrollbar { display: none; }
 
 .task-card {
-  background: white;
+  background: var(--mobile-surface, white);
   padding: 30rpx;
   border-radius: 20rpx;
   display: flex;
@@ -284,7 +286,7 @@ async function handleTask(task: TaskCard) {
 .task-icon {
   width: 80rpx;
   height: 80rpx;
-  background: #f0faf7;
+  background: var(--mobile-subtle, #f0faf7);
   border-radius: 40rpx;
   display: flex;
   justify-content: center;
@@ -301,13 +303,13 @@ async function handleTask(task: TaskCard) {
 .task-name {
   font-size: 32rpx;
   font-weight: bold;
-  color: #333;
+  color: var(--mobile-text, #333);
   display: block;
 }
 
 .task-order {
   font-size: 24rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   margin-top: 6rpx;
   display: block;
   overflow: hidden;
@@ -325,7 +327,7 @@ async function handleTask(task: TaskCard) {
 .progress-bar {
   flex: 1;
   height: 10rpx;
-  background: #edf0ef;
+  background: var(--mobile-bg, #edf0ef);
   border-radius: 999rpx;
   overflow: hidden;
 }
@@ -338,7 +340,7 @@ async function handleTask(task: TaskCard) {
 
 .progress-text {
   font-size: 22rpx;
-  color: #6b7471;
+  color: var(--mobile-muted, #6b7471);
   min-width: 110rpx;
   text-align: right;
 }
@@ -349,7 +351,7 @@ async function handleTask(task: TaskCard) {
   flex-direction: column;
   align-items: center;
   padding-top: 100rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   font-size: 28rpx;
 }
 
@@ -364,6 +366,6 @@ async function handleTask(task: TaskCard) {
 
 .empty-text {
   font-size: 26rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
 }
 </style>

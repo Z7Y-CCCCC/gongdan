@@ -2,6 +2,7 @@
 import UiIcon from './UiIcon.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useLatestRequest } from '../composables/useLatestRequest'
+import { useDialogFocus } from '../composables/useDialogFocus'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import {
   fetchDepartments, createDepartment, updateDepartment, deleteDepartment,
@@ -41,14 +42,15 @@ const departmentFilterForm = reactive({ code: '', name: '', page: 1, size: 10 })
 const displayedPageSize = ref(10)
 let appliedDepartmentQuery = { code: '', name: '', page: 1, size: 10 }
 const showDepartmentModal = ref(false)
+const departmentDialogRef = ref<HTMLElement | null>(null)
+const departmentDialogTitleId = 'department-dialog-' + Math.random().toString(36).slice(2, 10)
+useDialogFocus(departmentDialogRef, () => showDepartmentModal.value, closeDepartmentModal)
 const editingDepartment = ref<DepartmentInfo | null>(null)
 const departmentForm = reactive<CreateDepartmentPayload>({ code: '', name: '', userIds: [] })
 const allUsersList = ref<UserInfo[]>([])
 const showUserSelectDropdown = ref(false)
 const userSelectTriggerRef = ref<HTMLElement | null>(null)
-const dropdownStyle = ref<{ top: string; left: string; width: string }>({
-  top: '0px', left: '0px', width: '200px'
-})
+const memberListId = 'department-members-' + Math.random().toString(36).slice(2, 10)
 
 const formatDateTime = (val: string) => {
   if (!val) return '-'
@@ -64,15 +66,12 @@ const formatDateTime = (val: string) => {
 
 function openUserSelectDropdown() {
   if (usersLoading.value || !membershipReady.value || loading.value) return
-  if (userSelectTriggerRef.value) {
-    const rect = userSelectTriggerRef.value.getBoundingClientRect()
-    dropdownStyle.value = {
-      top: rect.bottom + 4 + 'px',
-      left: rect.left + 'px',
-      width: rect.width + 'px'
-    }
-  }
   showUserSelectDropdown.value = !showUserSelectDropdown.value
+}
+function closeMemberList() { showUserSelectDropdown.value = false; userSelectTriggerRef.value?.focus() }
+function onMemberTriggerKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || !showUserSelectDropdown.value) return
+  event.preventDefault(); event.stopPropagation(); closeMemberList()
 }
 
 const selectedUserNames = computed(() => {
@@ -327,9 +326,9 @@ onBeforeUnmount(() => { sessionGeneration++; modalGeneration++; beginDepartments
 
   <!-- 部门弹窗 -->
   <div v-if="showDepartmentModal" class="modal-backdrop">
-    <section class="modal">
+    <section ref="departmentDialogRef" class="modal" role="dialog" aria-modal="true" :aria-labelledby="departmentDialogTitleId" :aria-busy="loading || usersLoading" tabindex="-1">
       <header class="modal-header">
-        <h2>{{ editingDepartment ? '编辑部门' : '新建部门' }}</h2>
+        <h2 :id="departmentDialogTitleId">{{ editingDepartment ? '编辑部门' : '新建部门' }}</h2>
         <button class="close-btn ui-icon-button" type="button" :disabled="loading" @click="closeDepartmentModal" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleSaveDepartment">
@@ -347,7 +346,7 @@ onBeforeUnmount(() => { sessionGeneration++; modalGeneration++; beginDepartments
         <label style="align-items: flex-start;">
           <span style="padding-top: 8px;">部门人员</span>
           <div class="custom-multiselect">
-            <button type="button" ref="userSelectTriggerRef" class="multiselect-trigger" style="width:100%;text-align:left" :disabled="loading || usersLoading || !membershipReady" :aria-expanded="showUserSelectDropdown" aria-label="部门人员" @click.stop="openUserSelectDropdown" @keydown.esc.stop="showUserSelectDropdown = false">
+            <button type="button" ref="userSelectTriggerRef" class="multiselect-trigger" style="width:100%;text-align:left" :disabled="loading || usersLoading || !membershipReady" :aria-expanded="showUserSelectDropdown" :aria-controls="memberListId" aria-label="部门人员" @click.stop="openUserSelectDropdown" @keydown="onMemberTriggerKeydown">
               <span :class="{ placeholder: !departmentForm.userIds || departmentForm.userIds?.length === 0 }">
                 {{ selectedUserNames }}
               </span>
@@ -355,15 +354,13 @@ onBeforeUnmount(() => { sessionGeneration++; modalGeneration++; beginDepartments
                 <polyline points="6 9 12 15 18 9"/>
               </svg>
             </button>
-            <Teleport to="body">
-              <div v-if="showUserSelectDropdown" class="multiselect-dropdown multiselect-dropdown-fixed" :style="dropdownStyle" @click.stop>
+              <div v-if="showUserSelectDropdown" :id="memberListId" class="multiselect-dropdown department-member-list" role="group" aria-label="部门人员" @click.stop @keydown.esc.stop.prevent="closeMemberList">
                 <label v-for="u in allUsersList" :key="u.id" class="multiselect-option">
                   <input type="checkbox" :disabled="loading" :value="u.id" v-model="departmentForm.userIds" />
                   <span>{{ u.name }} ({{ u.username }})</span>
                 </label>
                 <div v-if="allUsersList.length === 0" style="padding:8px 12px;color:#aaa;font-size:13px">暂无人员</div>
               </div>
-            </Teleport>
           </div>
         </label>
         </fieldset>
@@ -379,4 +376,6 @@ onBeforeUnmount(() => { sessionGeneration++; modalGeneration++; beginDepartments
 
 <style scoped>
 .department-fields { display: contents; border: 0; padding: 0; margin: 0; }
+.department-member-list { position: static; width: 100%; max-height: min(240px, 35vh); margin-top: 4px; box-shadow: none; }
+.department-member-list .multiselect-option span { overflow-wrap: anywhere; min-width: 0; }
 </style>

@@ -227,16 +227,23 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public String exportUsersCsv(Long factoryId) {
+        return exportUsersCsv(factoryId, true);
+    }
+
+    @Transactional(readOnly = true)
+    public String exportUsersCsv(Long factoryId, boolean includePasswordHash) {
         List<FactoryUser> users = userRepository.findByFactoryIdOrderByCreatedAtAsc(factoryId);
         StringBuilder sb = new StringBuilder();
-        sb.append("账号,姓名,角色,手机号,部门,密码哈希,虚拟用户,状态\n");
+        sb.append("账号,姓名,角色,手机号,部门,");
+        if (includePasswordHash) sb.append("密码哈希,");
+        sb.append("虚拟用户,状态\n");
         for (FactoryUser u : users) {
             sb.append(csvEscape(u.getUsername())).append(',');
             sb.append(csvEscape(u.getName())).append(',');
             sb.append(u.getRole().name()).append(',');
             sb.append(csvEscape(u.getPhone())).append(',');
             sb.append(csvEscape(u.getDepartment() != null ? u.getDepartment().getName() : "")).append(',');
-            sb.append(csvEscape(u.getPasswordHash())).append(',');
+            if (includePasswordHash) sb.append(csvEscape(u.getPasswordHash())).append(',');
             sb.append(u.isVirtualUser() ? "是" : "否").append(',');
             sb.append(u.isEnabled() ? "启用" : "停用").append('\n');
         }

@@ -8,6 +8,12 @@ target/
 # Node
 node_modules/
 dist/
+# Reviewed upstream source distributions for the uni compatibility backports,
+# not generated application builds. Required by fresh CI/Docker npm ci.
+!mobile/vendor/uni-vue-shared/dist/
+!mobile/vendor/uni-vue-shared/dist/**
+!mobile/vendor/uni-server-renderer/dist/
+!mobile/vendor/uni-server-renderer/dist/**
 .vite/
 .playwright-cli/
 .playwright-mcp/

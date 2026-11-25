@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { t, formatUiDate } from '../i18n'
+import { parseCsvRows } from '../utils/csv'
+import { downloadXlsx } from '../utils/spreadsheet'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { fetchProducts, fetchProductsExportBlob, fetchUserPreference, setUserPreference, type ProductInfo } from '../api'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
@@ -214,19 +217,58 @@ function navigateToDetail(item: ProductInfo) {
   emit('navigate', { main: 'inventory', sub: 'detail' })
 }
 
-async function handleExport() {
+const exporting = ref(false)
+const exportError = ref('')
+let exportEpoch = 0, exportDisposed = false, exportActive = true
+watch(() => props.token, () => { exportEpoch++; exporting.value = false; exportError.value = '' }, { flush: 'sync' })
+onActivated(() => { exportActive = true })
+onDeactivated(() => { exportActive = false; exportEpoch++; exporting.value = false; exportError.value = '' })
+onBeforeUnmount(() => { exportEpoch++; exportDisposed = true; exportActive = false })
+async function exportXlsx() {
+  if (exporting.value || !props.token || !exportActive) return
+  const token = props.token, epoch = exportEpoch, filter = { ...filterForm }
+  const current = () => exportActive && !exportDisposed && props.token === token && epoch === exportEpoch
+  exportError.value = ''; exporting.value = true
   try {
-    const blob = await fetchProductsExportBlob(props.token, filterForm)
+    const blob = await fetchProductsExportBlob(token, filter)
+    if (!current()) return
+    const original = parseCsvRows(await blob.text(), { preserveWhitespace: true })
+    const quantityColumn = original[0]?.indexOf('库存数量') ?? -1
+    const matrix = original.map((row, rowIndex) => row.map((value, columnIndex) => {
+      if (rowIndex === 0) return t(value)
+      // Only this known numeric column may become a number; codes, whitespace and large values stay text.
+      if (columnIndex === quantityColumn && /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value)
+        && value.replace(/[^0-9]/g, '').replace(/^0+/, '').length <= 15) {
+        const quantity = Number(value)
+        if (Number.isFinite(quantity) && Math.abs(quantity) < 1e15) return quantity
+      }
+      return value
+    }))
+    if (!current()) return
+    const downloaded = await downloadXlsx(`${t('库存余额')}_${formatUiDate(new Date()).slice(0, 10)}.xlsx`, t('库存余额'), matrix, current)
+    if (downloaded && current()) emit('notice', '导出Excel成功')
+  } catch (error) { if (current()) { exportError.value = error instanceof Error ? error.message : '导出失败'; emit('notice', exportError.value) } }
+  finally { if (current()) exporting.value = false }
+}
+
+async function handleExport() {
+  if (exporting.value || !props.token || !exportActive) return
+  const token = props.token, epoch = exportEpoch, filter = { ...filterForm }
+  const current = () => exportActive && !exportDisposed && props.token === token && epoch === exportEpoch
+  exporting.value = true
+  try {
+    const blob = await fetchProductsExportBlob(token, filter)
+    if (!current()) return
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `库存余额_${new Date().toISOString().slice(0, 10)}.csv`
     a.click()
     URL.revokeObjectURL(url)
-    emit('notice', '已导出 CSV 文件')
+    if (current()) emit('notice', '已导出 CSV 文件')
   } catch (e: any) {
-    emit('notice', e.message || '导出失败')
-  }
+    if (current()) emit('notice', e.message || '导出失败')
+  } finally { if (current()) exporting.value = false }
 }
 
 useRefreshOnActivated(loadData)
@@ -270,7 +312,10 @@ onMounted(() => {
 
     <!-- Action Toolbar -->
     <div class="toolbar" style="margin-bottom: 16px;">
-      <button class="toolbar-btn primary-stroke ui-icon-button" type="button" @click="handleExport" title="导出库存结余" aria-label="导出库存结余"><UiIcon name="download" /></button>
+      <button class="toolbar-btn primary-stroke ui-action-button" type="button" :disabled="exporting" @click="exportXlsx" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+      <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting" @click="handleExport" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+      <span class="export-scope-note">导出范围：当前筛选的全部记录 · CSV仅用于备份，不宜直接用Excel打开</span>
+      <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
 
       <div style="margin-left: auto;">
         <button class="table-config-trigger ui-icon-button" type="button" title="字段配置" aria-label="字段配置" @click="showColumnModal = true">

@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { downloadXlsx } from '../utils/spreadsheet'
 import { parseCsvRows } from '../utils/csv'
 import UiIcon from './UiIcon.vue'
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
+import { t, formatUiDate } from '../i18n'
 import {
   createProduct,
   deleteProduct,
@@ -23,6 +25,7 @@ import {
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
 import { useLatestRequest } from '../composables/useLatestRequest'
+import { usePageOperationScope } from '../composables/usePageOperationScope'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import { fetchAllPages } from '../utils/pagination'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
@@ -109,6 +112,9 @@ function openAddCategory() {
 }
 
 async function handleSaveCategory() {
+  if (saving.value || loading.value || productImporting.value) return
+  const context = mutationScope.capture()
+  if (!context.isCurrent()) return
   const name = newCategoryName.value.trim()
   if (!name) {
     emit('notice', '请输入分类名称')
@@ -118,29 +124,41 @@ async function handleSaveCategory() {
     emit('notice', '分类已存在')
     return
   }
+  saving.value = true
   try {
-    const newCat = await createProductCategory(props.token, { name })
+    const newCat = await createProductCategory(context.token, { name })
+    if (!context.isCurrent()) return
     categories.value.push(newCat)
     activeProductType.value = name
     activeTab.value = 'all'
     showCategoryModal.value = false
     emit('notice', '分类添加成功')
   } catch (e: any) {
-    emit('notice', e.message || '分类添加失败')
+    if (context.isCurrent()) emit('notice', e.message || '分类添加失败')
+  } finally {
+    if (context.isCurrent()) saving.value = false
   }
 }
 
 async function removeCategory(cat: string, event: Event) {
   event.stopPropagation()
+  if (loading.value || saving.value || productImporting.value) return
+  const context = mutationScope.capture()
+  if (!context.isCurrent()) return
   const target = categories.value.find(c => c.name === cat)
   if (target) {
+    if (!await confirm({ message: `确认删除分类「${cat}」？` }) || !context.isCurrent()) return
+    loading.value = true
     try {
-      await deleteProductCategory(props.token, target.id)
+      await deleteProductCategory(context.token, target.id)
+      if (!context.isCurrent()) return
       categories.value = categories.value.filter(c => c.id !== target.id)
       emit('notice', '分类已删除')
     } catch (e: any) {
-      emit('notice', e.message || '分类删除失败')
+      if (context.isCurrent()) emit('notice', e.message || '分类删除失败')
       return
+    } finally {
+      if (context.isCurrent()) { loading.value = false; visible.value = false }
     }
   }
   if (activeProductType.value === cat) {
@@ -211,21 +229,23 @@ function resetForm() {
   })
 }
 
-async function loadData() {
-  const isCurrent = beginLoad()
+async function loadData(requestToken = props.token, guard: () => boolean = () => true) {
+  const context = mutationScope.capture(), latest = beginLoad()
+  const isCurrent = () => latest() && guard() && context.isCurrent() && requestToken === context.token
+  if (!isCurrent()) return
   try {
     const [productRes, unitRes, routeRes, categoryRes] = await Promise.all([
-      fetchAllPages(params => fetchProducts(props.token, params), 500, isCurrent),
-      fetchAllPages(params => fetchUnits(props.token, params), 500, isCurrent),
-      fetchAllPages(params => fetchProcessRoutes(props.token, params), 500, isCurrent),
-      fetchProductCategories(props.token)
+      fetchAllPages(params => fetchProducts(requestToken, params), 500, isCurrent),
+      fetchAllPages(params => fetchUnits(requestToken, params), 500, isCurrent),
+      fetchAllPages(params => fetchProcessRoutes(requestToken, params), 500, isCurrent),
+      fetchProductCategories(requestToken)
     ])
     if (!isCurrent()) return
     products.value = productRes.items
     units.value = unitRes.items
     routes.value = routeRes.items
     categories.value = categoryRes
-    await refreshProductImportLogs()
+    await refreshProductImportLogs(requestToken, isCurrent)
   } catch (e: any) {
     if (isCurrent()) emit('notice', e.message || '加载产品失败')
   }
@@ -271,7 +291,9 @@ function copyProduct(item: ProductInfo) {
 }
 
 async function saveProduct() {
-  if (saving.value) return
+  if (saving.value || productImporting.value || loading.value) return
+  const context = mutationScope.capture()
+  if (!context.isCurrent()) return
   if (!form.name.trim()) {
     emit('notice', '请输入产品名称')
     return
@@ -307,33 +329,41 @@ async function saveProduct() {
     customerName: form.customerName || undefined,
     productType: form.productType || undefined
   }
+  const targetId = editingProduct.value?.id
   saving.value = true
   try {
-    if (editingProduct.value) {
-      await updateProduct(props.token, editingProduct.value.id, payload)
+    if (targetId != null) {
+      await updateProduct(context.token, targetId, payload)
+      if (!context.isCurrent()) return
       emit('notice', '产品已更新')
     } else {
-      await createProduct(props.token, payload)
+      await createProduct(context.token, payload)
+      if (!context.isCurrent()) return
       emit('notice', '产品已创建')
     }
     view.value = 'list'
-    await loadData()
+    await loadData(context.token, context.isCurrent)
   } catch (e: any) {
-    emit('notice', e.message || '保存产品失败')
+    if (context.isCurrent()) emit('notice', e.message || '保存产品失败')
   } finally {
-    saving.value = false
+    if (context.isCurrent()) saving.value = false
   }
 }
 
 async function removeProduct(item: ProductInfo) {
+  if (loading.value || saving.value || productImporting.value) return
+  const context = mutationScope.capture(), id = item.id
+  if (!context.isCurrent()) return
   const confirmed = await confirm({ message: `确认删除产品「${item.name}」？` })
-  if (!confirmed) return
+  if (!confirmed || !context.isCurrent()) return
   loading.value = true
   try {
-    await deleteProduct(props.token, item.id)
+    await deleteProduct(context.token, id)
+    if (!context.isCurrent()) return
     emit('notice', '产品已删除')
-    await loadData()
+    await loadData(context.token, context.isCurrent)
   } catch (err: any) {
+    if (!context.isCurrent()) return
     const errorMsg = err.message || '删除失败，请稍后再试'
     if (
       errorMsg.includes('工单') ||
@@ -349,8 +379,7 @@ async function removeProduct(item: ProductInfo) {
       emit('notice', `删除失败：${errorMsg}`)
     }
   } finally {
-    loading.value = false
-    visible.value = false
+    if (context.isCurrent()) { loading.value = false; visible.value = false }
   }
 }
 
@@ -391,9 +420,13 @@ interface ImportLogItem {
 }
 const productImportLogs = ref<ImportLogItem[]>([])
 
-async function refreshProductImportLogs() {
+async function refreshProductImportLogs(requestToken = props.token, guard: () => boolean = () => true) {
+  const context = mutationScope.capture()
+  const current = () => guard() && context.isCurrent() && requestToken === context.token
+  if (!current()) return
   try {
-    const res = await fetchSystemImportLogs(props.token, 'PRODUCT')
+    const res = await fetchSystemImportLogs(requestToken, 'PRODUCT')
+    if (!current()) return
     productImportLogs.value = res.items.map(item => ({
       id: String(item.id),
       fileName: item.fileName,
@@ -409,12 +442,24 @@ async function refreshProductImportLogs() {
 }
 const productImporting = ref(false)
 const productImportProgress = reactive({ total: 0, current: 0, success: 0, fail: 0 })
+const productImportError = ref('')
+let productImportReader: FileReader | null = null
+let productImportPickerContext: ReturnType<typeof mutationScope.capture> | undefined
+const mutationScope = usePageOperationScope(() => props.token, () => {
+  handleCancel()
+  loading.value = false; saving.value = false
+  const reader = productImportReader
+  productImportReader = null
+  if (reader && reader.readyState === FileReader.LOADING) reader.abort()
+  productImporting.value = false; productImportError.value = ''
+})
 
 function isProductColumnVisible(key: string) {
   return productColumns.value.find(c => c.key === key)?.visible ?? true
 }
 
-function handleExportProducts() {
+function handleExportProducts(download = true) {
+  if (exporting.value) return
   if (filteredProducts.value.length === 0) {
     emit('notice', '当前无产品数据可供导出')
     return
@@ -432,6 +477,11 @@ function handleExportProducts() {
     return `"${code}","${name}","${unitName}","${spec}","${attribute}","${routeName}","${supplierName}",${inventoryQty}`
   }).join('\n')
   
+  if (!download) {
+    const matrix: (string | number | boolean | null | undefined)[][] = parseCsvRows(headers + rows, { preserveWhitespace: true })
+    filteredProducts.value.forEach((item, index) => { matrix[index + 1][7] = item.inventoryQty || 0 })
+    return { name: '产品列表', matrix }
+  }
   const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -440,10 +490,15 @@ function handleExportProducts() {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+  URL.revokeObjectURL(url)
   emit('notice', '导出成功')
 }
 
 function triggerProductImport() {
+  if (productImporting.value || exporting.value || saving.value || loading.value) return
+  const context = mutationScope.capture()
+  if (!context.isCurrent()) return
+  productImportPickerContext = context
   if (productFileInput.value) {
     productFileInput.value.value = ''
     productFileInput.value.click()
@@ -451,25 +506,34 @@ function triggerProductImport() {
 }
 
 async function handleImportProducts(event: Event) {
+  if (productImporting.value || exporting.value || saving.value || loading.value) return
+  const context = productImportPickerContext ?? mutationScope.capture()
+  productImportPickerContext = undefined
+  if (!context.isCurrent()) return
   const input = event.target as HTMLInputElement
   if (!input.files || input.files.length === 0) return
   const file = input.files[0]
+  const unitsSnapshot = units.value.map(unit => ({ ...unit }))
+  const routesSnapshot = routes.value.map(route => ({ ...route }))
+  productImporting.value = true; productImportError.value = ''
+  Object.assign(productImportProgress, { total: 0, current: 0, success: 0, fail: 0 })
   
   const reader = new FileReader()
+  productImportReader = reader
   reader.onload = async (e) => {
+    if (!context.isCurrent()) return
+    try {
     const text = e.target?.result as string
-    if (!text) return
+    if (!text) throw new Error('CSV 文件格式不正确或无数据')
     
     let lines: string[][]
     try { lines = parseCsvRows(text) }
     catch (error) {
-      emit('notice', error instanceof Error ? error.message : 'CSV 文件格式不正确')
-      return
+      throw error
     }
 
     if (lines.length <= 1) {
-      emit('notice', 'CSV 文件格式不正确或无数据')
-      return
+      throw new Error('CSV 文件格式不正确或无数据')
     }
     
     const header = lines[0]
@@ -495,14 +559,12 @@ async function handleImportProducts(event: Event) {
     }
     
     if (nameIdx === -1) {
-      emit('notice', '未识别到“产品名称”列')
-      return
+      throw new Error('未识别到“产品名称”列')
     }
     
     const dataRows = lines.slice(1).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''))
     if (dataRows.length === 0) {
-      emit('notice', '导入文件中无有效数据行')
-      return
+      throw new Error('导入文件中无有效数据行')
     }
     
     const importErrors: string[] = []
@@ -515,6 +577,7 @@ async function handleImportProducts(event: Event) {
     productImporting.value = true
     
     for (const r of dataRows) {
+      if (!context.isCurrent()) return
       rowIndex++
       const name = r[nameIdx]
       if (!name) {
@@ -532,10 +595,10 @@ async function handleImportProducts(event: Event) {
       const supplierName = supplierIdx !== -1 ? r[supplierIdx] : ''
       const qtyStr = qtyIdx !== -1 ? r[qtyIdx] : '0'
       
-      let matchedUnit = units.value.find(u => u.name === unitName)
-      let unitId = matchedUnit ? matchedUnit.id : (units.value[0] ? units.value[0].id : 1)
+      let matchedUnit = unitsSnapshot.find(u => u.name === unitName)
+      let unitId = matchedUnit ? matchedUnit.id : (unitsSnapshot[0] ? unitsSnapshot[0].id : 1)
       
-      let matchedRoute = routes.value.find(rt => rt.name === routeName)
+      let matchedRoute = routesSnapshot.find(rt => rt.name === routeName)
       let routeId = matchedRoute ? matchedRoute.id : null
       
       const payload = {
@@ -551,10 +614,11 @@ async function handleImportProducts(event: Event) {
       }
       
       try {
-        await createProduct(props.token, payload)
+        await createProduct(context.token, payload)
+        if (!context.isCurrent()) return
         productImportProgress.success++
       } catch (err: any) {
-        console.error('产品导入失败', err, name)
+        if (!context.isCurrent()) return
         productImportProgress.fail++
         const errorMsg = err.message || '网络或接口异常'
         importErrors.push(`第${rowIndex}行[${name}]: ${errorMsg}`)
@@ -562,11 +626,12 @@ async function handleImportProducts(event: Event) {
       productImportProgress.current++
     }
     
-    productImporting.value = false
-    await loadData()
+    if (!context.isCurrent()) return
+    await loadData(context.token, context.isCurrent)
+    if (!context.isCurrent()) return
     
     try {
-      await createSystemImportLog(props.token, {
+      await createSystemImportLog(context.token, {
         module: 'PRODUCT',
         fileName: file.name,
         totalCount: productImportProgress.total,
@@ -575,23 +640,65 @@ async function handleImportProducts(event: Event) {
         status: productImportProgress.fail === 0 ? '成功' : productImportProgress.success > 0 ? '部分成功' : '失败',
         errors: importErrors.length > 0 ? importErrors.join('\n') : undefined
       })
-      await refreshProductImportLogs()
+      if (!context.isCurrent()) return
+      await refreshProductImportLogs(context.token, context.isCurrent)
     } catch (e) {
-      // ignore
+      if (context.isCurrent()) productImportError.value = '导入已完成，但日志保存失败'
     }
     
+    if (!context.isCurrent()) return
     let noticeMsg = `导入完成：成功 ${productImportProgress.success} 条，失败 ${productImportProgress.fail} 条`
     if (importErrors.length > 0) {
       noticeMsg += `。失败原因：${importErrors.slice(0, 2).join('；')}${importErrors.length > 2 ? ' 等' : ''}`
     }
     emit('notice', noticeMsg)
+    } catch (error) {
+      if (context.isCurrent()) {
+        productImportError.value = error instanceof Error ? error.message : '导入失败'
+        emit('notice', productImportError.value)
+      }
+    } finally {
+      if (productImportReader === reader) productImportReader = null
+      if (context.isCurrent()) productImporting.value = false
+    }
   }
-  
-  reader.readAsText(file, 'utf-8')
+  const readFailed = () => {
+    if (productImportReader === reader) productImportReader = null
+    if (context.isCurrent()) {
+      productImporting.value = false
+      productImportError.value = reader.error?.message || '文件读取失败'
+      emit('notice', productImportError.value)
+    }
+  }
+  reader.onerror = readFailed
+  try { reader.readAsText(file, 'utf-8') } catch { readFailed() }
 }
 
 useRefreshOnActivated(loadData)
 onMounted(loadData)
+
+const exporting = ref(false)
+const exportError = ref('')
+let exportEpoch = 0, exportDisposed = false, exportActive = true
+watch(() => props.token, () => { exportEpoch++; exporting.value = false; exportError.value = '' }, { flush: 'sync' })
+onActivated(() => { exportActive = true })
+onDeactivated(() => { exportActive = false; exportEpoch++; exporting.value = false; exportError.value = '' })
+onBeforeUnmount(() => { exportEpoch++; exportDisposed = true; exportActive = false })
+async function exportXlsx(kind: string) {
+  if (exporting.value || !props.token || !exportActive) return
+  const providers: Record<string, () => { name: string; matrix: (string | number | boolean | null | undefined)[][] } | undefined> = { 'handleExportProducts': () => handleExportProducts(false) }
+  const data = providers[kind]?.()
+  if (!data) return
+  const token = props.token, epoch = exportEpoch
+  const current = () => exportActive && !exportDisposed && props.token === token && epoch === exportEpoch
+  const matrix = [data.matrix[0].map(header => t(String(header ?? ''))), ...data.matrix.slice(1)]
+  exportError.value = ''; exporting.value = true
+  try {
+    const downloaded = await downloadXlsx(`${t(data.name)}_${formatUiDate(new Date()).slice(0, 10)}.xlsx`, t(data.name), matrix, current)
+    if (downloaded && current()) emit('notice', '导出Excel成功')
+  } catch (error) { if (current()) { exportError.value = error instanceof Error ? error.message : '导出失败'; emit('notice', exportError.value) } }
+  finally { if (current()) exporting.value = false }
+}
 </script>
 
 <template>
@@ -647,11 +754,15 @@ onMounted(loadData)
       </div>
 
       <div class="toolbar">
-        <button class="primary-btn create-btn ui-icon-button" type="button" @click="openCreate" title="创建产品" aria-label="创建产品"><UiIcon name="plus" /></button>
+        <button class="primary-btn create-btn ui-icon-button" type="button" :disabled="productImporting || saving || loading" @click="openCreate" title="创建产品" aria-label="创建产品"><UiIcon name="plus" /></button>
         
-        <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportProducts" title="导出产品" aria-label="导出产品"><UiIcon name="download" /></button>
+        <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting" @click="exportXlsx('handleExportProducts')" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+          <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting" @click="handleExportProducts()" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+          <span class="export-scope-note">已加载 {{ filteredProducts.length }} 条 · CSV仅用于备份，不宜直接用Excel打开</span>
+          <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
         
-        <button class="toolbar-btn ui-icon-button" type="button" @click="triggerProductImport" title="导入产品" aria-label="导入产品"><UiIcon name="upload" /></button>
+        <button class="toolbar-btn ui-icon-button" type="button" :disabled="productImporting || exporting || saving || loading" :aria-busy="productImporting" @click="triggerProductImport" title="导入产品" aria-label="导入产品"><UiIcon name="upload" /></button>
+        <p v-if="productImportError" class="export-error" role="alert">{{ productImportError }}</p>
         <input type="file" ref="productFileInput" style="display:none" accept=".csv" @change="handleImportProducts" />
 
         <TableConfigButton table-id="product-list-table" />
@@ -856,11 +967,11 @@ onMounted(loadData)
     <div v-if="productImporting" class="import-progress-overlay">
       <div class="import-progress-card">
         <div class="import-spinner"></div>
-        <div class="import-title">正在导入产品...</div>
-        <div class="import-progress-bar-container">
+        <div class="import-title">{{ productImportProgress.total > 0 ? t('正在导入产品...') : t('加载中...') }}</div>
+        <div v-if="productImportProgress.total > 0" class="import-progress-bar-container">
           <div class="import-progress-bar" :style="{ width: (productImportProgress.total > 0 ? (productImportProgress.current / productImportProgress.total * 100) : 0) + '%' }"></div>
         </div>
-        <div class="import-stats">
+        <div v-if="productImportProgress.total > 0" class="import-stats">
           <span>已处理: {{ productImportProgress.current }} / {{ productImportProgress.total }}</span>
           <span class="success-text">成功: {{ productImportProgress.success }}</span>
           <span class="fail-text">失败: {{ productImportProgress.fail }}</span>

@@ -1,2 +1,12 @@
 # Preserve the audited upstream report-template bytes across Windows checkouts.
 backend/src/main/resources/ureport-html/*.html -text -whitespace
+
+# Preserve the verified upstream/backport bytes and license hashes on Windows.
+# npm's file dependencies consume these files directly after a fresh checkout.
+mobile/vendor/uni-server-renderer/** -text
+mobile/vendor/uni-vue-shared/** -text
+mobile/vendor/uni-intlify-core/** -text
+# Cosmetic whitespace in the two upstream distributions is byte-verified too;
+# keep it rather than changing the original files to satisfy a style checker.
+mobile/vendor/uni-server-renderer/dist/** -whitespace
+mobile/vendor/uni-vue-shared/dist/** -whitespace

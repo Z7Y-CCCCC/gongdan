@@ -8,7 +8,7 @@ import { setUiLocale, setUiTimezone } from '../../i18n'
 import { printSheetName } from '../../utils/printHtml'
 const mocks = vi.hoisted(() => Object.fromEntries(['fetchUnits', 'fetchDefects', 'fetchDepartments', 'fetchProcesses',
   'fetchProcessRoutes', 'fetchSystemImportLogs', 'fetchWorkOrders', 'fetchProducts', 'fetchCustomFields',
-  'fetchWorkOrderCategories', 'fetchBoms', 'fetchUserPreference'].map(name => [name, vi.fn()])))
+  'fetchWorkOrderCategories', 'fetchBoms', 'fetchUserPreference', 'fetchUsersExportBlob'].map(name => [name, vi.fn()])))
 const output = vi.hoisted(() => ({ saveAs: vi.fn() }))
 vi.mock('../../api', async original => ({ ...await original<typeof import('../../api')>(), ...mocks }))
 vi.mock('file-saver', () => ({ saveAs: output.saveAs }))

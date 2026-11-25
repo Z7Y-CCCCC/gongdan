@@ -80,15 +80,15 @@ function choose(source: 'camera' | 'album') {
 
 <style scoped>
 .scan-mask { position: fixed; inset: 0; z-index: 120; background: rgba(18,35,29,.42); display: flex; align-items: center; justify-content: center; padding: 24rpx; }
-.scan-dialog { width: 100%; max-width: 460px; padding: 28rpx; border-radius: 20rpx; background: white; }
+.scan-dialog { width: 100%; max-width: 460px; padding: 28rpx; border-radius: 20rpx; background: var(--mobile-surface, white); }
 .scan-head { display: flex; align-items: center; justify-content: space-between; font-size: 32rpx; font-weight: 650; }
 .scan-choices { display: flex; gap: 20rpx; margin: 24rpx 0; }
-.scan-choices button { flex: 1; margin: 0; border-radius: 12rpx; background: #e6f7f3; color: #007c63; display: flex; justify-content: center; align-items: center; gap: 12rpx; min-height: 44px; font-size: 28rpx; }
-.scan-field { display: flex; flex-direction: column; gap: 14rpx; color: #536b60; font-size: 26rpx; }
-.scan-field input { height: 88rpx; min-height: 44px; border: 1px solid #cadbd4; border-radius: 12rpx; padding: 0 20rpx; font-size: 28rpx; }
+.scan-choices button { flex: 1; margin: 0; border-radius: 12rpx; background: var(--mobile-subtle, #e6f7f3); color: var(--mobile-link, #007c63); display: flex; justify-content: center; align-items: center; gap: 12rpx; min-height: 44px; font-size: 28rpx; }
+.scan-field { display: flex; flex-direction: column; gap: 14rpx; color: var(--mobile-muted, #536b60); font-size: 26rpx; }
+.scan-field input { height: 88rpx; min-height: 44px; border: 1px solid var(--mobile-border, #cadbd4); border-radius: 12rpx; padding: 0 20rpx; font-size: 28rpx; }
 .scan-open { display: flex; align-items: center; justify-content: center; width: 100%; margin: 24rpx 0 0; padding: 0 20rpx; min-height: 44px; border-radius: 12rpx; background: #007c63; color: white; font-size: 28rpx; }
 .scan-error, .scan-state { display: block; margin-top: 16rpx; font-size: 26rpx; }
-.scan-error { color: #b53b3b; }
+.scan-error { color: var(--mobile-error, #b53b3b); }
 button[disabled] { opacity: .48; }
 button::after { border: 0; }
 </style>

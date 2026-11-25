@@ -5,6 +5,7 @@ import PluginCenterPage from '../PluginCenterPage.vue'
 import FactorySettingsPage from '../FactorySettingsPage.vue'
 import UReportPage from '../UReportPage.vue'
 import { setUiLocale } from '../../i18n'
+import { createWorkspaceLeaveGuards, workspaceLeaveGuardsKey } from '../../utils/workspaceLeaveGuards'
 const mocks = vi.hoisted(() => Object.fromEntries(['fetchPlugins', 'createPlugin', 'registerPluginVersion', 'enablePlugin',
   'refreshPluginHealth', 'fetchCurrentFactory', 'updateCurrentFactory', 'establishUReportSession'].map(name => [name, vi.fn()])))
 vi.mock('../../api', async original => ({ ...await original<typeof import('../../api')>(), ...mocks }))
@@ -143,6 +144,24 @@ describe('plugin, factory and report functional lifecycles', () => {
     expect(wrapper.find('button[aria-label="重新加载"]').exists()).toBe(true)
   })
 
+  it('preserves an interactive native draft when slow subresources exceed the startup timeout', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const wrapper = await page(UReportPage)
+    const vm = wrapper.vm as any
+    const src = vm.iframeSrc
+    const doc = document.implementation.createHTMLDocument('Report')
+    doc.body.innerHTML = '<button id="__save_btn"></button><textarea>Unsaved native draft</textarea>'
+    Object.defineProperty(wrapper.get('iframe').element, 'contentDocument', { configurable: true, value: doc })
+    await vi.advanceTimersByTimeAsync(20_001)
+    expect(vm.frameLoading).toBe(false)
+    expect(vm.iframeSrc).toBe(src)
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    expect(wrapper.get('.ureport-frame-warning[role="alert"]').text()).toContain('当前内容已保留')
+    expect(doc.querySelector('textarea')!.value).toBe('Unsaved native draft')
+    vm.onFrameLoaded()
+    expect(vm.frameWarning).toBe('')
+  })
+
   it('keeps a native report draft open on language changes until explicit discard is confirmed', async () => {
     const wrapper = await page(UReportPage)
     const vm = wrapper.vm as any
@@ -172,6 +191,32 @@ describe('plugin, factory and report functional lifecycles', () => {
     const url = new URL(vm.iframeSrc, window.location.href)
     expect(url.searchParams.get('ui_locale')).toBe('en-US')
     expect(url.searchParams.get('_u')).toBe('file:TEMPLATE')
+  })
+
+  it('registers native report dirty state for workspace closure and unregisters on unmount', async () => {
+    setUiLocale('zh-CN')
+    const guards = createWorkspaceLeaveGuards()
+    const wrapper = shallowMount(UReportPage, { props: { token: 'token-one' },
+      global: { provide: { [workspaceLeaveGuardsKey as symbol]: guards } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.onFrameLoaded()
+    const src = vm.iframeSrc
+    const doc = document.implementation.createHTMLDocument('Report')
+    doc.body.innerHTML = '<button id="__save_btn"></button><textarea>Unsaved native draft</textarea>'
+    Object.defineProperty(wrapper.get('iframe').element, 'contentDocument', { configurable: true, value: doc })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    expect(guards.hasUnsavedChanges()).toBe(true)
+    expect(guards.canLeave(['analytics'], 'close')).toBe(false)
+    expect(confirm).toHaveBeenCalledExactlyOnceWith('关闭高级报表将丢弃未保存的修改，是否继续？')
+    expect(vm.iframeSrc).toBe(src)
+    expect(doc.querySelector('textarea')!.value).toBe('Unsaved native draft')
+    doc.getElementById('__save_btn')!.classList.add('disabled')
+    expect(guards.canLeave(['analytics'], 'navigate')).toBe(true)
+    expect(confirm).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+    expect(guards.hasUnsavedChanges()).toBe(false)
   })
 
   it('applies language to a clean native report without a discard prompt', async () => {

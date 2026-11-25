@@ -120,4 +120,37 @@ describe('API session and upload handling', () => {
     expect(new URL(String(url)).searchParams.get('name')).toBe('A&B')
     expect(new Headers(options?.headers).get('Authorization')).toBe('Bearer export-token')
   })
+
+  it.each([false, true])('requests sensitive export columns only when explicitly selected (%s)', async backup => {
+    createSession()
+    const raw = '\uFEFF账号,姓名\n  原文  ,=1+1\n'
+    vi.mocked(fetch).mockResolvedValue(new Response(raw))
+    const blob = backup ? await api.fetchUsersExportBlob('current-token', true) : await api.fetchUsersExportBlob('current-token')
+    const [url, options] = vi.mocked(fetch).mock.calls[0]
+    expect(new URL(String(url)).searchParams.get('includePasswordHash')).toBe(String(backup))
+    expect(new Headers(options?.headers).get('Authorization')).toBe('Bearer current-token')
+    expect(String(url)).not.toContain('current-token')
+    expect(options?.cache).toBe('no-store')
+    expect(Array.from(new Uint8Array(await blob.arrayBuffer()))).toEqual(Array.from(new TextEncoder().encode(raw)))
+    // Blob.text() performs UTF-8 decoding and strips the BOM; download bytes retain it.
+    expect(await blob.text()).toBe(raw.replace(/^\uFEFF/, ''))
+  })
+
+  it('suppresses an already abandoned CSV backup before fetching sensitive data', async () => {
+    await api.exportUsersCsv('current-token', () => false)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('uses a bearer-authenticated POST to revoke exactly the current server session', async () => {
+    createSession()
+    const controller = new AbortController()
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }))
+    await api.logoutSession('current-token', controller.signal)
+    const [url, options] = vi.mocked(fetch).mock.calls[0]
+    expect(String(url)).toBe('https://factory.example.test/backend/api/auth/logout')
+    expect(options?.method).toBe('POST')
+    expect(options?.signal).toBe(controller.signal)
+    expect(new Headers(options?.headers).get('Authorization')).toBe('Bearer current-token')
+    expect(auth.token.value).toBe('current-token')
+  })
 })

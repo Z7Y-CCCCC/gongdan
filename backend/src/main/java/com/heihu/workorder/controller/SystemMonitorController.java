@@ -56,8 +56,9 @@ public class SystemMonitorController {
         List<MonitorOnlineUserResponse> all = monitorService.listOnlineUsers(user.getFactoryId(), ipAddress, loginName);
         int safePage = Math.max(1, page);
         int safeSize = Math.max(1, Math.min(200, size));
-        int from = Math.min((safePage - 1) * safeSize, all.size());
-        int to = Math.min(from + safeSize, all.size());
+        // Bound in long before narrowing: valid int page/size values must not wrap negative.
+        int from = (int) Math.min((long) (safePage - 1) * safeSize, all.size());
+        int to = (int) Math.min((long) from + safeSize, all.size());
         Map<String, Object> response = new HashMap<>();
         response.put("items", all.subList(from, to));
         response.put("total", all.size());

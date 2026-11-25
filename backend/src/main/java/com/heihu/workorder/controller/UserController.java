@@ -107,11 +107,15 @@ public class UserController {
     @GetMapping("/export")
     public void exportUsers(
             @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(defaultValue = "true") boolean includePasswordHash,
             HttpServletResponse response
     ) throws IOException {
         AuthenticatedUser currentUser = tokenService.requireAdmin(authorization);
-        String csv = userService.exportUsersCsv(currentUser.getFactoryId());
+        String csv = userService.exportUsersCsv(currentUser.getFactoryId(), includePasswordHash);
         response.setContentType("text/csv; charset=UTF-8");
+        // The explicit backup may contain password hashes; never let an intermediary cache it.
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("X-Content-Type-Options", "nosniff");
         response.setHeader("Content-Disposition", "attachment; filename=users_export.csv");
         response.getOutputStream().write(new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF});
         response.getOutputStream().write(csv.getBytes(StandardCharsets.UTF_8));

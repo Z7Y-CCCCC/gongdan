@@ -1,10 +1,10 @@
 <template>
-  <view class="container">
+  <view class="container" role="main" aria-label="工序报工">
     <!-- 顶部状态摘要 -->
     <view class="summary-card">
       <view class="step-header">
         <view class="step-num">{{ processNo }}</view>
-        <text class="step-name">{{ processName }}</text>
+        <text class="step-name" role="heading" aria-level="1" :aria-label="'报工 · ' + processName">{{ processName }}</text>
         <IconButton icon="closeempty" label="关闭报工" :disabled="loading || uploading" @click="handleClose" />
       </view>
       <view v-if="!reporterLoading && !loadError" class="data-grid">
@@ -26,6 +26,7 @@
     <!-- 表单主体 -->
     <view v-if="loadError" class="form-message form-error" role="alert"><text>{{ loadError }}</text><IconButton icon="refreshempty" label="重试报工信息" :busy="reporterLoading" @click="loadReportContext" /></view>
     <view v-else-if="isCorrection" class="form-message">重报需审批，原记录保留。</view>
+    <view v-if="submitError" ref="submitErrorSummary" class="form-message form-error" role="alert" tabindex="-1"><text>{{ submitError }}</text></view>
     <view class="form-list">
       <!-- 生产人员 -->
       <button class="form-item reporter-select" aria-label="选择生产人员" :disabled="loading || reporterLoading || !!loadError" @click="showReporterPicker = true">
@@ -208,6 +209,10 @@ function safeDecode(value: string) {
     return value
   }
 }
+function numericRouteId(value: string) {
+  const number = /^\d+$/.test(value) ? Number(value) : NaN
+  return Number.isSafeInteger(number) && number > 0 ? number : 0
+}
 
 function applyRouteOptions(options: Record<string, any> = {}) {
   paramOrderId = String(options.orderId || '')
@@ -251,6 +256,15 @@ const loading = ref(false)
 const uploading = ref(false)
 const reporterLoading = ref(true)
 const loadError = ref('')
+const submitError = ref('')
+const submitErrorSummary = ref<any>(null)
+async function showSubmitError(message: string) {
+  const canFocus = pageActivity.capture()
+  submitError.value = message
+  await nextTick()
+  const element = submitErrorSummary.value?.$el || submitErrorSummary.value
+  if (canFocus() && typeof document !== 'undefined') element?.focus()
+}
 const showReporterPicker = ref(false)
 const pickerDialog = ref<any>(null)
 let pickerReturnFocus: HTMLElement | null = null
@@ -327,13 +341,13 @@ onMounted(async () => {
     applyRouteOptions(readH5RouteOptions())
   }
 
-  processNo.value = parseInt(paramProcessNo) || 1
+  processNo.value = numericRouteId(paramProcessNo)
   processName.value = paramProcessName
   plannedQty.value = parseInt(paramPlannedQty) || 0
   completedQty.value = parseInt(paramCompletedQty) || 0
   defectQtyDisplay.value = parseInt(paramDefectQty) || 0
 
-  form.workOrderId = parseInt(paramOrderId) || 0
+  form.workOrderId = numericRouteId(paramOrderId)
   form.processSequenceNo = processNo.value
   form.processName = processName.value
 
@@ -362,7 +376,7 @@ async function loadReportContext() {
   const user = uni.getStorageSync('user')
   reporterLoading.value = true
   loadError.value = ''
-  if (ensureLogin() && Number.isSafeInteger(form.workOrderId) && form.workOrderId > 0) {
+  if (ensureLogin() && Number.isSafeInteger(form.workOrderId) && form.workOrderId > 0 && Number.isSafeInteger(form.processSequenceNo) && form.processSequenceNo > 0) {
     try {
       const [order, users] = await Promise.all([
         fetchWorkOrder(form.workOrderId),
@@ -396,8 +410,10 @@ async function loadReportContext() {
           image.previewPath = previewPath
         } catch (e: any) {
           if (!current()) return
-          uploadedImages.value = uploadedImages.value.filter(item => item.id !== image.id)
-          uni.showToast({ title: e.message || '草稿图片已失效，请重新上传', icon: 'none' })
+          // A temporary download failure must not silently remove a saved
+          // attachment. Keep the draft and verified reporter; retry explicitly.
+          loadError.value = e.message || '图片暂时无法加载，请重试'
+          return
         }
       }
     } catch (e: any) {
@@ -414,13 +430,14 @@ async function loadReportContext() {
       }
     }
   } else {
-    loadError.value = '缺少工单信息，请返回重试'
+    loadError.value = '工单或工序编号无效，请返回重试'
     reporterLoading.value = false
   }
 }
 
 const { clearDraft: clearReportDraft } = usePageDraft({
-  key: () => `gongdan:draft:report:${paramOrderId || form.workOrderId}:${paramProcessNo || form.processSequenceNo}`,
+  key: () => numericRouteId(paramOrderId || String(form.workOrderId)) && numericRouteId(paramProcessNo || String(form.processSequenceNo))
+    ? `gongdan:draft:report:${paramOrderId || form.workOrderId}:${paramProcessNo || form.processSequenceNo}` : '',
   source: () => ({
     form: { ...form },
     durationHours: durationHours.value,
@@ -531,6 +548,7 @@ function hasCurrentReportContext() {
 
 const handleSubmit = async (isContinue: boolean) => {
   if (!pageAlive || loading.value || reporterLoading.value || loadError.value) return
+  submitError.value = ''
   if (uploading.value) {
     uni.showToast({ title: '请等待图片上传完成', icon: 'none' })
     return
@@ -547,6 +565,7 @@ const handleSubmit = async (isContinue: boolean) => {
   }
   const error = validateReportValues(form, durationHours.value, durationMinutes.value)
   if (error) {
+    void showSubmitError(error)
     uni.showToast({ title: error, icon: 'none' })
     return
   }
@@ -609,6 +628,7 @@ const handleSubmit = async (isContinue: boolean) => {
   } catch (e: any) {
     hideSubmitLoading()
     if (!current()) return
+    void showSubmitError(e.message || '提交失败，请重试')
     uni.showToast({ title: e.message || '提交失败', icon: 'none' })
   } finally {
     hideSubmitLoading()
@@ -628,18 +648,18 @@ const handleClose = () => {
 </script>
 
 <style scoped>
-.form-message { margin: 20rpx; padding: 20rpx; background: #e6f7f3; color: #007c63; font-size: 26rpx; }
-.form-error { background: #fff1f0; color: #a0332c; }
+.form-message { margin: 20rpx; padding: 20rpx; background: var(--mobile-subtle, #e6f7f3); color: var(--mobile-link, #007c63); font-size: 26rpx; }
+.form-error { background: var(--mobile-error-bg, #fff1f0); color: var(--mobile-error, #a0332c); }
 .container {
-  background: #f6f7f7;
+  background: var(--mobile-bg, #f6f7f7);
   min-height: 100vh;
   padding-bottom: 150rpx;
 }
 
 .summary-card {
-  background: white;
+  background: var(--mobile-surface, white);
   padding: 30rpx;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--mobile-border, #f0f0f0);
 }
 
 .step-header {
@@ -661,7 +681,7 @@ const handleClose = () => {
   margin-right: 15rpx;
 }
 
-.step-name { font-size: 32rpx; font-weight: bold; flex: 1; }
+.step-name { font-size: 32rpx; font-weight: bold; flex: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
 
 .close-icon {
   width: 40rpx;
@@ -669,7 +689,7 @@ const handleClose = () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  color: #ccc;
+  color: var(--mobile-muted, #64756d);
   font-size: 28rpx;
 }
 
@@ -679,13 +699,13 @@ const handleClose = () => {
 }
 
 .data-item { display: flex; flex-direction: column; }
-.dl { font-size: 22rpx; color: #64756d; margin-bottom: 8rpx; }
+.dl { font-size: 22rpx; color: var(--mobile-muted, #64756d); margin-bottom: 8rpx; }
 .dv { font-size: 28rpx; font-weight: bold; }
-.dv.green { color: #00856b; }
-.dv.red { color: #ff4d4f; }
+.dv.green { color: var(--mobile-link, #00856b); }
+.dv.red { color: var(--mobile-error, #b53b3b); }
 
 .form-list {
-  background: white;
+  background: var(--mobile-surface, white);
   margin-top: 20rpx;
 }
 
@@ -694,50 +714,52 @@ const handleClose = () => {
   justify-content: space-between;
   align-items: center;
   padding: 30rpx;
-  border-bottom: 1px solid #f8f8f8;
+  border-bottom: 1px solid var(--mobile-border, #f8f8f8);
 }
-.reporter-select { width: 100%; text-align: left; background: #fff; border-radius: 0; }
+.reporter-select { width: 100%; text-align: left; background: var(--mobile-surface, #fff); border-radius: 0; }
 .field-reveal-enter-active, .field-reveal-leave-active { transition: opacity 180ms ease, transform 180ms ease; }
 .field-reveal-enter-from, .field-reveal-leave-to { opacity: 0; transform: translateY(-8rpx); }
 
 .form-item-textarea {
   padding: 30rpx;
-  border-bottom: 1px solid #f8f8f8;
+  border-bottom: 1px solid var(--mobile-border, #f8f8f8);
 }
 
-.label { font-size: 28rpx; color: #333; }
-.required { color: #ff4d4f; margin-right: 4rpx; }
+.label { font-size: 28rpx; color: var(--mobile-text, #333); }
+.required { color: var(--mobile-error, #b53b3b); margin-right: 4rpx; }
 
-.value-row { display: flex; align-items: center; }
-.placeholder { color: #ccc; font-size: 28rpx; }
+.value-row { display: flex; align-items: center; justify-content: flex-end; flex: 1; min-width: 0; flex-wrap: wrap; row-gap: 12rpx; }
+.form-item > .label { flex: 0 0 auto; min-width: 110rpx; }
+.step-num { flex-shrink: 0; }
+.placeholder { color: var(--mobile-muted, #64756d); font-size: 28rpx; }
 .num-input {
   text-align: right;
   width: 180rpx;
   height: 58rpx;
   padding: 0 16rpx;
   font-size: 28rpx;
-  background: #f7f9f8;
-  border: 1rpx solid #dfe5e3;
+  background: var(--mobile-bg, #f7f9f8);
+  border: 1rpx solid var(--mobile-border, #dfe5e3);
   border-radius: 8rpx;
   box-sizing: border-box;
 }
-.red-text { color: #ff4d4f; }
-.text-input { width: 260rpx; height: 58rpx; text-align: right; font-size: 26rpx; color: #202926; }
-.unit { font-size: 26rpx; color: #666; margin-left: 10rpx; }
-.arrow { font-size: 32rpx; color: #ccc; margin-left: 10rpx; }
+.red-text { color: var(--mobile-error, #b53b3b); }
+.text-input { width: 260rpx; height: 58rpx; text-align: right; font-size: 26rpx; color: var(--mobile-text, #202926); }
+.unit { font-size: 26rpx; color: var(--mobile-muted, #666); margin-left: 10rpx; min-width: 0; max-width: 176rpx; overflow-wrap: anywhere; text-align: right; }
+.arrow { font-size: 32rpx; color: var(--mobile-muted, #64756d); margin-left: 10rpx; }
 
-.mini-input { width: 88rpx; min-width: 44px; height: 88rpx; text-align: center; font-size: 28rpx; background: #f7f9f8; border: 1rpx solid #dfe5e3; border-radius: 8rpx; }
-.unit-s { font-size: 24rpx; color: #64756d; margin: 0 10rpx; }
+.mini-input { width: 88rpx; min-width: 44px; height: 88rpx; text-align: center; font-size: 28rpx; background: var(--mobile-bg, #f7f9f8); border: 1rpx solid var(--mobile-border, #dfe5e3); border-radius: 8rpx; }
+.unit-s { font-size: 24rpx; color: var(--mobile-muted, #64756d); margin: 0 10rpx; }
 
 .textarea-input {
   width: 100%;
   min-height: 100rpx;
   font-size: 28rpx;
-  color: #333;
+  color: var(--mobile-text, #333);
   margin-top: 16rpx;
   padding: 16rpx;
   box-sizing: border-box;
-  background: #f9f9f9;
+  background: var(--mobile-bg, #f9f9f9);
   border-radius: 8rpx;
 }
 
@@ -745,17 +767,17 @@ const handleClose = () => {
   display: flex;
   padding: 30rpx;
   align-items: center;
-  border-bottom: 1px solid #f8f8f8;
+  border-bottom: 1px solid var(--mobile-border, #f8f8f8);
 }
 
 .time-item { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.datetime-input { display: block; width: 100%; min-width: 0; height: 72rpx; font-size: 23rpx; color: #202926; }
-.tl { font-size: 22rpx; color: #64756d; margin-bottom: 8rpx; }
-.tv { font-size: 28rpx; color: #333; }
+.datetime-input { display: block; width: 100%; min-width: 0; height: 72rpx; font-size: 23rpx; color: var(--mobile-text, #202926); }
+.tl { font-size: 22rpx; color: var(--mobile-muted, #64756d); margin-bottom: 8rpx; }
+.tv { font-size: 28rpx; color: var(--mobile-text, #333); }
 .time-divider {
   width: 40rpx;
   height: 60rpx;
-  border-left: 1px solid #eee;
+  border-left: 1px solid var(--mobile-border, #eee);
   margin: 0 20rpx;
 }
 
@@ -796,8 +818,8 @@ const handleClose = () => {
 .add-box {
   width: 120rpx;
   height: 120rpx;
-  background: #f9f9f9;
-  border: 1px dashed #ddd;
+  background: var(--mobile-bg, #f9f9f9);
+  border: 1px dashed var(--mobile-border, #ddd);
   border-radius: 8rpx;
   display: flex;
   justify-content: center;
@@ -813,7 +835,7 @@ const handleClose = () => {
   left: 0;
   right: 0;
   z-index: 20;
-  background: white;
+  background: var(--mobile-surface, white);
   padding: 20rpx 40rpx;
   display: flex;
   padding-bottom: env(safe-area-inset-bottom);
@@ -833,7 +855,7 @@ const handleClose = () => {
   margin: 0 10rpx;
 }
 
-.btn.outline { border: 1px solid #00b889; color: #00856b; }
+.btn.outline { border: 1px solid #00b889; color: var(--mobile-link, #00856b); }
 .btn.solid { background: #00856b; color: white; }
 .btn[disabled] { opacity: 0.6; }
 
@@ -851,7 +873,7 @@ const handleClose = () => {
 }
 
 .picker-content {
-  background: white;
+  background: var(--mobile-surface, white);
   width: 100%;
   max-height: 60vh;
   border-radius: 24rpx 24rpx 0 0;
@@ -863,11 +885,11 @@ const handleClose = () => {
   justify-content: space-between;
   align-items: center;
   padding: 30rpx;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--mobile-border, #f0f0f0);
 }
 
 .picker-title { font-size: 32rpx; font-weight: bold; }
-.picker-close { font-size: 32rpx; color: #64756d; padding: 0 10rpx; }
+.picker-close { font-size: 32rpx; color: var(--mobile-muted, #64756d); padding: 0 10rpx; }
 
 .picker-list {
   max-height: calc(60vh - 160rpx);
@@ -879,30 +901,30 @@ const handleClose = () => {
   display: flex;
   align-items: center;
   padding: 30rpx 0;
-  border-bottom: 1px solid #f8f8f8;
+  border-bottom: 1px solid var(--mobile-border, #f8f8f8);
   font-size: 30rpx;
 }
 
 .picker-item.selected {
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
 }
 
 .picker-sub {
   font-size: 24rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   margin-left: 20rpx;
 }
 
 .picker-check {
   margin-left: auto;
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
   font-weight: bold;
 }
 
 .picker-empty {
   text-align: center;
   padding: 60rpx 0;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   font-size: 28rpx;
 }
 </style>

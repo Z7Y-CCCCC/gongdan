@@ -25,6 +25,7 @@ function fixture(external = emptyExternal) {
         healthcheck: { test: ['CMD-SHELL', 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping | grep PONG'] },
       },
       backend: { environment: {
+        APP_NETWORK_TRUSTED_PROXIES: '', APP_UREPORT_COOKIE_SECURE: 'false',
         SPRING_REDIS_PASSWORD: '', APP_PLUGIN_ALLOWED_FRONTEND_ORIGINS: 'https://plugin.example.invalid', ...external,
       } },
       frontend: { build: { dockerfile: 'deploy/docker/Dockerfile', args: {
@@ -43,6 +44,19 @@ function validate(config, flag = '--external-data-defaults') {
 test('accepts explicit deny-by-default external source configuration', () => {
   const result = validate(fixture())
   assert.equal(result.status, 0, result.stderr)
+})
+
+for (const name of ['APP_NETWORK_TRUSTED_PROXIES', 'APP_UREPORT_COOKIE_SECURE']) {
+  test(`rejects omitted ${name}`, () => {
+    const config = fixture()
+    delete config.services.backend.environment[name]
+    assert.notEqual(validate(config).status, 0)
+  })
+}
+test('rejects a nonboolean report TLS flag without treating a forwarding header as policy', () => {
+  const config = fixture()
+  config.services.backend.environment.APP_UREPORT_COOKIE_SECURE = 'https'
+  assert.notEqual(validate(config).status, 0)
 })
 
 test('accepts unchanged configured external source variables without printing credentials', () => {

@@ -1,10 +1,10 @@
 <template>
-  <view class="container">
+  <view class="container" role="main" aria-label="生产看板">
     <view class="ui-page-head board-head">
-      <text class="title">看板</text>
+      <text class="title" role="heading" aria-level="1">看板</text>
       <IconButton icon="refreshempty" label="刷新看板" :busy="loading" @click="loadBoard" />
     </view>
-    <view v-if="errorMessage" class="empty">
+    <view v-if="errorMessage" class="empty" role="alert">
       <text>{{ errorMessage }}</text>
       <IconButton icon="refreshempty" label="重试看板" @click="loadBoard" />
     </view>
@@ -137,7 +137,7 @@ onShow(loadBoard)
 
 <style scoped>
 .container {
-  background: #f6f7f7;
+  background: var(--mobile-bg, #f6f7f7);
   min-height: 100vh;
   padding: 24rpx 24rpx 140rpx;
   box-sizing: border-box;
@@ -146,7 +146,7 @@ onShow(loadBoard)
 
 .summary-card,
 .section {
-  background: #fff;
+  background: var(--mobile-surface, #fff);
   border-radius: 16rpx;
   padding: 28rpx;
   margin-bottom: 24rpx;
@@ -165,7 +165,7 @@ onShow(loadBoard)
   display: block;
   font-size: 34rpx;
   font-weight: bold;
-  color: #202926;
+  color: var(--mobile-text, #202926);
 }
 
 .subtitle,
@@ -174,14 +174,14 @@ onShow(loadBoard)
 .stat-label {
   display: block;
   font-size: 24rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
 }
 
 .tag {
   padding: 8rpx 18rpx;
   border-radius: 999rpx;
-  background: #e6f7f3;
-  color: #00856b;
+  background: var(--mobile-subtle, #e6f7f3);
+  color: var(--mobile-link, #00856b);
   font-size: 22rpx;
 }
 
@@ -195,14 +195,14 @@ onShow(loadBoard)
   font-size: 76rpx;
   line-height: 1;
   font-weight: bold;
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
 }
 
 .gauge-label {
   display: block;
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
 }
 
 .stat-grid {
@@ -212,7 +212,7 @@ onShow(loadBoard)
 }
 
 .stat-item {
-  background: #f7faf9;
+  background: var(--mobile-bg, #f7faf9);
   border-radius: 12rpx;
   padding: 20rpx 12rpx;
   text-align: center;
@@ -222,35 +222,35 @@ onShow(loadBoard)
   display: block;
   font-size: 36rpx;
   font-weight: bold;
-  color: #202926;
+  color: var(--mobile-text, #202926);
 }
 
-.stat-value.green { color: #00856b; }
-.stat-value.orange { color: #fa8c16; }
+.stat-value.green { color: var(--mobile-link, #00856b); }
+.stat-value.orange { color: var(--mobile-warning, #8b5908); }
 
 .section-title {
   font-size: 30rpx;
   font-weight: bold;
-  color: #202926;
+  color: var(--mobile-text, #202926);
 }
 
 .order-card {
   margin-top: 24rpx;
   padding-top: 22rpx;
-  border-top: 1px solid #f0f2f2;
+  border-top: 1px solid var(--mobile-border, #f0f2f2);
 }
 
 .order-code {
   font-size: 28rpx;
   font-weight: bold;
-  color: #202926;
+  color: var(--mobile-text, #202926);
 }
 
 .order-status {
   padding: 6rpx 14rpx;
   border-radius: 999rpx;
-  background: #e6f7f3;
-  color: #00856b;
+  background: var(--mobile-subtle, #e6f7f3);
+  color: var(--mobile-link, #00856b);
   font-size: 22rpx;
 }
 
@@ -264,7 +264,7 @@ onShow(loadBoard)
 .rank-bar {
   flex: 1;
   height: 12rpx;
-  background: #edf1f0;
+  background: var(--mobile-bg, #edf1f0);
   border-radius: 999rpx;
   overflow: hidden;
 }
@@ -280,7 +280,7 @@ onShow(loadBoard)
   min-width: 72rpx;
   text-align: right;
   font-size: 24rpx;
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
   font-weight: bold;
 }
 
@@ -289,15 +289,15 @@ onShow(loadBoard)
   align-items: center;
   gap: 18rpx;
   padding: 24rpx 0;
-  border-top: 1px solid #f0f2f2;
+  border-top: 1px solid var(--mobile-border, #f0f2f2);
 }
 
 .rank-no {
   width: 36rpx;
   height: 36rpx;
   border-radius: 50%;
-  background: #f1f3f3;
-  color: #6f7b78;
+  background: var(--mobile-subtle, #f1f3f3);
+  color: var(--mobile-muted, #64756d);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -313,7 +313,7 @@ onShow(loadBoard)
   display: block;
   margin-bottom: 12rpx;
   font-size: 26rpx;
-  color: #202926;
+  color: var(--mobile-text, #202926);
 }
 
 .rank-value {
@@ -321,20 +321,20 @@ onShow(loadBoard)
   text-align: right;
   font-size: 26rpx;
   font-weight: bold;
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
 }
 
 .empty,
 .loading-hint {
   text-align: center;
   padding: 48rpx 0;
-  color: #99a3a0;
+  color: var(--mobile-muted, #64756d);
   font-size: 26rpx;
 }
 
 .retry-btn {
   margin-top: 20rpx;
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
   font-size: 26rpx;
 }
 </style>

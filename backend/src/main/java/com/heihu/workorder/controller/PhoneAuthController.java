@@ -7,6 +7,8 @@ import com.heihu.workorder.dto.SelectFactoryRequest;
 import com.heihu.workorder.dto.SmsSendRequest;
 import com.heihu.workorder.service.PhoneAuthService;
 import com.heihu.workorder.service.SmsService;
+import com.heihu.workorder.util.ClientIpResolver;
+import org.springframework.beans.factory.annotation.Autowired;
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,6 +22,7 @@ public class PhoneAuthController {
 
     private final PhoneAuthService phoneAuthService;
     private final SmsService smsService;
+    @Autowired private ClientIpResolver clientIpResolver = new ClientIpResolver("");
 
     public PhoneAuthController(PhoneAuthService phoneAuthService, SmsService smsService) {
         this.phoneAuthService = phoneAuthService;
@@ -53,10 +56,6 @@ public class PhoneAuthController {
     }
 
     private String getClientIp(HttpServletRequest request) {
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            return xForwardedFor.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
+        return clientIpResolver.getClientIp(request);
     }
 }

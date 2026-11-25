@@ -5,8 +5,15 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist/build/h5')
+const auditUi = process.argv.includes('--audit-ui')
 const user = { id: 7, username: 'worker', name: '测试工人', role: 'PRODUCTION', roleLabel: '生产人员', departmentName: '装配' }
 const order = { id: 42, code: 'QA-042', productId: 1, productCode: 'P-001', productName: '测试产品', unitName: '件', plannedQuantity: 100, goodQuantity: 10, defectQuantity: 1, status: 'IN_PROGRESS', priority: 'NORMAL', progressPercent: 10, tasks: [{ sequenceNo: 1, processName: '装配', plannedQuantity: 100, completedQuantity: 10, defectQuantity: 1, reportPermission: '装配', enabled: true }] }
+if (auditUi) {
+  order.productName = '长产品名称 ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(4) + ' <span data-audit-literal="1">示例文字</span>'
+  order.unitName = '长计量单位' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(2)
+  order.tasks[0].processName = '长工序名称 ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(3)
+  order.remark = '备注 <span data-audit-literal="2">示例文字</span> ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(4)
+}
 const orders = process.argv.includes('--seed-orders')
   ? Array.from({ length: 42 }, (_, index) => ({
     ...order, id: 42 - index, code: `QA-${String(42 - index).padStart(3, '0')}`,
@@ -35,7 +42,21 @@ if (process.argv.includes('--seed-reports')) reports.push(...Array.from({ length
 const images = new Map()
 let imageUploadCount = 0
 let fieldWriteCount = 0
+let logoutCount = 0
 const fieldEvents = []
+if (auditUi) {
+  const body = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
+  for (const [index, report] of reports.slice(0, 2).entries()) {
+    const id = 9001 + index
+    const metadata = { id, originalFileName: 'audit-pixel.png', fileSize: body.length, contentType: 'image/png', accessPath: `/api/mobile/reports/images/${id}/file` }
+    images.set(id, { metadata, body })
+    report.images = [metadata]
+    report.processName = order.tasks[0].processName
+    report.remark = order.remark
+    if (index === 1) report.status = 'APPROVED'
+  }
+  fieldEvents.push({ id: 9999, moduleName: 'FIELD_EVENT', title: '现场事件 ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(4), status: 'OPEN', payloadJson: JSON.stringify({ eventType: '异常', station: '工位-' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(3), description: order.remark }), createdAt: localTimestamp() })
+}
 const requests = []
 const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' }
 function send(res, status, value) {
@@ -69,9 +90,10 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://fixture.invalid')
   if (url.pathname.startsWith('/api/')) {
     requests.push({ method: req.method, path: url.pathname, query: url.search })
-    if (url.pathname === '/api/fixture-state') return send(res, 200, { writeCount, fieldWriteCount, imageUploadCount, requests })
+    if (url.pathname === '/api/fixture-state') return send(res, 200, { writeCount, fieldWriteCount, imageUploadCount, logoutCount, requests })
     if (req.method === 'POST' && url.pathname === '/api/mobile/auth/password-login') return send(res, 200, { token: 'browser-fixture-token', user })
     if (req.headers.authorization !== 'Bearer browser-fixture-token') return send(res, 401, { message: '请登录测试账号' })
+    if (url.pathname === '/api/auth/logout' && req.method === 'POST') { logoutCount++; res.writeHead(204, { 'Cache-Control': 'no-store' }); res.end(); return }
     if (url.pathname === '/api/mobile/dashboard') return send(res, 200, dashboard(url.searchParams.get('day') || ''))
     if (url.pathname === '/api/mobile/work-orders') {
       const keyword = (url.searchParams.get('keyword') || '').toLowerCase()

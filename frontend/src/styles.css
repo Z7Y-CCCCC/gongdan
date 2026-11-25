@@ -7028,3 +7028,10 @@ button:focus-visible, [role="button"]:focus-visible, [role="tab"]:focus-visible 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.user-dropdown:has(.signout-error) { width: min(300px, calc(100vw - 24px)); box-sizing: border-box; }
+.signout-error { margin: 8px 10px; color: var(--status-danger-text, #a53c3c); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.user-dropdown button:disabled { opacity: .55; cursor: wait; }
+.kicked-session-button:focus-visible { outline: 3px solid var(--text-primary, #1e2724); outline-offset: 3px; }
+.export-scope-note { flex: 1 1 100%; order: 20; max-width: 100%; color: var(--text-secondary, #586360); font-size: 12px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.export-error { flex: 1 1 100%; order: 21; max-width: 100%; margin: 0; padding: 6px 8px; color: var(--status-danger-text, #a53c3c); background: var(--status-danger-bg, #fff5f4); border-radius: 4px; font-size: 13px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }

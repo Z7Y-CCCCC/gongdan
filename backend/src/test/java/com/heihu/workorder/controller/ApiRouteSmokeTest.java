@@ -34,7 +34,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 @ActiveProfiles("test")
 class ApiRouteSmokeTest {
 
-    private static final int EXPECTED_ROUTE_METHODS = 191;
+    // Includes the explicitly added, idempotent POST /api/auth/logout.
+    private static final int EXPECTED_ROUTE_METHODS = 192;
 
     @Autowired
     private MockMvc mockMvc;
@@ -139,7 +140,7 @@ class ApiRouteSmokeTest {
 
     private String tokenFor(String pattern) {
         if (pattern.startsWith("/api/auth/") || pattern.startsWith("/api/mobile/auth/")) return null;
-        if (pattern.startsWith("/api/super-admin/")) return superAdminToken;
+        if (pattern.startsWith("/api/super-admin/") || pattern.startsWith("/api/ureport/")) return superAdminToken;
         return adminToken;
     }
 

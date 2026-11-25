@@ -20,11 +20,19 @@ function token() {
 let expiryRedirectTimer: ReturnType<typeof setTimeout> | undefined
 
 export function saveSession(result: Pick<MobileAuthResult, 'token' | 'user'>) {
-  if (!result.token || !result.user) throw new Error('登录响应不完整，请重试')
+  if (typeof result.token !== 'string' || !result.token || result.token !== result.token.trim() || /[\r\n]/.test(result.token)
+    || !result.user || !Number.isSafeInteger(result.user.id) || result.user.id <= 0) throw new Error('登录响应不完整，请重试')
   if (expiryRedirectTimer) clearTimeout(expiryRedirectTimer)
   expiryRedirectTimer = undefined
-  uni.setStorageSync('token', result.token)
-  uni.setStorageSync('user', result.user)
+  try {
+    uni.setStorageSync('token', result.token)
+    uni.setStorageSync('user', result.user)
+  } catch {
+    // Do not persist a new bearer token alongside the previous account if the
+    // second synchronous storage write fails. The existing error path retries.
+    for (const key of ['token', 'user']) { try { uni.removeStorageSync(key) } catch { /* storage may be unavailable */ } }
+    throw new Error('登录状态保存失败，请检查可用存储空间后重试')
+  }
 }
 
 export function clearSession() {
@@ -71,7 +79,7 @@ function responseError(status: number, data: any, requestToken: string, fallback
       }, 1500)
     }
   }
-  return new Error(message)
+  return Object.assign(new Error(message), { status })
 }
 
 export function request<T>(path: string, options: { method?: 'GET' | 'POST' | 'PUT' | 'DELETE'; data?: any; header?: Record<string, string>; auth?: boolean } = {}): Promise<T> {
@@ -124,6 +132,10 @@ export function passwordLogin(payload: { factoryCode: string; username: string; 
   return request<{ token: string; user: UserInfo }>('/mobile/auth/password-login', { method: 'POST', data: payload, auth: false })
 }
 
+export function logoutSession() {
+  return request<void>('/auth/logout', { method: 'POST' })
+}
+
 function queryString(params: Record<string, string | number | boolean | undefined>) {
   return Object.entries(params).filter(([, value]) => value !== undefined && value !== '')
     .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&')
@@ -165,16 +177,26 @@ export async function fetchDashboard(day: string): Promise<MobileDashboard> {
   return validateMobileDashboard(result)
 }
 
-export function fetchWorkOrder(id: number | string) {
-  return request<WorkOrderInfo>(`/mobile/work-orders/${id}`)
+function positiveResourceId(value: number | string, label: string) {
+  const number = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : NaN
+  if (!Number.isSafeInteger(number) || number <= 0) throw new Error(`${label}无效`)
+  return number
+}
+
+export async function fetchWorkOrder(id: number | string) {
+  // Deep-link text is untrusted. Never let a slash/dot segment change the
+  // authenticated endpoint before the server gets a chance to authorize it.
+  return request<WorkOrderInfo>(`/mobile/work-orders/${positiveResourceId(id, '工单编号')}`)
 }
 
 export function fetchWorkOrderByCode(code: string) {
   return request<WorkOrderInfo>(`/mobile/work-orders/by-code/${encodeURIComponent(code)}`)
 }
 
-export function fetchWorkOrderReporters(workOrderId: number | string, processSequenceNo: number) {
-  return request<Array<{ id: number; name: string; username: string; departmentName?: string }>>(`/mobile/work-orders/${workOrderId}/reporters?processSequenceNo=${processSequenceNo}`)
+export async function fetchWorkOrderReporters(workOrderId: number | string, processSequenceNo: number) {
+  const id = positiveResourceId(workOrderId, '工单编号')
+  const sequence = positiveResourceId(processSequenceNo, '工序编号')
+  return request<Array<{ id: number; name: string; username: string; departmentName?: string }>>(`/mobile/work-orders/${id}/reporters?processSequenceNo=${sequence}`)
 }
 
 export function uploadReportImage(filePath: string): Promise<ReportImage> {
@@ -213,6 +235,8 @@ export function uploadReportImage(filePath: string): Promise<ReportImage> {
 }
 
 export function downloadReportImage(imageId: number): Promise<string> {
+  try { positiveResourceId(imageId, '照片编号') }
+  catch (error) { return Promise.reject(error) }
   const requestToken = token()
   return new Promise((resolve, reject) => {
     uni.downloadFile({
@@ -221,9 +245,15 @@ export function downloadReportImage(imageId: number): Promise<string> {
       header: requestToken ? { Authorization: `Bearer ${requestToken}` } : {},
       success: (res) => {
         if (res.statusCode === 200 && token() === requestToken && typeof res.tempFilePath === 'string' && res.tempFilePath) resolve(res.tempFilePath)
-        else reject(responseError(res.statusCode, undefined, requestToken, '图片已失效或无法加载，请重新上传'))
+        else {
+          // H5 creates a Blob URL before this callback. Discarding an old
+          // session/error download must release it; native paths are untouched.
+          if (typeof res.tempFilePath === 'string' && res.tempFilePath.startsWith('blob:')
+            && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(res.tempFilePath)
+          reject(responseError(res.statusCode, undefined, requestToken, '图片暂时无法加载，请重试'))
+        }
       },
-      fail: () => reject(new Error('图片加载失败，请重新上传'))
+      fail: () => reject(new Error('图片暂时无法加载，请重试'))
     })
   })
 }

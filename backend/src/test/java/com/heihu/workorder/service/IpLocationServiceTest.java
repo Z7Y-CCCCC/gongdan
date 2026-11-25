@@ -33,18 +33,18 @@ class IpLocationServiceTest {
 
     @Test
     void testClientIpExtractionFromHeaders() {
-        // 1. CF-Connecting-IP 优先
+        // Unconfigured peers cannot replace the socket address using proxy headers.
         MockHttpServletRequest request1 = new MockHttpServletRequest();
         request1.addHeader("CF-Connecting-IP", "103.151.173.206");
         request1.addHeader("X-Forwarded-For", "172.18.0.1, 10.0.0.2");
         request1.setRemoteAddr("172.18.0.8");
-        assertEquals("103.151.173.206", IpAddressUtils.getClientIp(request1));
+        assertEquals("172.18.0.8", IpAddressUtils.getClientIp(request1));
 
-        // 2. X-Forwarded-For 挑选公网 IP
+        // Explicitly configured proxies permit the nearest untrusted XFF client.
         MockHttpServletRequest request2 = new MockHttpServletRequest();
         request2.addHeader("X-Forwarded-For", "103.151.173.206, 172.18.0.8");
         request2.setRemoteAddr("172.18.0.8");
-        assertEquals("103.151.173.206", IpAddressUtils.getClientIp(request2));
+        assertEquals("103.151.173.206", IpAddressUtils.getClientIp(request2, "172.18.0.8"));
 
         // 3. 回环地址自动格式化为 127.0.0.1
         MockHttpServletRequest request3 = new MockHttpServletRequest();

@@ -1,0 +1,49 @@
+{
+  "upstreamPackage": "@vue/shared",
+  "upstreamVersion": "3.4.34",
+  "tarballUrl": "https://registry.npmjs.org/@vue/shared/-/shared-3.4.34.tgz",
+  "tarballIntegrity": "sha512-x5LmiRLpRsd9KTjAB8MPKf0CDPMcuItjP0gbNqFCIgL1I8iYp4zglhj9w9FPCdIbHG2M91RVeIbArFfFTz9I3A==",
+  "tarballSha256": "6549508abbf0c053e2005c70a37a6c946a1c7ff2cda646267bcdfaa3a9f70474",
+  "advisoryUrl": "https://github.com/vuejs/core/security/advisories/GHSA-g2v6-rqmx-r4w6",
+  "officialFixCommit": "a2b40db9a83b36ed9da3a16403cf8f040262d73f",
+  "officialFixUrl": "https://github.com/vuejs/core/commit/a2b40db9a83b36ed9da3a16403cf8f040262d73f",
+  "officialFixedVersions": [
+    "3.5.42",
+    "3.6.0-rc.6"
+  ],
+  "localName": "@gongdan/uni-vue-shared",
+  "localVersion": "3.4.34-gongdan.1",
+  "scope": "Compatibility source backport, not an upstream 3.5.42 upgrade",
+  "upstreamFileSha256": {
+    "LICENSE": "1bb85cc9b13b81ef41c81c51866172fc345e0503c86726a6755b796590b70175",
+    "index.js": "22aeabedc1f2782f67b05c54df4382d4e52a0e0c384ff02349372e2acd9974ed",
+    "dist/shared.cjs.js": "501117d989605dd8a2be57f1416138b9a994840ce77ac61c44f80cace46d91d0",
+    "dist/shared.cjs.prod.js": "cda3233746bbeec4d76af65c788e8407d79ec31761fbd246f5f711b2c26ac3c1",
+    "dist/shared.esm-bundler.js": "56db4c0253ce05ffd3309771c09eff16f614b07a3b1480378c6b56df1da9984f",
+    "package.json": "5ba844e4dbbbcd7e7e7f8ea009d5c1c46b4b9c438bcfe82795dcd574dea2a391",
+    "README.md": "a4be695a372c53520ac6e188605dfbf4163b953907ac1bffe25b775eb38c46ed",
+    "dist/shared.d.ts": "6dcb89623cc070c3b2a29218f99a3501041b3ac3fc4c80ee7083b99ba320a694"
+  },
+  "patches": [
+    {
+      "path": "dist/shared.cjs.js",
+      "kind": "official-add-CR-blacklist",
+      "originalSha256": "501117d989605dd8a2be57f1416138b9a994840ce77ac61c44f80cace46d91d0",
+      "patchedSha256": "71639a3d375e6494e13bec9b3409056c598bc5b1ccf58c6889149415a3265dd9"
+    },
+    {
+      "path": "dist/shared.cjs.prod.js",
+      "kind": "official-add-CR-blacklist",
+      "originalSha256": "cda3233746bbeec4d76af65c788e8407d79ec31761fbd246f5f711b2c26ac3c1",
+      "patchedSha256": "a100719b233d03b05573566c64fba9209db5310bef7d340bfa0ac5dd87398976"
+    },
+    {
+      "path": "dist/shared.esm-bundler.js",
+      "kind": "official-add-CR-blacklist",
+      "originalSha256": "56db4c0253ce05ffd3309771c09eff16f614b07a3b1480378c6b56df1da9984f",
+      "patchedSha256": "8ea8286531eff5b50d8fdff164ac9c54710b1ed0076a88b0e4b2ff99679227f1"
+    }
+  ],
+  "licenseSource": "https://raw.githubusercontent.com/vuejs/core/v3.4.34/LICENSE",
+  "licenseSha256": "49190d1f742dd61e47fe816df4963e5186a2a62100d9122f9883a60ea32973ac"
+}

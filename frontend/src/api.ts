@@ -232,6 +232,13 @@ export function login(payload: LoginPayload) {
   })
 }
 
+/** Revoke this exact server session before clearing the local login. */
+export function logoutSession(token: string, signal?: AbortSignal): Promise<void> {
+  return request<void>('/auth/logout', {
+    method: 'POST', headers: { Authorization: `Bearer ${token}` }, signal
+  })
+}
+
 export function fetchUsers(token: string) {
   return request<UserInfo[]>('/users', {
     headers: {
@@ -482,12 +489,18 @@ export function exportUsersUrl(token: string): string {
   return `${API_BASE}/users/export?_t=${Date.now()}`
 }
 
-export async function exportUsersCsv(token: string): Promise<void> {
-  const blob = await requestBlob('/users/export', {
+export function fetchUsersExportBlob(token: string, includePasswordHash = false): Promise<Blob> {
+  return requestBlob(`/users/export?includePasswordHash=${includePasswordHash ? 'true' : 'false'}`, {
     headers: {
       Authorization: `Bearer ${token}`
     }
   }, '导出失败')
+}
+
+export async function exportUsersCsv(token: string, shouldDownload: () => boolean = () => true): Promise<void> {
+  if (!shouldDownload()) return
+  const blob = await fetchUsersExportBlob(token, true)
+  if (!shouldDownload()) return
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

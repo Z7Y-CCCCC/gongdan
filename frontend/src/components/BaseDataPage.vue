@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { downloadXlsx } from '../utils/spreadsheet'
 import { parseCsvRows } from '../utils/csv'
 import { formatUiDate, t, uiLocale } from '../i18n'
 import { printLabel } from '../utils/printHtml'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch, type Ref } from 'vue'
 import {
   fetchUnits, createUnit, updateUnit, deleteUnit,
   fetchDefects, createDefect, updateDefect, deleteDefect,
@@ -18,6 +19,7 @@ import {
   createSystemImportLog
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import { usePageOperationScope } from '@/composables/usePageOperationScope'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
@@ -40,6 +42,101 @@ const emit = defineEmits<{
 
 const errorMessage = ref('')
 watch(errorMessage, (v) => { if (v) emit('error', v) })
+
+const baseDataOperationBusy = ref(false)
+const importReaders = new Set<FileReader>()
+let menuGeneration = 0
+function invalidateBaseDataOperations() {
+  deleteHandleCancel()
+  deleteLoading.value = false
+  baseDataOperationBusy.value = false
+  for (const reader of importReaders) {
+    reader.onload = null; reader.onerror = null; reader.onabort = null
+    if (reader.readyState === FileReader.LOADING) reader.abort()
+  }
+  importReaders.clear()
+  unitImporting.value = false; defectImporting.value = false
+  processImporting.value = false; routeImporting.value = false
+}
+const tokenOperations = usePageOperationScope(() => props.token, invalidateBaseDataOperations)
+const pageOperations = {
+  capture() {
+    const request = tokenOperations.capture(), menu = props.activeBasedataMenu, generation = menuGeneration
+    return {
+      token: request.token,
+      isCurrent: () => request.isCurrent() && props.activeBasedataMenu === menu && menuGeneration === generation
+    }
+  }
+}
+watch(() => props.activeBasedataMenu, () => { menuGeneration++; invalidateBaseDataOperations() }, { flush: 'sync' })
+type BaseDataOperation = ReturnType<typeof pageOperations.capture>
+const importPickerContexts = new Map<string, BaseDataOperation>()
+
+function captureBaseDataImportPicker(kind: string) {
+  const request = pageOperations.capture()
+  if (!request.isCurrent() || baseDataOperationBusy.value || deleteVisible.value || exporting.value) return false
+  // Keep an invalid old context until its change arrives or an explicit new picker replaces it.
+  importPickerContexts.set(kind, request)
+  return true
+}
+
+function consumeBaseDataImportPicker(kind: string) {
+  const request = importPickerContexts.get(kind) ?? pageOperations.capture()
+  importPickerContexts.delete(kind)
+  return request
+}
+
+function beginBaseDataImport(importing: Ref<boolean>, progress: { total: number; current: number; success: number; fail: number },
+  request = pageOperations.capture()) {
+  if (!request.isCurrent() || baseDataOperationBusy.value || deleteVisible.value || exporting.value) return
+  baseDataOperationBusy.value = true; importing.value = true
+  Object.assign(progress, { total: 0, current: 0, success: 0, fail: 0 })
+  const reader = new FileReader()
+  importReaders.add(reader)
+  const finish = () => {
+    importReaders.delete(reader)
+    if (request.isCurrent()) { importing.value = false; baseDataOperationBusy.value = false }
+  }
+  reader.onerror = () => {
+    if (request.isCurrent()) errorMessage.value = reader.error?.message || '文件读取失败'
+    finish()
+  }
+  reader.onabort = finish
+  return { reader, request, finish }
+}
+
+function readBaseDataImport(file: File, pending: NonNullable<ReturnType<typeof beginBaseDataImport>>) {
+  const onload = pending.reader.onload
+  pending.reader.onload = async event => {
+    try {
+      if (!pending.request.isCurrent()) return
+      await onload?.call(pending.reader, event)
+    } finally { pending.finish() }
+  }
+  try { pending.reader.readAsText(file, 'utf-8') }
+  catch (error) {
+    if (pending.request.isCurrent()) errorMessage.value = error instanceof Error ? error.message : '文件读取失败'
+    pending.finish()
+  }
+}
+
+async function confirmBaseDataDelete(message: string, remove: (token: string) => Promise<void>,
+  done: (request: BaseDataOperation) => void | Promise<void>, fallback: string) {
+  const request = pageOperations.capture()
+  if (!request.isCurrent() || baseDataOperationBusy.value || deleteVisible.value || exporting.value) return
+  const accepted = await deleteConfirm({ message })
+  if (!accepted || !request.isCurrent()) return
+  baseDataOperationBusy.value = true; deleteLoading.value = true
+  try {
+    await remove(request.token)
+    if (!request.isCurrent()) return
+    await done(request)
+  } catch (error) {
+    if (request.isCurrent()) errorMessage.value = error instanceof Error ? error.message : fallback
+  } finally {
+    if (request.isCurrent()) { baseDataOperationBusy.value = false; deleteLoading.value = false; deleteHandleCancel() }
+  }
+}
 
 // 全局 Tooltip
 const tooltipState = reactive({ visible: false, text: '', x: 0, y: 0 })
@@ -103,9 +200,11 @@ const unitFileInput = ref<HTMLInputElement | null>(null)
 const showUnitImportLogs = ref(false)
 const unitImportLogs = ref<any[]>([])
 
-async function refreshUnitImportLogs() {
+async function refreshUnitImportLogs(request = pageOperations.capture()) {
+  if (!request.isCurrent()) return
   try {
-    const res = await fetchSystemImportLogs(props.token, 'UNIT')
+    const res = await fetchSystemImportLogs(request.token, 'UNIT')
+    if (!request.isCurrent()) return
     unitImportLogs.value = res.items.map(item => ({
       id: String(item.id),
       fileName: item.fileName,
@@ -152,9 +251,11 @@ const unitPage = ref(1)
 const unitPageSize = ref(10)
 const unitTotalPages = computed(() => Math.max(1, Math.ceil(unitFilteredList.value.length / unitPageSize.value)))
 
-async function loadUnits() {
+async function loadUnits(request = pageOperations.capture()) {
+  if (!request.isCurrent()) return
   try {
-    const res = await fetchUnits(props.token)
+    const res = await fetchUnits(request.token)
+    if (!request.isCurrent()) return
     units.value = res.items
   } catch (e) { console.error('加载单位失败', e) }
 }
@@ -185,20 +286,13 @@ async function handleSaveUnit() {
   } catch (e: any) { errorMessage.value = e.message || '保存单位失败' }
 }
 async function handleDeleteUnit(unit: UnitInfo) {
-  const confirmed = await deleteConfirm({ message: `确认删除单位「${unit.name}」？` })
-  if (!confirmed) return
-  deleteLoading.value = true
-  try {
-    await deleteUnit(props.token, unit.id)
-    units.value = units.value.filter(u => u.id !== unit.id)
-  } catch (e: any) { errorMessage.value = e.message || '删除单位失败' }
-  finally {
-    deleteLoading.value = false
-    deleteVisible.value = false
-  }
+  const id = unit.id
+  await confirmBaseDataDelete(`确认删除单位「${unit.name}」？`, token => deleteUnit(token, id),
+    () => { units.value = units.value.filter(u => u.id !== id) }, '删除单位失败')
 }
 
-function handleExportUnits() {
+function handleExportUnits(download = true) {
+  if (exporting.value || baseDataOperationBusy.value) return
   if (unitFilteredList.value.length === 0) {
     emit('notice', '当前无单位数据可供导出')
     return
@@ -210,6 +304,10 @@ function handleExportUnits() {
     return `"${name}","${remark}"`
   }).join('\n')
   
+  if (!download) {
+    const matrix: (string | number | boolean | null | undefined)[][] = parseCsvRows(headers + rows, { preserveWhitespace: true })
+    return { name: '单位列表', matrix }
+  }
   const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -218,10 +316,12 @@ function handleExportUnits() {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+  URL.revokeObjectURL(url)
   emit('notice', '导出成功')
 }
 
 function triggerUnitImport() {
+  if (!captureBaseDataImportPicker('unit')) return
   if (unitFileInput.value) {
     unitFileInput.value.value = ''
     unitFileInput.value.click()
@@ -230,14 +330,18 @@ function triggerUnitImport() {
 
 async function handleImportUnits(event: Event) {
   const input = event.target as HTMLInputElement
+  const picker = consumeBaseDataImportPicker('unit')
   if (!input.files || input.files.length === 0) return
   const file = input.files[0]
-  
-  const reader = new FileReader()
+
+  const pending = beginBaseDataImport(unitImporting, unitImportProgress, picker)
+  if (!pending) return
+  const { reader, request } = pending
   reader.onload = async (e) => {
+    if (!request.isCurrent()) return
     const text = e.target?.result as string
     if (!text) return
-    
+
     let lines: string[][]
     try { lines = parseCsvRows(text) }
     catch (error) {
@@ -249,7 +353,7 @@ async function handleImportUnits(event: Event) {
       emit('error', 'CSV 文件格式不正确或无数据')
       return
     }
-    
+
     const header = lines[0]
     let nameIdx = -1
     let remarkIdx = -1
@@ -258,25 +362,26 @@ async function handleImportUnits(event: Event) {
       if (h.includes('名称') || h.toLowerCase().includes('name')) nameIdx = j
       if (h.includes('备注') || h.toLowerCase().includes('remark')) remarkIdx = j
     }
-    
+
     if (nameIdx === -1) {
       emit('error', '未识别到“单位名称”列')
       return
     }
-    
+
     const dataRows = lines.slice(1).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''))
     if (dataRows.length === 0) {
       emit('error', '导入文件中无有效数据行')
       return
     }
-    
+
     unitImportProgress.total = dataRows.length
     unitImportProgress.current = 0
     unitImportProgress.success = 0
     unitImportProgress.fail = 0
     unitImporting.value = true
-    
+
     for (const r of dataRows) {
+      if (!request.isCurrent()) return
       const name = r[nameIdx]
       const remark = remarkIdx !== -1 ? r[remarkIdx] : ''
       if (!name) {
@@ -285,20 +390,23 @@ async function handleImportUnits(event: Event) {
         continue
       }
       try {
-        const created = await createUnit(props.token, { name, remark: remark || undefined })
+        const created = await createUnit(request.token, { name, remark: remark || undefined })
+        if (!request.isCurrent()) return
         units.value.unshift(created)
         unitImportProgress.success++
       } catch (err) {
+        if (!request.isCurrent()) return
         console.error('导入行失败', err, name, remark)
         unitImportProgress.fail++
       }
       unitImportProgress.current++
     }
-    
+
     unitImporting.value = false
-    
+
+    if (!request.isCurrent()) return
     try {
-      await createSystemImportLog(props.token, {
+      await createSystemImportLog(request.token, {
         module: 'UNIT',
         fileName: file.name,
         totalCount: unitImportProgress.total,
@@ -306,15 +414,17 @@ async function handleImportUnits(event: Event) {
         failCount: unitImportProgress.fail,
         status: unitImportProgress.fail === 0 ? '成功' : unitImportProgress.success > 0 ? '部分成功' : '失败'
       })
-      await refreshUnitImportLogs()
+      if (!request.isCurrent()) return
+      await refreshUnitImportLogs(request)
     } catch (e) {
       // ignore
     }
-    
+
+    if (!request.isCurrent()) return
     emit('notice', `导入完成：成功 ${unitImportProgress.success} 条，失败 ${unitImportProgress.fail} 条`)
   }
-  
-  reader.readAsText(file, 'utf-8')
+
+  readBaseDataImport(file, pending)
 }
 
 // 不良品项管理
@@ -343,9 +453,11 @@ const defectFileInput = ref<HTMLInputElement | null>(null)
 const showDefectImportLogs = ref(false)
 const defectImportLogs = ref<any[]>([])
 
-async function refreshDefectImportLogs() {
+async function refreshDefectImportLogs(request = pageOperations.capture()) {
+  if (!request.isCurrent()) return
   try {
-    const res = await fetchSystemImportLogs(props.token, 'DEFECT_ITEM')
+    const res = await fetchSystemImportLogs(request.token, 'DEFECT_ITEM')
+    if (!request.isCurrent()) return
     defectImportLogs.value = res.items.map(item => ({
       id: String(item.id),
       fileName: item.fileName,
@@ -392,14 +504,17 @@ const defectPage = ref(1)
 const defectPageSize = ref(10)
 const defectTotalPages = computed(() => Math.max(1, Math.ceil(defectFilteredList.value.length / defectPageSize.value)))
 
-async function loadDefects() {
+async function loadDefects(request = pageOperations.capture()) {
+  if (!request.isCurrent()) return
   try {
-    const res = await fetchDefects(props.token)
+    const res = await fetchDefects(request.token)
+    if (!request.isCurrent()) return
     defects.value = res.items
   } catch (e) { console.error('加载不良品项失败', e) }
 }
 
-function handleExportDefects() {
+function handleExportDefects(download = true) {
+  if (exporting.value || baseDataOperationBusy.value) return
   if (defectFilteredList.value.length === 0) {
     emit('notice', '当前无不良品项数据可供导出')
     return
@@ -411,6 +526,10 @@ function handleExportDefects() {
     return `"${code}","${name}"`
   }).join('\n')
   
+  if (!download) {
+    const matrix: (string | number | boolean | null | undefined)[][] = parseCsvRows(headers + rows, { preserveWhitespace: true })
+    return { name: '不良品项列表', matrix }
+  }
   const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -419,10 +538,12 @@ function handleExportDefects() {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+  URL.revokeObjectURL(url)
   emit('notice', '导出成功')
 }
 
 function triggerDefectImport() {
+  if (!captureBaseDataImportPicker('defect')) return
   if (defectFileInput.value) {
     defectFileInput.value.value = ''
     defectFileInput.value.click()
@@ -431,14 +552,18 @@ function triggerDefectImport() {
 
 async function handleImportDefects(event: Event) {
   const input = event.target as HTMLInputElement
+  const picker = consumeBaseDataImportPicker('defect')
   if (!input.files || input.files.length === 0) return
   const file = input.files[0]
-  
-  const reader = new FileReader()
+
+  const pending = beginBaseDataImport(defectImporting, defectImportProgress, picker)
+  if (!pending) return
+  const { reader, request } = pending
   reader.onload = async (e) => {
+    if (!request.isCurrent()) return
     const text = e.target?.result as string
     if (!text) return
-    
+
     let lines: string[][]
     try { lines = parseCsvRows(text) }
     catch (error) {
@@ -450,7 +575,7 @@ async function handleImportDefects(event: Event) {
       emit('error', 'CSV 文件格式不正确或无数据')
       return
     }
-    
+
     const header = lines[0]
     let codeIdx = -1
     let nameIdx = -1
@@ -459,25 +584,26 @@ async function handleImportDefects(event: Event) {
       if (h.includes('编号') || h.toLowerCase().includes('code')) codeIdx = j
       if (h.includes('名称') || h.toLowerCase().includes('name')) nameIdx = j
     }
-    
+
     if (nameIdx === -1) {
       emit('error', '未识别到“不良品项名称”列')
       return
     }
-    
+
     const dataRows = lines.slice(1).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''))
     if (dataRows.length === 0) {
       emit('error', '导入文件中无有效数据行')
       return
     }
-    
+
     defectImportProgress.total = dataRows.length
     defectImportProgress.current = 0
     defectImportProgress.success = 0
     defectImportProgress.fail = 0
     defectImporting.value = true
-    
+
     for (const r of dataRows) {
+      if (!request.isCurrent()) return
       const code = codeIdx !== -1 ? r[codeIdx] : ''
       const name = r[nameIdx]
       if (!name) {
@@ -486,20 +612,23 @@ async function handleImportDefects(event: Event) {
         continue
       }
       try {
-        const created = await createDefect(props.token, { code: code || undefined, name })
+        const created = await createDefect(request.token, { code: code || undefined, name })
+        if (!request.isCurrent()) return
         defects.value.unshift(created)
         defectImportProgress.success++
       } catch (err) {
+        if (!request.isCurrent()) return
         console.error('导入行失败', err, code, name)
         defectImportProgress.fail++
       }
       defectImportProgress.current++
     }
-    
+
     defectImporting.value = false
-    
+
+    if (!request.isCurrent()) return
     try {
-      await createSystemImportLog(props.token, {
+      await createSystemImportLog(request.token, {
         module: 'DEFECT_ITEM',
         fileName: file.name,
         totalCount: defectImportProgress.total,
@@ -507,15 +636,17 @@ async function handleImportDefects(event: Event) {
         failCount: defectImportProgress.fail,
         status: defectImportProgress.fail === 0 ? '成功' : defectImportProgress.success > 0 ? '部分成功' : '失败'
       })
-      await refreshDefectImportLogs()
+      if (!request.isCurrent()) return
+      await refreshDefectImportLogs(request)
     } catch (e) {
       // ignore
     }
-    
+
+    if (!request.isCurrent()) return
     emit('notice', `导入完成：成功 ${defectImportProgress.success} 条，失败 ${defectImportProgress.fail} 条`)
   }
-  
-  reader.readAsText(file, 'utf-8')
+
+  readBaseDataImport(file, pending)
 }
 function openCreateDefect() {
   editingDefect.value = null
@@ -544,17 +675,9 @@ async function handleSaveDefect() {
   } catch (e: any) { errorMessage.value = e.message || '保存不良品项失败' }
 }
 async function handleDeleteDefect(d: DefectInfo) {
-  const confirmed = await deleteConfirm({ message: `确认删除不良品项「${d.name}」？` })
-  if (!confirmed) return
-  deleteLoading.value = true
-  try {
-    await deleteDefect(props.token, d.id)
-    defects.value = defects.value.filter(item => item.id !== d.id)
-  } catch (e: any) { errorMessage.value = e.message || '删除不良品项失败' }
-  finally {
-    deleteLoading.value = false
-    deleteVisible.value = false
-  }
+  const id = d.id
+  await confirmBaseDataDelete(`确认删除不良品项「${d.name}」？`, token => deleteDefect(token, id),
+    () => { defects.value = defects.value.filter(item => item.id !== id) }, '删除不良品项失败')
 }
 
 // 工序管理
@@ -605,9 +728,11 @@ const processFileInput = ref<HTMLInputElement | null>(null)
 const showProcessImportLogs = ref(false)
 const processImportLogs = ref<any[]>([])
 
-async function refreshProcessImportLogs() {
+async function refreshProcessImportLogs(request = pageOperations.capture()) {
+  if (!request.isCurrent()) return
   try {
-    const res = await fetchSystemImportLogs(props.token, 'PROCESS')
+    const res = await fetchSystemImportLogs(request.token, 'PROCESS')
+    if (!request.isCurrent()) return
     processImportLogs.value = res.items.map(item => ({
       id: String(item.id),
       fileName: item.fileName,
@@ -901,9 +1026,11 @@ interface RouteImportLog {
 }
 const routeImportLogs = ref<any[]>([])
 
-async function refreshRouteImportLogs() {
+async function refreshRouteImportLogs(request = pageOperations.capture()) {
+  if (!request.isCurrent()) return
   try {
-    const res = await fetchSystemImportLogs(props.token, 'PROCESS_ROUTE')
+    const res = await fetchSystemImportLogs(request.token, 'PROCESS_ROUTE')
+    if (!request.isCurrent()) return
     routeImportLogs.value = res.items.map(item => ({
       id: String(item.id),
       fileName: item.fileName,
@@ -938,7 +1065,8 @@ const visibleRouteColumnsCount = computed(() => {
   return routeColumns.value.filter(c => c.visible).length
 })
 
-function handleExportRoutes() {
+function handleExportRoutes(download = true) {
+  if (exporting.value || baseDataOperationBusy.value) return
   if (routeFilteredList.value.length === 0) {
     emit('notice', '当前无工艺路线数据可供导出')
     return
@@ -954,6 +1082,10 @@ function handleExportRoutes() {
     return `"${code}","${name}","${stepsStr}","${creator}","${createdAt}"`
   }).join('\n')
   
+  if (!download) {
+    const matrix: (string | number | boolean | null | undefined)[][] = parseCsvRows(headers + rows, { preserveWhitespace: true })
+    return { name: '工艺路线列表', matrix }
+  }
   const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -962,10 +1094,12 @@ function handleExportRoutes() {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+  URL.revokeObjectURL(url)
   emit('notice', '导出成功')
 }
 
 function triggerRouteImport() {
+  if (!captureBaseDataImportPicker('route')) return
   if (routeFileInput.value) {
     routeFileInput.value.value = ''
     routeFileInput.value.click()
@@ -974,14 +1108,19 @@ function triggerRouteImport() {
 
 async function handleImportRoutes(event: Event) {
   const input = event.target as HTMLInputElement
+  const picker = consumeBaseDataImportPicker('route')
   if (!input.files || input.files.length === 0) return
   const file = input.files[0]
-  
-  const reader = new FileReader()
+
+  const pending = beginBaseDataImport(routeImporting, routeImportProgress, picker)
+  if (!pending) return
+  const { reader, request } = pending
+  const processSnapshot = processes.value.map(process => ({ ...process }))
   reader.onload = async (e) => {
+    if (!request.isCurrent()) return
     const text = e.target?.result as string
     if (!text) return
-    
+
     let lines: string[][]
     try { lines = parseCsvRows(text) }
     catch (error) {
@@ -993,40 +1132,41 @@ async function handleImportRoutes(event: Event) {
       emit('notice', 'CSV 文件格式不正确或无数据')
       return
     }
-    
+
     const header = lines[0]
     let codeIdx = -1
     let nameIdx = -1
     let stepsIdx = -1
-    
+
     for (let j = 0; j < header.length; j++) {
       const h = header[j]
       if (h.includes('编号') || h.toLowerCase().includes('code')) codeIdx = j
       if (h.includes('名称') || h.toLowerCase().includes('name')) nameIdx = j
       if (h.includes('工序') || h.includes('步骤') || h.toLowerCase().includes('step')) stepsIdx = j
     }
-    
+
     if (nameIdx === -1) {
       emit('notice', '未识别到“工艺路线名称”列')
       return
     }
-    
+
     const dataRows = lines.slice(1).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''))
     if (dataRows.length === 0) {
       emit('notice', '导入文件中无有效数据行')
       return
     }
-    
+
     const importErrors: string[] = []
     let rowIndex = 1
-    
+
     routeImportProgress.total = dataRows.length
     routeImportProgress.current = 0
     routeImportProgress.success = 0
     routeImportProgress.fail = 0
     routeImporting.value = true
-    
+
     for (const r of dataRows) {
+      if (!request.isCurrent()) return
       rowIndex++
       const name = r[nameIdx]
       if (!name) {
@@ -1035,17 +1175,17 @@ async function handleImportRoutes(event: Event) {
         importErrors.push(`第${rowIndex}行: 工艺路线名称为空`)
         continue
       }
-      
+
       const code = codeIdx !== -1 ? r[codeIdx] : ''
       const stepsStr = stepsIdx !== -1 ? r[stepsIdx] : ''
-      
+
       const stepsArray: any[] = []
       let stepsParseFailed = false
-      
+
       if (stepsStr) {
         const stepNames = stepsStr.split(/[、,，]/).map(s => s.trim()).filter(Boolean)
         for (const sname of stepNames) {
-          const p = processes.value.find(x => x.name === sname)
+          const p = processSnapshot.find(x => x.name === sname)
           if (!p) {
             routeImportProgress.fail++
             routeImportProgress.current++
@@ -1061,19 +1201,21 @@ async function handleImportRoutes(event: Event) {
           })
         }
       }
-      
+
       if (stepsParseFailed) continue
-      
+
       const payload = {
         code: code || undefined,
         name: name,
         steps: stepsArray
       }
-      
+
       try {
-        await createProcessRoute(props.token, payload)
+        await createProcessRoute(request.token, payload)
+        if (!request.isCurrent()) return
         routeImportProgress.success++
       } catch (err: any) {
+        if (!request.isCurrent()) return
         console.error('工艺路线导入失败', err, name)
         routeImportProgress.fail++
         const errorMsg = err.message || '网络或接口异常'
@@ -1081,12 +1223,12 @@ async function handleImportRoutes(event: Event) {
       }
       routeImportProgress.current++
     }
-    
+
     routeImporting.value = false
-    await loadRoutes()
-    
+    await loadRoutes(request)
+    if (!request.isCurrent()) return
     try {
-      await createSystemImportLog(props.token, {
+      await createSystemImportLog(request.token, {
         module: 'PROCESS_ROUTE',
         fileName: file.name,
         totalCount: routeImportProgress.total,
@@ -1095,19 +1237,21 @@ async function handleImportRoutes(event: Event) {
         status: routeImportProgress.fail === 0 ? '成功' : routeImportProgress.success > 0 ? '部分成功' : '失败',
         errors: importErrors.length > 0 ? importErrors.join('\n') : undefined
       })
-      await refreshRouteImportLogs()
+      if (!request.isCurrent()) return
+      await refreshRouteImportLogs(request)
     } catch (e) {
       // ignore
     }
-    
+
+    if (!request.isCurrent()) return
     let noticeMsg = `导入完成：成功 ${routeImportProgress.success} 条，失败 ${routeImportProgress.fail} 条`
     if (importErrors.length > 0) {
       noticeMsg += `。失败原因：${importErrors.slice(0, 2).join('；')}${importErrors.length > 2 ? ' 等' : ''}`
     }
     emit('notice', noticeMsg)
   }
-  
-  reader.readAsText(file, 'utf-8')
+
+  readBaseDataImport(file, pending)
 }
 
 // 工序下拉搜索（每行独立）
@@ -1267,24 +1411,29 @@ async function handleSaveRoute() {
   }
 }
 function confirmDeleteRoute(r: RouteItem) {
+  const request = pageOperations.capture(), id = r.id
+  if (!request.isCurrent() || baseDataOperationBusy.value || deleteVisible.value || exporting.value) return
+  let started = false
   emit('confirm', {
     title: '删除确认',
     message: `是否确要删除工艺路线「${r.name}」？`,
     action: async () => {
-    if (!props.token) return
-    try {
-      await deleteProcessRoute(props.token, r.id)
-      await loadRoutes()
-    } catch (e) {
-      errorMessage.value = e instanceof Error ? e.message : '删除失败'
+      if (started || !request.isCurrent() || baseDataOperationBusy.value) return
+      started = true; baseDataOperationBusy.value = true
+      try {
+        await deleteProcessRoute(request.token, id)
+        if (request.isCurrent()) await loadRoutes(request)
+      } catch (e) {
+        if (request.isCurrent()) errorMessage.value = e instanceof Error ? e.message : '删除失败'
+      } finally { if (request.isCurrent()) baseDataOperationBusy.value = false }
     }
-  }
   })
 }
-async function loadRoutes() {
-  if (!props.token) return
+async function loadRoutes(request = pageOperations.capture()) {
+  if (!request.isCurrent()) return
   try {
-    const res = await fetchProcessRoutes(props.token, { size: 999 })
+    const res = await fetchProcessRoutes(request.token, { size: 999 })
+    if (!request.isCurrent()) return
     routes.value = res.items.map(r => ({
       id: r.id,
       code: r.code,
@@ -1300,7 +1449,7 @@ async function loadRoutes() {
       createdAt: r.createdAt ? r.createdAt.slice(0, 10) : ''
     }))
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : '工艺路线加载失败'
+    if (request.isCurrent()) errorMessage.value = e instanceof Error ? e.message : '工艺路线加载失败'
   }
 }
 
@@ -1434,7 +1583,7 @@ function togglePermEmployee(dept: PermDept, emp: PermEmployee) {
   }
 }
 function getPermLabel(key: string): string {
-  if (key === 'all') return '所有人'
+  if (key === 'all') return t('所有人')
   for (const dept of permTree.value) {
     if (dept.id === key) return dept.name
     const emp = dept.employees.find(e => e.id === key)
@@ -1455,7 +1604,7 @@ function removeProcessPermission(key: string) {
  */
 function formatPermissionTags(perms: string[]): { label: string; tooltip: string; partial: boolean }[] {
   if (!perms || perms.length === 0) return [{ label: '—', tooltip: '', partial: false }]
-  if (perms.includes('all')) return [{ label: '所有人', tooltip: '', partial: false }]
+  if (perms.includes('all')) return [{ label: t('所有人'), tooltip: '', partial: false }]
 
   const tags: { label: string; tooltip: string; partial: boolean }[] = []
   const handled = new Set<string>()
@@ -1474,8 +1623,8 @@ function formatPermissionTags(perms: string[]): { label: string; tooltip: string
       // 部分员工有权限
       const names = selectedEmps.map(e => e.name).join('、')
       tags.push({
-        label: `${dept.name}（有部分员工无权限）`,
-        tooltip: `有权限的员工：${names}`,
+        label: t('{0}（有部分员工无权限）', [dept.name]),
+        tooltip: t('有权限的员工：{0}', [names]),
         partial: true
       })
       handled.add(dept.id)
@@ -1580,24 +1729,15 @@ async function handleSaveProcess() {
   }
 }
 async function handleDeleteProcess(p: ProcessItem) {
-  if (!props.token) return
-  const confirmed = await deleteConfirm({ message: `确认删除工序「${p.name}」？` })
-  if (!confirmed) return
-  deleteLoading.value = true
-  try {
-    await deleteProcess(props.token, p.id)
-    await loadProcesses()
-  } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : '删除失败'
-  } finally {
-    deleteLoading.value = false
-    deleteVisible.value = false
-  }
+  const id = p.id
+  await confirmBaseDataDelete(`确认删除工序「${p.name}」？`, token => deleteProcess(token, id),
+    request => loadProcesses(request), '删除失败')
 }
-async function loadProcesses() {
-  if (!props.token) return
+async function loadProcesses(request = pageOperations.capture()) {
+  if (!request.isCurrent()) return
   try {
-    const res = await fetchProcesses(props.token, { size: 999 })
+    const res = await fetchProcesses(request.token, { size: 999 })
+    if (!request.isCurrent()) return
     processes.value = res.items.map(p => ({
       id: p.id,
       code: p.code,
@@ -1614,7 +1754,7 @@ async function loadProcesses() {
       collectData: (p.collectData || []).map(c => ({ type: c.type, name: c.name }))
     }))
   } catch (e) {
-    errorMessage.value = e instanceof Error ? e.message : '工序加载失败'
+    if (request.isCurrent()) errorMessage.value = e instanceof Error ? e.message : '工序加载失败'
   }
 }
 function addCollectDataRow() {
@@ -1635,7 +1775,8 @@ function getDefectLabel(id: number) {
   return d ? `${d.code} | ${d.name}` : String(id)
 }
 
-function handleExportProcesses() {
+function handleExportProcesses(download = true) {
+  if (exporting.value || baseDataOperationBusy.value) return
   if (processFilteredList.value.length === 0) {
     emit('notice', '当前无工序数据可供导出')
     return
@@ -1656,6 +1797,11 @@ function handleExportProcesses() {
     return `"${code}","${name}","${permission}",${ratio},"${punch}","${goodQty}","${machine}","${feed}","${corrMachine}","${reqs}"`
   }).join('\n')
   
+  if (!download) {
+    const matrix: (string | number | boolean | null | undefined)[][] = parseCsvRows(headers + rows, { preserveWhitespace: true })
+    processFilteredList.value.forEach((item, index) => { matrix[index + 1][3] = item.reportRatio || 1 })
+    return { name: '工序列表', matrix }
+  }
   const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -1664,10 +1810,12 @@ function handleExportProcesses() {
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
+  URL.revokeObjectURL(url)
   emit('notice', '导出成功')
 }
 
 function triggerProcessImport() {
+  if (!captureBaseDataImportPicker('process')) return
   if (processFileInput.value) {
     processFileInput.value.value = ''
     processFileInput.value.click()
@@ -1676,14 +1824,18 @@ function triggerProcessImport() {
 
 async function handleImportProcesses(event: Event) {
   const input = event.target as HTMLInputElement
+  const picker = consumeBaseDataImportPicker('process')
   if (!input.files || input.files.length === 0) return
   const file = input.files[0]
-  
-  const reader = new FileReader()
+
+  const pending = beginBaseDataImport(processImporting, processImportProgress, picker)
+  if (!pending) return
+  const { reader, request } = pending
   reader.onload = async (e) => {
+    if (!request.isCurrent()) return
     const text = e.target?.result as string
     if (!text) return
-    
+
     let lines: string[][]
     try { lines = parseCsvRows(text) }
     catch (error) {
@@ -1695,7 +1847,7 @@ async function handleImportProcesses(event: Event) {
       emit('notice', 'CSV 文件格式不正确或无数据')
       return
     }
-    
+
     const header = lines[0]
     let codeIdx = -1
     let nameIdx = -1
@@ -1707,7 +1859,7 @@ async function handleImportProcesses(event: Event) {
     let feedIdx = -1
     let corrMachineIdx = -1
     let reqsIdx = -1
-    
+
     for (let j = 0; j < header.length; j++) {
       const h = header[j]
       if (h.includes('编号') || h.toLowerCase().includes('code')) codeIdx = j
@@ -1721,28 +1873,29 @@ async function handleImportProcesses(event: Event) {
       if (h.includes('机台') || h.toLowerCase().includes('corr')) corrMachineIdx = j
       if (h.includes('要求') || h.toLowerCase().includes('req')) reqsIdx = j
     }
-    
+
     if (nameIdx === -1) {
       emit('notice', '未识别到“工序名称”列')
       return
     }
-    
+
     const dataRows = lines.slice(1).filter(r => r.length > 0 && r.some(cell => cell.trim() !== ''))
     if (dataRows.length === 0) {
       emit('notice', '导入文件中无有效数据行')
       return
     }
-    
+
     const importErrors: string[] = []
     let rowIndex = 1
-    
+
     processImportProgress.total = dataRows.length
     processImportProgress.current = 0
     processImportProgress.success = 0
     processImportProgress.fail = 0
     processImporting.value = true
-    
+
     for (const r of dataRows) {
+      if (!request.isCurrent()) return
       rowIndex++
       const name = r[nameIdx]
       if (!name) {
@@ -1751,7 +1904,7 @@ async function handleImportProcesses(event: Event) {
         importErrors.push(`第${rowIndex}行: 工序名称为空`)
         continue
       }
-      
+
       const code = codeIdx !== -1 ? r[codeIdx] : ''
       const permStr = permIdx !== -1 ? r[permIdx] : '所有人'
       const ratioStr = ratioIdx !== -1 ? r[ratioIdx] : '1'
@@ -1761,11 +1914,11 @@ async function handleImportProcesses(event: Event) {
       const feed = feedIdx !== -1 ? r[feedIdx] : ''
       const corrMachine = corrMachineIdx !== -1 ? r[corrMachineIdx] : ''
       const reqs = reqsIdx !== -1 ? r[reqsIdx] : ''
-      
+
       const permArray = permStr.split(',').map(s => s.trim()).filter(Boolean)
       const ratio = Number(ratioStr) || 1
       const punch = punchStr.includes('开启') || punchStr.toLowerCase() === 'true'
-      
+
       const payload = {
         code: code || undefined,
         name: name,
@@ -1780,11 +1933,13 @@ async function handleImportProcesses(event: Event) {
         requirements: reqs,
         collectData: []
       }
-      
+
       try {
-        await createProcess(props.token, payload)
+        await createProcess(request.token, payload)
+        if (!request.isCurrent()) return
         processImportProgress.success++
       } catch (err: any) {
+        if (!request.isCurrent()) return
         console.error('工序导入失败', err, name)
         processImportProgress.fail++
         const errorMsg = err.message || '网络或接口异常'
@@ -1792,12 +1947,12 @@ async function handleImportProcesses(event: Event) {
       }
       processImportProgress.current++
     }
-    
+
     processImporting.value = false
-    await loadProcesses()
-    
+    await loadProcesses(request)
+    if (!request.isCurrent()) return
     try {
-      await createSystemImportLog(props.token, {
+      await createSystemImportLog(request.token, {
         module: 'PROCESS',
         fileName: file.name,
         totalCount: processImportProgress.total,
@@ -1806,19 +1961,21 @@ async function handleImportProcesses(event: Event) {
         status: processImportProgress.fail === 0 ? '成功' : processImportProgress.success > 0 ? '部分成功' : '失败',
         errors: importErrors.length > 0 ? importErrors.join('\n') : undefined
       })
-      await refreshProcessImportLogs()
+      if (!request.isCurrent()) return
+      await refreshProcessImportLogs(request)
     } catch (e) {
       // ignore
     }
-    
+
+    if (!request.isCurrent()) return
     let noticeMsg = `导入完成：成功 ${processImportProgress.success} 条，失败 ${processImportProgress.fail} 条`
     if (importErrors.length > 0) {
       noticeMsg += `。失败原因：${importErrors.slice(0, 2).join('；')}${importErrors.length > 2 ? ' 等' : ''}`
     }
     emit('notice', noticeMsg)
   }
-  
-  reader.readAsText(file, 'utf-8')
+
+  readBaseDataImport(file, pending)
 }
 
 defineExpose({ loadUnits, loadDefects, loadProcesses, loadRoutes })
@@ -1862,22 +2019,40 @@ onMounted(() => {
     } catch (e) {}
   }
 
-  window.addEventListener('click', (e) => {
-    const target = e.target as HTMLElement
-    // 报工权限下拉：点击非其内部区域时收起
-    if (!target.closest('.perm-dropdown-wrap')) {
-      showProcessPermDropdown.value = false
-    }
-    // 不良品项下拉：点击非其内部区域时收起
-    if (!target.closest('.defect-dropdown-wrap')) {
-      showProcessDefectDropdown.value = false
-    }
-    // 工序下拉框：点击非其内部区域时收起
-    if (!target.closest('.route-step-select') && !target.closest('.route-step-dropdown')) {
-      closeAllRouteStepDropdowns()
-    }
-  })
+  window.addEventListener('click', handleBaseDataWindowClick)
 })
+
+function handleBaseDataWindowClick(e: MouseEvent) {
+  const target = e.target
+  if (!(target instanceof Element)) return
+  if (!target.closest('.perm-dropdown-wrap')) showProcessPermDropdown.value = false
+  if (!target.closest('.defect-dropdown-wrap')) showProcessDefectDropdown.value = false
+  if (!target.closest('.route-step-select') && !target.closest('.route-step-dropdown')) closeAllRouteStepDropdowns()
+}
+onBeforeUnmount(() => window.removeEventListener('click', handleBaseDataWindowClick))
+
+const exporting = ref(false)
+const exportError = ref('')
+let exportEpoch = 0, exportDisposed = false, exportActive = true
+watch(() => props.token, () => { exportEpoch++; exporting.value = false; exportError.value = '' }, { flush: 'sync' })
+onActivated(() => { exportActive = true })
+onDeactivated(() => { exportActive = false; exportEpoch++; exporting.value = false; exportError.value = '' })
+onBeforeUnmount(() => { exportEpoch++; exportDisposed = true; exportActive = false })
+async function exportXlsx(kind: string) {
+  if (exporting.value || baseDataOperationBusy.value || !props.token || !exportActive) return
+  const providers: Record<string, () => { name: string; matrix: (string | number | boolean | null | undefined)[][] } | undefined> = { 'handleExportUnits': () => handleExportUnits(false), 'handleExportDefects': () => handleExportDefects(false), 'handleExportProcesses': () => handleExportProcesses(false), 'handleExportRoutes': () => handleExportRoutes(false) }
+  const data = providers[kind]?.()
+  if (!data) return
+  const token = props.token, epoch = exportEpoch
+  const current = () => exportActive && !exportDisposed && props.token === token && epoch === exportEpoch
+  const matrix = [data.matrix[0].map(header => t(String(header ?? ''))), ...data.matrix.slice(1)]
+  exportError.value = ''; exporting.value = true
+  try {
+    const downloaded = await downloadXlsx(`${t(data.name)}_${formatUiDate(new Date()).slice(0, 10)}.xlsx`, t(data.name), matrix, current)
+    if (downloaded && current()) emit('notice', '导出Excel成功')
+  } catch (error) { if (current()) { exportError.value = error instanceof Error ? error.message : '导出失败'; emit('notice', exportError.value) } }
+  finally { if (current()) exporting.value = false }
+}
 </script>
 
 <template>
@@ -1893,7 +2068,7 @@ onMounted(() => {
             <input v-model="unitFilterForm.remark" placeholder="请输入备注" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadUnits" title="查询" aria-label="查询"><UiIcon name="search" /></button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadUnits()" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
         <div class="toolbar">
@@ -1902,9 +2077,12 @@ onMounted(() => {
             创建单位
           </button>
           
-          <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportUnits" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+          <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || baseDataOperationBusy" @click="exportXlsx('handleExportUnits')" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+          <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || baseDataOperationBusy" @click="handleExportUnits()" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+          <span class="export-scope-note">已加载 {{ unitFilteredList.length }} 条 · CSV仅用于备份，不宜直接用Excel打开</span>
+          <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
           
-          <button class="toolbar-btn ui-icon-button" type="button" @click="triggerUnitImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
+          <button class="toolbar-btn ui-icon-button" type="button" :disabled="baseDataOperationBusy || deleteVisible || exporting" @click="triggerUnitImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
           <input type="file" ref="unitFileInput" style="display:none" accept=".csv" @change="handleImportUnits" />
 
           <!-- 字段配置下拉菜单 -->
@@ -2011,7 +2189,7 @@ onMounted(() => {
                     <span v-else-if="column.key === 'remark'">{{ unit.remark || '-' }}</span>
                     <template v-else-if="column.key === 'action'">
                       <button class="action-link ui-icon-button" type="button" @click="openEditUnit(unit)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
-                      <button class="action-link danger ui-icon-button" type="button" @click="handleDeleteUnit(unit)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
+                      <button class="action-link danger ui-icon-button" type="button" :disabled="baseDataOperationBusy || deleteVisible || exporting" @click="handleDeleteUnit(unit)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                     </template>
                   </td>
                 </template>
@@ -2062,7 +2240,7 @@ onMounted(() => {
             <input v-model="defectFilterForm.name" placeholder="请输入不良品项名称" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadDefects" title="查询" aria-label="查询"><UiIcon name="search" /></button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadDefects()" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
         <div class="toolbar">
@@ -2071,9 +2249,12 @@ onMounted(() => {
             创建不良品项
           </button>
           
-          <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportDefects" title="导出" aria-label="导出"><UiIcon name="download" /></button>
+          <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || baseDataOperationBusy" @click="exportXlsx('handleExportDefects')" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+          <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || baseDataOperationBusy" @click="handleExportDefects()" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+          <span class="export-scope-note">已加载 {{ defectFilteredList.length }} 条 · CSV仅用于备份，不宜直接用Excel打开</span>
+          <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
           
-          <button class="toolbar-btn ui-icon-button" type="button" @click="triggerDefectImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
+          <button class="toolbar-btn ui-icon-button" type="button" :disabled="baseDataOperationBusy || deleteVisible || exporting" @click="triggerDefectImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
           <input type="file" ref="defectFileInput" style="display:none" accept=".csv" @change="handleImportDefects" />
 
           <!-- 字段配置下拉菜单 -->
@@ -2180,7 +2361,7 @@ onMounted(() => {
                     <span v-else-if="column.key === 'name'">{{ d.name }}</span>
                     <template v-else-if="column.key === 'action'">
                       <button class="action-link ui-icon-button" type="button" @click="openEditDefect(d)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
-                      <button class="action-link danger ui-icon-button" type="button" @click="handleDeleteDefect(d)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
+                      <button class="action-link danger ui-icon-button" type="button" :disabled="baseDataOperationBusy || deleteVisible || exporting" @click="handleDeleteDefect(d)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                     </template>
                   </td>
                 </template>
@@ -2241,7 +2422,7 @@ onMounted(() => {
             </select>
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadProcesses" title="查询" aria-label="查询"><UiIcon name="search" /></button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadProcesses()" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
         <div class="toolbar">
@@ -2249,8 +2430,11 @@ onMounted(() => {
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"/></svg>
             创建工序
           </button>
-          <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportProcesses" title="导出" aria-label="导出"><UiIcon name="download" /></button>
-          <button class="toolbar-btn ui-icon-button" type="button" @click="triggerProcessImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
+          <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || baseDataOperationBusy" @click="exportXlsx('handleExportProcesses')" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+          <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || baseDataOperationBusy" @click="handleExportProcesses()" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+          <span class="export-scope-note">已加载 {{ processFilteredList.length }} 条 · CSV仅用于备份，不宜直接用Excel打开</span>
+          <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
+          <button class="toolbar-btn ui-icon-button" type="button" :disabled="baseDataOperationBusy || deleteVisible || exporting" @click="triggerProcessImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
           <input type="file" ref="processFileInput" style="display:none" accept=".csv" @change="handleImportProcesses" />
 
           <!-- 默认SOP模板配置下拉菜单 -->
@@ -2390,7 +2574,8 @@ onMounted(() => {
                           :class="{ 'perm-partial': tag.partial }"
                           @mouseenter="tag.tooltip ? showTooltip($event, tag.tooltip) : null"
                           @mouseleave="hideTooltip"
-                        >{{ tag.label }}</span>
+                          :title="tag.tooltip" v-text="tag.label"
+                        ></span>
                       </template>
                     </template>
                     <span v-else-if="column.key === 'reportRatio'">{{ p.reportRatio }}</span>
@@ -2399,7 +2584,7 @@ onMounted(() => {
                       <button class="action-link ui-icon-button" type="button" @click="openEditProcess(p)" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
                       <button class="action-link" type="button" @click="printProcess(p)">打印</button>
                       <button class="action-link" type="button" @click="openProcessSop(p)">SOP模版</button>
-                      <button class="action-link danger ui-icon-button" type="button" @click="handleDeleteProcess(p)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
+                      <button class="action-link danger ui-icon-button" type="button" :disabled="baseDataOperationBusy || deleteVisible || exporting" @click="handleDeleteProcess(p)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                     </template>
                   </td>
                 </template>
@@ -2462,8 +2647,8 @@ onMounted(() => {
             <div class="process-input-wrap perm-dropdown-wrap">
               <div class="perm-tag-box" @click="showProcessPermDropdown = !showProcessPermDropdown">
                 <span class="perm-tag" v-for="k in visiblePermKeys" :key="k">
-                  {{ getPermLabel(k) }}
-                  <span class="tag-close" @click.stop="removeProcessPermission(k)">×</span>
+                  <span v-text="getPermLabel(k)"></span>
+                  <button class="tag-close ui-icon-button" type="button" :title="t('移除报工权限：{0}', [getPermLabel(k)])" :aria-label="t('移除报工权限：{0}', [getPermLabel(k)])" @click.stop="removeProcessPermission(k)"><UiIcon name="close" /></button>
                 </span>
                 <span class="perm-placeholder" v-if="visiblePermKeys.length === 0">请选择</span>
               </div>
@@ -2663,7 +2848,7 @@ onMounted(() => {
             <input v-model="routeFilterForm.name" placeholder="请输入工艺路线名称" />
           </label>
           <div class="filter-actions">
-            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadRoutes" title="查询" aria-label="查询"><UiIcon name="search" /></button>
+            <button class="primary-btn query-btn ui-icon-button" type="button" @click="loadRoutes()" title="查询" aria-label="查询"><UiIcon name="search" /></button>
           </div>
         </div>
         <div class="toolbar">
@@ -2671,8 +2856,11 @@ onMounted(() => {
             <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
             创建工艺路线
           </button>
-          <button class="toolbar-btn ui-icon-button" type="button" @click="handleExportRoutes" title="导出" aria-label="导出"><UiIcon name="download" /></button>
-          <button class="toolbar-btn ui-icon-button" type="button" @click="triggerRouteImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
+          <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || baseDataOperationBusy" @click="exportXlsx('handleExportRoutes')" title="导出Excel" aria-label="导出Excel"><UiIcon name="download" />Excel</button>
+          <button class="toolbar-btn ui-action-button" type="button" :disabled="exporting || baseDataOperationBusy" @click="handleExportRoutes()" title="CSV备份" aria-label="CSV备份"><UiIcon name="archive" />CSV备份</button>
+          <span class="export-scope-note">已加载 {{ routeFilteredList.length }} 条 · CSV仅用于备份，不宜直接用Excel打开</span>
+          <p v-if="exportError" class="export-error" role="alert">{{ exportError }}</p>
+          <button class="toolbar-btn ui-icon-button" type="button" :disabled="baseDataOperationBusy || deleteVisible || exporting" @click="triggerRouteImport" title="导入" aria-label="导入"><UiIcon name="upload" /></button>
           <input type="file" ref="routeFileInput" style="display:none" accept=".csv" @change="handleImportRoutes" />
           
           <!-- 字段配置下拉菜单 -->
@@ -2717,7 +2905,7 @@ onMounted(() => {
                     <template v-else-if="column.key === 'action'">
                       <button class="link-btn ui-icon-button" type="button" @click="openEditRoute(r)" style="margin-right:8px" title="编辑" aria-label="编辑"><UiIcon name="edit" /></button>
                       <button class="link-btn ui-icon-button" type="button" style="margin-right:8px" title="复制" aria-label="复制"><UiIcon name="copy" /></button>
-                      <button class="link-btn danger ui-icon-button" type="button" @click="confirmDeleteRoute(r)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
+                      <button class="link-btn danger ui-icon-button" type="button" :disabled="baseDataOperationBusy || deleteVisible || exporting" @click="confirmDeleteRoute(r)" title="删除" aria-label="删除"><UiIcon name="trash" /></button>
                     </template>
                   </td>
                 </template>

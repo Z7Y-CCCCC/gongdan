@@ -1,14 +1,11 @@
 package com.heihu.workorder.util;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.apache.http.conn.util.InetAddressUtils;
 import javax.servlet.http.HttpServletRequest;
 import java.util.regex.Pattern;
 
 public final class IpAddressUtils {
 
-    private static final Logger log = LoggerFactory.getLogger(IpAddressUtils.class);
+    private static final ClientIpResolver DIRECT_PEER = new ClientIpResolver("");
     private static final String UNKNOWN = "unknown";
     private static final Pattern IPV4_PATTERN = Pattern.compile("^([0-9]{1,3}\\.){3}[0-9]{1,3}$");
 
@@ -16,79 +13,14 @@ public final class IpAddressUtils {
     }
 
     /**
-     * 从 HTTP 请求中提取客户端真实 IP 地址。
-     * 优先解析 CF-Connecting-IP，其次解析 X-Forwarded-For 第一个客户端 IP，
-     * 再次解析 X-Real-IP 等代理头，最后兜底 getRemoteAddr。
+     * Without explicit proxy configuration, only the socket peer is authoritative.
      */
     public static String getClientIp(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
-
-        // 1. 优先获取 Cloudflare 注入的客户端真实 IP
-        String cfIp = cleanIp(request.getHeader("CF-Connecting-IP"));
-        if (isValidIp(cfIp) && !isInternalIp(cfIp)) {
-            log.info("从 CF-Connecting-IP 解析到公网客户端IP: {}", cfIp);
-            return cfIp;
-        }
-
-        // 2. 从 X-Forwarded-For 中提取：标准格式为 client, proxy1, proxy2
-        String xForwardedFor = request.getHeader("X-Forwarded-For");
-        if (xForwardedFor != null && !xForwardedFor.trim().isEmpty()) {
-            String bestIp = extractClientFromForwardedFor(xForwardedFor);
-            if (isValidIp(bestIp)) {
-                log.debug("从 X-Forwarded-For 解析到客户端IP: {}", bestIp);
-                return bestIp;
-            }
-        }
-
-        // 3. 常见反向代理头依序回退
-        String[] candidateHeaders = {
-                "X-Real-IP",
-                "Proxy-Client-IP",
-                "WL-Proxy-Client-IP",
-                "HTTP_CLIENT_IP",
-                "HTTP_X_FORWARDED_FOR"
-        };
-
-        for (String header : candidateHeaders) {
-            String ip = cleanIp(request.getHeader(header));
-            if (isValidIp(ip) && !isInternalIp(ip)) {
-                log.info("从标头 {} 解析到公网客户端IP: {}", header, ip);
-                return ip;
-            }
-        }
-
-        if (isValidIp(cfIp)) {
-            log.info("采用 CF-Connecting-IP: {}", cfIp);
-            return cfIp;
-        }
-
-        // 4. 兜底获取底层连接地址
-        String remoteAddr = normalizeLocalhost(cleanIp(request.getRemoteAddr()));
-        log.info("兜底采用 remoteAddr: {}", remoteAddr);
-        return remoteAddr;
+        return DIRECT_PEER.getClientIp(request);
     }
 
-    /**
-     * 从 X-Forwarded-For 提取客户端真实 IP。
-     */
-    private static String extractClientFromForwardedFor(String forwardedFor) {
-        String[] rawList = forwardedFor.split(",");
-        String firstValid = null;
-
-        for (String raw : rawList) {
-            String ip = cleanIp(raw);
-            if (isValidIp(ip)) {
-                if (!isInternalIp(ip)) {
-                    return ip;
-                }
-                if (firstValid == null) {
-                    firstValid = ip;
-                }
-            }
-        }
-        return firstValid;
+    public static String getClientIp(HttpServletRequest request, String trustedProxies) {
+        return new ClientIpResolver(trustedProxies).getClientIp(request);
     }
 
     /**
@@ -129,32 +61,4 @@ public final class IpAddressUtils {
         return false;
     }
 
-    private static String cleanIp(String ip) {
-        if (ip == null) {
-            return null;
-        }
-        String cleaned = ip.trim();
-        if (cleaned.isEmpty()) {
-            return null;
-        }
-        int commaIndex = cleaned.indexOf(',');
-        if (commaIndex >= 0) {
-            cleaned = cleaned.substring(0, commaIndex).trim();
-        }
-        return normalizeLocalhost(cleaned);
-    }
-
-    private static String normalizeLocalhost(String ip) {
-        if (ip == null) {
-            return null;
-        }
-        if ("0:0:0:0:0:0:0:1".equals(ip) || "::1".equals(ip)) {
-            return "127.0.0.1";
-        }
-        return ip;
-    }
-
-    private static boolean isValidIp(String ip) {
-        return ip != null && (InetAddressUtils.isIPv4Address(ip) || InetAddressUtils.isIPv6Address(ip));
-    }
 }

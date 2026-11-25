@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   fetchDefects: vi.fn(), fetchProcesses: vi.fn(), fetchProcessRoutes: vi.fn(),
   fetchNotificationUnreadCount: vi.fn(), fetchPluginRuntimeManifest: vi.fn(), fetchNotifications: vi.fn(),
   markNotificationRead: vi.fn(), markAllNotificationsRead: vi.fn(),
-  fetchWorkOrders: vi.fn(), fetchReports: vi.fn(), fetchSalesOrders: vi.fn()
+  fetchWorkOrders: vi.fn(), fetchReports: vi.fn(), fetchSalesOrders: vi.fn(), logoutSession: vi.fn()
 }))
 vi.mock('../api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../api')>(), ...mocks
@@ -24,7 +24,7 @@ const user = {
 // Stub by registration key so async imports cannot outlive the test environment.
 function mountShell() {
   return shallowMount(App, {
-    global: { stubs: { KeepAlive: false, InternalChatPage: true, HomeDashboardPage: true,
+    global: { stubs: { KeepAlive: false, InternalChatPage: true, HomeDashboardPage: true, UReportPage: true,
       WorkOrderPage: { name: 'WorkOrderPage', props: ['token', 'focusTarget'], emits: ['clear-focus'], template: '<section />' }
     } }
   })
@@ -49,6 +49,7 @@ describe('App uses the same authenticated session as API consumers', () => {
     mocks.markNotificationRead.mockResolvedValue({})
     mocks.markAllNotificationsRead.mockResolvedValue({})
     mocks.fetchPluginRuntimeManifest.mockResolvedValue([])
+    mocks.logoutSession.mockResolvedValue(undefined)
     for (const name of ['fetchWorkOrders', 'fetchReports', 'fetchSalesOrders'] as const) {
       mocks[name].mockResolvedValue({ items: [], total: 0 })
     }
@@ -76,6 +77,174 @@ describe('App uses the same authenticated session as API consumers', () => {
     vm.activeProductionMenu = 'workbench'
     await flushPromises()
     expect(vm.workspaceTabs.find((tab: any) => tab.id === 'production-workbench')?.label).toBe('报工工作台')
+  })
+
+  async function dirtyReportShell() {
+    session.persistSession({ token: 'admin-token', user, isSuperAdmin: true })
+    wrapper = mountShell()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.activeMainMenu = 'analytics'
+    await flushPromises()
+    let dirty = true
+    const confirm = vi.fn((_reason: string) => false)
+    vm.workspaceLeaveGuards.register('analytics', { isDirty: () => dirty, confirmLeave: confirm })
+    return { vm, confirm, clean: () => { dirty = false } }
+  }
+
+  it('keeps normal production reports available but denies every ordinary-admin designer entry', async () => {
+    session.persistSession({ token: 'admin-token', user, isSuperAdmin: false })
+    wrapper = mountShell()
+    await flushPromises()
+    const vm = wrapper.vm as any
+    expect(wrapper.findAll('a.sub-item').some(node => node.text() === '高级报表')).toBe(false)
+    vm.activeMainMenu = 'analytics'
+    expect(vm.activeMainMenu).toBe('home')
+    vm.jumpFromQuickApp('analytics')
+    expect(vm.activeMainMenu).toBe('home')
+    expect(vm.workspaceTabs.some((tab: any) => tab.id === 'analytics')).toBe(false)
+    expect(vm.actionMessage).toBe('高级报表仅平台超级管理员可用')
+    vm.activeMainMenu = 'report'
+    expect(vm.activeMainMenu).toBe('report')
+  })
+
+  it('unmounts a designer after platform permission disappears without a discard veto', async () => {
+    const { vm, confirm } = await dirtyReportShell()
+    expect(vm.activeMainMenu).toBe('analytics')
+    session.isSuperAdmin.value = false
+    expect(vm.activeMainMenu).toBe('home')
+    expect(vm.workspaceLeaveGuards.hasUnsavedChanges()).toBe(false)
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('blocks both direct sidebar departure and workspace/quick-app navigation before deactivation', async () => {
+    const { vm, confirm } = await dirtyReportShell()
+    const home = wrapper!.findAll('a.nav-item').find(node => node.text() === '主页')!
+    await home.trigger('click')
+    expect(vm.activeMainMenu).toBe('analytics')
+    vm.activateWorkspaceTab(vm.workspaceTabs[0])
+    expect(vm.activeWorkspaceTabId).toBe('analytics')
+    const config = vm.activeConfigMenu
+    vm.jumpFromQuickApp('sysconfig', 'user')
+    expect(vm.activeMainMenu).toBe('analytics')
+    expect(vm.activeConfigMenu).toBe(config)
+    expect(confirm.mock.calls.map(call => call[0])).toEqual(['navigate', 'navigate', 'navigate'])
+  })
+
+  it.each(['single', 'all', 'right', 'others'])('does not remove dirty tabs on cancelled %s closure', async mode => {
+    const { vm, confirm } = await dirtyReportShell()
+    const ids = vm.workspaceTabs.map((tab: any) => tab.id)
+    if (mode === 'single') vm.closeWorkspaceTab('analytics')
+    if (mode === 'all') vm.closeAllTabs()
+    if (mode === 'right') { vm.tabContextMenu.tabId = 'home'; vm.closeTabsRight() }
+    if (mode === 'others') { vm.tabContextMenu.tabId = 'home'; vm.closeOtherTabs() }
+    expect(vm.workspaceTabs.map((tab: any) => tab.id)).toEqual(ids)
+    expect(vm.activeMainMenu).toBe('analytics')
+    expect(vm.activeWorkspaceTabId).toBe('analytics')
+    expect(confirm).toHaveBeenCalledExactlyOnceWith('close')
+  })
+
+  it('accepts an explicit close once without a second navigation prompt', async () => {
+    const { vm, confirm } = await dirtyReportShell()
+    confirm.mockReturnValue(true)
+    vm.closeWorkspaceTab('analytics')
+    expect(confirm).toHaveBeenCalledExactlyOnceWith('close')
+    expect(vm.activeMainMenu).toBe('home')
+    expect(vm.workspaceTabs.some((tab: any) => tab.id === 'analytics')).toBe(false)
+  })
+
+  it('preserves a cancelled logout, but forced session invalidation clears state without prompting', async () => {
+    const { vm, confirm } = await dirtyReportShell()
+    vm.logout()
+    expect(session.token.value).toBe('admin-token')
+    expect(vm.activeMainMenu).toBe('analytics')
+    expect(confirm).toHaveBeenCalledExactlyOnceWith('logout')
+    session.logout()
+    expect(vm.activeMainMenu).toBe('home')
+    expect(vm.workspaceLeaveGuards.hasUnsavedChanges()).toBe(false)
+    expect(confirm).toHaveBeenCalledTimes(1)
+  })
+
+  it('guards browser refresh/close only while a real draft is dirty', async () => {
+    const { clean, confirm } = await dirtyReportShell()
+    const dirtyEvent = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(dirtyEvent)
+    expect(dirtyEvent.defaultPrevented).toBe(true)
+    clean()
+    const cleanEvent = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(cleanEvent)
+    expect(cleanEvent.defaultPrevented).toBe(false)
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('sends one server logout and clears the local session only after it is confirmed', async () => {
+    session.persistSession({ token: 'admin-token', user, isSuperAdmin: false })
+    wrapper = mountShell()
+    await flushPromises()
+    let resolve!: () => void
+    mocks.logoutSession.mockReturnValueOnce(new Promise<void>(done => { resolve = done }))
+    const vm = wrapper.vm as any
+    const first = vm.logout(), duplicate = vm.logout()
+    expect(mocks.logoutSession).toHaveBeenCalledTimes(1)
+    expect(mocks.logoutSession.mock.calls[0][0]).toBe('admin-token')
+    expect(session.token.value).toBe('admin-token')
+    expect(vm.signingOut).toBe(true)
+    resolve()
+    await Promise.all([first, duplicate])
+    expect(session.token.value).toBe('')
+    expect(vm.signingOut).toBe(false)
+  })
+
+  it('retains an uncertain server session with visible retry, and succeeds on retry', async () => {
+    session.persistSession({ token: 'admin-token', user, isSuperAdmin: false })
+    wrapper = mountShell()
+    await flushPromises()
+    mocks.logoutSession.mockRejectedValueOnce(new Error('network unavailable'))
+    const vm = wrapper.vm as any
+    await vm.logout()
+    await flushPromises()
+    expect(session.token.value).toBe('admin-token')
+    expect(vm.signingOut).toBe(false)
+    expect(wrapper.get('.signout-error[role="alert"]').text()).toContain('服务器退出未确认')
+    expect(wrapper.text()).toContain('重试退出')
+    expect(wrapper.text()).toContain('仅退出本机')
+    await vm.logout()
+    expect(mocks.logoutSession).toHaveBeenCalledTimes(2)
+    expect(session.token.value).toBe('')
+  })
+
+  it('cannot clear a replacement login when an old logout response arrives', async () => {
+    session.persistSession({ token: 'admin-token', user, isSuperAdmin: false })
+    wrapper = mountShell()
+    await flushPromises()
+    let resolve!: () => void
+    mocks.logoutSession.mockReturnValueOnce(new Promise<void>(done => { resolve = done }))
+    const vm = wrapper.vm as any
+    const old = vm.logout()
+    session.persistSession({ token: 'new-token', user, isSuperAdmin: false })
+    resolve()
+    await old
+    expect(session.token.value).toBe('new-token')
+    expect(vm.signOutError).toBe('')
+    expect(vm.signingOut).toBe(false)
+  })
+
+  it('labels local-only logout honestly and requires its separate risk acknowledgement', async () => {
+    session.persistSession({ token: 'admin-token', user, isSuperAdmin: false })
+    wrapper = mountShell()
+    await flushPromises()
+    mocks.logoutSession.mockRejectedValueOnce(new Error('offline'))
+    const vm = wrapper.vm as any
+    await vm.logout()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    vm.logoutLocally()
+    expect(session.token.value).toBe('admin-token')
+    expect(confirm).toHaveBeenCalledWith('仅退出本机不会撤销服务器会话，仍然退出？')
+    confirm.mockReturnValue(true)
+    vm.logoutLocally()
+    expect(session.token.value).toBe('')
+    expect(vm.actionMessage).toBe('已退出本机，服务器会话可能仍有效')
+    confirm.mockRestore()
   })
 
   it('exposes the account menu through a native keyboard-operable trigger', async () => {

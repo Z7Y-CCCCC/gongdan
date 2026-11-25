@@ -1,5 +1,5 @@
 <template>
-  <view class="container">
+  <view class="container" role="main" aria-label="账号登录">
     <view class="header">
       <view class="brand-row">
         <view class="logo-box"><uni-icons type="compose" size="24" color="#00a982"  aria-hidden="true" /></view>
@@ -7,32 +7,36 @@
           <text class="title">黑湖小工单</text>
         </view>
       </view>
-      <text class="login-title">登录</text>
+      <text class="login-title" role="heading" aria-level="1">登录</text>
     </view>
 
     <view class="form">
+      <view v-if="loginError" class="form-error" role="alert" id="login-error"><text>{{ loginError }}</text></view>
       <view class="input-group">
         <text class="label">工厂代码</text>
-        <input class="input" v-model="form.factoryCode" placeholder="请输入工厂代码" placeholder-style="color:#ccc" />
+        <input class="input" v-model="form.factoryCode" aria-label="工厂代码" aria-required="true" :aria-describedby="loginError ? 'login-error' : undefined" :disabled="loading" placeholder="请输入工厂代码" placeholder-style="color:#64756d" />
       </view>
 
       <view class="input-group">
         <text class="label">用户名</text>
-        <input class="input" v-model="form.username" placeholder="请输入工号/手机号" placeholder-style="color:#ccc" />
+        <input class="input" v-model="form.username" aria-label="用户名" aria-required="true" :aria-describedby="loginError ? 'login-error' : undefined" :disabled="loading" placeholder="请输入工号/手机号" placeholder-style="color:#64756d" />
       </view>
 
       <view class="input-group">
         <text class="label">密码</text>
-        <input class="input" v-model="form.password" :type="isH5 ? 'password' : 'text'" password placeholder="请输入登录密码" placeholder-style="color:#ccc" />
+        <input class="input" v-model="form.password" aria-label="密码" aria-required="true" :aria-describedby="loginError ? 'login-error' : undefined" :disabled="loading" :type="isH5 ? 'password' : 'text'" password placeholder="请输入登录密码" placeholder-style="color:#64756d" />
       </view>
 
-      <button class="btn-submit" :loading="loading" :aria-busy="loading" :disabled="loading" @click="handleBind">登录</button>
+      <button class="btn-submit" :loading="loading" :aria-busy="loading" :aria-describedby="loginError ? 'login-error' : undefined" :disabled="loading" @click="handleBind">登录</button>
       <button v-if="!isH5" class="wechat-login" :disabled="loading" @click="tryWechatLogin">微信登录</button>
     </view>
 
     <view class="footer">
       <text class="footer-text">没有账号？联系管理员</text>
     </view>
+    <!-- #ifdef H5 -->
+    <MobileMessageDialog v-model="pageMessage.message.visible" :title="pageMessage.message.title" :content="pageMessage.message.content" :confirm-text="pageMessage.message.confirmText" :cancel-text="pageMessage.message.cancelText" @confirm="pageMessage.decide(true)" @cancel="pageMessage.decide(false)" />
+    <!-- #endif -->
   </view>
 </template>
 
@@ -44,8 +48,14 @@ import { goAfterLogin as navigateAfterLogin, loginRedirect } from '../../utils/n
 import { mobileSessionKey } from '../../utils/session-key'
 import { onHide } from '@dcloudio/uni-app'
 import { useMobilePageActivity } from '../../composables/useMobilePageActivity'
+import { usePageMessage } from '../../composables/usePageMessage'
+// #ifdef H5
+import MobileMessageDialog from '../../components/MobileMessageDialog.vue'
+// #endif
 
 const pageActivity = useMobilePageActivity()
+const pageMessage = usePageMessage()
+const loginError = ref('')
 
 const loading = ref(false)
 const redirectUrl = ref('')
@@ -53,7 +63,7 @@ const isH5 = typeof window !== 'undefined'
 let manualLogin = false
 let navigationTimer: ReturnType<typeof setTimeout> | undefined
 let pageAlive = true
-onHide(() => { if (navigationTimer) clearTimeout(navigationTimer) })
+onHide(() => { form.password = ''; if (navigationTimer) clearTimeout(navigationTimer) })
 onBeforeUnmount(() => { pageAlive = false; if (navigationTimer) clearTimeout(navigationTimer) })
 const configuredWechatMock = import.meta.env.VITE_WECHAT_MOCK_ENABLED
 const wechatMockEnabled = configuredWechatMock === 'true'
@@ -69,8 +79,8 @@ const { clearDraft: clearAccountDraft } = usePageDraft({
   scope: 'device',
   source: () => ({ factoryCode: form.factoryCode, username: form.username }),
   restore: (draft) => {
-    form.factoryCode = draft.factoryCode || ''
-    form.username = draft.username || ''
+    form.factoryCode = typeof draft.factoryCode === 'string' ? draft.factoryCode : ''
+    form.username = typeof draft.username === 'string' ? draft.username : ''
   }
 })
 
@@ -156,6 +166,7 @@ function goAfterLogin() {
 const handleBind = async () => {
   if (!pageAlive || loading.value) return
   if (!form.factoryCode.trim() || !form.username.trim() || !form.password) {
+    loginError.value = '请填写完整信息'
     uni.showToast({ title: '请填写完整信息', icon: 'none' })
     return
   }
@@ -165,6 +176,7 @@ const handleBind = async () => {
   }
 
   loading.value = true
+  loginError.value = ''
   let signedIn = false
   const session = mobileSessionKey()
   const isPageCurrent = pageActivity.capture()
@@ -190,9 +202,10 @@ const handleBind = async () => {
     }, 1500)
   } catch (e: any) {
     if (!current()) return
-    uni.showModal({
+    loginError.value = e.message || '请检查工厂代码或账号密码是否正确'
+    pageMessage.open({
       title: '登录失败',
-      content: e.message || '请检查工厂代码或账号密码是否正确',
+      content: loginError.value,
       confirmText: '关闭',
       showCancel: false
     })
@@ -205,10 +218,11 @@ const handleBind = async () => {
 <style scoped>
 .container {
   padding: 48rpx 36rpx 32rpx;
-  background-color: #f6f7f7;
+  background-color: var(--mobile-bg, #f6f7f7);
   min-height: 100vh;
   box-sizing: border-box;
 }
+.form-error { margin-bottom: 18px; padding: 12px; border-radius: 8px; background: var(--mobile-error-bg, #fff1f0); color: var(--mobile-error, #a0332c); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
 
 .header {
   margin-bottom: 28rpx;
@@ -226,7 +240,7 @@ const handleBind = async () => {
   width: 72rpx;
   height: 72rpx;
   border-radius: 14rpx;
-  background: #e5f7f2;
+  background: var(--mobile-subtle, #e5f7f2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -241,26 +255,26 @@ const handleBind = async () => {
 .title {
   font-size: 34rpx;
   font-weight: 700;
-  color: #202926;
+  color: var(--mobile-text, #202926);
 }
 
 .subtitle {
   font-size: 22rpx;
-  color: #64756d;
+  color: var(--mobile-muted, #64756d);
   margin-top: 4rpx;
 }
 
 .login-title {
   font-size: 40rpx;
   font-weight: 700;
-  color: #202926;
+  color: var(--mobile-text, #202926);
 }
 
 .form {
-  background: white;
+  background: var(--mobile-surface, white);
   padding: 34rpx;
   border-radius: 16rpx;
-  border: 1rpx solid #e8eceb;
+  border: 1rpx solid var(--mobile-border, #e8eceb);
 }
 
 .input-group {
@@ -269,7 +283,7 @@ const handleBind = async () => {
 
 .label {
   font-size: 28rpx;
-  color: #586360;
+  color: var(--mobile-muted, #586360);
   margin-bottom: 12rpx;
   display: block;
 }
@@ -278,11 +292,11 @@ const handleBind = async () => {
   width: 100%;
   display: block;
   height: 82rpx;
-  background: #f7f9f8;
+  background: var(--mobile-bg, #f7f9f8);
   border-radius: 10rpx;
   padding: 0 24rpx;
   font-size: 28rpx;
-  border: 1rpx solid #dfe5e3;
+  border: 1rpx solid var(--mobile-border, #dfe5e3);
   box-sizing: border-box;
 }
 
@@ -313,7 +327,7 @@ const handleBind = async () => {
 .wechat-login {
   margin-top: 24rpx;
   background: transparent;
-  color: #00856b;
+  color: var(--mobile-link, #00856b);
   font-size: 24rpx;
 }
 
@@ -324,6 +338,6 @@ const handleBind = async () => {
 
 .footer-text {
   font-size: 24rpx;
-  color: #9aa4a1;
+  color: var(--mobile-muted, #64756d);
 }
 </style>

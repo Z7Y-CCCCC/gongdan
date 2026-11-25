@@ -16,6 +16,7 @@ import { t } from '../i18n'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{
   token: string
@@ -30,6 +31,8 @@ const { handleApiError } = useHomeDashboardErrorHandler()
 // Data state
 const data = ref<PerformanceResponse | null>(null)
 const hasError = ref(false)
+const errorMessage = ref('')
+const loading = ref(false)
 const beginLoad = useLatestRequest()
 
 // KPI tile definitions
@@ -65,26 +68,33 @@ function formatValue(tile: KpiTile): string {
 
 async function loadPerformance() {
   const isCurrent = beginLoad()
+  const token = props.token
+  if (!token) return
+  const current = () => isCurrent() && props.token === token
+  loading.value = true
   hasError.value = false
+  errorMessage.value = ''
   try {
-    const response = await fetchHomePerformance(props.token, homeRange.value)
-    if (!isCurrent()) return
+    const response = await fetchHomePerformance(token, homeRange.value)
+    if (!current()) return
     data.value = response
   } catch (error) {
-    if (!isCurrent()) return
+    if (!current()) return
     if (handleApiError(error)) {
       return
     }
     // Non-401/403 error: show "--" for all values
     hasError.value = true
     data.value = null
-  }
+    errorMessage.value = error instanceof Error ? error.message : '绩效加载失败'
+  } finally { if (current()) loading.value = false }
 }
 
 // Watch for range changes and re-fetch
 watch(homeRange, () => {
   loadPerformance()
 })
+watch(() => props.token, () => { beginLoad(); data.value = null; hasError.value = false; errorMessage.value = ''; loading.value = false; void loadPerformance() }, { flush: 'sync' })
 
 // Initial load
 useRefreshOnActivated(loadPerformance)
@@ -97,7 +107,9 @@ onMounted(() => {
 <template>
   <div class="performance-section">
     <h2 class="performance-title">绩效</h2>
-    <div class="performance-grid">
+    <p v-if="errorMessage" role="alert">{{ errorMessage }} <button class="ui-icon-button" type="button" :disabled="loading" @click="loadPerformance" title="重试" aria-label="重试"><UiIcon name="refresh" /></button></p>
+    <p v-if="loading && !data" role="status">加载中...</p>
+    <div class="performance-grid" :aria-busy="loading">
       <div
         v-for="tile in kpiTiles"
         :key="tile.key"

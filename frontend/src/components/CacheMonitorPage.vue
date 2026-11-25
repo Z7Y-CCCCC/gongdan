@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import { fetchCacheMetrics, type MonitorCacheMetricsInfo } from '../api'
 import UiIcon from './UiIcon.vue'
+import { t } from '../i18n'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
 const loading = ref(false)
 const metrics = ref<MonitorCacheMetricsInfo | null>(null)
+const errorMessage = ref('')
+const beginLoad = useLatestRequest()
+const statusText = computed(() => loading.value ? t('加载中') : errorMessage.value ? t('加载失败') : t(metrics.value?.basicInfo.status || '未获取数据'))
 
 const basicItems = [
   ['redisVersion', 'Redis 版本'], ['cacheType', '缓存类型'], ['mode', '运行模式'], ['port', '端口'], ['clients', '客户端数'],
@@ -45,17 +51,24 @@ function displayValue(key: string) {
 }
 
 async function load() {
+  const token = props.token, latest = beginLoad()
+  if (!token) return
+  const current = () => latest() && props.token === token
   loading.value = true
+  errorMessage.value = ''
   try {
-    metrics.value = await fetchCacheMetrics(props.token)
+    const result = await fetchCacheMetrics(token)
+    if (current()) metrics.value = result
   } catch (error) {
-    emit('notice', error instanceof Error ? error.message : '缓存监控加载失败')
+    if (current()) { errorMessage.value = error instanceof Error ? error.message : '缓存监控加载失败'; emit('notice', errorMessage.value) }
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 onMounted(load)
+useRefreshOnActivated(load)
+watch(() => props.token, () => { beginLoad(); metrics.value = null; errorMessage.value = ''; loading.value = false; void load() }, { flush: 'sync' })
 </script>
 
 <template>
@@ -65,14 +78,16 @@ onMounted(load)
         <h1>缓存监控</h1>
       </div>
       <div class="monitor-header-actions">
-        <span class="monitor-status" :class="{ fallback: basicInfo.status && !basicInfo.status.includes('正常') }">
-          <i></i>{{ basicInfo.status || '加载中' }}
+        <span class="monitor-status" :class="{ fallback: !!errorMessage || (basicInfo.status && !basicInfo.status.includes('正常')) }">
+          <i></i>{{ statusText }}
         </span>
         <button class="toolbar-btn ui-icon-button" type="button" title="刷新缓存监控" @click="load" aria-label="刷新缓存监控"><UiIcon name="refresh" /></button>
       </div>
     </div>
 
-    <div class="monitor-metrics-grid">
+    <p v-if="errorMessage" role="alert">{{ errorMessage }} <button class="ui-icon-button" type="button" @click="load" title="重试" aria-label="重试"><UiIcon name="refresh" /></button></p>
+    <p v-if="loading && !metrics" role="status">加载中...</p>
+    <div v-if="metrics" class="monitor-metrics-grid" :aria-busy="loading">
       <section class="monitor-panel monitor-basic-panel">
         <div class="monitor-panel-head"><div><UiIcon name="layers" :size="16" /><strong>基本信息</strong></div><small>连接状态实时读取</small></div>
         <div v-if="loading" class="monitor-panel-loading">加载中...</div>
@@ -88,11 +103,11 @@ onMounted(load)
         <div class="memory-summary"><strong>{{ memoryInfo.usedHuman }}</strong><span>/ {{ memoryInfo.maxHuman }}</span></div>
         <div class="metric-progress"><span :style="{ width: `${Math.min(100, Math.max(0, memoryInfo.usedPercent))}%` }"></span></div>
         <div class="memory-foot"><span>已使用</span><span>最大可用</span></div>
-        <div class="monitor-note">删除缓存仅影响缓存数据，不会删除业务数据库记录。清理后 {{ basicInfo.recoveryWindow || '30分钟' }} 内可尝试恢复。</div>
+        <div class="monitor-note">删除缓存仅影响缓存数据，不会删除业务数据库记录。恢复期限以清理结果为准。</div>
       </section>
     </div>
 
-    <section class="monitor-panel command-panel">
+    <section v-if="metrics" class="monitor-panel command-panel">
       <div class="monitor-panel-head"><div><UiIcon name="list" :size="16" /><strong>命令统计</strong></div><small>调用次数 Top 12</small></div>
       <div v-if="commandStats.length === 0" class="monitor-panel-loading">暂无命令统计</div>
       <div v-else class="command-chart">

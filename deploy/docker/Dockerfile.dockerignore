@@ -16,3 +16,8 @@
 **/.env
 **/.env.*
 **/*.log
+# These are reviewed vendored sources, not generated application outputs.
+!mobile/vendor/uni-vue-shared/dist/
+!mobile/vendor/uni-vue-shared/dist/**
+!mobile/vendor/uni-server-renderer/dist/
+!mobile/vendor/uni-server-renderer/dist/**

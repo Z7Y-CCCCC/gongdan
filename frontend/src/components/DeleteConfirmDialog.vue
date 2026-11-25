@@ -10,6 +10,7 @@
 import { ref } from 'vue'
 import UiIcon from './UiIcon.vue'
 import { useDialogFocus } from '../composables/useDialogFocus'
+import { t } from '../i18n'
 
 const props = withDefaults(
   defineProps<{
@@ -17,11 +18,17 @@ const props = withDefaults(
     title?: string
     message?: string
     loading?: boolean
+    confirmLabel?: string
+    confirmIcon?: string
+    confirmTone?: 'danger' | 'primary'
   }>(),
   {
     title: '删除确认',
     message: '',
-    loading: false
+    loading: false,
+    confirmLabel: '删除',
+    confirmIcon: 'trash',
+    confirmTone: 'danger'
   }
 )
 
@@ -31,6 +38,7 @@ const emit = defineEmits<{
 }>()
 
 const titleId = 'delete-confirm-title-' + Math.random().toString(36).slice(2, 9)
+const messageId = `${titleId}-description`
 const cancelBtnRef = ref<HTMLButtonElement | null>(null)
 const dialogRef = ref<HTMLElement | null>(null)
 useDialogFocus(dialogRef, () => props.visible, handleDismiss, () => cancelBtnRef.value)
@@ -56,12 +64,15 @@ function handleConfirm() {
         role="dialog"
         aria-modal="true"
         :aria-labelledby="titleId"
+        :aria-describedby="message ? messageId : undefined"
+        :aria-busy="loading"
       >
         <div class="delete-confirm-backdrop__overlay" @click="handleDismiss" />
         <section ref="dialogRef" class="delete-confirm-dialog modal" tabindex="-1" @click.stop>
           <div class="delete-confirm-dialog__header">
-            <div class="delete-confirm-dialog__icon">
+            <div class="delete-confirm-dialog__icon" :class="{ 'delete-confirm-dialog__icon--primary': confirmTone === 'primary' }">
               <svg
+                v-if="confirmTone === 'danger'"
                 width="24"
                 height="24"
                 viewBox="0 0 24 24"
@@ -77,32 +88,36 @@ function handleConfirm() {
                   stroke-linecap="round"
                 />
               </svg>
+              <UiIcon v-else :name="confirmIcon" :size="24" />
             </div>
             <h2 :id="titleId" class="delete-confirm-dialog__title">{{ title }}</h2>
             <button class="close-btn ui-icon-button" type="button" title="关闭" aria-label="关闭" :disabled="loading" @click="handleDismiss">
               <UiIcon name="close" :size="18" />
             </button>
           </div>
-          <p class="delete-confirm-dialog__message">{{ message }}</p>
+          <p :id="messageId" class="delete-confirm-dialog__message">{{ message }}</p>
           <footer class="delete-confirm-dialog__footer">
             <button
               ref="cancelBtnRef"
               class="btn btn--ghost"
+              type="button"
               :disabled="loading"
               @click="handleDismiss"
             >
               取消
             </button>
             <button
-              class="btn btn--danger"
+              class="btn"
+              :class="`btn--${confirmTone}`"
               type="button"
-              aria-label="确认删除"
+              :aria-label="confirmLabel === '删除' ? t('确认删除') : t(confirmLabel)"
+              :aria-busy="loading"
               :disabled="loading"
               @click="handleConfirm"
             >
               <span v-if="loading" class="spinner" aria-hidden="true" />
-              <UiIcon v-else name="trash" :size="16" />
-              删除
+              <UiIcon v-else :name="confirmIcon" :size="16" />
+              {{ t(confirmLabel) }}
             </button>
           </footer>
         </section>
@@ -130,11 +145,13 @@ function handleConfirm() {
 .delete-confirm-dialog {
   position: relative;
   background: #fff;
-  border-radius: 12px;
-  width: 400px;
-  min-width: 320px;
-  max-width: 480px;
-  padding: 28px;
+  border-radius: 6px;
+  width: min(400px, calc(100vw - 32px));
+  min-width: 0;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 24px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
@@ -156,14 +173,16 @@ function handleConfirm() {
   justify-content: center;
 }
 
+.delete-confirm-dialog__icon--primary { color: #007a60; }
+
 .delete-confirm-dialog__title {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
   color: #1a1a1a;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .delete-confirm-dialog__message {
@@ -171,11 +190,10 @@ function handleConfirm() {
   font-size: 14px;
   color: #6d7775;
   line-height: 1.5;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: min(44vh, 360px);
+  overflow-y: auto;
 }
 
 .delete-confirm-dialog__footer {
@@ -195,7 +213,10 @@ function handleConfirm() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 36px;
 }
+
+.btn:focus-visible { outline: 2px solid #007a60; outline-offset: 3px; }
 
 .btn:disabled {
   opacity: 0.6;
@@ -223,6 +244,17 @@ function handleConfirm() {
   background: #c0392b;
   border-color: #c0392b;
 }
+
+.btn--primary { background: #007a60; color: #fff; border-color: #007a60; }
+.btn--primary:hover:not(:disabled) { background: #006b53; border-color: #006b53; }
+
+:global(.dark) .delete-confirm-dialog { background: #15201e; border: 1px solid #344641; }
+:global(.dark) .delete-confirm-dialog__title { color: #e6f2ed; }
+:global(.dark) .delete-confirm-dialog__message { color: #b6c4bf; }
+:global(.dark) .btn--ghost { background: #15201e; color: #e6f2ed; border-color: #52635c; }
+:global(.dark) .btn--ghost:hover:not(:disabled) { border-color: #a8bdb2; color: #fff; }
+:global(.dark) .btn:focus-visible { outline-color: #66dfb3; }
+:global(.dark) .delete-confirm-dialog__icon--primary { color: #66dfb3; }
 
 .spinner {
   display: inline-block;
@@ -264,5 +296,12 @@ function handleConfirm() {
 .dialog-fade-leave-to .delete-confirm-dialog {
   transform: scale(0.9);
   opacity: 0;
+}
+
+@media (pointer: coarse) { .btn { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) {
+  .btn, .dialog-fade-enter-active, .dialog-fade-leave-active,
+  .dialog-fade-enter-active .delete-confirm-dialog, .dialog-fade-leave-active .delete-confirm-dialog { transition: none; }
+  .spinner { animation: none; }
 }
 </style>

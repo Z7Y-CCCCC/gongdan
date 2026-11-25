@@ -1,0 +1,34 @@
+{
+  "name": "@gongdan/uni-intlify-core-compat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Legacy uni core API facade over the real upstream security-fixed Intlify 11 core",
+  "license": "MIT",
+  "main": "index.cjs",
+  "module": "index.mjs",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs",
+      "require": "./index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.cjs",
+    "index.mjs",
+    "index.d.ts",
+    "legacy.cjs",
+    "README.md",
+    "PROVENANCE.json",
+    "LICENSE",
+    "UPSTREAM_LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "intlify-core-modern": "npm:@intlify/core-base@11.4.23"
+  }
+}

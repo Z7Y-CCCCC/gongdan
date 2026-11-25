@@ -26,7 +26,9 @@ const page = (route: string, titleText: string, component: () => Promise<unknown
           const query = app?.$route?.query || {}
           openBlock()
           return createBlock(PageComponent, null, {
-            page: withCtx(() => [createVNode(pageComponent, { ...query, ref: 'page' }, null, 512)]),
+            // setupPage delivers route options through onLoad. Query keys are
+            // data, not arbitrary HTML attributes on the page's root element.
+            page: withCtx(() => [createVNode(pageComponent, { __pageQuery: query, ref: 'page' }, null, 512)]),
             _: 1
           })
         }

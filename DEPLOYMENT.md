@@ -47,6 +47,16 @@ Token sessions are stored in the database as token hashes when the backend runs 
 For a single backend instance, `APP_UPLOAD_STORAGE_TYPE=local` stores report images and custom-field attachments under `APP_UPLOAD_REPORT_IMAGE_DIR`.
 For multiple backend instances, set `APP_UPLOAD_STORAGE_TYPE=s3` and configure the S3-compatible settings. MinIO, AWS S3, and S3-compatible object storage can be used; `APP_UPLOAD_S3_KEY_PREFIX` defaults to `report-images`.
 
+### Proxy trust and native report cookies
+
+The backend ignores forwarding headers by default. Set `APP_NETWORK_TRUSTED_PROXIES` to a comma-separated list of the actual, controlled proxy socket peers (numeric IP addresses or bounded CIDRs). Do not use hostnames, all-address `/0` networks, or a shared internal network whose other clients can reach the backend. A trusted proxy must append/replace the incoming forwarding chain correctly, and the backend port must not be publicly reachable. An empty value uses the direct socket address for rate limits, sessions and logs; do not enable Spring/Tomcat's automatic forwarded-header rewriting to bypass this boundary.
+
+When public HTTPS terminates before an HTTP backend, set `APP_UREPORT_COOKIE_SECURE=true` so the native report cookie is only sent over HTTPS. Its default `false` preserves local HTTP testing; a direct TLS request still receives a Secure cookie. `X-Forwarded-Proto` alone is not trusted to select this flag. Both variables are passed through the main Compose backend environment and must also be set in the Windows service environment when applicable.
+
+The native UReport designer and global templates are platform-superadmin only (`ADMIN` in factory `ADMIN`); factory administrators keep ordinary production reports. Existing template files are retained. Successful logout revokes only the captured Authorization session, so a late old logout cannot revoke a newer login. Raw CSV is an explicitly labelled backup, not a formula-safe spreadsheet; default user XLSX requests business columns without password hashes.
+
+The unreferenced `deploy_compose.yml` is a legacy local demo, not a production alternative: it contains fixed example credentials, log-only SMS and privileged demo tools. Its published ports are now loopback-only. Do not put that demo behind a public tunnel/proxy; use the maintained main Compose file and production preflight instead.
+
 Health checks:
 
 - `/actuator/health`

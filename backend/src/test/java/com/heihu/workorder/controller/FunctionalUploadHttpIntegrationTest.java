@@ -7,6 +7,16 @@ import com.heihu.workorder.repository.CustomFieldAttachmentRepository;
 import com.heihu.workorder.model.CustomFieldAttachment;
 import com.heihu.workorder.repository.WorkOrderReportImageRepository;
 import com.heihu.workorder.model.WorkOrderReportImage;
+import com.heihu.workorder.model.Factory;
+import com.heihu.workorder.model.FactoryUser;
+import com.heihu.workorder.model.Role;
+import com.heihu.workorder.model.WorkOrder;
+import com.heihu.workorder.repository.FactoryRepository;
+import com.heihu.workorder.repository.UserRepository;
+import com.heihu.workorder.repository.WorkOrderRepository;
+import com.heihu.workorder.repository.WorkOrderReportRepository;
+import com.heihu.workorder.service.TokenService;
+import java.time.LocalDateTime;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,6 +63,11 @@ class FunctionalUploadHttpIntegrationTest {
     @Autowired CustomFieldAttachmentRepository attachments;
     @Autowired WorkOrderReportImageRepository reportImages;
     @Autowired CacheManager cache;
+    @Autowired FactoryRepository factories;
+    @Autowired UserRepository users;
+    @Autowired WorkOrderRepository orders;
+    @Autowired WorkOrderReportRepository reports;
+    @Autowired TokenService tokens;
     @DynamicPropertySource static void storage(DynamicPropertyRegistry registry) {
         registry.add("app.upload.report-image-dir", () -> UPLOAD_ROOT.toString());
         // Apply the production HTTP limits without enabling production credentials or providers.
@@ -172,6 +187,69 @@ class FunctionalUploadHttpIntegrationTest {
         ResponseEntity<JsonNode> uploaded = http.postForEntity("/api/mobile/reports/images", new HttpEntity<>(body, headers), JsonNode.class);
         assertThat(uploaded.getStatusCodeValue()).isEqualTo(400);
         assertThat(uploaded.getBody().path("message").asText()).contains("10MB");
+    }
+
+    @Test void normalImageResourcesRespectPrivateFactoryAndReportOwnershipAcrossActualHttp() throws Exception {
+        Factory first = privateFactory(), second = privateFactory();
+        FactoryUser uploader = privateUser(first, "uploader", Role.PRODUCTION);
+        FactoryUser reporter = privateUser(first, "reporter", Role.PRODUCTION);
+        FactoryUser unrelated = privateUser(first, "colleague", Role.PRODUCTION);
+        FactoryUser administrator = privateUser(first, "administrator", Role.ADMIN);
+        FactoryUser foreignWorker = privateUser(second, "colleague", Role.PRODUCTION);
+        FactoryUser foreignAdmin = privateUser(second, "administrator", Role.ADMIN);
+        String ownerToken = tokens.issue(uploader), reporterToken = tokens.issue(reporter), unrelatedToken = tokens.issue(unrelated);
+        String adminToken = tokens.issue(administrator), foreignWorkerToken = tokens.issue(foreignWorker), foreignAdminToken = tokens.issue(foreignAdmin);
+        JsonNode uploaded = rawUpload("/api/mobile/reports/images", ownerToken, "normal-owned.png", "image/png", pngHeader(), "image");
+        long imageId = uploaded.path("id").asLong();
+        String imagePath = "/api/mobile/reports/images/" + imageId + "/file";
+        assertThat(authorizedImage(imagePath, ownerToken).getBody()).containsExactly(pngHeader());
+        assertThat(authorizedImage(imagePath, adminToken).getStatusCodeValue()).isEqualTo(200);
+        for (String token : Arrays.asList(unrelatedToken, reporterToken, foreignWorkerToken, foreignAdminToken)) {
+            ResponseEntity<byte[]> response = authorizedImage(imagePath, token);
+            assertThat(response.getStatusCodeValue()).isEqualTo(404);
+            assertThat(new String(response.getBody(), StandardCharsets.UTF_8)).contains("图片不存在");
+        }
+
+        WorkOrder order = new WorkOrder(); order.setFactory(first); order.setCode("OWNED-ORDER");
+        order.setStatus("NOT_STARTED"); order.setPriority("中"); order.setPlannedQuantity(10);
+        order.setCreatedAt(LocalDateTime.now()); order.setUpdatedAt(LocalDateTime.now());
+        order.setTaskDataJson("[{\"sequenceNo\":1,\"processName\":\"Normal cut\",\"enabled\":true}]");
+        order = orders.saveAndFlush(order);
+        String body = "{\"workOrderId\":" + order.getId() + ",\"processSequenceNo\":1,\"reportQuantity\":1,"
+                + "\"goodQuantity\":1,\"imageIds\":[" + imageId + "]}";
+        HttpHeaders headers = new HttpHeaders(); headers.setBearerAuth(unrelatedToken); headers.setContentType(MediaType.APPLICATION_JSON);
+        long countBefore = reports.count();
+        ResponseEntity<JsonNode> unauthorizedUse = http.postForEntity("/api/mobile/reports", new HttpEntity<>(body, headers), JsonNode.class);
+        assertThat(unauthorizedUse.getStatusCodeValue()).isEqualTo(400);
+        assertThat(reports.count()).isEqualTo(countBefore);
+        assertThat(reportImages.findById(imageId).get().getReport()).isNull();
+        assertThat(authorizedImage(imagePath, unrelatedToken).getStatusCodeValue()).isEqualTo(404);
+
+        body = body.substring(0, body.length() - 1) + ",\"reporterUserId\":" + reporter.getId() + "}";
+        jsonRequest("/api/mobile/reports", ownerToken, HttpMethod.POST, body);
+        assertThat(authorizedImage(imagePath, reporterToken).getBody()).containsExactly(pngHeader());
+        assertThat(authorizedImage(imagePath, ownerToken).getStatusCodeValue()).isEqualTo(200);
+        assertThat(authorizedImage("/api/reports/images/" + imageId + "/file", adminToken).getStatusCodeValue()).isEqualTo(200);
+        assertThat(authorizedImage(imagePath, unrelatedToken).getStatusCodeValue()).isEqualTo(404);
+        assertThat(jsonRequest("/api/mobile/reports?includeSubmitted=true", unrelatedToken, HttpMethod.GET, null).path("total").asLong()).isZero();
+    }
+
+    private Factory privateFactory() {
+        Factory factory = new Factory(); factory.setCode("OWNERSHIP-" + UUID.randomUUID());
+        factory.setName("Private ownership fixture"); factory.setEnabled(true); factory.setCreatedAt(LocalDateTime.now());
+        return factories.saveAndFlush(factory);
+    }
+
+    private FactoryUser privateUser(Factory factory, String name, Role role) {
+        FactoryUser user = new FactoryUser(); user.setFactory(factory); user.setUsername(name); user.setName(name);
+        user.setRole(role); user.setEnabled(true); user.setPasswordHash("fixture-only-unused-password");
+        user.setCreatedAt(LocalDateTime.now()); user.setUpdatedAt(LocalDateTime.now());
+        return users.saveAndFlush(user);
+    }
+
+    private ResponseEntity<byte[]> authorizedImage(String path, String token) {
+        HttpHeaders headers = new HttpHeaders(); headers.setBearerAuth(token);
+        return http.exchange(path, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
     }
 
     @Test void renamingAUnitRefreshesCachedSalesAndBomHeadersAndLines() {

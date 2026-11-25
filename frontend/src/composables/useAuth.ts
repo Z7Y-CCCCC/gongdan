@@ -20,9 +20,11 @@ const currentFactoryCode = ref(localStorage.getItem('heihu_factory_code') || 'HH
 const isSuperAdmin = ref(localStorage.getItem('heihu_is_super_admin') === 'true')
 
 const isLoggedIn = computed(() => Boolean(token.value && currentUser.value))
+let dismissKickedOverlay: ((restoreLoginFocus?: boolean) => void) | undefined
 
 function persistSession(response: LoginResponse) {
   isKickedAlerted = false
+  dismissKickedOverlay?.(false)
   document.getElementById('kicked-out-overlay')?.remove()
   token.value = response.token
   currentUser.value = response.user
@@ -33,6 +35,7 @@ function persistSession(response: LoginResponse) {
 }
 
 function logout() {
+  dismissKickedOverlay?.(false)
   token.value = ''
   currentUser.value = null
   isSuperAdmin.value = false
@@ -59,9 +62,14 @@ export function handleKickedOut() {
   
   logout()
 
-  // 动态构建高颜值磨砂玻璃拟物化自定义下线通知弹窗
+  // The expired workspace is no longer an appropriate focus-return target.
   const overlay = document.createElement('div')
   overlay.id = 'kicked-out-overlay'
+  overlay.setAttribute('role', 'alertdialog')
+  overlay.setAttribute('aria-modal', 'true')
+  overlay.setAttribute('aria-labelledby', 'kicked-session-title')
+  overlay.setAttribute('aria-describedby', 'kicked-session-description')
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
   Object.assign(overlay.style, {
     position: 'fixed',
     top: '0',
@@ -69,107 +77,90 @@ export function handleKickedOut() {
     width: '100vw',
     height: '100vh',
     backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    backdropFilter: 'blur(12px)',
-    webkitBackdropFilter: 'blur(12px)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: '999999',
     opacity: '0',
-    transition: 'opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1)'
+    transition: reducedMotion ? 'none' : 'opacity 0.14s ease'
   })
 
   const card = document.createElement('div')
   Object.assign(card.style, {
-    background: '#ffffff',
-    padding: '36px 32px',
-    borderRadius: '24px',
-    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-    width: '420px',
-    maxWidth: '90%',
+    background: 'var(--surface-raised, #fff)',
+    padding: '24px',
+    borderRadius: '6px',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.2)',
+    width: '360px',
+    maxWidth: 'calc(100vw - 32px)',
+    boxSizing: 'border-box',
     textAlign: 'center',
-    transform: 'scale(0.9) translateY(20px)',
-    transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+    transform: reducedMotion ? 'none' : 'translateY(7px)',
+    transition: reducedMotion ? 'none' : 'transform 0.14s ease',
     fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
   })
 
-  // 头部精致警告图标
+  // Static application icon only; no server or business markup is inserted here.
   const iconWrapper = document.createElement('div')
   Object.assign(iconWrapper.style, {
-    width: '64px',
-    height: '64px',
-    borderRadius: '50%',
-    background: '#fff9e6',
+    width: '44px',
+    height: '44px',
+    borderRadius: '7px',
+    background: 'var(--status-warning-bg, #fff9e6)',
     color: '#d97706',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    margin: '0 auto 20px'
+    margin: '0 auto 16px'
   })
   iconWrapper.innerHTML = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: #ff9800"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`
+  iconWrapper.setAttribute('aria-hidden', 'true')
 
   // 标题
   const title = document.createElement('h3')
+  title.id = 'kicked-session-title'
   title.innerText = t('下线通知')
   Object.assign(title.style, {
     margin: '0 0 12px',
-    fontSize: '20px',
+    fontSize: '18px',
     fontWeight: '600',
-    color: '#1e293b'
+    color: 'var(--text-primary, #1e293b)'
   })
 
   // 详情信息
   const content = document.createElement('p')
+  content.id = 'kicked-session-description'
   content.innerText = t('您的账号已在其他地方登录，您已被挤下线。')
   Object.assign(content.style, {
-    margin: '0 0 28px',
+    margin: '0 0 20px',
     fontSize: '15px',
-    color: '#64748b',
+    color: 'var(--text-secondary, #64748b)',
     lineHeight: '1.6'
   })
 
-  // 精致的渐变色交互按钮
   const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'kicked-session-button'
   button.innerText = t('重新登录')
   Object.assign(button.style, {
-    background: 'linear-gradient(135deg, #00b889 0%, #00966f 100%)',
+    background: '#007a60',
     color: '#ffffff',
     border: 'none',
     padding: '12px 32px',
-    borderRadius: '12px',
+    borderRadius: '7px',
     fontSize: '15px',
     fontWeight: '600',
     cursor: 'pointer',
-    boxShadow: '0 4px 12px rgba(0, 184, 137, 0.25)',
-    transition: 'all 0.2s ease',
-    outline: 'none',
+    transition: reducedMotion ? 'none' : 'background 0.14s ease',
+    minHeight: '44px',
     width: '100%'
   })
 
-  // 按钮交互微动效
   button.onmouseover = () => {
-    button.style.transform = 'translateY(-2px)'
-    button.style.boxShadow = '0 6px 16px rgba(0, 184, 137, 0.35)'
+    button.style.background = '#006b53'
   }
   button.onmouseout = () => {
-    button.style.transform = 'none'
-    button.style.boxShadow = '0 4px 12px rgba(0, 184, 137, 0.25)'
-  }
-  button.onmousedown = () => {
-    button.style.transform = 'translateY(1px) scale(0.98)'
-  }
-  button.onmouseup = () => {
-    button.style.transform = 'translateY(-2px) scale(1)'
-  }
-
-  button.onclick = () => {
-    // 渐出动效后执行页面重载
-    overlay.style.opacity = '0'
-    card.style.transform = 'scale(0.9) translateY(20px)'
-    setTimeout(() => {
-      overlay.remove()
-      window.location.reload()
-    }, 300)
+    button.style.background = '#007a60'
   }
 
   card.appendChild(iconWrapper)
@@ -178,12 +169,29 @@ export function handleKickedOut() {
   card.appendChild(button)
   overlay.appendChild(card)
   document.body.appendChild(overlay)
-
-  // 触发优雅的上升渐入动画
-  requestAnimationFrame(() => {
-    overlay.style.opacity = '1'
-    card.style.transform = 'scale(1) translateY(0)'
+  const appRoot = document.getElementById('app')
+  const previouslyInert = appRoot?.inert ?? false
+  if (appRoot) appRoot.inert = true
+  const dismiss = (restoreLoginFocus = true) => {
+    overlay.remove()
+    if (appRoot) appRoot.inert = previouslyInert
+    if (dismissKickedOverlay === dismiss) dismissKickedOverlay = undefined
+    if (restoreLoginFocus) document.querySelector<HTMLInputElement>('.login-page input[autocomplete="username"], .login-page input')?.focus()
+  }
+  dismissKickedOverlay = dismiss
+  button.onclick = () => dismiss()
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); button.focus() }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); dismiss() }
   })
+  queueMicrotask(() => { if (overlay.isConnected) button.focus() })
+  const reveal = () => {
+    if (!overlay.isConnected) return
+    overlay.style.opacity = '1'
+    card.style.transform = 'none'
+  }
+  if (reducedMotion) reveal()
+  else requestAnimationFrame(reveal)
 }
 
 function setFactoryCode(code: string) {

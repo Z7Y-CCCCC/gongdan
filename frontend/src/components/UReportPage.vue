@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import UiIcon from './UiIcon.vue'
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
+import { computed, inject, onActivated, onBeforeUnmount, onDeactivated, onMounted, ref, watch } from 'vue'
 import { ApiError, establishUReportSession } from '../api'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import { t, uiLocale, type UiLocale } from '../i18n'
 import { currentReportPath, reportHasUnsavedChanges, reportLocaleUrl } from '../utils/reportLocale'
+import { workspaceLeaveGuardsKey, type WorkspaceLeaveReason } from '../utils/workspaceLeaveGuards'
 
 const props = defineProps<{ token: string }>()
+const leaveGuards = inject(workspaceLeaveGuardsKey, null)
+let unregisterLeaveGuard: (() => void) | undefined
 
 const iframeSrc = ref('')
 const frameRef = ref<HTMLIFrameElement | null>(null)
@@ -16,6 +19,7 @@ const languagePending = computed(() => Boolean(iframeSrc.value) && !frameLoading
 const loading = ref(true)
 const frameLoading = ref(false)
 const errorMessage = ref('')
+const frameWarning = ref('')
 let disposed = false
 let active = true
 const beginLoad = useLatestRequest()
@@ -30,6 +34,7 @@ async function load(reportPath = '') {
   frameLoading.value = false
   iframeSrc.value = ''
   errorMessage.value = ''
+  frameWarning.value = ''
   if (!requestToken || !active) { loading.value = false; return }
   const current = () => !disposed && active && isCurrent() && props.token === requestToken
   try {
@@ -59,6 +64,7 @@ function requestReload() {
 function onFrameLoaded() {
   clearFrameTimeout()
   frameLoading.value = false
+  frameWarning.value = ''
   try {
     const nativeLocale = frameRef.value?.contentDocument?.documentElement.getAttribute('data-workorder-report-locale')
     if (nativeLocale === 'en-US' || nativeLocale === 'zh-CN') frameLocale.value = nativeLocale
@@ -67,16 +73,40 @@ function onFrameLoaded() {
 function onFrameError() {
   clearFrameTimeout()
   frameLoading.value = false
+  try {
+    // Slow subresources can delay load even after the editor is interactive.
+    // Do not destroy that browsing context (and its draft) to show a retry panel.
+    if (frameRef.value?.contentDocument?.getElementById('__save_btn')) {
+      frameWarning.value = '报表加载未完成，当前内容已保留'
+      return
+    }
+  } catch {}
   iframeSrc.value = ''
   errorMessage.value = '报表设计器加载失败，请重试'
 }
 
+function confirmWorkspaceDeparture(reason: WorkspaceLeaveReason) {
+  const message = reason === 'logout'
+    ? '退出登录将丢弃未保存的报表修改，是否继续？'
+    : reason === 'close'
+      ? '关闭高级报表将丢弃未保存的修改，是否继续？'
+      : '离开高级报表将丢弃未保存的修改，是否继续？'
+  return window.confirm(t(message))
+}
+
 onMounted(load)
+onMounted(() => {
+  unregisterLeaveGuard = leaveGuards?.register('analytics', {
+    isDirty: () => !disposed && active && Boolean(iframeSrc.value) && reportHasUnsavedChanges(frameRef.value),
+    confirmLeave: confirmWorkspaceDeparture
+  })
+})
 onActivated(() => { active = true })
 useRefreshOnActivated(load)
 onDeactivated(() => { active = false; beginLoad(); clearFrameTimeout(); iframeSrc.value = ''; frameLoading.value = false })
 watch(() => props.token, () => { beginLoad(); clearFrameTimeout(); iframeSrc.value = ''; void load() })
 onBeforeUnmount(() => {
+  unregisterLeaveGuard?.()
   disposed = true
   beginLoad()
   clearFrameTimeout()
@@ -96,13 +126,15 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <p v-if="frameWarning" class="ureport-frame-warning" role="alert">{{ t(frameWarning) }}</p>
+
     <div v-if="loading" class="ureport-state">
       <strong>正在启动报表设计器</strong>
     </div>
 
     <div v-else-if="errorMessage" class="ureport-state ureport-state-error">
       <strong>{{ errorMessage }}</strong>
-      <span>请确认当前账号具有管理员权限，或联系系统管理员。</span>
+      <span>请使用平台超级管理员账号，或联系平台管理员。</span>
       <button class="primary-btn ui-icon-button" type="button" @click="load()" title="重新加载" aria-label="重新加载"><UiIcon name="refresh" /></button>
     </div>
 
@@ -185,6 +217,8 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   background: #fff;
 }
+
+.ureport-frame-warning { margin: 0; padding: 8px 12px; border-radius: 4px; color: var(--status-warning-text, #765510); background: var(--status-warning-bg, #fff8e6); font-size: 13px; line-height: 1.5; }
 
 :global(.dark) .ureport-header h2,
 :global(.dark) .ureport-state strong {

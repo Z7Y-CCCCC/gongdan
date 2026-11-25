@@ -15,6 +15,7 @@ import com.heihu.workorder.util.WorkOrderStates;
 import com.heihu.workorder.exception.ApiException;
 import com.heihu.workorder.model.FactoryUser;
 import com.heihu.workorder.model.ReportStatus;
+import com.heihu.workorder.model.Role;
 import com.heihu.workorder.model.WorkOrder;
 import com.heihu.workorder.model.WorkOrderReport;
 import com.heihu.workorder.model.WorkOrderReportImage;
@@ -150,10 +151,34 @@ public class WorkOrderReportService {
 
     @Transactional(readOnly = true)
     public ReportImageDownload getImageDownload(Long factoryId, Long imageId) {
-        WorkOrderReportImage image = imageRepository.findById(imageId)
-                .filter(item -> item.getFactory().getId().equals(factoryId))
-                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "图片不存在"));
+        WorkOrderReportImage image = requireFactoryImage(factoryId, imageId);
         return new ReportImageDownload(image, reportImageStorage.load(image.getStoredFileName()));
+    }
+
+    /** Mobile access mirrors the owned/related report boundary; admin factory access stays unchanged. */
+    @Transactional(readOnly = true)
+    public ReportImageDownload getImageDownload(Long factoryId, Long viewerId, Long imageId) {
+        FactoryUser viewer = requireUser(factoryId, viewerId);
+        WorkOrderReportImage image = requireFactoryImage(factoryId, imageId);
+        if (!canReadImage(factoryId, viewer, image)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "图片不存在");
+        }
+        return new ReportImageDownload(image, reportImageStorage.load(image.getStoredFileName()));
+    }
+
+    private WorkOrderReportImage requireFactoryImage(Long factoryId, Long imageId) {
+        return imageRepository.findById(imageId)
+                .filter(image -> image.getFactory() != null && Objects.equals(image.getFactory().getId(), factoryId))
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "图片不存在"));
+    }
+
+    private boolean canReadImage(Long factoryId, FactoryUser viewer, WorkOrderReportImage image) {
+        if (viewer.getRole() == Role.ADMIN) return true;
+        if (image.getUploader() != null && Objects.equals(image.getUploader().getId(), viewer.getId())) return true;
+        WorkOrderReport report = image.getReport();
+        if (report == null || report.getFactory() == null || !Objects.equals(report.getFactory().getId(), factoryId)) return false;
+        return report.getReporter() != null && Objects.equals(report.getReporter().getId(), viewer.getId())
+                || Objects.equals(report.getSubmitterId(), viewer.getId());
     }
 
     @CacheEvict(cacheNames = {"reports.admin.list", "reports.mobile.list", "reports.detail", "workorders.list", "workorders.detail", "workorders.code"}, allEntries = true)
@@ -335,7 +360,7 @@ public class WorkOrderReportService {
             if (image.getReport() != null) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "图片已关联其他报工");
             }
-            if (!image.getUploader().getId().equals(userId)) {
+            if (image.getUploader() == null || !Objects.equals(image.getUploader().getId(), userId)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "不能使用其他用户上传的图片");
             }
             image.setReport(report);

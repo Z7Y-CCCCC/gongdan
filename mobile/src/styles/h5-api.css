@@ -7,11 +7,11 @@ uni-actionsheet .uni-mask {
   background: rgba(18, 35, 29, .42);
 }
 uni-modal .uni-modal {
-  color: #24372f;
-  background: #fff;
+  color: var(--mobile-text, #24372f);
+  background: var(--mobile-surface, #fff);
   border-radius: 10px;
 }
-uni-modal .uni-modal__bd { color: #536b60; }
+uni-modal .uni-modal__bd { color: var(--mobile-muted, #536b60); }
 uni-modal .uni-modal__ft { min-height: 48px; }
 uni-toast .uni-mask { position: fixed; inset: 0; z-index: 998; }
 .uni-toast .uni-loading { width: 30px; height: 30px; border: 3px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: api-loading-spin 1s linear infinite; }

@@ -6,6 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
@@ -14,15 +16,23 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Bridges the application's bearer session to the same-origin UReport servlet. */
+/** Bridges a platform-superadmin bearer session to the same-origin UReport servlet. */
 @RestController
 @RequestMapping("/api/ureport")
 public class UReportController {
 
     private final TokenService tokenService;
+    private final boolean cookieSecure;
 
     public UReportController(TokenService tokenService) {
+        this(tokenService, false);
+    }
+
+    @Autowired
+    public UReportController(TokenService tokenService,
+            @Value("${app.ureport.cookie-secure:false}") boolean cookieSecure) {
         this.tokenService = tokenService;
+        this.cookieSecure = cookieSecure;
     }
 
     @GetMapping("/session")
@@ -31,12 +41,13 @@ public class UReportController {
             HttpServletRequest request,
             HttpServletResponse response
     ) {
-        AuthenticatedUser user = tokenService.requireAdmin(authorization);
+        AuthenticatedUser user = tokenService.requireSuperAdmin(authorization);
         String token = rawToken(authorization);
         StringBuilder cookie = new StringBuilder()
                 .append(UReportAuthFilter.SESSION_COOKIE).append('=').append(token)
                 .append("; Max-Age=3600; Path=/ureport; HttpOnly; SameSite=Lax");
-        if (request.isSecure()) cookie.append("; Secure");
+        // TLS-terminating deployments opt in explicitly; never infer trust from request headers.
+        if (cookieSecure || request.isSecure()) cookie.append("; Secure");
         response.addHeader("Set-Cookie", cookie.toString());
         response.setHeader("Cache-Control", "no-store");
 
