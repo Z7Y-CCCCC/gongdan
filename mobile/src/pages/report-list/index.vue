@@ -34,6 +34,13 @@
         </button>
       </view>
     </view>
+    <view v-if="reportReview" class="review-scope" role="region" aria-label="待核对报工范围">
+      <view class="review-copy">
+        <text>仅显示待核对工单 · {{ reportReview.processName || '报工' }} · 报工数 {{ reportReview.quantity }}</text>
+        <text v-if="reportReview.startedAt">提交时间（本机）{{ formatDateTime(reportReview.startedAt) }}</text>
+      </view>
+      <button class="review-clear" @click="clearReportReview">查看全部工单</button>
+    </view>
     <ListLimitNotice v-if="!loading && !loadError" :total="reportTotal" :loaded="reports.length" />
 
     <!-- 记录列表 -->
@@ -118,12 +125,14 @@ import ListLimitNotice from '../../components/ListLimitNotice.vue'
 import ReportImages from '../../components/ReportImages.vue'
 import { mobileSessionKey } from '../../utils/session-key'
 import { navigatePage } from '../../utils/navigation'
-import { consumePendingReportsOnReturn } from '../../utils/report-flow'
+import { consumeReportFilterOnReturn } from '../../utils/report-flow'
 
 const reports = ref<WorkOrderReport[]>([])
 const loading = ref(false)
 const statusFilter = ref('')
 const period = ref('')
+const reportReview = ref<NonNullable<ReturnType<typeof consumeReportFilterOnReturn>>['review']>()
+let reviewSession = ''
 const reportTotal = ref(0)
 const loadError = ref('')
 const hasMore = ref(false)
@@ -131,7 +140,7 @@ const pageSize = 20
 const pageActive = ref(true)
 onHide(() => { pageActive.value = false })
 let nextPage = 1
-type ReportQuery = { session: string; period: string; status: string }
+type ReportQuery = { session: string; period: string; status: string; workOrderId?: number }
 let activeQuery: ReportQuery | undefined
 let pendingPage = 1
 let pendingReset = true
@@ -168,7 +177,7 @@ async function requestPage(query: ReportQuery, page: number, reset = false) {
   loadError.value = ''
   const current = () => activeQuery === query && query.session === mobileSessionKey()
   try {
-    const res = await fetchReportPage({ page, size: pageSize, status: query.status || undefined, period: query.period, includeSubmitted: true })
+    const res = await fetchReportPage({ page, size: pageSize, status: query.status || undefined, period: query.period, includeSubmitted: true, workOrderId: query.workOrderId })
     if (!current()) return
     if (!Array.isArray(res?.items) || !Number.isSafeInteger(res.total) || res.total < 0) throw new Error('报工记录格式异常，请重试')
     if (reset) { seen.clear(); reports.value = [] }
@@ -190,14 +199,17 @@ async function requestPage(query: ReportQuery, page: number, reset = false) {
 
 const loadReports = () => {
   if (!ensureLogin()) { activeQuery = undefined; reports.value = []; reportTotal.value = 0; loading.value = false; return }
-  const query = { session: mobileSessionKey(), period: period.value, status: statusFilter.value }
-  if (loading.value && activeQuery?.session === query.session && activeQuery.period === query.period && activeQuery.status === query.status) return
-  const changed = activeQuery?.session !== query.session || activeQuery.period !== query.period || activeQuery.status !== query.status
+  const session = mobileSessionKey()
+  if (reviewSession !== session) reportReview.value = undefined
+  const query = { session, period: period.value, status: statusFilter.value, workOrderId: reportReview.value?.workOrderId }
+  const changed = activeQuery?.session !== query.session || activeQuery.period !== query.period || activeQuery.status !== query.status || activeQuery.workOrderId !== query.workOrderId
+  if (loading.value && !changed) return
   activeQuery = query
   if (changed) { seen.clear(); reports.value = []; reportTotal.value = 0; hasMore.value = false; nextPage = 1 }
   return requestPage(query, 1, true)
 }
 function selectStatus(status: string) { if (statusFilter.value !== status) { statusFilter.value = status; return loadReports() } }
+function clearReportReview() { reportReview.value = undefined; return loadReports() }
 function loadMore() { if (!loading.value && hasMore.value && !loadError.value && activeQuery) return requestPage(activeQuery, nextPage) }
 function retryPage() { if (!loading.value && loadError.value && activeQuery) return requestPage(activeQuery, pendingPage, pendingReset) }
 
@@ -241,10 +253,13 @@ onShow(() => {
 })
 
 function loadOnReturn() {
-  if (consumePendingReportsOnReturn()) {
-    statusFilter.value = 'PENDING'
+  const target = consumeReportFilterOnReturn()
+  if (target) {
+    statusFilter.value = target.status
     period.value = ''
-    // A fetch started before the successful submission must not hide it.
+    reportReview.value = target.review
+    reviewSession = mobileSessionKey()
+    // A fetch started before the submission result must not hide a new record.
     activeQuery = undefined
   }
   return loadReports()
@@ -257,6 +272,10 @@ function loadOnReturn() {
 .dashboard-header { background: var(--mobile-surface, white); padding: 20rpx; }
 .filter-row { display: flex; align-items: center; margin-bottom: 20rpx; gap: 12rpx; }
 .filter-row .dropdown { flex: 1; }
+.review-scope { display: flex; gap: 14rpx; align-items: center; padding: 12rpx 20rpx; background: var(--mobile-warning-bg, #fff4dc); color: var(--mobile-warning, #8b5908); font-size: 24rpx; line-height: 1.4; overflow-wrap: anywhere; }
+.review-copy { flex: 1; min-width: 0; }
+.review-copy text { display: block; }
+.review-clear { flex-shrink: 0; padding: 0 14rpx; color: var(--mobile-link, #007a60); background: var(--mobile-surface, #fff); font-size: 24rpx; line-height: 1.4; }
 .quantity-summary { display: flex; gap: 28rpx; padding: 12rpx 0 24rpx; font-size: 26rpx; color: var(--mobile-muted, #64756d); }
 .status-badge { padding: 6rpx 12rpx; font-size: 22rpx; border-radius: 12rpx; white-space: nowrap; }
 .decision-approved { color: var(--mobile-link, #007a60); background: var(--mobile-subtle, #e7f5ef); }

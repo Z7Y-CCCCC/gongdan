@@ -12,6 +12,7 @@
 import { ref, watch } from 'vue'
 import UiIcon from './UiIcon.vue'
 import { useDialogFocus } from '../composables/useDialogFocus'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 
 export interface ProcessCardSetting {
   processId: number
@@ -87,8 +88,9 @@ function handleCancel() {
 
 <template>
   <teleport to="body">
-    <div v-if="visible" class="modal-overlay modal-backdrop" @click.self="handleCancel">
-      <div ref="dialogRef" class="modal-card modal" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="settings-modal-title">
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="visible" class="modal-overlay modal-backdrop workspace-dialog-motion-backdrop" @click.self="handleCancel">
+      <div ref="dialogRef" class="modal-card modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="settings-modal-title">
         <div class="modal-header">
           <h3 id="settings-modal-title" class="modal-title">工序任务卡片设置</h3>
           <button class="close-btn" type="button" title="关闭" aria-label="关闭" :disabled="saving" @click="handleCancel">
@@ -156,6 +158,7 @@ function handleCancel() {
         </div>
       </div>
     </div>
+    </Transition>
   </teleport>
 </template>
 

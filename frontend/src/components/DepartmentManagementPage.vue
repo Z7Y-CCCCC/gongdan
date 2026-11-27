@@ -3,6 +3,7 @@ import UiIcon from './UiIcon.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useDialogFocus } from '../composables/useDialogFocus'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import {
   fetchDepartments, createDepartment, updateDepartment, deleteDepartment,
@@ -325,8 +326,9 @@ onBeforeUnmount(() => { sessionGeneration++; modalGeneration++; beginDepartments
       </section>
 
   <!-- 部门弹窗 -->
-  <div v-if="showDepartmentModal" class="modal-backdrop">
-    <section ref="departmentDialogRef" class="modal" role="dialog" aria-modal="true" :aria-labelledby="departmentDialogTitleId" :aria-busy="loading || usersLoading" tabindex="-1">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showDepartmentModal" class="modal-backdrop workspace-dialog-motion-backdrop">
+    <section ref="departmentDialogRef" class="modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="departmentDialogTitleId" :aria-busy="loading || usersLoading" tabindex="-1">
       <header class="modal-header">
         <h2 :id="departmentDialogTitleId">{{ editingDepartment ? '编辑部门' : '新建部门' }}</h2>
         <button class="close-btn ui-icon-button" type="button" :disabled="loading" @click="closeDepartmentModal" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
@@ -371,6 +373,7 @@ onBeforeUnmount(() => { sessionGeneration++; modalGeneration++; beginDepartments
       </form>
     </section>
   </div>
+  </Transition>
 
 </template>
 

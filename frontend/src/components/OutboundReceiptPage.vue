@@ -892,7 +892,7 @@ onMounted(() => {
 
     <!-- Column Config Modals -->
     <ColumnSettingsPanel
-      v-if="showColumnConfig"
+      :visible="showColumnConfig"
       v-model="columns"
       :defaults="defaultColumnSettings"
       title="列设置"
@@ -901,7 +901,7 @@ onMounted(() => {
     />
 
     <ColumnSettingsPanel
-      v-if="showItemColumnConfig"
+      :visible="showItemColumnConfig"
       v-model="itemColumns"
       :defaults="defaultItemColumnSettings"
       title="列设置"

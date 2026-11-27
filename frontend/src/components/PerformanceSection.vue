@@ -20,7 +20,9 @@ import UiIcon from './UiIcon.vue'
 
 const props = defineProps<{
   token: string
+  refreshKey?: number
 }>()
+const emit = defineEmits<{ 'overdue-count': [value: number | null, failed: boolean] }>()
 
 // Inject homeRange from ProcessTaskSection (provided via provide/inject)
 const homeRange = inject<Ref<HomeRange>>('homeRange', ref('today'))
@@ -78,6 +80,7 @@ async function loadPerformance() {
     const response = await fetchHomePerformance(token, homeRange.value)
     if (!current()) return
     data.value = response
+    emit('overdue-count', response.overdueUnfinishedCount, false)
   } catch (error) {
     if (!current()) return
     if (handleApiError(error)) {
@@ -86,6 +89,7 @@ async function loadPerformance() {
     // Non-401/403 error: show "--" for all values
     hasError.value = true
     data.value = null
+    emit('overdue-count', null, true)
     errorMessage.value = error instanceof Error ? error.message : '绩效加载失败'
   } finally { if (current()) loading.value = false }
 }
@@ -94,6 +98,7 @@ async function loadPerformance() {
 watch(homeRange, () => {
   loadPerformance()
 })
+watch(() => props.refreshKey, loadPerformance)
 watch(() => props.token, () => { beginLoad(); data.value = null; hasError.value = false; errorMessage.value = ''; loading.value = false; void loadPerformance() }, { flush: 'sync' })
 
 // Initial load

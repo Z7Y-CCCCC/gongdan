@@ -11,6 +11,7 @@ import { ref } from 'vue'
 import UiIcon from './UiIcon.vue'
 import { useDialogFocus } from '../composables/useDialogFocus'
 import { t } from '../i18n'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 
 const props = withDefaults(
   defineProps<{
@@ -57,10 +58,10 @@ function handleConfirm() {
 
 <template>
   <Teleport to="body">
-    <Transition name="dialog-fade">
+    <Transition v-bind="workspaceDialogMotion">
       <div
         v-if="visible"
-        class="delete-confirm-backdrop"
+        class="delete-confirm-backdrop workspace-dialog-motion-backdrop"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="titleId"
@@ -68,7 +69,7 @@ function handleConfirm() {
         :aria-busy="loading"
       >
         <div class="delete-confirm-backdrop__overlay" @click="handleDismiss" />
-        <section ref="dialogRef" class="delete-confirm-dialog modal" tabindex="-1" @click.stop>
+        <section ref="dialogRef" class="delete-confirm-dialog modal workspace-dialog-motion-panel" tabindex="-1" @click.stop>
           <div class="delete-confirm-dialog__header">
             <div class="delete-confirm-dialog__icon" :class="{ 'delete-confirm-dialog__icon--primary': confirmTone === 'primary' }">
               <svg
@@ -272,36 +273,9 @@ function handleConfirm() {
   }
 }
 
-/* Transition animations */
-.dialog-fade-enter-active,
-.dialog-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.dialog-fade-enter-active .delete-confirm-dialog,
-.dialog-fade-leave-active .delete-confirm-dialog {
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.dialog-fade-enter-from,
-.dialog-fade-leave-to {
-  opacity: 0;
-}
-
-.dialog-fade-enter-from .delete-confirm-dialog {
-  transform: scale(0.9);
-  opacity: 0;
-}
-
-.dialog-fade-leave-to .delete-confirm-dialog {
-  transform: scale(0.9);
-  opacity: 0;
-}
-
 @media (pointer: coarse) { .btn { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) {
-  .btn, .dialog-fade-enter-active, .dialog-fade-leave-active,
-  .dialog-fade-enter-active .delete-confirm-dialog, .dialog-fade-leave-active .delete-confirm-dialog { transition: none; }
+  .btn { transition: none; }
   .spinner { animation: none; }
 }
 </style>

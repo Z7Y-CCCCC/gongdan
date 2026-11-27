@@ -650,7 +650,7 @@ test('failed reporter lookup cannot silently fall back to an unverified current 
   assert.equal(page.reporterLoading.value, false)
 })
 
-test('rapid report submissions issue exactly one write, including during post-success navigation', async () => {
+test('rapid report submissions issue exactly one write and wait for an explicit records action', async () => {
   const write = deferred()
   let count = 0
   const h = harness({ services: reportServices({ createReport: () => { count += 1; return write.promise } }) })
@@ -658,14 +658,134 @@ test('rapid report submissions issue exactly one write, including during post-su
   fillValidReport(page)
   const first = page.handleSubmit(false)
   await page.handleSubmit(false)
+  await page.handleSubmit(true)
   assert.equal(count, 1)
+  assert.equal(page.submitPhase.value, 'submitting')
+  assert.equal(page.submitStatusLabel.value, '正在提交报工…')
   write.resolve({ id: 1 })
   await first
-  assert.equal(h.events.filter(([name]) => name === 'hideLoading').length, 1)
-  assert.ok(h.events.findIndex(([name]) => name === 'hideLoading') < h.events.findIndex(([name]) => name === 'toast'))
+  assert.equal(page.submitPhase.value, 'success')
+  assert.equal(page.submitStatusLabel.value, '提交成功')
+  h.flushTimers()
+  assert.ok(!h.events.some(([kind]) => kind === 'switchTab'))
   await page.handleSubmit(false)
   assert.equal(count, 1)
   assert.equal(page.loading.value, true)
+  page.goToReportRecords(true)
+  assert.equal(h.events.at(-1)[1].url, '/pages/report-list/index')
+})
+
+test('definite report rejection keeps the retry intention and draft; retry submits the same data once', async () => {
+  const writes = []
+  const h = harness({ services: reportServices({ createReport: async data => {
+    writes.push(data)
+    if (writes.length === 1) throw Object.assign(new Error('报工暂未通过校验'), { status: 422 })
+    return { id: 19 }
+  } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  page.form.remark = '失败后保留内容'
+  await page.handleSubmit(true)
+  assert.equal(page.submitPhase.value, 'failed')
+  assert.equal(page.retryContinues.value, true)
+  assert.equal(page.submitError.value, '报工暂未通过校验')
+  assert.equal(page.form.remark, '失败后保留内容')
+  assert.equal(page.submitDisabled.value, false)
+  await page.handleSubmit(page.retryContinues.value)
+  assert.equal(writes.length, 2)
+  assert.deepEqual(writes[0], writes[1])
+  assert.equal(page.submitPhase.value, 'success')
+  assert.equal(page.completedSubmissionContinues.value, true)
+  assert.equal(page.form.remark, '')
+})
+
+test('unconfirmed report delivery survives reopening and does not silently resubmit', async () => {
+  const key = 'gongdan:draft:report:42:1:user:global:7'
+  const order = { orderId: '42', processNo: '1' }
+  let writes = 0
+  const services = reportServices({ createReport: async () => {
+    writes++
+    if (writes === 1) throw new Error('连接已断开')
+    return { id: 21 }
+  } })
+  const h = harness({ services })
+  const page = await h.page('src/pages/report-form/index.vue', order)
+  fillValidReport(page)
+  page.form.remark = '检查已生成记录'
+  await page.handleSubmit(false)
+  assert.equal(page.submitPhase.value, 'uncertain')
+  assert.equal(page.formLocked.value, true)
+  assert.equal(h.storage.get(key).reportNeedsReview, true)
+  page.goToReportRecords(false)
+  assert.equal(h.events.at(-1)[1].url, '/pages/report-list/index')
+  const review = h.load('src/utils/report-flow.ts').consumeReportFilterOnReturn()
+  assert.equal(review.status, '')
+  assert.equal(review.review.workOrderId, 42)
+  assert.equal(review.review.processName, '实际工序')
+  assert.equal(review.review.quantity, 10)
+  assert.ok(review.review.startedAt)
+
+  const reopened = harness({ services, storage: { [key]: h.storage.get(key) } })
+  const reopenedPage = await reopened.page('src/pages/report-form/index.vue', order)
+  assert.equal(reopenedPage.submitPhase.value, 'uncertain')
+  assert.equal(reopenedPage.form.remark, '检查已生成记录')
+  await reopenedPage.handleSubmit(false)
+  assert.equal(writes, 1)
+  reopenedPage.confirmNotSubmitted()
+  assert.equal(reopenedPage.submitPhase.value, 'failed')
+  assert.equal(reopenedPage.submitDisabled.value, false)
+  await reopenedPage.handleSubmit(false)
+  assert.equal(writes, 2)
+  assert.equal(reopenedPage.submitPhase.value, 'success')
+  assert.equal(reopened.storage.has(key), false)
+})
+
+test('a malformed successful response is not treated as a committed report', async () => {
+  const h = harness({ services: reportServices({ createReport: async () => ({}) }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  await page.handleSubmit(false)
+  assert.equal(page.submitPhase.value, 'uncertain')
+  assert.equal(page.form.reportQuantity, '10')
+})
+
+test('manually confirming an existing record resolves the blocked draft without writing again or claiming pending', async () => {
+  const key = 'gongdan:draft:report:42:1:user:global:7'
+  let writes = 0
+  const h = harness({ services: reportServices({ createReport: async () => {
+    writes++
+    throw Object.assign(new Error('网关未返回报工结果'), { status: 502 })
+  } }) })
+  const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
+  fillValidReport(page)
+  await page.handleSubmit(false)
+  assert.equal(h.storage.get(key).reportNeedsReview, true)
+  page.confirmExistingReport()
+  assert.equal(page.submitStatusLabel.value, '记录已核对')
+  await page.handleSubmit(false)
+  assert.equal(writes, 1)
+  assert.equal(h.storage.has(key), false)
+  page.goToReportRecords(true)
+  assert.equal(h.load('src/utils/report-flow.ts').consumeReportFilterOnReturn().status, '')
+})
+
+test('records review opens all statuses for the original work order and allows clearing the scope', async () => {
+  const reads = []
+  const h = harness({ services: { ensureLogin: () => true, fetchReportPage: async query => {
+    reads.push(query)
+    return { items: [], total: 0 }
+  } } })
+  const page = await h.page('src/pages/report-list/index.vue', {}, false)
+  page.statusFilter.value = 'REJECTED'
+  page.period.value = 'lastMonth'
+  h.load('src/utils/report-flow.ts').showReportsForReview({ workOrderId: 42, processName: '装配', quantity: 10, startedAt: '2026-11-27 09:33:11' })
+  await page.loadOnReturn()
+  assert.equal(reads[0].workOrderId, 42)
+  assert.equal(reads[0].status, undefined)
+  assert.equal(reads[0].period, '')
+  assert.equal(page.reportReview.value.processName, '装配')
+  await page.clearReportReview()
+  assert.equal(reads[1].workOrderId, undefined)
 })
 
 test('report submission waits for image uploads and multiple picker clicks are serialized', async () => {
@@ -785,7 +905,7 @@ test('returning from a successful correction reveals pending reports even from t
   assert.equal(page.period.value, '')
   flow.showPendingReportsOnReturn()
   h.storage.set('token', 'different-session')
-  assert.equal(flow.consumePendingReportsOnReturn(), false)
+  assert.equal(flow.consumeReportFilterOnReturn(), undefined)
 })
 
 test('field event double clicks create one event and JSON null payloads remain renderable', async () => {
@@ -899,6 +1019,42 @@ test('board refresh requests the new local day and keeps server aggregate status
   assert.equal(page.todayKey.value, '2026-11-25')
   assert.equal(page.todayReportCount.value, 2)
   assert.deepEqual(days, ['2026-11-24', '2026-11-25'])
+})
+
+test('board filters only recent rows, persists the selection, and keeps the aggregate available on same-day refresh failure', async () => {
+  let fail = false, reads = 0
+  const h = harness({ services: {
+    ensureLogin: () => true,
+    fetchDashboard: async () => {
+      reads++
+      if (fail) throw new Error('暂不可用')
+      return dashboardData({ workOrderTotal: 50, activeOrderCount: 43, recentOrders: [
+        taskOrder(3), { ...taskOrder(2), status: 'IN_PROGRESS' }, { ...taskOrder(1), status: 'PAUSED' }
+      ] })
+    }
+  } })
+  const page = await h.page('src/pages/board/index.vue')
+  assert.equal(page.visibleOrderRows.value.length, 3)
+  assert.equal(page.filterChanged.value, false)
+  page.setOrderFilter('executing')
+  assert.deepEqual(Array.from(page.visibleOrderRows.value, item => item.id), [3, 2])
+  assert.equal(page.filterChanged.value, true)
+  page.setOrderFilter('other')
+  assert.deepEqual(Array.from(page.visibleOrderRows.value, item => item.id), [1])
+  assert.equal(reads, 1)
+  assert.equal(page.activeOrderCount.value, 43)
+  assert.equal(page.dashboard.value.workOrderTotal, 50)
+  fail = true
+  await page.loadBoard()
+  assert.equal(page.errorMessage.value, '暂不可用')
+  assert.equal(page.orderFilter.value, 'other')
+  assert.deepEqual(Array.from(page.visibleOrderRows.value, item => item.id), [1])
+  h.hooks.hide.forEach(callback => callback())
+  assert.equal(h.storage.get('gongdan:draft:board-filter:user:global:7').filter, 'other')
+  fail = false
+  await Promise.all(h.hooks.show.map(callback => callback()))
+  assert.equal(page.orderFilter.value, 'other')
+  assert.equal(page.errorMessage.value, '')
 })
 
 test('home refresh advances its day and reads the current logged-in account', async () => {
@@ -1783,7 +1939,7 @@ test('round2: an unmounted draft owner cannot clear a replacement page draft wit
   assert.equal(h.storage.get('round2-draft:user:global:7').title, 'new page draft')
 })
 
-test('round2: a merely hidden report POST cannot erase a newer draft, toast, or redirect on its old page', async () => {
+test('round2: a merely hidden report POST cannot erase a newer draft, announce success, or redirect on its old page', async () => {
   const write = deferred()
   const h = harness({ browser: true, services: reportServices({ createReport: () => write.promise }) })
   const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
@@ -1798,7 +1954,7 @@ test('round2: a merely hidden report POST cannot erase a newer draft, toast, or 
   assert.equal(h.storage.get(draftKey).form.remark, 'a newer visible page draft')
   assert.equal(h.events.some(([kind, options]) => kind === 'toast' && options.title === '提交成功'), false)
   assert.equal(h.events.some(([kind]) => ['navigateTo', 'switchTab', 'reLaunch'].includes(kind)), false)
-  assert.equal(h.events.filter(([kind]) => kind === 'hideLoading').length, 1)
+  assert.equal(page.submitPhase.value, 'uncertain')
   assert.match(page.loadError.value, /页面已切换/)
 })
 
@@ -2039,7 +2195,7 @@ test('MUX-003: navigation arrows move keyboard focus without silently changing b
 })
 
 test('MUX-004: failed report validation and backend saves leave persistent feedback and preserve the draft', async () => {
-  const h = harness({ services: reportServices({ createReport: async () => { throw Error('保存失败，可重试') } }) })
+  const h = harness({ services: reportServices({ createReport: async () => { throw Object.assign(new Error('保存失败，可重试'), { status: 400 }) } }) })
   const page = await h.page('src/pages/report-form/index.vue', { orderId: '42', processNo: '1' })
   await page.handleSubmit(false)
   assert.match(page.submitError.value, /报工数/)

@@ -68,6 +68,8 @@ describe('Shared task-first UI', () => {
     wrappers.push(wrapper)
     const items = wrapper.findAll('[role="tab"]')
     expect(items.map(item => item.attributes('tabindex'))).toEqual(['0', '-1'])
+    expect(items.map(item => item.attributes('aria-controls'))).toEqual(['workspace-page', 'workspace-page'])
+    expect(items[0].attributes('id')).toBe('workspace-tab-home')
     await items[0].trigger('keydown', { key: 'ArrowRight' })
     await flushPromises()
     expect(wrapper.emitted('select')).toEqual([[tabs[1]]])
@@ -76,6 +78,8 @@ describe('Shared task-first UI', () => {
     expect(wrapper.emitted('select')).toHaveLength(1)
     await wrapper.get('button[aria-label="关闭 工单"]').trigger('click')
     expect(wrapper.emitted('close')).toEqual([[tabs[1]]])
+    await wrapper.setProps({ activeId: 'orders' })
+    expect(items.map(item => item.attributes('aria-selected'))).toEqual(['false', 'true'])
   })
 
 })

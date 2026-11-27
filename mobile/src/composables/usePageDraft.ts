@@ -102,6 +102,7 @@ export function usePageDraft<T>({ key, source, restore, debounceMs = 180, scope 
   })
 
   return {
+    saveNow: flush,
     clearDraft() {
       if (!hydrated) return
       discardPending()

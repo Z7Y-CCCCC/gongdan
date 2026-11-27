@@ -3421,18 +3421,6 @@ th.check-cell, th:has(input[type="checkbox"]) {
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
-  animation: modalScaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
-}
-
-@keyframes modalScaleUp {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
 }
 
 .import-logs-modal .modal-header {
@@ -3839,7 +3827,6 @@ button:active:not(:disabled),
 
 .sub-items-container {
   transform-origin: top;
-  animation: sidebar-items-in var(--motion-base) var(--motion-ease) both;
 }
 
 .sidebar-expand-enter-active,
@@ -3850,26 +3837,13 @@ button:active:not(:disabled),
     transform var(--motion-base) var(--motion-ease);
 }
 
+.sidebar-expand-leave-active { pointer-events: none; }
+
 .sidebar-expand-enter-from,
 .sidebar-expand-leave-to {
   max-height: 0;
   opacity: 0;
   transform: translateY(-5px);
-}
-
-.page-motion-enter-active,
-.page-motion-leave-active {
-  transition: opacity var(--motion-base) ease, transform var(--motion-base) var(--motion-ease);
-}
-
-.page-motion-enter-from {
-  opacity: 0;
-  transform: translateY(8px);
-}
-
-.page-motion-leave-to {
-  opacity: 0;
-  transform: translateY(-4px);
 }
 
 .page-motion-stage {
@@ -3888,15 +3862,10 @@ button:active:not(:disabled),
   transform: translateY(-6px) scale(0.98);
 }
 
-.modal-backdrop,
-.import-logs-overlay,
 .import-progress-overlay {
   animation: motion-backdrop-in var(--motion-base) ease both;
 }
 
-.modal-backdrop > .modal,
-.modal-backdrop > section,
-.import-logs-modal,
 .dropdown-bubble,
 .column-config-dropdown,
 .search-dropdown-list,
@@ -5007,7 +4976,6 @@ button:active:not(:disabled),
   justify-content: center;
   padding: 16px;
   background: rgba(8, 11, 14, .58);
-  animation: motion-backdrop-in .18s ease both;
 }
 
 .column-settings-panel {
@@ -5021,7 +4989,6 @@ button:active:not(:disabled),
   border: 1px solid #3a424c;
   border-radius: 4px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, .44);
-  animation: motion-surface-in .2s cubic-bezier(.2, .8, .2, 1) both;
 }
 
 .column-settings-header {
@@ -5948,7 +5915,6 @@ button:active:not(:disabled),
   place-items: center;
   padding: 18px;
   background: rgba(9, 14, 18, .56);
-  animation: motion-backdrop-in .18s ease both;
 }
 
 .timezone-dialog {
@@ -5959,7 +5925,6 @@ button:active:not(:disabled),
   border: 1px solid #dbe4e1;
   border-radius: 7px;
   box-shadow: 0 20px 60px rgba(0,0,0,.26);
-  animation: motion-surface-in .2s cubic-bezier(.2,.8,.2,1) both;
 }
 
 .timezone-dialog-header,
@@ -5999,7 +5964,6 @@ button:active:not(:disabled),
   background: rgba(16, 27, 26, .5);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  animation: motion-backdrop-in .2s ease both;
 }
 
 .workspace-loading-card {
@@ -6012,7 +5976,6 @@ button:active:not(:disabled),
   border: 1px solid rgba(216, 228, 224, .95);
   border-radius: 8px;
   box-shadow: 0 24px 70px rgba(5, 24, 20, .25);
-  animation: motion-surface-in .24s var(--motion-ease) both;
 }
 
 .workspace-loading-heading {
@@ -6951,11 +6914,30 @@ button:focus-visible, [role="button"]:focus-visible, [role="tab"]:focus-visible 
 .action-link.ui-icon-button.danger:hover { background: var(--status-danger-bg); }
 .compact-count { margin-left: 8px; color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .toolbar, .filter-bar, .filter-row, .page-toolbar { row-gap: 8px; }
-.workspace-tab { transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease; }
 .workspace-tab:hover .workspace-tab-close { opacity: 1; }
-.page-motion-enter-active, .page-motion-leave-active { transition: opacity 120ms ease; }
-.page-motion-enter-from, .page-motion-leave-to { transform: none; }
 .modal-body label, .form-field, .form-row, .form-group { animation: none; }
+
+.admin-shell { transition: grid-template-columns var(--motion-base) var(--motion-ease); }
+.sidebar .nav-chevron { transition: transform var(--motion-base) var(--motion-ease); }
+.sidebar :is(.nav-item, .sub-item) { position: relative; }
+.sidebar :is(.nav-item, .sub-item)::before {
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent-dark);
+  content: '';
+  pointer-events: none;
+  opacity: 0;
+  transform: scaleY(.35);
+  transition: transform var(--motion-base) var(--motion-ease), opacity var(--motion-fast) ease;
+}
+.admin-shell .sidebar :is(.nav-item.active-parent, .sub-item.selected) {
+  color: var(--accent-dark);
+  background: var(--sidebar-hover);
+}
+.sidebar :is(.nav-item.active-parent, .sub-item.selected)::before { opacity: 1; transform: scaleY(1); }
+.sidebar :is(.nav-item, .sub-item):focus-visible { outline: 2px solid var(--accent-dark); outline-offset: -2px; }
 
 /* Login is a task, not a promotional landing page. */
 .login-page {
@@ -6994,7 +6976,7 @@ button:focus-visible, [role="button"]:focus-visible, [role="tab"]:focus-visible 
 .login-brand strong { font-size: 20px; font-weight: 650; }
 .login-language-switch { display: inline-flex; align-items: center; justify-content: center; margin-left: auto; width: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); }
 .login-language-switch:hover { background: var(--surface-hover); }
-.login-heading h2 { margin: 0 0 18px; color: var(--text-primary); font-size: 22px; }
+.login-heading :is(h1, h2) { margin: 0 0 18px; color: var(--text-primary); font-size: 22px; }
 .login-tabs { gap: 4px; padding: 4px; margin-bottom: 22px; border: 0; border-radius: 8px; background: var(--surface-subtle); }
 .login-page .login-tabs button { min-height: 38px; padding: 8px 12px; border: 0; border-radius: 6px; color: var(--text-secondary); background: transparent; font-size: 14px; }
 .login-page .login-tabs button.active { color: var(--accent-dark); background: var(--surface-raised); box-shadow: 0 1px 4px rgba(17, 39, 29, .08); }

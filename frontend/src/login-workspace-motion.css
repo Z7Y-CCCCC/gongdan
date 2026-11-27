@@ -1,0 +1,39 @@
+/* The card enters on mount, not when an individual sign-in form is replaced. */
+.login-page .login-form { animation: none; }
+
+.login-page :is(.login-tab, .phone-mode-switch button, .factory-item, .login-btn):disabled { cursor: wait; }
+
+@media (pointer: coarse) {
+  .login-page :is(.login-language-switch, .login-tabs .login-tab, .phone-mode-switch button, .login-form .login-btn) { min-height: 44px; }
+  .login-page .login-language-switch { min-width: 44px; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .login-page .login-box {
+    animation: login-card-arrival var(--motion-base) var(--motion-ease) backwards;
+  }
+
+  /* Animate only the revealed workspace, without delaying the authenticated DOM. */
+  .workspace-sign-in-arrival > .workspace,
+  .workspace-sign-in-arrival.internal-chat-window-shell {
+    animation: workspace-sign-in-arrival var(--motion-base) var(--motion-ease) backwards;
+  }
+
+  .workspace-loading-enter-active { transition: opacity var(--motion-base) ease; }
+  .workspace-loading-leave-active { transition: opacity var(--motion-fast) ease; pointer-events: none; }
+  .workspace-loading-enter-from, .workspace-loading-leave-to { opacity: 0; }
+
+  .workspace-loading-enter-active > .workspace-loading-card {
+    transition: transform var(--motion-base) var(--motion-ease);
+  }
+
+  .workspace-loading-enter-from > .workspace-loading-card { transform: translateY(6px); }
+}
+
+@keyframes login-card-arrival {
+  from { opacity: .5; transform: translateY(12px); }
+}
+
+@keyframes workspace-sign-in-arrival {
+  from { opacity: .55; }
+}

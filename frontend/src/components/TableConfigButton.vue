@@ -170,7 +170,7 @@ onBeforeUnmount(() => {
     </button>
 
     <ColumnSettingsPanel
-      v-if="open && columns.length"
+      :visible="open && columns.length > 0"
       v-model="columns"
       :defaults="defaults"
       :title="title || '字段配置'"

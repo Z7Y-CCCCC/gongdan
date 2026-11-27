@@ -44,7 +44,7 @@ async (page) => {
     await capture('home')
 
     await page.locator('.work-order-progress__view-link').first().click()
-    const detail = page.getByRole('region', { name: '工单详情', exact: true })
+    const detail = page.getByRole('dialog', { name: '工单详情', exact: true })
     await detail.getByRole('heading', { name: 'GD-20261124-001', exact: true }).waitFor()
     const afterView = await (await page.request.get(`${origin}/api/fixture-state`)).json()
     check(afterView.requests.some(request => request.method === 'GET' && request.route === '/work-orders/1'), 'Home opens the actual target through a single-order GET')
@@ -52,6 +52,7 @@ async (page) => {
     await capture('home-work-order-detail')
     await detail.getByRole('button', { name: '关闭工单详情', exact: true }).click()
     await detail.waitFor({ state: 'hidden' })
+    check(await page.locator('.work-order-progress__view-link').first().evaluate(el => document.activeElement === el), 'Closing the drawer returns focus to the same order on the home page')
 
     const orders = page.getByRole('button', { name: '工单', exact: true })
     if (!await orders.isVisible()) await page.getByRole('button', { name: '生产管理', exact: true }).click()

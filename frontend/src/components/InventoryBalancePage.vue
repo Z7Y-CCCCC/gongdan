@@ -432,7 +432,7 @@ onMounted(() => {
     </div>
 
     <ColumnSettingsPanel
-      v-if="showColumnModal"
+      :visible="showColumnModal"
       v-model="columns"
       :defaults="defaultColumnSettings"
       title="列设置"

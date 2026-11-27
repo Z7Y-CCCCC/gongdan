@@ -5,6 +5,7 @@ import { useAuth } from '../composables/useAuth'
 import { setUiLocale } from '../i18n'
 
 const mocks = vi.hoisted(() => ({
+  login: vi.fn(), phonePasswordLogin: vi.fn(), phoneSmsLogin: vi.fn(), selectFactory: vi.fn(),
   fetchCurrentFactory: vi.fn(), fetchUsers: vi.fn(), fetchDepartments: vi.fn(), fetchUnits: vi.fn(),
   fetchDefects: vi.fn(), fetchProcesses: vi.fn(), fetchProcessRoutes: vi.fn(),
   fetchNotificationUnreadCount: vi.fn(), fetchPluginRuntimeManifest: vi.fn(), fetchNotifications: vi.fn(),
@@ -22,9 +23,11 @@ const user = {
 
 // These tests exercise the shell session, not its lazy page implementations.
 // Stub by registration key so async imports cannot outlive the test environment.
-function mountShell() {
+function mountShell({ focus = false }: { focus?: boolean } = {}) {
   return shallowMount(App, {
+    attachTo: focus ? document.body : undefined,
     global: { stubs: { KeepAlive: false, InternalChatPage: true, HomeDashboardPage: true, UReportPage: true,
+      ...(focus ? { LoadingProgressOverlay: false } : {}),
       WorkOrderPage: { name: 'WorkOrderPage', props: ['token', 'focusTarget'], emits: ['clear-focus'], template: '<section />' }
     } }
   })
@@ -305,6 +308,102 @@ describe('App uses the same authenticated session as API consumers', () => {
     expect(wrapper.text()).toContain('登录')
   })
 
+  it('keeps the same login card and draft through a rejected request and restores submit focus', async () => {
+    wrapper = mountShell({ focus: true })
+    const card = wrapper.get('.login-box').element
+    const password = wrapper.get<HTMLInputElement>('input[autocomplete="current-password"]')
+    const submit = wrapper.get<HTMLButtonElement>('.login-btn')
+    await wrapper.get('input[autocomplete="organization"]').setValue('FACTORY2')
+    await wrapper.get('input[autocomplete="username"]').setValue('admin')
+    await password.setValue('fixture-password')
+    let reject!: (error: Error) => void
+    mocks.login.mockReturnValueOnce(new Promise((_, fail) => { reject = fail }))
+    submit.element.focus()
+    await wrapper.get('.login-form').trigger('submit')
+    await wrapper.get('.login-form').trigger('submit')
+    expect(mocks.login).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('.login-form').attributes('aria-busy')).toBe('true')
+    expect(submit.element.disabled).toBe(true)
+    expect(wrapper.findAll('.login-tab').every(tab => tab.attributes('disabled') !== undefined)).toBe(true)
+    submit.element.blur()
+    reject(new Error('账号或密码不正确'))
+    await flushPromises()
+    expect(wrapper.get('.login-form [role="alert"]').text()).toBe('账号或密码不正确')
+    expect(wrapper.find('.error-toast').exists()).toBe(false)
+    expect(wrapper.get('.login-box').element).toBe(card)
+    expect(password.element.value).toBe('fixture-password')
+    expect(submit.element.disabled).toBe(false)
+    expect(document.activeElement).toBe(submit.element)
+    await wrapper.findAll('.login-tab')[1].trigger('click')
+    expect(wrapper.get('.login-box').element).toBe(card)
+  })
+
+  it('reveals and focuses the workspace once real sign-in initialization is ready', async () => {
+    wrapper = mountShell({ focus: true })
+    const vm = wrapper.vm as any
+    await wrapper.get('input[autocomplete="current-password"]').setValue('fixture-password')
+    mocks.login.mockResolvedValueOnce({ token: 'interactive-token', user })
+    let confirmFactory!: (factory: { code: string }) => void
+    mocks.fetchCurrentFactory.mockReturnValueOnce(new Promise(done => { confirmFactory = done }))
+    await wrapper.get('.login-form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('.login-page').exists()).toBe(false)
+    expect(wrapper.get('.admin-shell').attributes('inert')).toBeDefined()
+    expect(wrapper.get('.admin-shell').classes()).not.toContain('workspace-sign-in-arrival')
+    expect(vm.loginForm.password).toBe('')
+    confirmFactory({ code: 'FACTORY2' })
+    await flushPromises()
+    const workspace = wrapper.get('.admin-shell.workspace-sign-in-arrival')
+    expect(workspace.attributes('inert')).toBeUndefined()
+    expect(document.activeElement).toBe(workspace.element)
+    vm.openNotificationCenter()
+    await flushPromises()
+    expect(wrapper.get('.admin-shell.workspace-sign-in-arrival').element).toBe(workspace.element)
+    session.logout()
+    await flushPromises()
+    const freshLogin = wrapper.get<HTMLInputElement>('.login-form input[autocomplete="current-password"]')
+    expect(freshLogin.element.value).toBe('')
+    expect(wrapper.find('.workspace-sign-in-arrival').exists()).toBe(false)
+  })
+
+  it('keeps an authenticated bootstrap failure actionable and reveals only after retry succeeds', async () => {
+    wrapper = mountShell({ focus: true })
+    mocks.login.mockResolvedValueOnce({ token: 'interactive-token', user })
+    mocks.fetchCurrentFactory.mockRejectedValueOnce(new Error('连接超时'))
+    await wrapper.get('.login-form').trigger('submit')
+    await flushPromises()
+    expect(session.token.value).toBe('interactive-token')
+    expect(wrapper.get('.workspace-loading-error').text()).toContain('连接超时')
+    expect(wrapper.get('.admin-shell').classes()).not.toContain('workspace-sign-in-arrival')
+    const retry = wrapper.get('.workspace-loading-retry')
+    expect(document.activeElement).toBe(retry.element)
+    await retry.trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('.workspace-sign-in-arrival').element)
+    expect(mocks.login).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the submitted phone and credential through factory selection, not edited values', async () => {
+    wrapper = mountShell()
+    await wrapper.findAll('.login-tab')[1].trigger('click')
+    const phone = wrapper.get('input[autocomplete="tel"]')
+    const password = wrapper.get('input[autocomplete="current-password"]')
+    await phone.setValue('13812345678')
+    await password.setValue('first-secret')
+    let select!: (result: unknown) => void
+    mocks.phonePasswordLogin.mockReturnValueOnce(new Promise(done => { select = done }))
+    await wrapper.get('.login-form').trigger('submit')
+    await phone.setValue('13900000000')
+    await password.setValue('edited-secret')
+    select({ selectRequired: true, factories: [{ factoryId: 2, factoryCode: 'FACTORY2', factoryName: '第二工厂' }] })
+    await flushPromises()
+    mocks.selectFactory.mockResolvedValueOnce({ token: 'phone-token', user })
+    await wrapper.get('.factory-item').trigger('click')
+    await flushPromises()
+    expect(mocks.selectFactory).toHaveBeenCalledWith({ phone: '13812345678', factoryId: 2, loginType: 'password', credential: 'first-secret' })
+    expect(wrapper.find('.workspace-sign-in-arrival').exists()).toBe(true)
+  })
+
   it('immediately returns the shell to login when the shared session expires', async () => {
     window.location.hash = '#/message-center'
     session.persistSession({ token: 'token-one', user, isSuperAdmin: false })
@@ -320,40 +419,27 @@ describe('App uses the same authenticated session as API consumers', () => {
     expect((wrapper.vm as any).successUserPassword).toBe('')
   })
 
-  it('routes the home event to the work-order page with its exact target and clears it on logout', async () => {
+  it('opens the full work-order list from the home shortcut', async () => {
     session.persistSession({ token: 'admin-token', user, isSuperAdmin: false })
     wrapper = mountShell()
     await flushPromises()
-    wrapper.getComponent({ name: 'HomeDashboardPage' }).vm.$emit('view-work-order', 5001)
+    wrapper.getComponent({ name: 'HomeDashboardPage' }).vm.$emit('navigate', 'workorder')
     await flushPromises()
     const vm = wrapper.vm as any
     expect(vm.activeMainMenu).toBe('production')
     expect(vm.activeProductionMenu).toBe('workorder')
-    expect(wrapper.getComponent({ name: 'WorkOrderPage' }).props()).toMatchObject({ token: 'admin-token', focusTarget: { id: 5001 } })
-    session.logout()
-    await flushPromises()
-    expect(vm.workOrderFocusTarget).toBeNull()
+    expect(wrapper.getComponent({ name: 'WorkOrderPage' }).props('token')).toBe('admin-token')
   })
 
-  it('clears a closed target and creates a fresh lookup when the same home order is opened again', async () => {
+  it('opens the approval workbench from the home pending-report shortcut', async () => {
     session.persistSession({ token: 'admin-token', user, isSuperAdmin: false })
     wrapper = mountShell()
     await flushPromises()
     const vm = wrapper.vm as any
-    vm.viewHomeWorkOrder(42)
+    wrapper.getComponent({ name: 'HomeDashboardPage' }).vm.$emit('navigate', 'workbench')
     await flushPromises()
-    const first = vm.workOrderFocusTarget
-    wrapper.getComponent({ name: 'WorkOrderPage' }).vm.$emit('clear-focus')
-    await flushPromises()
-    expect(vm.workOrderFocusTarget).toBeNull()
-    vm.activeMainMenu = 'home'
-    vm.viewHomeWorkOrder(42)
-    await flushPromises()
-    expect(vm.workOrderFocusTarget).toEqual({ id: 42 })
-    expect(vm.workOrderFocusTarget).not.toBe(first)
-    vm.activeMainMenu = 'home'
-    await flushPromises()
-    expect(vm.workOrderFocusTarget).toBeNull()
+    expect(vm.activeMainMenu).toBe('production')
+    expect(vm.activeProductionMenu).toBe('workbench')
   })
 
   it('clears the shared composable when logout is initiated from the shell', async () => {

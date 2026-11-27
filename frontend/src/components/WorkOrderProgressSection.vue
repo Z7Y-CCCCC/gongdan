@@ -8,7 +8,7 @@
  *
  * Requirements: 7.1-7.4, 8.1-8.8
  */
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import {
   fetchHomeWorkOrders,
   type WorkOrderStatusTab,
@@ -17,6 +17,7 @@ import {
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { t } from '../i18n'
 import TableConfigButton from './TableConfigButton.vue'
 import UiIcon from './UiIcon.vue'
 
@@ -48,6 +49,7 @@ const tabs: TabDef[] = [
 ]
 
 const activeTab = ref<WorkOrderStatusTab>('not_started')
+const tabBar = ref<HTMLElement | null>(null)
 
 // --- 数据 ---
 const workOrders = ref<WorkOrderProgressItem[]>([])
@@ -110,6 +112,14 @@ function switchTab(tab: WorkOrderStatusTab) {
   sortOrder.value = 'asc'
 }
 
+async function selectAndFocus(tab: WorkOrderStatusTab) {
+  switchTab(tab)
+  await nextTick()
+  tabBar.value?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus()
+}
+
+defineExpose({ selectAndFocus })
+
 watch(activeTab, () => {
   loadWorkOrders()
 })
@@ -152,12 +162,13 @@ const columns: ColumnDef[] = [
     </div>
 
     <!-- 状态切换标签 -->
-    <div class="work-order-progress__tabs">
+    <div ref="tabBar" class="work-order-progress__tabs">
       <button
         v-for="tab in tabs"
         :key="tab.key"
         class="work-order-progress__tab"
         :class="{ 'work-order-progress__tab--active': activeTab === tab.key }"
+        :aria-pressed="activeTab === tab.key"
         type="button"
         @click="switchTab(tab.key)"
       >
@@ -174,7 +185,7 @@ const columns: ColumnDef[] = [
     </p>
 
     <!-- 表格容器 -->
-    <div v-if="!errorMessage" class="work-order-progress__table-wrapper">
+    <div v-if="!errorMessage" class="work-order-progress__table-wrapper" :aria-busy="loading">
       <table id="home-work-order-progress-table" class="work-order-progress__table">
         <thead>
           <tr>
@@ -208,26 +219,30 @@ const columns: ColumnDef[] = [
           </tr>
         </thead>
         <tbody>
+          <tr v-if="loading">
+            <td :colspan="columns.length" class="work-order-progress__empty" role="status">加载中…</td>
+          </tr>
           <tr v-if="sortedWorkOrders.length === 0 && !loading">
             <td :colspan="columns.length" class="work-order-progress__empty">
               暂无数据
             </td>
           </tr>
-          <tr v-for="(item, idx) in sortedWorkOrders" :key="item.id">
+          <tr v-for="(item, idx) in loading ? [] : sortedWorkOrders" :key="item.id">
             <td>{{ idx + 1 }}</td>
             <td>{{ item.code }}</td>
             <td>{{ item.productCode }}</td>
             <td>{{ item.productName }}</td>
             <td>{{ item.productSpec }}</td>
-            <td>{{ item.statusLabel }}</td>
+            <td><span class="work-order-progress__status">{{ item.statusLabel }}</span></td>
             <td>
-              <a
+              <button
                 class="work-order-progress__view-link"
-                href="javascript:void(0)"
-                @click.prevent="emit('view', item.id)"
+                type="button"
+                :aria-label="t('查看工单 {0}', [item.code])"
+                @click="emit('view', item.id)"
               >
-                查看
-              </a>
+                查看 <UiIcon name="arrowRight" :size="13" />
+              </button>
             </td>
           </tr>
         </tbody>
@@ -262,7 +277,8 @@ const columns: ColumnDef[] = [
 }
 
 .work-order-progress__tab {
-  padding: 6px 14px;
+  min-height: 36px;
+  padding: 5px 10px;
   border: 1px solid #e0e0e0;
   border-radius: 4px;
   background: #fff;
@@ -309,7 +325,7 @@ const columns: ColumnDef[] = [
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
-  min-width: 700px;
+  min-width: 580px;
 }
 
 .work-order-progress__table thead {
@@ -321,7 +337,7 @@ const columns: ColumnDef[] = [
 .work-order-progress__table th {
   background: #fafafa;
   border-bottom: 1px solid #ebeef5;
-  padding: 10px 12px;
+  padding: 9px 8px;
   text-align: left;
   font-weight: 500;
   color: #606266;
@@ -330,7 +346,7 @@ const columns: ColumnDef[] = [
 }
 
 .work-order-progress__table td {
-  padding: 10px 12px;
+  padding: 8px;
   border-bottom: 1px solid #ebeef5;
   color: #333;
 }
@@ -375,10 +391,26 @@ const columns: ColumnDef[] = [
 }
 
 .work-order-progress__view-link {
-  color: #409eff;
-  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 0;
+  color: var(--accent-dark);
+  border: 0;
+  background: none;
   cursor: pointer;
   font-size: 13px;
+  white-space: nowrap;
+}
+
+.work-order-progress__status {
+  display: inline-block;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .work-order-progress__view-link:hover {

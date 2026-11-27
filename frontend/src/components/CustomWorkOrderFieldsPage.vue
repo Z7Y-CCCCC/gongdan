@@ -663,7 +663,7 @@ onMounted(async () => {
     </div>
 
     <ColumnSettingsPanel
-      v-if="showColumnConfig"
+      :visible="showColumnConfig"
       v-model="columns"
       :defaults="defaultColumnSettings"
       title="字段配置"

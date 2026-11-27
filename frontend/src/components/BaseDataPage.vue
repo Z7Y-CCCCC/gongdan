@@ -2091,7 +2091,7 @@ async function exportXlsx(kind: string) {
           </div>
 
           <ColumnSettingsPanel
-            v-if="showUnitColumnConfig"
+            :visible="showUnitColumnConfig"
             v-model="unitColumns"
             :defaults="unitColumnDefaults"
             title="列设置"
@@ -2263,7 +2263,7 @@ async function exportXlsx(kind: string) {
           </div>
 
           <ColumnSettingsPanel
-            v-if="showDefectColumnConfig"
+            :visible="showDefectColumnConfig"
             v-model="defectColumns"
             :defaults="defectColumnDefaults"
             title="列设置"
@@ -2467,7 +2467,7 @@ async function exportXlsx(kind: string) {
           </div>
 
           <ColumnSettingsPanel
-            v-if="showProcessColumnConfig"
+            :visible="showProcessColumnConfig"
             v-model="processColumns"
             :defaults="processColumnDefaults"
             title="列设置"
@@ -2869,7 +2869,7 @@ async function exportXlsx(kind: string) {
           </div>
 
           <ColumnSettingsPanel
-            v-if="showRouteColumnConfig"
+            :visible="showRouteColumnConfig"
             v-model="routeColumns"
             :defaults="routeColumnDefaults"
             title="列设置"

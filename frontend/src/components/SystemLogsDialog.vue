@@ -6,6 +6,7 @@ import UiIcon from './UiIcon.vue'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useDialogFocus } from '../composables/useDialogFocus'
 import { formatUiDate } from '../i18n'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 const props = defineProps<{ visible: boolean; token: string; module: string; type: 'import' | 'operation'; title: string }>()
 const emit = defineEmits<{ (e: 'update:visible', visible: boolean): void }>()
 const loading = ref(false), errorMessage = ref(''), currentPage = ref(1), pageSize = ref(15), totalItems = ref(0)
@@ -47,8 +48,9 @@ watch([() => props.visible, () => props.token, () => props.module, () => props.t
 </script>
 
 <template>
-  <div v-if="visible" class="import-logs-overlay" @click.self="close">
-    <div ref="dialogRef" class="import-logs-modal" role="dialog" aria-modal="true" tabindex="-1" :aria-labelledby="titleId" :style="{ width: type === 'operation' ? 'min(600px, calc(100vw - 32px))' : 'min(900px, calc(100vw - 32px))' }">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="visible" class="import-logs-overlay workspace-dialog-motion-backdrop" @click.self="close">
+    <div ref="dialogRef" class="import-logs-modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" tabindex="-1" :aria-labelledby="titleId" :style="{ width: type === 'operation' ? 'min(600px, calc(100vw - 32px))' : 'min(900px, calc(100vw - 32px))' }">
       <div class="modal-header">
         <h3 :id="titleId">{{ title }}</h3>
         <div class="modal-header-actions">
@@ -142,6 +144,7 @@ watch([() => props.visible, () => props.token, () => props.module, () => props.t
       </div>
     </div>
   </div>
+  </Transition>
 </template>
 
 <style scoped>

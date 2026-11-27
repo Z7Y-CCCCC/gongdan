@@ -196,12 +196,6 @@ watch(isSuperAdmin, allowed => {
 }, { flush: 'sync' })
 const activeBasedataMenu = ref('unit') // default to unit
 const activeProductionMenu = ref('workorder')
-const workOrderFocusTarget = ref<{ id: number } | null>(null)
-watch([activeMainMenu, activeProductionMenu], () => {
-  if (activeMainMenu.value !== 'production' || activeProductionMenu.value !== 'workorder') {
-    workOrderFocusTarget.value = null
-  }
-}, { flush: 'sync' })
 const activeCustomMenu = ref('workorder')
 const activeInventoryMenu = ref('inbound') // 'inbound' | 'outbound' | 'detail' | 'balance' | 'summary'
 const activeMonitorMenu = ref<'online' | 'cache' | 'cacheList'>('online')
@@ -219,6 +213,7 @@ const activePageCacheKey = computed(() => {
   return activeMainMenu.value
 })
 const pageMotionStage = ref<HTMLElement | null>(null)
+let workspacePageAnimation: Animation | undefined
 let restoredWorkspaceRoute = false
 
 type WorkspaceLoadingStageStatus = 'pending' | 'loading' | 'done' | 'error'
@@ -250,6 +245,9 @@ const workspaceLoadingProgress = ref(workspaceLoadingVisible.value ? 4 : 0)
 const workspaceLoadingStage = ref(workspaceLoadingVisible.value ? '正在恢复登录会话' : '')
 const workspaceLoadingError = ref('')
 let workspaceBootstrapRun = 0
+const authenticatedWorkspace = ref<HTMLElement | null>(null)
+const workspaceSignInArrival = ref(false)
+let pendingSignInToken = ''
 
 type WorkspaceTab = WorkspaceTabItem & {
   main: string
@@ -490,17 +488,9 @@ function jumpFromQuickApp(main: string, sub = '') {
   showQuickApps.value = false
 }
 
-function viewHomeWorkOrder(id: number) {
-  if (!token.value || !Number.isSafeInteger(id) || id <= 0) {
-    showAction('工单编号无效，请刷新后重试')
-    return
-  }
-  activeMainMenu.value = 'production'
-  if (activeMainMenu.value !== 'production') return
-  activeProductionMenu.value = 'workorder'
-  expandedMenus.production = true
-  // A fresh target also refreshes the same order when its KeepAlive page is reused.
-  workOrderFocusTarget.value = { id }
+function navigateFromHome(target: 'workorder' | 'workbench') {
+  jumpFromQuickApp('production', target)
+  if (activeMainMenu.value === 'production') expandedMenus.production = true
 }
 
 function openRuntimePlugin(pluginKey: string) {
@@ -624,20 +614,22 @@ function submitWorkspaceSearch() {
   showWorkspaceSearch.value = false
 }
 
-watch(activePageCacheKey, async () => {
-  syncWorkspaceTab()
-  await nextTick()
+watch(activePageCacheKey, syncWorkspaceTab)
+watch(activePageCacheKey, () => {
+  workspacePageAnimation?.cancel()
+  workspacePageAnimation = undefined
   const stage = pageMotionStage.value
-  if (!stage || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  stage.getAnimations?.().forEach(animation => animation.cancel())
-  stage.animate?.(
-    [
-      { opacity: 0.45, transform: 'translateY(7px)' },
-      { opacity: 1, transform: 'translateY(0)' }
-    ],
-    { duration: 220, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
+  if (!stage?.animate || workspaceLoadingVisible.value || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+  const motion = getComputedStyle(stage)
+  // Avoid transforming the page container: fixed dialogs must stay anchored to the viewport.
+  workspacePageAnimation = stage.animate(
+    [{ opacity: 0.7 }, { opacity: 1 }],
+    {
+      duration: Number.parseFloat(motion.getPropertyValue('--motion-base')) || 220,
+      easing: motion.getPropertyValue('--motion-ease').trim() || 'ease-out'
+    }
   )
-})
+}, { flush: 'post' })
 
 // ======== 车间看板数据 ========
 const isDashboardFullscreen = ref(false)
@@ -1839,7 +1831,7 @@ function getDefectLabel(id: number) {
   return d ? `${d.code} | ${d.name}` : String(id)
 }
 
-// 菜单展开状态，默认系统配置展开
+// 菜单展开状态
 const expandedMenus = reactive<Record<string, boolean>>({
   production: false,
   upstream: false,
@@ -1854,6 +1846,11 @@ const expandedMenus = reactive<Record<string, boolean>>({
   })
 
 function toggleMenu(key: string) {
+  if (isSidebarCollapsed.value) {
+    isSidebarCollapsed.value = false
+    expandedMenus[key] = true
+    return
+  }
   expandedMenus[key] = !expandedMenus[key]
 }
 const showDepartmentModal = ref(false)
@@ -1894,6 +1891,8 @@ const loginForm = reactive({
   password: ''
 })
 const showLoginPassword = ref(false)
+const loginSubmitting = ref(false)
+const factoryLoginError = ref('')
 
 // Phone login state
 const loginTab = ref<'phone' | 'factory'>('factory')
@@ -2047,8 +2046,9 @@ async function runWorkspaceLoadingStage(
 }
 
 async function bootstrapWorkspace(): Promise<boolean> {
-  if (!token.value || !currentUser.value || !hasAdminAccess.value) {
+  if (!token.value || !currentUser.value || !hasAdminAccess.value || isInternalChatWindow.value) {
     workspaceLoadingVisible.value = false
+    revealSignedInWorkspace()
     return true
   }
 
@@ -2112,15 +2112,14 @@ async function bootstrapWorkspace(): Promise<boolean> {
         }
       }
       await nextTick()
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       return '工作区已准备完成'
     })
 
     if (runId !== workspaceBootstrapRun) return false
     workspaceLoadingProgress.value = 100
     workspaceLoadingStage.value = '加载完成'
-    await new Promise(resolve => setTimeout(resolve, 220))
-    if (runId === workspaceBootstrapRun) workspaceLoadingVisible.value = false
+    workspaceLoadingVisible.value = false
+    revealSignedInWorkspace()
     return true
   } catch (error) {
     if (runId === workspaceBootstrapRun) {
@@ -2137,8 +2136,33 @@ function retryWorkspaceBootstrap() {
   void bootstrapWorkspace()
 }
 
+function revealSignedInWorkspace() {
+  if (!pendingSignInToken || pendingSignInToken !== token.value) return
+  const signedInToken = pendingSignInToken
+  pendingSignInToken = ''
+  workspaceSignInArrival.value = true
+  nextTick(() => {
+    if (token.value === signedInToken && !workspaceLoadingVisible.value) {
+      authenticatedWorkspace.value?.focus({ preventScroll: true })
+    }
+  })
+}
+
+function clearSignInSecrets() {
+  loginForm.password = ''
+  showLoginPassword.value = false
+  phoneForm.password = ''
+  showPhonePassword.value = false
+  phoneForm.code = ''
+  pendingPhoneCredential.credential = ''
+}
+
 function persistSession(response: LoginResponse) {
   sharedAuth.persistSession(response)
+  pendingSignInToken = response.token
+  clearSignInSecrets()
+  factoryLoginError.value = ''
+  phoneError.value = ''
   // 登录后默认进入主页仪表盘
   activeMainMenu.value = 'home'
   startNotificationPolling()
@@ -2221,9 +2245,10 @@ function handleSearch() {
 }
 
 async function handleLogin() {
-  if (loading.value) return
-  errorMessage.value = ''
-  loading.value = true
+  if (loginSubmitting.value) return
+  factoryLoginError.value = ''
+  loginSubmitting.value = true
+  const source = document.activeElement
   const submittedLogin = { ...loginForm }
   try {
     const response = await login(submittedLogin)
@@ -2240,10 +2265,21 @@ async function handleLogin() {
     sharedAuth.setFactoryCode(submittedLogin.factoryCode)
     await bootstrapWorkspace()
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '登录失败'
+    factoryLoginError.value = error instanceof Error ? error.message : '登录失败'
   } finally {
-    loading.value = false
+    finishSignInRequest(source)
   }
+}
+
+function finishSignInRequest(source: Element | null) {
+  loginSubmitting.value = false
+  // Native disabling may move submit-button focus to the body while awaiting a response.
+  // Never steal focus from another control, or leave keyboard focus in an old auth view.
+  nextTick(() => {
+    if (!isLoggedIn.value && document.activeElement === document.body && source instanceof HTMLElement && source.isConnected) {
+      source.focus({ preventScroll: true })
+    }
+  })
 }
 
 // Phone login functions
@@ -2272,41 +2308,33 @@ async function handleSendSms() {
 }
 
 async function handlePhoneLogin() {
-  if (loading.value) return
+  if (loginSubmitting.value) return
   phoneError.value = ''
   if (!isPhoneValid.value) {
     phoneError.value = '请输入正确的手机号'
     return
   }
-  loading.value = true
+  const { phone, code, password } = phoneForm
+  const loginType = phoneLoginMode.value
+  const credential = loginType === 'password' ? password : code
+  if (!credential) {
+    phoneError.value = loginType === 'password' ? '请输入密码' : '请输入验证码'
+    return
+  }
+  const source = document.activeElement
+  loginSubmitting.value = true
   try {
-    let result: PhoneLoginResult
-    if (phoneLoginMode.value === 'password') {
-      if (!phoneForm.password) {
-        phoneError.value = '请输入密码'
-        loading.value = false
-        return
-      }
-      result = await phonePasswordLogin({ phone: phoneForm.phone, password: phoneForm.password })
-      pendingPhoneCredential.phone = phoneForm.phone
-      pendingPhoneCredential.loginType = 'password'
-      pendingPhoneCredential.credential = phoneForm.password
-    } else {
-      if (!phoneForm.code) {
-        phoneError.value = '请输入验证码'
-        loading.value = false
-        return
-      }
-      result = await phoneSmsLogin({ phone: phoneForm.phone, code: phoneForm.code })
-      pendingPhoneCredential.phone = phoneForm.phone
-      pendingPhoneCredential.loginType = 'sms'
-      pendingPhoneCredential.credential = phoneForm.code
+    const result = loginType === 'password'
+      ? await phonePasswordLogin({ phone, password })
+      : await phoneSmsLogin({ phone, code })
+    if (result.selectRequired && !result.bindingRequired) {
+      Object.assign(pendingPhoneCredential, { phone, loginType, credential })
     }
     await handlePhoneLoginResult(result)
   } catch (e) {
     phoneError.value = e instanceof Error ? e.message : '登录失败'
   } finally {
-    loading.value = false
+    finishSignInRequest(source)
   }
 }
 
@@ -2332,8 +2360,9 @@ function handleBindSuccess(payload: { token: string; user: any }) {
 }
 
 async function handleSelectFactory(factoryId: number) {
-  if (loading.value) return
-  loading.value = true
+  if (loginSubmitting.value) return
+  const source = document.activeElement
+  loginSubmitting.value = true
   phoneError.value = ''
   try {
     const result = await selectFactory({
@@ -2354,7 +2383,7 @@ async function handleSelectFactory(factoryId: number) {
   } catch (e) {
     phoneError.value = e instanceof Error ? e.message : '登录失败'
   } finally {
-    loading.value = false
+    finishSignInRequest(source)
   }
 }
 
@@ -2861,6 +2890,8 @@ function resetAuthenticatedWorkspace() {
   signOutError.value = ''
   workspaceBootstrapRun += 1
   workspaceLoadingVisible.value = false
+  pendingSignInToken = ''
+  workspaceSignInArrival.value = false
   users.value = []
   departments.value = []
   units.value = []
@@ -2888,15 +2919,11 @@ function resetAuthenticatedWorkspace() {
   resetPasswordUser.value = null
   resetPasswordForm.password = ''
   resetPasswordForm.confirmPassword = ''
-  loginForm.password = ''
-  showLoginPassword.value = false
-  phoneForm.password = ''
-  showPhonePassword.value = false
-  phoneForm.code = ''
-  pendingPhoneCredential.credential = ''
+  clearSignInSecrets()
+  factoryLoginError.value = ''
+  phoneError.value = ''
   runtimePlugins.value = []
   activePluginKey.value = ''
-  workOrderFocusTarget.value = null
   notificationItems.value = []
   notificationUnreadCount.value = 0
   beginNotificationLoad()
@@ -2974,6 +3001,7 @@ function handleShellClick(e: MouseEvent) {
 }
 
 function handleShellKeydown(event: KeyboardEvent) {
+  if (!isLoggedIn.value || workspaceLoadingVisible.value) return
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault()
     focusWorkspaceSearch()
@@ -2998,6 +3026,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  workspacePageAnimation?.cancel()
   document.removeEventListener('fullscreenchange', syncNativeFullscreenState)
   window.removeEventListener('beforeunload', guardBrowserDeparture)
   workspaceLeaveGuards.clear()
@@ -3056,7 +3085,7 @@ function activateSidebarItem(event: KeyboardEvent) {
 </script>
 
 <template>
-  <main v-if="!isLoggedIn" class="login-page">
+  <main v-if="!isLoggedIn" class="login-page" aria-labelledby="sign-in-title">
     <section class="login-panel">
       <div class="login-box">
         <div class="login-brand">
@@ -3065,26 +3094,27 @@ function activateSidebarItem(event: KeyboardEvent) {
           <button class="login-language-switch" type="button" :title="uiLocale === 'zh-CN' ? 'English' : '简体中文'" :aria-label="uiLocale === 'zh-CN' ? 'Switch to English' : '切换简体中文'" @click="selectLanguage(uiLocale === 'zh-CN' ? 'en-US' : 'zh-CN')"><UiIcon name="language" :size="18" /></button>
         </div>
         <div class="login-heading">
-          <h2>登录</h2>
+          <h1 id="sign-in-title">登录</h1>
         </div>
 
         <!-- Tab switcher -->
         <div v-if="!showBindFactory && !showFactorySelect" class="login-tabs" role="tablist" aria-label="登录方式">
-          <button type="button" role="tab" class="login-tab" :aria-selected="loginTab === 'factory'" :class="{ active: loginTab === 'factory' }" @click="loginTab = 'factory'">工厂账号</button>
-          <button type="button" role="tab" class="login-tab" :aria-selected="loginTab === 'phone'" :class="{ active: loginTab === 'phone' }" @click="loginTab = 'phone'">手机号</button>
+          <button type="button" role="tab" class="login-tab" :disabled="loginSubmitting" :aria-selected="loginTab === 'factory'" :class="{ active: loginTab === 'factory' }" @click="loginTab = 'factory'">工厂账号</button>
+          <button type="button" role="tab" class="login-tab" :disabled="loginSubmitting" :aria-selected="loginTab === 'phone'" :class="{ active: loginTab === 'phone' }" @click="loginTab = 'phone'">手机号</button>
         </div>
 
         <!-- Factory select overlay -->
         <div v-if="showFactorySelect" class="factory-select-panel">
           <h3>请选择工厂</h3>
           <div class="factory-list">
-            <button type="button" v-for="f in factoryList" :key="f.factoryId" class="factory-item" @click="handleSelectFactory(f.factoryId)">
+            <button type="button" v-for="f in factoryList" :key="f.factoryId" class="factory-item" :disabled="loginSubmitting" @click="handleSelectFactory(f.factoryId)">
               <span class="factory-name-label">{{ f.factoryName }}</span>
               <span class="factory-code-label">{{ f.factoryCode }}</span>
             </button>
           </div>
-          <p v-if="phoneError" class="form-error">{{ phoneError }}</p>
-          <button class="text-btn ui-icon-button" type="button" title="返回" aria-label="返回" @click="showFactorySelect = false"><UiIcon name="arrowLeft" :size="18" /></button>
+          <p v-if="loginSubmitting" role="status">登录中...</p>
+          <p v-if="phoneError" class="form-error" role="alert">{{ phoneError }}</p>
+          <button class="text-btn ui-icon-button" type="button" :disabled="loginSubmitting" title="返回" aria-label="返回" @click="showFactorySelect = false; pendingPhoneCredential.credential = ''; phoneError = ''"><UiIcon name="arrowLeft" :size="18" /></button>
         </div>
 
         <!-- Bind factory overlay -->
@@ -3096,10 +3126,10 @@ function activateSidebarItem(event: KeyboardEvent) {
         />
 
         <!-- Phone login form -->
-        <form v-if="loginTab === 'phone' && !showFactorySelect && !showBindFactory" class="login-form" @submit.prevent="handlePhoneLogin">
+        <form v-if="loginTab === 'phone' && !showFactorySelect && !showBindFactory" class="login-form" :aria-busy="loginSubmitting" @submit.prevent="handlePhoneLogin">
           <div class="phone-mode-switch">
-            <button type="button" :class="{ active: phoneLoginMode === 'password' }" :aria-pressed="phoneLoginMode === 'password'" @click="phoneLoginMode = 'password'">密码</button>
-            <button type="button" :class="{ active: phoneLoginMode === 'sms' }" :aria-pressed="phoneLoginMode === 'sms'" @click="phoneLoginMode = 'sms'">验证码</button>
+            <button type="button" :disabled="loginSubmitting" :class="{ active: phoneLoginMode === 'password' }" :aria-pressed="phoneLoginMode === 'password'" @click="phoneLoginMode = 'password'">密码</button>
+            <button type="button" :disabled="loginSubmitting" :class="{ active: phoneLoginMode === 'sms' }" :aria-pressed="phoneLoginMode === 'sms'" @click="phoneLoginMode = 'sms'">验证码</button>
           </div>
           <label>
             <span>手机号</span>
@@ -3130,14 +3160,14 @@ function activateSidebarItem(event: KeyboardEvent) {
               </button>
             </div>
           </label>
-          <p v-if="phoneError" class="form-error">{{ phoneError }}</p>
-          <button class="primary-btn login-btn" :disabled="loading" type="submit">
-            {{ loading ? '登录中...' : '登录' }}
+          <p v-if="phoneError" class="form-error" role="alert">{{ phoneError }}</p>
+          <button class="primary-btn login-btn" :disabled="loginSubmitting" type="submit">
+            {{ loginSubmitting ? '登录中...' : '登录' }}
           </button>
         </form>
 
         <!-- Factory account login form (existing) -->
-        <form v-if="loginTab === 'factory' && !showFactorySelect && !showBindFactory" class="login-form" @submit.prevent="handleLogin">
+        <form v-if="loginTab === 'factory' && !showFactorySelect && !showBindFactory" class="login-form" :aria-busy="loginSubmitting" @submit.prevent="handleLogin">
           <label>
             <span>工厂代码</span>
             <input v-model="loginForm.factoryCode" autocomplete="organization" placeholder="请输入工厂代码" />
@@ -3168,23 +3198,23 @@ function activateSidebarItem(event: KeyboardEvent) {
               <span>记住账号</span>
             </label>
           </div>
-          <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
-          <button class="primary-btn login-btn" :disabled="loading" type="submit">
-            {{ loading ? '登录中...' : '登录' }}
+          <p v-if="factoryLoginError" class="form-error" role="alert">{{ factoryLoginError }}</p>
+          <button class="primary-btn login-btn" :disabled="loginSubmitting" type="submit">
+            {{ loginSubmitting ? '登录中...' : '登录' }}
           </button>
         </form>
       </div>
     </section>
   </main>
 
-  <main v-else-if="isInternalChatWindow" class="admin-shell internal-chat-window-shell" :class="{ 'dark-theme': isDarkTheme }">
+  <main v-else-if="isInternalChatWindow" ref="authenticatedWorkspace" class="admin-shell internal-chat-window-shell" :class="{ 'dark-theme': isDarkTheme, 'workspace-sign-in-arrival': workspaceSignInArrival }" tabindex="-1" aria-label="内部沟通">
     <InternalChatPage
       :token="token"
       :current-user="currentUser"
     />
   </main>
 
-  <main v-else class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'app-fullscreen': isAppFullscreen, 'dark-theme': isDarkTheme }">
+  <main v-else ref="authenticatedWorkspace" class="admin-shell" :class="{ 'sidebar-collapsed': isSidebarCollapsed, 'workspace-maximized': isWorkspaceMaximized, 'app-fullscreen': isAppFullscreen, 'dark-theme': isDarkTheme, 'workspace-sign-in-arrival': workspaceSignInArrival }" tabindex="-1" aria-label="工作台" :inert.attr="workspaceLoadingVisible || undefined">
     <aside class="sidebar">
       <button class="collapse-toggle" type="button" :title="isSidebarCollapsed ? '展开侧栏' : '收起侧栏'" :aria-label="isSidebarCollapsed ? '展开侧栏' : '收起侧栏'" :aria-expanded="!isSidebarCollapsed" @click="isSidebarCollapsed = !isSidebarCollapsed">
         <svg v-if="!isSidebarCollapsed" viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><path d="M15 18l-6-6 6-6"/></svg>
@@ -3192,168 +3222,168 @@ function activateSidebarItem(event: KeyboardEvent) {
       </button>
       <div class="factory-name" v-show="!isSidebarCollapsed" :title="currentFactoryCode">{{ currentFactoryCode }}</div>
       <nav v-if="hasAdminAccess" @keydown="activateSidebarItem">
-        <a v-if="currentUser && currentUser.role === 'ADMIN'" role="button" tabindex="0" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'home' }" :title="isSidebarCollapsed ? '主页' : ''" @click="activeMainMenu = 'home'">
+        <a v-if="currentUser && currentUser.role === 'ADMIN'" role="button" tabindex="0" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'home' }" :aria-current="activeMainMenu === 'home' ? 'page' : undefined" :title="isSidebarCollapsed ? '主页' : ''" @click="activeMainMenu = 'home'">
           <UiIcon name="home" :size="18" />
           <span v-show="!isSidebarCollapsed">主页</span>
         </a>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '生产管理' : ''" @click.stop="toggleMenu('production')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '生产管理' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.production" aria-controls="workspace-nav-production" :class="{ 'active-parent': (activeMainMenu === 'production') && (isSidebarCollapsed || !expandedMenus.production) }" @click.stop="toggleMenu('production')">
             <UiIcon name="file" :size="18" />
             <span v-show="!isSidebarCollapsed">生产管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.production }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.production" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'"><UiIcon name="file" :size="15" />销售订单</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'"><UiIcon name="calendar" :size="15" />任务</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'"><UiIcon name="check" :size="15" />报工工作台</a>
+            <div id="workspace-nav-production" v-show="!isSidebarCollapsed && expandedMenus.production" :inert="isSidebarCollapsed || !expandedMenus.production" class="sub-items-container">
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'sales' }" :aria-current="activeMainMenu === 'production' && activeProductionMenu === 'sales' ? 'page' : undefined" @click="activeMainMenu = 'production'; activeProductionMenu = 'sales'"><UiIcon name="file" :size="15" />销售订单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workorder' }" :aria-current="activeMainMenu === 'production' && activeProductionMenu === 'workorder' ? 'page' : undefined" @click="activeMainMenu = 'production'; activeProductionMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'task' }" :aria-current="activeMainMenu === 'production' && activeProductionMenu === 'task' ? 'page' : undefined" @click="activeMainMenu = 'production'; activeProductionMenu = 'task'"><UiIcon name="calendar" :size="15" />任务</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'reporting' }" :aria-current="activeMainMenu === 'production' && activeProductionMenu === 'reporting' ? 'page' : undefined" @click="activeMainMenu = 'production'; activeProductionMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'production' && activeProductionMenu === 'workbench' }" :aria-current="activeMainMenu === 'production' && activeProductionMenu === 'workbench' ? 'page' : undefined" @click="activeMainMenu = 'production'; activeProductionMenu = 'workbench'"><UiIcon name="check" :size="15" />报工工作台</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '上下游管理' : ''" @click.stop="toggleMenu('upstream')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '上下游管理' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.upstream" aria-controls="workspace-nav-upstream" @click.stop="toggleMenu('upstream')">
             <UiIcon name="share" :size="18" />
             <span v-show="!isSidebarCollapsed">上下游管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.upstream }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.upstream" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true"><UiIcon name="user" :size="15" />客户</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true"><UiIcon name="share" :size="15" />供应商</a>
+            <div id="workspace-nav-upstream" v-show="!isSidebarCollapsed && expandedMenus.upstream" :inert="isSidebarCollapsed || !expandedMenus.upstream" class="sub-items-container">
+              <a role="button" tabindex="0" class="sub-item" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'; expandedMenus.basedata = true"><UiIcon name="user" :size="15" />客户</a>
+              <a role="button" tabindex="0" class="sub-item" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'; expandedMenus.basedata = true"><UiIcon name="share" :size="15" />供应商</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '库存管理' : ''" @click.stop="toggleMenu('inventory')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '库存管理' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.inventory" aria-controls="workspace-nav-inventory" :class="{ 'active-parent': (activeMainMenu === 'inventory') && (isSidebarCollapsed || !expandedMenus.inventory) }" @click.stop="toggleMenu('inventory')">
             <UiIcon name="layers" :size="18" />
             <span v-show="!isSidebarCollapsed">库存管理</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.inventory }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.inventory" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'"><UiIcon name="download" :size="15" />入库单</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'"><UiIcon name="upload" :size="15" />出库单</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'"><UiIcon name="list" :size="15" />库存收发明细</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'"><UiIcon name="layers" :size="15" />库存余额</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'"><UiIcon name="activity" :size="15" />进销存汇总</a>
+            <div id="workspace-nav-inventory" v-show="!isSidebarCollapsed && expandedMenus.inventory" :inert="isSidebarCollapsed || !expandedMenus.inventory" class="sub-items-container">
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' }" :aria-current="activeMainMenu === 'inventory' && activeInventoryMenu === 'inbound' ? 'page' : undefined" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'inbound'"><UiIcon name="download" :size="15" />入库单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' }" :aria-current="activeMainMenu === 'inventory' && activeInventoryMenu === 'outbound' ? 'page' : undefined" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'outbound'"><UiIcon name="upload" :size="15" />出库单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' }" :aria-current="activeMainMenu === 'inventory' && activeInventoryMenu === 'detail' ? 'page' : undefined" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'detail'"><UiIcon name="list" :size="15" />库存收发明细</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' }" :aria-current="activeMainMenu === 'inventory' && activeInventoryMenu === 'balance' ? 'page' : undefined" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'balance'"><UiIcon name="layers" :size="15" />库存余额</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' }" :aria-current="activeMainMenu === 'inventory' && activeInventoryMenu === 'summary' ? 'page' : undefined" @click="activeMainMenu = 'inventory'; activeInventoryMenu = 'summary'"><UiIcon name="activity" :size="15" />进销存汇总</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '基础数据' : ''" @click.stop="toggleMenu('basedata')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '基础数据' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.basedata" aria-controls="workspace-nav-basedata" :class="{ 'active-parent': (activeMainMenu === 'basedata') && (isSidebarCollapsed || !expandedMenus.basedata) }" @click.stop="toggleMenu('basedata')">
             <UiIcon name="list" :size="18" />
             <span v-show="!isSidebarCollapsed">基础数据</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.basedata }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.basedata" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'"><UiIcon name="package" :size="15" />产品定义</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'"><UiIcon name="table-columns" :size="15" />单位</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'"><UiIcon name="warning" :size="15" />不良品项</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'"><UiIcon name="settings" :size="15" />工序</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'"><UiIcon name="share" :size="15" />工艺路线</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'"><UiIcon name="home" :size="15" />仓库</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'"><UiIcon name="share" :size="15" />供应商</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
+            <div id="workspace-nav-basedata" v-show="!isSidebarCollapsed && expandedMenus.basedata" :inert="isSidebarCollapsed || !expandedMenus.basedata" class="sub-items-container">
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'product' }" :aria-current="activeMainMenu === 'basedata' && activeBasedataMenu === 'product' ? 'page' : undefined" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'product'"><UiIcon name="package" :size="15" />产品定义</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' }" :aria-current="activeMainMenu === 'basedata' && activeBasedataMenu === 'bom' ? 'page' : undefined" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' }" :aria-current="activeMainMenu === 'basedata' && activeBasedataMenu === 'unit' ? 'page' : undefined" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'unit'"><UiIcon name="table-columns" :size="15" />单位</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' }" :aria-current="activeMainMenu === 'basedata' && activeBasedataMenu === 'defect' ? 'page' : undefined" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'defect'"><UiIcon name="warning" :size="15" />不良品项</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'process' }" :aria-current="activeMainMenu === 'basedata' && activeBasedataMenu === 'process' ? 'page' : undefined" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'process'; processView = 'list'"><UiIcon name="settings" :size="15" />工序</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'route' }" :aria-current="activeMainMenu === 'basedata' && activeBasedataMenu === 'route' ? 'page' : undefined" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'route'; routeView = 'list'"><UiIcon name="share" :size="15" />工艺路线</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' }" :aria-current="activeMainMenu === 'basedata' && activeBasedataMenu === 'warehouse' ? 'page' : undefined" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'warehouse'"><UiIcon name="home" :size="15" />仓库</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' }" :aria-current="activeMainMenu === 'basedata' && activeBasedataMenu === 'supplier' ? 'page' : undefined" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'supplier'"><UiIcon name="share" :size="15" />供应商</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' }" :aria-current="activeMainMenu === 'basedata' && activeBasedataMenu === 'customer' ? 'page' : undefined" @click="activeMainMenu = 'basedata'; activeBasedataMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '自定义配置' : ''" @click.stop="toggleMenu('custom')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '自定义配置' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.custom" aria-controls="workspace-nav-custom" :class="{ 'active-parent': (activeMainMenu === 'custom') && (isSidebarCollapsed || !expandedMenus.custom) }" @click.stop="toggleMenu('custom')">
             <UiIcon name="table-columns" :size="18" />
             <span v-show="!isSidebarCollapsed">自定义配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.custom }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.custom" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'"><UiIcon name="package" :size="15" />产品</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'"><UiIcon name="settings" :size="15" />工序</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'"><UiIcon name="archive" :size="15" />出入库单</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'"><UiIcon name="list" :size="15" />出入库明细</a>
+            <div id="workspace-nav-custom" v-show="!isSidebarCollapsed && expandedMenus.custom" :inert="isSidebarCollapsed || !expandedMenus.custom" class="sub-items-container">
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'product' }" :aria-current="activeMainMenu === 'custom' && activeCustomMenu === 'product' ? 'page' : undefined" @click="activeMainMenu = 'custom'; activeCustomMenu = 'product'"><UiIcon name="package" :size="15" />产品</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'bom' }" :aria-current="activeMainMenu === 'custom' && activeCustomMenu === 'bom' ? 'page' : undefined" @click="activeMainMenu = 'custom'; activeCustomMenu = 'bom'"><UiIcon name="layers" :size="15" />物料清单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'process' }" :aria-current="activeMainMenu === 'custom' && activeCustomMenu === 'process' ? 'page' : undefined" @click="activeMainMenu = 'custom'; activeCustomMenu = 'process'"><UiIcon name="settings" :size="15" />工序</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'workorder' }" :aria-current="activeMainMenu === 'custom' && activeCustomMenu === 'workorder' ? 'page' : undefined" @click="activeMainMenu = 'custom'; activeCustomMenu = 'workorder'"><UiIcon name="file" :size="15" />工单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'reporting' }" :aria-current="activeMainMenu === 'custom' && activeCustomMenu === 'reporting' ? 'page' : undefined" @click="activeMainMenu = 'custom'; activeCustomMenu = 'reporting'"><UiIcon name="activity" :size="15" />报工</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'customer' }" :aria-current="activeMainMenu === 'custom' && activeCustomMenu === 'customer' ? 'page' : undefined" @click="activeMainMenu = 'custom'; activeCustomMenu = 'customer'"><UiIcon name="user" :size="15" />客户</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt' }" :aria-current="activeMainMenu === 'custom' && activeCustomMenu === 'receipt' ? 'page' : undefined" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt'"><UiIcon name="archive" :size="15" />出入库单</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' }" :aria-current="activeMainMenu === 'custom' && activeCustomMenu === 'receipt_detail' ? 'page' : undefined" @click="activeMainMenu = 'custom'; activeCustomMenu = 'receipt_detail'"><UiIcon name="list" :size="15" />出入库明细</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '高级运营' : ''" @click.stop="toggleMenu('advanced')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '高级运营' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.advanced" aria-controls="workspace-nav-advanced" :class="{ 'active-parent': (activeMainMenu === 'advanced') && (isSidebarCollapsed || !expandedMenus.advanced) }" @click.stop="toggleMenu('advanced')">
             <UiIcon name="file" :size="18" />
             <span v-show="!isSidebarCollapsed">高级运营</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.advanced }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.advanced" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="settings" :size="15" />SOP / 推送 / 质检 / 设备</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" @click="activeMainMenu = 'advanced'"><UiIcon name="activity" :size="15" />排产 / 绩效 / 现场</a>
+            <div id="workspace-nav-advanced" v-show="!isSidebarCollapsed && expandedMenus.advanced" :inert="isSidebarCollapsed || !expandedMenus.advanced" class="sub-items-container">
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" :aria-current="activeMainMenu === 'advanced' ? 'page' : undefined" @click="activeMainMenu = 'advanced'"><UiIcon name="settings" :size="15" />SOP / 推送 / 质检 / 设备</a>
+              <a role="button" tabindex="0" class="sub-item" @click="activeMainMenu = 'advanced'"><UiIcon name="activity" :size="15" />排产 / 绩效 / 现场</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '报表' : ''" @click.stop="toggleMenu('report')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '报表' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.report" aria-controls="workspace-nav-report" :class="{ 'active-parent': (activeMainMenu === 'report' || activeMainMenu === 'analytics') && (isSidebarCollapsed || !expandedMenus.report) }" @click.stop="toggleMenu('report')">
             <UiIcon name="activity" :size="18" />
             <span v-show="!isSidebarCollapsed">报表</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.report }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.report" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'report' }" @click="activeMainMenu = 'report'"><UiIcon name="activity" :size="15" />生产报表</a>
-              <a v-if="isSuperAdmin" role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'analytics' }" @click="activeMainMenu = 'analytics'"><UiIcon name="table-columns" :size="15" />高级报表</a>
+            <div id="workspace-nav-report" v-show="!isSidebarCollapsed && expandedMenus.report" :inert="isSidebarCollapsed || !expandedMenus.report" class="sub-items-container">
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'report' }" :aria-current="activeMainMenu === 'report' ? 'page' : undefined" @click="activeMainMenu = 'report'"><UiIcon name="activity" :size="15" />生产报表</a>
+              <a v-if="isSuperAdmin" role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'analytics' }" :aria-current="activeMainMenu === 'analytics' ? 'page' : undefined" @click="activeMainMenu = 'analytics'"><UiIcon name="table-columns" :size="15" />高级报表</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item expanded" :title="isSidebarCollapsed ? '系统配置' : ''" :aria-expanded="expandedMenus.sysconfig" @click.stop="toggleMenu('sysconfig')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '系统配置' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.sysconfig" aria-controls="workspace-nav-sysconfig" :class="{ 'active-parent': (activeMainMenu === 'sysconfig') && (isSidebarCollapsed || !expandedMenus.sysconfig) }" @click.stop="toggleMenu('sysconfig')">
             <UiIcon name="settings" :size="18" />
             <span v-show="!isSidebarCollapsed">系统配置</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.sysconfig }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.sysconfig" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'"><UiIcon name="share" :size="15" />部门</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'"><UiIcon name="user" :size="15" />用户</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'"><UiIcon name="home" :size="15" />工厂</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'plugin-center'"><UiIcon name="layers" :size="15" />插件中心</a>
-              <a v-if="hasAdminAccess" role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'external-data-sources' }" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'external-data-sources'"><UiIcon name="layers" :size="15" />外部数据源</a>
+            <div id="workspace-nav-sysconfig" v-show="!isSidebarCollapsed && expandedMenus.sysconfig" :inert="isSidebarCollapsed || !expandedMenus.sysconfig" class="sub-items-container">
+              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' }" :aria-current="activeMainMenu === 'sysconfig' && activeConfigMenu === 'department' ? 'page' : undefined" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'department'"><UiIcon name="share" :size="15" />部门</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' }" :aria-current="activeMainMenu === 'sysconfig' && activeConfigMenu === 'user' ? 'page' : undefined" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'user'"><UiIcon name="user" :size="15" />用户</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' }" :aria-current="activeMainMenu === 'sysconfig' && activeConfigMenu === 'factory' ? 'page' : undefined" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'factory'"><UiIcon name="home" :size="15" />工厂</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' }" :aria-current="activeMainMenu === 'sysconfig' && activeConfigMenu === 'plugin-center' ? 'page' : undefined" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'plugin-center'"><UiIcon name="layers" :size="15" />插件中心</a>
+              <a v-if="hasAdminAccess" role="button" tabindex="0" class="sub-item" :class="{ 'selected': activeMainMenu === 'sysconfig' && activeConfigMenu === 'external-data-sources' }" :aria-current="activeMainMenu === 'sysconfig' && activeConfigMenu === 'external-data-sources' ? 'page' : undefined" @click="activeMainMenu = 'sysconfig'; activeConfigMenu = 'external-data-sources'"><UiIcon name="layers" :size="15" />外部数据源</a>
             </div>
           </Transition>
         </div>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item expanded" :title="isSidebarCollapsed ? '系统监控' : ''" :aria-expanded="expandedMenus.monitor" @click.stop="toggleMenu('monitor')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '系统监控' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.monitor" aria-controls="workspace-nav-monitor" :class="{ 'active-parent': (activeMainMenu === 'monitor') && (isSidebarCollapsed || !expandedMenus.monitor) }" @click.stop="toggleMenu('monitor')">
             <UiIcon name="activity" :size="18" />
             <span v-show="!isSidebarCollapsed">系统监控</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.monitor }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.monitor" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'online' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'online'"><UiIcon name="user" :size="15" />在线用户</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cache'"><UiIcon name="activity" :size="15" />缓存监控</a>
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' }" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cacheList'"><UiIcon name="list" :size="15" />缓存列表</a>
+            <div id="workspace-nav-monitor" v-show="!isSidebarCollapsed && expandedMenus.monitor" :inert="isSidebarCollapsed || !expandedMenus.monitor" class="sub-items-container">
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'online' }" :aria-current="activeMainMenu === 'monitor' && activeMonitorMenu === 'online' ? 'page' : undefined" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'online'"><UiIcon name="user" :size="15" />在线用户</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' }" :aria-current="activeMainMenu === 'monitor' && activeMonitorMenu === 'cache' ? 'page' : undefined" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cache'"><UiIcon name="activity" :size="15" />缓存监控</a>
+              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' }" :aria-current="activeMainMenu === 'monitor' && activeMonitorMenu === 'cacheList' ? 'page' : undefined" @click="activeMainMenu = 'monitor'; activeMonitorMenu = 'cacheList'"><UiIcon name="list" :size="15" />缓存列表</a>
             </div>
           </Transition>
         </div>
 
         <div v-if="runtimePlugins.length > 0" class="nav-group">
-          <a role="button" tabindex="0" class="nav-item expanded" :title="isSidebarCollapsed ? '插件扩展' : ''" :aria-expanded="expandedMenus.plugins" @click.stop="toggleMenu('plugins')">
+          <a role="button" tabindex="0" class="nav-item" :title="isSidebarCollapsed ? '插件扩展' : ''" :aria-expanded="!isSidebarCollapsed && expandedMenus.plugins" aria-controls="workspace-nav-plugins" :class="{ 'active-parent': (activeMainMenu === 'plugin') && (isSidebarCollapsed || !expandedMenus.plugins) }" @click.stop="toggleMenu('plugins')">
             <UiIcon name="layers" :size="18" />
             <span v-show="!isSidebarCollapsed">插件扩展</span>
             <svg v-show="!isSidebarCollapsed" class="nav-chevron" :class="{ open: expandedMenus.plugins }" viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
           </a>
           <Transition name="sidebar-expand">
-            <div v-show="!isSidebarCollapsed && expandedMenus.plugins" class="sub-items-container">
+            <div id="workspace-nav-plugins" v-show="!isSidebarCollapsed && expandedMenus.plugins" :inert="isSidebarCollapsed || !expandedMenus.plugins" class="sub-items-container">
               <a
                 v-for="plugin in runtimePlugins"
                 :key="plugin.pluginKey"
@@ -3361,6 +3391,7 @@ function activateSidebarItem(event: KeyboardEvent) {
                 tabindex="0"
                 class="sub-item"
                 :class="{ selected: activeMainMenu === 'plugin' && activePluginKey === plugin.pluginKey }"
+                :aria-current="activeMainMenu === 'plugin' && activePluginKey === plugin.pluginKey ? 'page' : undefined"
                 @click="openRuntimePlugin(plugin.pluginKey)"
               ><UiIcon name="layers" :size="15" />{{ plugin.name }}</a>
             </div>
@@ -3368,14 +3399,14 @@ function activateSidebarItem(event: KeyboardEvent) {
         </div>
 
         <div class="nav-group">
-          <a role="button" tabindex="0" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'dashboard' }" :title="isSidebarCollapsed ? '车间看板' : ''" @click.stop="activeMainMenu = 'dashboard'">
+          <a role="button" tabindex="0" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'dashboard' }" :aria-current="activeMainMenu === 'dashboard' ? 'page' : undefined" :title="isSidebarCollapsed ? '车间看板' : ''" @click.stop="activeMainMenu = 'dashboard'">
             <UiIcon name="table-columns" :size="18" />
             <span v-show="!isSidebarCollapsed">车间看板</span>
           </a>
         </div>
 
         <div v-if="isSuperAdmin" class="nav-group">
-          <a role="button" tabindex="0" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'super-admin' }" :title="isSidebarCollapsed ? '授权码管理' : ''" @click.stop="activeMainMenu = 'super-admin'">
+          <a role="button" tabindex="0" class="nav-item" :class="{ 'active-parent': activeMainMenu === 'super-admin' }" :aria-current="activeMainMenu === 'super-admin' ? 'page' : undefined" :title="isSidebarCollapsed ? '授权码管理' : ''" @click.stop="activeMainMenu = 'super-admin'">
             <UiIcon name="lock" :size="18" />
             <span v-show="!isSidebarCollapsed">授权码管理</span>
           </a>
@@ -3658,7 +3689,7 @@ function activateSidebarItem(event: KeyboardEvent) {
         </div>
       </section>
 
-      <div ref="pageMotionStage" class="page-motion-stage">
+      <div id="workspace-page" ref="pageMotionStage" class="page-motion-stage" role="tabpanel" :aria-labelledby="`workspace-tab-${activeWorkspaceTabId}`">
         <KeepAlive :key="token" :max="32">
           <NotificationCenterPage
             v-if="activeMainMenu === 'notifications' && currentUser"
@@ -3672,7 +3703,7 @@ function activateSidebarItem(event: KeyboardEvent) {
             v-else-if="activeMainMenu === 'home' && currentUser && currentUser.role === 'ADMIN'"
             key="home"
             :token="token"
-            @view-work-order="viewHomeWorkOrder"
+            @navigate="navigateFromHome"
           />
           <SuperAdminAuthCodesPage v-else-if="activeMainMenu === 'super-admin'" key="super-admin" />
           <PluginRuntimePage
@@ -3733,8 +3764,6 @@ function activateSidebarItem(event: KeyboardEvent) {
             v-else-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'"
             key="production-workorder"
             :token="token"
-            :focus-target="workOrderFocusTarget"
-            @clear-focus="workOrderFocusTarget = null"
             @notice="showAction"
           />
           <SalesOrderPage
@@ -5492,6 +5521,9 @@ function activateSidebarItem(event: KeyboardEvent) {
     :stage="workspaceLoadingStage"
     :stages="workspaceLoadingStages"
     :error="workspaceLoadingError"
+    :focus-on-error="Boolean(pendingSignInToken)"
     @retry="retryWorkspaceBootstrap"
   />
 </template>
+
+<style src="./login-workspace-motion.css"></style>

@@ -3,9 +3,17 @@ import http from 'node:http'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseArgs } from 'node:util'
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist/build/h5')
-const auditUi = process.argv.includes('--audit-ui')
+const { values: options } = parseArgs({ options: {
+  dist: { type: 'string' }, port: { type: 'string' }, 'audit-ui': { type: 'boolean' },
+  'seed-orders': { type: 'boolean' }, 'seed-rejected': { type: 'boolean' },
+  'seed-reports': { type: 'boolean' }, 'mixed-recent': { type: 'boolean' }
+} })
+const root = options.dist ? path.resolve(options.dist) : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist/build/h5')
+const port = Number(options.port ?? '0')
+if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid loopback fixture port')
+const auditUi = options['audit-ui']
 const user = { id: 7, username: 'worker', name: '测试工人', role: 'PRODUCTION', roleLabel: '生产人员', departmentName: '装配' }
 const order = { id: 42, code: 'QA-042', productId: 1, productCode: 'P-001', productName: '测试产品', unitName: '件', plannedQuantity: 100, goodQuantity: 10, defectQuantity: 1, status: 'IN_PROGRESS', priority: 'NORMAL', progressPercent: 10, tasks: [{ sequenceNo: 1, processName: '装配', plannedQuantity: 100, completedQuantity: 10, defectQuantity: 1, reportPermission: '装配', enabled: true }] }
 if (auditUi) {
@@ -14,11 +22,11 @@ if (auditUi) {
   order.tasks[0].processName = '长工序名称 ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(3)
   order.remark = '备注 <span data-audit-literal="2">示例文字</span> ' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.repeat(4)
 }
-const orders = process.argv.includes('--seed-orders')
+const orders = options['seed-orders']
   ? Array.from({ length: 42 }, (_, index) => ({
     ...order, id: 42 - index, code: `QA-${String(42 - index).padStart(3, '0')}`,
     productName: index === 41 ? '后页专用零件' : order.productName,
-    status: index === 41 ? 'PAUSED' : order.status
+    status: index === 41 || (options['mixed-recent'] && index === 1) ? 'PAUSED' : order.status
   }))
   : [order]
 function localTimestamp() {
@@ -26,7 +34,7 @@ function localTimestamp() {
   const pad = value => String(value).padStart(2, '0')
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
 }
-let reports = process.argv.includes('--seed-rejected') ? [{
+let reports = options['seed-rejected'] ? [{
   id: 100, workOrderId: order.id, workOrderCode: order.code, processSequenceNo: 1, processName: '装配',
   reporterId: user.id, reporterName: user.name, status: 'REJECTED', approvalRemark: '请核对实际良品数',
   productCode: order.productCode, productName: order.productName,
@@ -34,7 +42,7 @@ let reports = process.argv.includes('--seed-rejected') ? [{
   goodQuantity: 4, reportQuantity: 4, defectQuantity: 0, images: []
 }] : []
 let writeCount = 0
-if (process.argv.includes('--seed-reports')) reports.push(...Array.from({ length: 41 }, (_, index) => ({
+if (options['seed-reports']) reports.push(...Array.from({ length: 41 }, (_, index) => ({
   id: 200 + index, workOrderId: 42, workOrderCode: order.code, processSequenceNo: 1, processName: '装配',
   reporterId: user.id, reporterName: user.name, status: 'PENDING', createdAt: localTimestamp(),
   goodQuantity: 1, reportQuantity: 1, defectQuantity: 0, images: []
@@ -90,7 +98,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://fixture.invalid')
   if (url.pathname.startsWith('/api/')) {
     requests.push({ method: req.method, path: url.pathname, query: url.search })
-    if (url.pathname === '/api/fixture-state') return send(res, 200, { writeCount, fieldWriteCount, imageUploadCount, logoutCount, requests })
+    if (url.pathname === '/api/fixture-state') return send(res, 200, { fixture: 'mobile-ui', writeCount, fieldWriteCount, imageUploadCount, logoutCount, requests })
     if (req.method === 'POST' && url.pathname === '/api/mobile/auth/password-login') return send(res, 200, { token: 'browser-fixture-token', user })
     if (req.headers.authorization !== 'Bearer browser-fixture-token') return send(res, 401, { message: '请登录测试账号' })
     if (url.pathname === '/api/auth/logout' && req.method === 'POST') { logoutCount++; res.writeHead(204, { 'Cache-Control': 'no-store' }); res.end(); return }
@@ -186,6 +194,6 @@ const server = http.createServer(async (req, res) => {
     send(res, 404, {})
   }
 })
-server.listen(0, '127.0.0.2', () => console.log(`Mobile isolated QA fixture: http://127.0.0.2:${server.address().port}`))
+server.listen(port, '127.0.0.2', () => console.log(`Mobile isolated QA fixture: http://127.0.0.2:${server.address().port}`))
 process.on('SIGINT', () => server.close(() => process.exit(0)))
 process.on('SIGTERM', () => server.close(() => process.exit(0)))

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick, ref, watch } from 'vue'
 import UiIcon from './UiIcon.vue'
 type LoadingStageStatus = 'pending' | 'loading' | 'done' | 'error'
 
@@ -15,6 +16,7 @@ const props = withDefaults(defineProps<{
   stage: string
   stages: LoadingStage[]
   error?: string
+  focusOnError?: boolean
 }>(), {
   error: ''
 })
@@ -22,6 +24,14 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   retry: []
 }>()
+const retryButton = ref<HTMLButtonElement | null>(null)
+
+watch(retryButton, element => {
+  if (!element || !props.focusOnError) return
+  nextTick(() => {
+    if (document.activeElement === document.body) retryButton.value?.focus({ preventScroll: true })
+  })
+})
 
 function clampProgress(value: number) {
   return Math.min(100, Math.max(0, Math.round(value)))
@@ -30,7 +40,7 @@ function clampProgress(value: number) {
 </script>
 
 <template>
-  <Transition name="workspace-loading">
+  <Transition name="workspace-loading" appear>
     <div
       v-if="visible"
       class="workspace-loading-overlay"
@@ -52,11 +62,11 @@ function clampProgress(value: number) {
           <span :style="{ width: `${clampProgress(progress)}%` }"></span>
         </div>
 
-        <div v-if="error" class="workspace-loading-error">
+        <div v-if="error" class="workspace-loading-error" role="alert">
           <div>
             <p>{{ error }}</p>
           </div>
-          <button type="button" class="workspace-loading-retry ui-icon-button" title="重试" aria-label="重试" @click="emit('retry')"><UiIcon name="refresh" :size="18" /></button>
+          <button ref="retryButton" type="button" class="workspace-loading-retry ui-icon-button" title="重试" aria-label="重试" @click="emit('retry')"><UiIcon name="refresh" :size="18" /></button>
         </div>
       </section>
     </div>

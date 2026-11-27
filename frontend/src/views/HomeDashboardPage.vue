@@ -7,18 +7,23 @@
  *
  * Requirements: 2.1-2.4, 11.1-11.3
  */
-import { provide, ref } from 'vue'
+import { onDeactivated, onMounted, provide, ref, watch } from 'vue'
 import { useHomeDashboardErrorHandler } from '../composables/useHomeDashboardErrorHandler'
-import type { HomeRange } from '../api'
+import { useLatestRequest } from '../composables/useLatestRequest'
+import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { fetchHomeWorkOrders, fetchReports, type HomeRange, type WorkOrderStatusTab } from '../api'
+import { t } from '../i18n'
+import UiIcon from '../components/UiIcon.vue'
 import ProcessTaskSection from '../components/ProcessTaskSection.vue'
 import WorkOrderProgressSection from '../components/WorkOrderProgressSection.vue'
 import PerformanceSection from '../components/PerformanceSection.vue'
 import LiveBroadcastSection from '../components/LiveBroadcastSection.vue'
+import HomeWorkOrderDrawer from '../components/HomeWorkOrderDrawer.vue'
 
 const props = defineProps<{
   token: string
 }>()
-const emit = defineEmits<{ 'view-work-order': [workOrderId: number] }>()
+const emit = defineEmits<{ navigate: [target: 'workorder' | 'workbench'] }>()
 
 const { forbidden, forbiddenMessage } = useHomeDashboardErrorHandler()
 
@@ -26,47 +31,129 @@ const { forbidden, forbiddenMessage } = useHomeDashboardErrorHandler()
 const range = ref<HomeRange>('today')
 provide('homeRange', range)
 
-// Handle "view work order" events from child sections
-function handleViewWorkOrder(workOrderId: number) {
-  emit('view-work-order', workOrderId)
+type Metric = { value: number | null; failed: boolean; capped?: boolean }
+const blank = (): Metric => ({ value: null, failed: false })
+const approvals = ref<Metric>(blank())
+const inProgress = ref<Metric>(blank())
+const overdue = ref<Metric>(blank())
+const refreshing = ref(false)
+const refreshKey = ref(0)
+const selectedOrder = ref<number | null>(null)
+const progressSection = ref<InstanceType<typeof WorkOrderProgressSection> | null>(null)
+const beginSummary = useLatestRequest()
+const PREVIEW_LIMIT = 500
+
+function readCount(value: number, capped = false): Metric {
+  return Number.isSafeInteger(value) && value >= 0 ? { value, failed: false, capped } : { value: null, failed: true }
 }
+
+async function refreshSummary() {
+  const current = beginSummary()
+  const token = props.token
+  approvals.value = blank()
+  inProgress.value = blank()
+  refreshing.value = Boolean(token)
+  if (!token) return
+  const applicable = () => current() && props.token === token
+  // Approval has an exact paginated total. The existing progress preview is capped.
+  const update = async (target: typeof approvals, request: () => Promise<Metric>) => {
+    try {
+      const metric = await request()
+      if (applicable()) target.value = metric
+    } catch {
+      if (applicable()) target.value = { value: null, failed: true }
+    }
+  }
+  await Promise.all([
+    update(approvals, async () => readCount((await fetchReports(token, { status: 'PENDING', page: 1, size: 1 })).total)),
+    update(inProgress, async () => {
+      const { items } = await fetchHomeWorkOrders(token, 'in_progress')
+      if (!Array.isArray(items)) return readCount(NaN)
+      return readCount(Math.min(items.length, PREVIEW_LIMIT), items.length >= PREVIEW_LIMIT)
+    })
+  ])
+  if (applicable()) refreshing.value = false
+}
+
+function reloadOverview() {
+  refreshKey.value++
+  void refreshSummary()
+}
+
+function updateOverdue(value: number | null, failed: boolean) {
+  overdue.value = value === null ? { value: null, failed } : readCount(value)
+}
+
+function showProgress(tab: WorkOrderStatusTab) {
+  progressSection.value?.selectAndFocus(tab)
+}
+
+function handleViewWorkOrder(workOrderId: number) {
+  if (Number.isSafeInteger(workOrderId) && workOrderId > 0) selectedOrder.value = workOrderId
+}
+
+onMounted(refreshSummary)
+useRefreshOnActivated(refreshSummary)
+onDeactivated(() => { selectedOrder.value = null })
+watch(() => props.token, () => {
+  selectedOrder.value = null
+  overdue.value = blank()
+  void refreshSummary()
+}, { flush: 'sync' })
 </script>
 
 <template>
   <div class="home-dashboard" data-home-view="task-first">
-    <!-- Top Bar -->
-    <header class="home-topbar">
-      <div class="home-topbar-left">
-        <h1 class="home-topbar-title">主页</h1>
-      </div>
-    </header>
-
-    <!-- 403 Forbidden state -->
     <div v-if="forbidden" class="home-forbidden" role="alert">
       <p class="home-forbidden-text">{{ forbiddenMessage || '无权限访问主页' }}</p>
     </div>
 
-    <!-- Main Content Area -->
     <div v-else class="home-content">
-      <!-- Top: Process Task Section (full width) -->
-      <section class="home-section home-section-process">
-        <ProcessTaskSection :token="props.token" />
+      <header class="home-topbar">
+        <h1 class="home-topbar-title">生产总览</h1>
+        <div class="home-topbar-actions">
+          <button type="button" class="home-list-button" @click="emit('navigate', 'workorder')">
+            <UiIcon name="list" :size="16" />工单列表
+          </button>
+          <button type="button" class="ui-icon-button" :disabled="refreshing" title="刷新概览" aria-label="刷新概览" @click="reloadOverview">
+            <UiIcon name="refresh" :size="17" />
+          </button>
+        </div>
+      </header>
+
+      <section class="home-queue" aria-label="生产状态">
+        <button class="home-metric home-metric--amber" type="button" @click="emit('navigate', 'workbench')">
+          <span class="home-metric-icon"><UiIcon name="clock" :size="20" /></span>
+          <span class="home-metric-content"><span class="home-metric-label">待审批报工</span><strong>{{ approvals.value ?? '—' }}</strong></span>
+          <span v-if="approvals.failed" class="home-metric-error">加载失败</span>
+          <UiIcon v-else class="home-metric-arrow" name="arrowRight" :size="17" />
+        </button>
+        <button class="home-metric home-metric--green" type="button" @click="showProgress('in_progress')">
+          <span class="home-metric-icon"><UiIcon name="activity" :size="20" /></span>
+          <span class="home-metric-content"><span class="home-metric-label">执行中工单</span><strong>{{ inProgress.capped ? t('至少 {0}', [String(inProgress.value)]) : (inProgress.value ?? '—') }}</strong></span>
+          <span v-if="inProgress.failed" class="home-metric-error">加载失败</span>
+          <UiIcon v-else class="home-metric-arrow" name="arrowRight" :size="17" />
+        </button>
+        <button class="home-metric home-metric--red" type="button" @click="showProgress('overdue_unfinished')">
+          <span class="home-metric-icon"><UiIcon name="warning" :size="20" /></span>
+          <span class="home-metric-content"><span class="home-metric-label">逾期未完工</span><strong>{{ overdue.value ?? '—' }}</strong></span>
+          <span v-if="overdue.failed" class="home-metric-error">加载失败</span>
+          <UiIcon v-else class="home-metric-arrow" name="arrowRight" :size="17" />
+        </button>
       </section>
 
-      <!-- Bottom: responsive grid layout -->
       <div class="home-bottom-grid">
-        <!-- Bottom Left: Work Order Progress Section -->
         <section class="home-section home-section-workorder">
           <WorkOrderProgressSection
+            ref="progressSection"
             :token="props.token"
             @view="handleViewWorkOrder"
           />
         </section>
 
-        <!-- Bottom Right: Performance + Live Broadcast stacked -->
         <div class="home-right-column">
           <section class="home-section home-section-performance">
-            <PerformanceSection :token="props.token" />
+            <PerformanceSection :token="props.token" :refresh-key="refreshKey" @overdue-count="updateOverdue" />
           </section>
 
           <section class="home-section home-section-broadcast">
@@ -78,12 +165,19 @@ function handleViewWorkOrder(workOrderId: number) {
           </section>
         </div>
       </div>
+
+      <section class="home-section home-section-process">
+        <ProcessTaskSection :token="props.token" />
+      </section>
+
+      <HomeWorkOrderDrawer :token="props.token" :order-id="selectedOrder" @dismiss="selectedOrder = null" />
     </div>
   </div>
 </template>
 
 <style scoped>
 .home-dashboard {
+  container-type: inline-size;
   min-height: 100%;
   color: var(--text-primary, #1e2724);
   background-color: var(--page-bg, #f3f5f6);
@@ -93,24 +187,87 @@ function handleViewWorkOrder(workOrderId: number) {
   flex-direction: column;
 }
 
-/* Top Bar */
 .home-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
-  background: var(--surface-raised, #fff);
-  border-bottom: 1px solid var(--border-default, #dde5e2);
+  flex-wrap: wrap;
+  gap: 12px;
 }
-
-.home-topbar-left {
+.home-topbar-actions {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
+.home-list-button, .home-topbar-actions .ui-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  background: var(--control-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.home-list-button { padding: 0 12px; font-weight: 600; }
+.home-list-button:hover, .home-topbar-actions .ui-icon-button:hover:not(:disabled) { background: var(--surface-hover); }
+.home-topbar-actions .ui-icon-button:disabled { opacity: .55; cursor: wait; }
+.home-dashboard button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.home-queue {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.home-metric {
+  --metric-ink: #925018;
+  --metric-tint: #fff0dc;
+  --metric-signal: #dc922e;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 99px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-default);
+  border-inline-start: 3px solid var(--metric-signal);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  background: color-mix(in srgb, var(--surface-raised) 94%, var(--metric-tint));
+  color: var(--text-primary);
+  text-align: start;
+  cursor: pointer;
+  transition: translate var(--motion-fast, 140ms) ease, background-color var(--motion-fast, 140ms) ease, box-shadow var(--motion-fast, 140ms) ease;
+}
+.home-metric--green { --metric-ink: #08765b; --metric-tint: #d9f7ec; --metric-signal: #2ab98d; }
+.home-metric--red { --metric-ink: #a43037; --metric-tint: #ffe7e9; --metric-signal: #df6a73; }
+.home-metric:hover { translate: 0 -2px; box-shadow: 0 5px 14px #061c1817; background: var(--surface-hover); }
+.home-metric:active { translate: 0 0; }
+.home-metric-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--metric-tint);
+  color: var(--metric-ink);
+}
+.home-metric-content { min-width: 0; display: grid; gap: 3px; }
+.home-metric-label { color: var(--text-secondary); font-size: 13px; font-weight: 600; }
+.home-metric strong { font-size: clamp(22px, 3cqi, 30px); line-height: 1.12; font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.home-metric-error { color: #a43037; font-size: 12px; }
+.home-metric-arrow { color: var(--text-secondary); }
+:global(.dark-theme) .home-metric { background: var(--surface-raised); }
+:global(.dark-theme) .home-metric:hover { background: var(--surface-hover); }
+:global(.dark-theme) .home-metric-error { color: var(--status-danger-text); }
+:global(.dark-theme) .home-metric-icon { background: color-mix(in srgb, var(--metric-signal) 22%, var(--surface-raised)); color: color-mix(in srgb, var(--metric-signal) 40%, white); }
 
 .home-topbar-title {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: clamp(23px, 2.9cqi, 32px);
+  line-height: 1.15;
+  font-weight: 720;
   color: var(--text-primary, #1e2724);
   margin: 0;
 }
@@ -133,7 +290,7 @@ function handleViewWorkOrder(workOrderId: number) {
 .home-content {
   flex: 1;
   min-width: 0;
-  padding: 16px 20px;
+  padding: clamp(12px, 2.1cqi, 28px);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -143,9 +300,9 @@ function handleViewWorkOrder(workOrderId: number) {
 .home-section {
   min-width: 0;
   background: var(--surface-raised, #fff);
-  border-radius: 8px;
-  padding: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 14px;
 }
 
 /* Process Task Section - full width top */
@@ -156,10 +313,10 @@ function handleViewWorkOrder(workOrderId: number) {
 /* Bottom Grid: responsive layout */
 .home-bottom-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: minmax(0, 1fr) minmax(245px, 27%);
   min-width: 0;
   gap: 16px;
-  flex: 1;
+  align-items: start;
 }
 
 /* Right column stacks performance + broadcast */
@@ -233,8 +390,11 @@ function handleViewWorkOrder(workOrderId: number) {
 .home-dashboard :deep(.work-order-progress__view-link),
 .home-dashboard :deep(.live-broadcast__link) {
   color: var(--accent-dark) !important;
-  text-decoration: underline;
 }
+
+.home-dashboard :deep(.work-order-progress) { padding: 0; background: transparent; }
+.home-dashboard :deep(.work-order-progress__title) { font-size: 18px; }
+.home-dashboard :deep(.work-order-progress__table-wrapper) { border-radius: 7px; }
 
 /* Override the legacy global important table polish without affecting other pages. */
 .home-dashboard.home-dashboard :deep(.work-order-progress__table-wrapper) {
@@ -255,14 +415,26 @@ function handleViewWorkOrder(workOrderId: number) {
   background: var(--table-row-hover) !important;
 }
 
-/* Allow for the sidebar and card padding before retaining the wide-screen two-column layout. */
-@media (max-width: 1439px) {
+@container (max-width: 900px) {
   .home-bottom-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .home-right-column {
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
+}
+@container (max-width: 610px) {
+  .home-queue, .home-right-column { grid-template-columns: minmax(0, 1fr); }
+  .home-queue { gap: 8px; }
+  .home-metric { min-height: 65px; padding: 8px 12px; }
+  .home-metric-content { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .home-metric-label { font-size: 14px; }
+  .home-section { padding: 10px; }
+  .home-list-button, .home-topbar-actions .ui-icon-button { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-metric, .home-metric:hover { translate: none; transition: none; }
 }
 </style>

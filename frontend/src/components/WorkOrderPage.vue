@@ -43,6 +43,7 @@ import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { usePageOperationScope } from '../composables/usePageOperationScope'
 import { useDialogFocus } from '../composables/useDialogFocus'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 import { fetchAllPages } from '../utils/pagination'
 import { bomMaterialQuantity } from '../utils/bomDecimal'
 import { normalizeWorkOrderStatus } from '../utils/workOrderStatus'
@@ -3059,7 +3060,7 @@ onUnmounted(() => {
     </div>
 
     <ColumnSettingsPanel
-      v-if="showColumnModal"
+      :visible="showColumnModal"
       v-model="workOrderColumns"
       :defaults="defaultColumnSettings"
       title="字段配置"
@@ -3067,8 +3068,9 @@ onUnmounted(() => {
       @cancel="showColumnModal = false"
     />
 
-    <div v-if="showPrintModal" class="modal-backdrop" role="dialog" aria-modal="true" :aria-labelledby="printTitleId">
-      <div ref="printDialogRef" class="modal workorder-modal" tabindex="-1" style="width: 760px;">
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="showPrintModal" class="modal-backdrop workspace-dialog-motion-backdrop" role="dialog" aria-modal="true" :aria-labelledby="printTitleId">
+      <div ref="printDialogRef" class="modal workorder-modal workspace-dialog-motion-panel" tabindex="-1" style="width: 760px;">
         <div class="modal-header">
           <h2 :id="printTitleId">选择打印模板</h2>
           <button class="close-btn ui-icon-button" type="button" :disabled="exporting || printPreparing" @click="closePrint" title="关闭打印窗口" aria-label="关闭打印窗口"><UiIcon name="close" /></button>
@@ -3146,6 +3148,8 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    </Transition>
 
     <!-- 实际打印渲染区 (仅打印时显示) -->
     <div class="print-area">

@@ -6,7 +6,7 @@ import { localDateKey } from '../utils/local-date'
 import { mobileSessionKey } from '../utils/session-key'
 import { validateMobileDashboard } from '../utils/dashboard'
 
-export function useMobileDashboard() {
+export function useMobileDashboard({ keepSnapshot = false } = {}) {
   const dashboard = ref<MobileDashboard | null>(null)
   const loading = ref(false)
   const errorMessage = ref('')
@@ -26,10 +26,10 @@ export function useMobileDashboard() {
       return
     }
     const requestId = ++sequence
+    if (!keepSnapshot || activeSession !== session || day.value !== currentDay) dashboard.value = null
     activeSession = session
     loading.value = true
     errorMessage.value = ''
-    dashboard.value = null
     day.value = currentDay
     try {
       const result = await fetchDashboard(day.value)

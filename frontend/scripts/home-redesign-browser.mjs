@@ -1,0 +1,117 @@
+// Playwright CLI run-code scenario. Use only ui-browser-fixture.mjs --overview-demo.
+async (page) => {
+  const origin = new URL(page.url()).origin
+  if (new URL(origin).hostname !== '127.0.0.2') throw Error('Use the isolated UI fixture.')
+  const marker = await (await page.request.get(origin + '/api/fixture-state')).json()
+  if (marker.fixture !== 'management-ui' || !marker.overviewDemo) throw Error('Use the overview demo fixture.')
+  const failures = [], checks = []
+  page.on('pageerror', error => failures.push(error.message))
+  const check = (result, label) => { if (!result) throw Error(label); checks.push(label) }
+  const dir = 'output/playwright/home-redesign/'
+  const screenshot = name => page.screenshot({ path: dir + name + '.png', animations: 'disabled' })
+  const modal = name => page.getByRole('dialog', { name, exact: true })
+  const button = name => page.getByRole('button', { name, exact: true })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('textbox', { name: '工厂代码', exact: true }).fill('UIFIXTURE')
+  await page.getByRole('textbox', { name: '用户名', exact: true }).fill('admin')
+  await page.getByRole('textbox', { name: '密码', exact: true }).fill('fixture-27')
+  await button('登录').click()
+  await page.locator('.home-dashboard').waitFor()
+  await page.locator('.workspace-loading-overlay').waitFor({ state: 'hidden' })
+  await page.getByText('传动座', { exact: true }).first().waitFor()
+  const isNew = await page.getByRole('heading', { name: '生产总览', exact: true }).isVisible()
+  if (!isNew) {
+    await screenshot('01-before')
+    return { baseline: true }
+  }
+  const pending = page.getByRole('button', { name: /待审批报工/ })
+  const active = page.getByRole('button', { name: /执行中工单/ })
+  const overdue = page.getByRole('button', { name: /逾期未完工/ })
+  await active.getByText('3', { exact: true }).waitFor()
+  check(await pending.getByText('3', { exact: true }).isVisible(), 'Pending preview uses the total rather than the one returned row.')
+  check(await overdue.getByText('2', { exact: true }).isVisible(), 'Overdue preview uses the full performance count.')
+  await screenshot('02-after')
+  await page.waitForTimeout(650)
+
+  await overdue.click()
+  check(await button('超期未完工').getAttribute('aria-pressed') === 'true', 'Overdue card selects the overdue filter.')
+  await active.click()
+  check(await button('执行中').getAttribute('aria-pressed') === 'true', 'In-progress card selects its filter.')
+  const opener = page.locator('.work-order-progress').getByRole('button', { name: '查看工单 GD-20261124-001', exact: true })
+  await opener.waitFor()
+  const rowNow = await opener.boundingBox()
+  check(Boolean(rowNow), 'The selected list exposes the matching order.')
+  await opener.evaluate(el => {
+    el.addEventListener('click', () => {
+      // Capture the first painted frame of the real, non-reduced dialog animation.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const drawer = document.querySelector('.home-order-drawer')
+        document.documentElement.dataset.drawerOpening = String(drawer.getAnimations().some(item => item.transitionProperty === 'translate'))
+      }))
+    }, { once: true })
+  })
+  await opener.click()
+  const details = modal('工单详情')
+  await details.getByRole('heading', { name: 'GD-20261124-001', exact: true }).waitFor()
+  const bar = details.getByRole('progressbar')
+  check(await bar.getAttribute('aria-valuenow') === '67', 'Drawer shows actual order progress.')
+  await page.waitForFunction(() => document.documentElement.dataset.drawerOpening !== undefined)
+  check(await page.locator('html').getAttribute('data-drawer-opening') === 'true', 'Chromium actually runs the right drawer transition.')
+  await page.waitForTimeout(500)
+  const box = await details.boundingBox()
+  check(box.x === 960 && box.width === 480, 'Desktop drawer is aligned to the right, independently of the layout.')
+  await screenshot('03-order-drawer')
+  await page.waitForTimeout(950)
+  await page.keyboard.press('Escape')
+  await details.waitFor({ state: 'hidden' })
+  check(await opener.evaluate(el => el === document.activeElement), 'Escape returns focus to the initiating order.')
+  check(await button('执行中').getAttribute('aria-pressed') === 'true' && await opener.isVisible(), 'Closing preserves the home filter and row.')
+  const rowAfter = await opener.boundingBox()
+  check(Math.abs(rowAfter.y - rowNow.y) < 2, 'Closing preserves the home scroll position.')
+
+  await page.request.get(origin + '/api/fixture-state?failNextDetail')
+  await opener.click()
+  await details.getByRole('alert').waitFor()
+  await details.getByRole('button', { name: '重试', exact: true }).click()
+  await details.getByRole('heading', { name: 'GD-20261124-001', exact: true }).waitFor()
+  check(await bar.getAttribute('aria-valuenow') === '67', 'A real HTTP 503 can be retried without leaving the drawer.')
+  await details.getByRole('button', { name: '关闭工单详情', exact: true }).click()
+  await details.waitFor({ state: 'hidden' })
+
+  await button('切换深色主题').click()
+  check(await page.locator('.admin-shell.dark-theme').count() === 1, 'Dark theme applies on the homepage.')
+  await opener.click()
+  await bar.waitFor()
+  check(await details.evaluate(el => getComputedStyle(el).backgroundColor === getComputedStyle(el).getPropertyValue('--surface-raised').trim() || getComputedStyle(el).backgroundColor === 'rgb(26, 33, 39)'), 'Dialog inherits the dark theme.')
+  await screenshot('04-dark-drawer')
+  await page.keyboard.press('Escape')
+  await details.waitFor({ state: 'hidden' })
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await opener.click()
+  await bar.waitFor()
+  const narrow = await details.boundingBox()
+  check(narrow.x === 0 && narrow.width === 390 && narrow.y > 0 && Math.abs(narrow.y + narrow.height - 844) <= 1, 'At 390px the dialog becomes a bottom sheet.')
+  check(await details.evaluate(el => getComputedStyle(el).transitionDuration === '0s' && getComputedStyle(el.querySelector('.drawer-progress-track span')).animationName === 'none'), 'Reduced motion disables drawer and progress animations.')
+  await screenshot('05-narrow-reduced-motion')
+  await page.keyboard.press('Escape')
+  await details.waitFor({ state: 'hidden' })
+  check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Narrow layout keeps horizontal table scroll inside its own container.')
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await pending.click()
+  await page.locator('#report-approval-list-table').waitFor()
+  check(await pending.count() === 0, 'Pending card navigates to the actual approval workspace.')
+  await button('主页').first().click()
+  await page.getByRole('heading', { name: '生产总览', exact: true }).waitFor()
+  await button('工单列表').click()
+  await button('创建工单').waitFor()
+  check(await button('创建工单').isVisible(), 'Work-order shortcut navigates to the full list.')
+
+  const requests = (await (await page.request.get(origin + '/api/fixture-state')).json()).requests
+  check(requests.some(item => item.route === '/reports' && item.query.includes('status=PENDING') && item.query.includes('size=1')), 'Approval summary asks for a single row and the full total.')
+  check(requests.filter(item => item.route === '/work-orders/1').every(item => item.method === 'GET'), 'Drawer never mutates an order.')
+  check(failures.length === 0, 'No uncaught page errors.')
+  return { passed: checks.length, checks }
+}

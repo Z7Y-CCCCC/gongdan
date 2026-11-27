@@ -1,0 +1,37 @@
+/* Shared motion for rendered-in-place dialogs. Existing conditional mounts can
+   use the same entrance without keeping closed forms or table settings alive. */
+@media (prefers-reduced-motion: no-preference) {
+  .modal-backdrop:not(.workspace-dialog-motion-backdrop) {
+    animation: workspace-dialog-backdrop-in var(--motion-base) ease backwards;
+  }
+
+  .modal-backdrop:not(.workspace-dialog-motion-backdrop) > :is(.modal, section) {
+    animation: workspace-dialog-panel-in var(--motion-base) var(--motion-ease) backwards;
+  }
+
+  .workspace-dialog-motion-enter-active {
+    transition: opacity var(--motion-base) ease;
+  }
+
+  .workspace-dialog-motion-leave-active {
+    transition: opacity var(--motion-fast) ease;
+    pointer-events: none;
+  }
+
+  .workspace-dialog-motion-enter-active > .workspace-dialog-motion-panel {
+    transition: translate var(--motion-base) var(--motion-ease);
+  }
+
+  .workspace-dialog-motion-leave-active > .workspace-dialog-motion-panel {
+    transition: translate var(--motion-fast) var(--motion-ease);
+  }
+
+  .workspace-dialog-motion-enter-from,
+  .workspace-dialog-motion-leave-to { opacity: 0; }
+
+  .workspace-dialog-motion-enter-from > .workspace-dialog-motion-panel { translate: 0 8px; }
+  .workspace-dialog-motion-leave-to > .workspace-dialog-motion-panel { translate: 0 4px; }
+}
+
+@keyframes workspace-dialog-backdrop-in { from { opacity: 0; } }
+@keyframes workspace-dialog-panel-in { from { translate: 0 8px; } }

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import UiIcon from './UiIcon.vue'
 import { useDialogFocus } from '../composables/useDialogFocus'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 
 export type ColumnFixedSide = 'left' | 'none' | 'right'
 
@@ -14,11 +15,12 @@ export interface ColumnSetting {
   locked?: boolean
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
+  visible?: boolean
   modelValue: ColumnSetting[]
   defaults: ColumnSetting[]
   title?: string
-}>()
+}>(), { visible: true })
 
 const emit = defineEmits<{
   'update:modelValue': [value: ColumnSetting[]]
@@ -30,13 +32,15 @@ function cloneColumns(columns: ColumnSetting[]) {
   return columns.map(column => ({ ...column }))
 }
 
-const draft = ref<ColumnSetting[]>(cloneColumns(props.modelValue))
+const draft = ref<ColumnSetting[]>(props.visible ? cloneColumns(props.modelValue) : [])
 const draggedKey = ref('')
 const dialogRef = ref<HTMLElement | null>(null)
-useDialogFocus(dialogRef, () => true, cancel)
+useDialogFocus(dialogRef, () => props.visible, cancel)
 
-watch(() => props.modelValue, value => {
+watch(() => props.visible ? props.modelValue : null, value => {
+  if (!value) return
   draft.value = cloneColumns(value)
+  draggedKey.value = ''
 }, { deep: true })
 
 const visibleCount = computed(() => draft.value.filter(column => column.visible).length)
@@ -90,8 +94,9 @@ function confirm() {
 </script>
 
 <template>
-  <div class="column-settings-overlay" @click.self="cancel">
-    <section ref="dialogRef" class="column-settings-panel" role="dialog" aria-modal="true" tabindex="-1" :aria-label="title || '列设置'">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="visible" class="column-settings-overlay workspace-dialog-motion-backdrop" @click.self="cancel">
+    <section ref="dialogRef" class="column-settings-panel workspace-dialog-motion-panel" role="dialog" aria-modal="true" tabindex="-1" :aria-label="title || '列设置'">
       <header class="column-settings-header">
         <h2>{{ title || '列设置' }}</h2>
         <button class="column-settings-close ui-icon-button" type="button" title="关闭" aria-label="关闭" @click="cancel">
@@ -153,4 +158,5 @@ function confirm() {
       </footer>
     </section>
   </div>
+  </Transition>
 </template>

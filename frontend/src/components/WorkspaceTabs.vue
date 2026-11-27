@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import UiIcon from './UiIcon.vue'
-import { nextTick } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 
 export interface WorkspaceTabItem {
   id: string
@@ -13,6 +13,19 @@ const props = defineProps<{
   tabs: WorkspaceTabItem[]
   activeId: string
 }>()
+
+const tabBar = ref<HTMLElement | null>(null)
+
+watch(() => props.activeId, () => {
+  const bar = tabBar.value
+  const tab = bar?.querySelector<HTMLElement>('[aria-selected="true"]')
+  if (!bar || !tab) return
+  // Reveal the selected tab within this strip without scrolling the work page.
+  const outer = bar.getBoundingClientRect()
+  const inner = tab.getBoundingClientRect()
+  if (inner.left < outer.left) bar.scrollLeft += Math.floor(inner.left - outer.left - 8)
+  else if (inner.right > outer.right) bar.scrollLeft += Math.ceil(inner.right - outer.right + 8)
+}, { flush: 'post' })
 
 function moveTab(event: KeyboardEvent, tab: WorkspaceTabItem) {
   const direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
@@ -34,14 +47,17 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <nav class="workspace-tabs" role="tablist" aria-label="工作区标签页" @contextmenu.prevent>
+  <nav ref="tabBar" class="workspace-tabs" role="tablist" aria-label="工作区标签页" @contextmenu.prevent>
     <div
       v-for="tab in tabs"
       :key="tab.id"
+      :id="`workspace-tab-${tab.id}`"
       class="workspace-tab"
       :class="{ active: tab.id === activeId, pinned: tab.pinned }"
       role="tab"
+      :aria-label="tab.label"
       :aria-selected="tab.id === activeId"
+      aria-controls="workspace-page"
       :tabindex="tab.id === activeId ? 0 : -1"
       @click="emit('select', tab)"
       @keydown.enter.self.prevent="emit('select', tab)"
@@ -77,3 +93,35 @@ const emit = defineEmits<{
     </div>
   </nav>
 </template>
+
+<style scoped>
+.workspace-tab {
+  flex: 0 0 auto;
+  position: relative;
+  transition: color var(--motion-fast) ease, background-color var(--motion-base) ease,
+    border-color var(--motion-fast) ease;
+}
+
+.workspace-tab::after {
+  position: absolute;
+  inset: auto 10px 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--accent-dark);
+  content: '';
+  pointer-events: none;
+  opacity: 0;
+  transform: scaleX(.35);
+  transition: opacity var(--motion-fast) ease, transform var(--motion-base) var(--motion-ease);
+}
+
+.workspace-tab.active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.workspace-tab:focus-visible {
+  outline: 2px solid var(--accent-dark);
+  outline-offset: -2px;
+}
+</style>
