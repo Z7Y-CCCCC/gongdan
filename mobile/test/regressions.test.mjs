@@ -921,10 +921,112 @@ test('field event double clicks create one event and JSON null payloads remain r
   const first = page.submitEvent()
   await page.submitEvent()
   assert.equal(writes, 1)
+  assert.equal(page.submitPhase.value, 'submitting')
+  assert.equal(page.formLocked.value, true)
   write.resolve({ id: 1 })
   await first
+  assert.equal(page.submitPhase.value, 'success')
+  assert.equal(page.pendingEventReference.value, '')
   assert.equal(Object.keys(page.payloadOf({ payloadJson: 'null' })).length, 0)
   assert.equal(Object.keys(page.payloadOf({ payloadJson: '[]' })).length, 0)
+})
+
+test('field event committed before acknowledgement loss is recovered after reopening by exact reference and account', async () => {
+  const key = 'gongdan:draft:field-event:user:global:7'
+  const records = []
+  let writes = 0
+  const services = {
+    ensureLogin: () => true,
+    fetchFieldEvents: async () => ({ items: records.slice(), total: records.length }),
+    createFieldEvent: async (payload) => {
+      writes++
+      records.unshift({ ...payload, id: writes, createdById: defaultUser.id })
+      throw new Error('网络请求失败')
+    }
+  }
+  const h = harness({ services })
+  const page = await h.page('src/pages/field-events/index.vue')
+  page.form.title = '已上报但未收到返回'
+  await page.submitEvent()
+  await page.submitEvent()
+  assert.equal(writes, 1)
+  assert.equal(page.submitPhase.value, 'uncertain')
+  assert.equal(page.form.title, '已上报但未收到返回')
+  assert.match(records[0].businessKey, /^MFE-/)
+  assert.equal(h.storage.get(key).pendingEventReference, records[0].businessKey)
+  const reopened = harness({ services, storage: { [key]: h.storage.get(key) } })
+  const resumed = await reopened.page('src/pages/field-events/index.vue')
+  assert.equal(resumed.submitPhase.value, 'uncertain')
+  await resumed.submitEvent()
+  assert.equal(writes, 1)
+  await resumed.reviewRecentEvents()
+  assert.equal(resumed.submitPhase.value, 'resolved')
+  assert.equal(resumed.reviewedEventReference.value, records[0].businessKey)
+  assert.equal(resumed.form.title, '')
+  assert.equal(reopened.storage.has(key), false)
+  assert.equal(writes, 1)
+})
+
+test('reopening field events cannot reconcile or unlock while the original POST is still running', async () => {
+  const key = 'gongdan:draft:field-event:user:global:7'
+  const inFlight = Vue.reactive(new Set())
+  const mocks = { 'src/utils/field-event-in-flight.ts': { fieldEventInFlight: inFlight } }
+  const response = deferred()
+  let writes = 0, reads = 0
+  const services = {
+    ensureLogin: () => true,
+    fetchFieldEvents: async () => { reads++; return { items: [], total: 0 } },
+    createFieldEvent: () => { writes++; return response.promise }
+  }
+  const original = harness({ services, mocks })
+  const oldPage = await original.page('src/pages/field-events/index.vue')
+  oldPage.form.title = '请求尚未返回'
+  const pending = oldPage.submitEvent()
+  original.unmount()
+  const reopened = harness({ services, mocks, storage: { [key]: original.storage.get(key) } })
+  const nextPage = await reopened.page('src/pages/field-events/index.vue')
+  assert.equal(nextPage.waitingForPreviousWrite.value, true)
+  const before = reads
+  await nextPage.reviewRecentEvents()
+  nextPage.acknowledgeMissingEvent()
+  await nextPage.submitEvent()
+  assert.equal(reads, before)
+  assert.equal(writes, 1)
+  assert.equal(nextPage.formLocked.value, true)
+  response.reject(new Error('网络请求失败'))
+  await pending
+  assert.equal(nextPage.waitingForPreviousWrite.value, false)
+  await nextPage.reviewRecentEvents()
+  assert.equal(nextPage.reviewMissed.value, true)
+})
+
+test('uncertain event cannot unlock on a failed lookup, same title, different user, or obsolete session', async () => {
+  let getFails = true
+  let matches = []
+  const h = harness({ services: {
+    ensureLogin: () => true,
+    fetchFieldEvents: async () => { if (getFails) throw new Error('加载失败'); return { items: matches } },
+    createFieldEvent: async () => { throw new Error('网络请求失败') }
+  } })
+  const page = await h.page('src/pages/field-events/index.vue')
+  page.form.title = '同名记录'
+  await page.submitEvent()
+  await page.reviewRecentEvents()
+  page.acknowledgeMissingEvent()
+  assert.equal(page.formLocked.value, true)
+  getFails = false
+  matches = [{ id: 1, title: '同名记录', createdById: 7, businessKey: 'other' },
+    { id: 2, title: '同名记录', createdById: 8, businessKey: page.pendingEventReference.value }]
+  await page.reviewRecentEvents()
+  assert.equal(page.reviewMissed.value, true)
+  assert.equal(page.submitPhase.value, 'uncertain')
+  h.storage.set('token', 'inactive-account')
+  page.acknowledgeMissingEvent()
+  assert.equal(page.formLocked.value, true)
+  h.storage.set('token', 'old-token')
+  page.acknowledgeMissingEvent()
+  assert.equal(page.formLocked.value, false)
+  assert.equal(page.form.title, '同名记录')
 })
 
 test('a field event submission refresh supersedes a GET started before the write', async () => {
@@ -1310,6 +1412,28 @@ test('task reporting permission checks cannot navigate under a session that chan
   await opening
   assert.equal(h.events.some(([type]) => type === 'navigateTo'), false)
   assert.equal(h.events.some(([type, event]) => type === 'toast' && /登录状态已变更/.test(event.title)), true)
+})
+
+test('task and detail permission lookup identify the busy entry, serialize activation and release on error', async () => {
+  for (const filename of ['tasks', 'work-order-detail']) {
+    const fromTasks = filename === 'tasks'
+    const permission = deferred()
+    let requests = 0
+    const h = harness({ services: {
+      ensureLogin: () => true, fetchWorkOrderPage: async () => ({ items: [taskOrder(42), taskOrder(41)], total: 2 }),
+      fetchWorkOrder: async () => taskOrder(42), fetchReportPage: async () => ({ items: [], total: 0 }),
+      fetchWorkOrderReporters: () => { requests++; return permission.promise }
+    } })
+    const page = await h.page(`src/pages/${filename}/index.vue`, { id: '42' })
+    const first = fromTasks ? page.handleTask(page.tasks.value[0]) : page.handleReport(page.order.value.tasks[0])
+    assert.equal(fromTasks ? page.checkingTaskId.value : page.checkingProcessNo.value, fromTasks ? '42-1' : 1)
+    await (fromTasks ? page.handleTask(page.tasks.value[1]) : page.handleReport(page.order.value.tasks[0]))
+    assert.equal(requests, 1)
+    permission.reject(new Error('权限暂时无法确认'))
+    await first
+    assert.equal(fromTasks ? page.checkingTaskId.value : page.checkingProcessNo.value, fromTasks ? '' : null)
+    assert.equal(page.permissionError.value.message, '权限暂时无法确认')
+  }
 })
 
 function qrBitmap(text) {
@@ -2209,7 +2333,7 @@ test('MUX-004: failed report validation and backend saves leave persistent feedb
 
 test('MUX-004: field-event save feedback remains separate from list errors and allows an unchanged retry', async () => {
   let fail = true, writes = 0
-  const h = harness({ services: { ensureLogin: () => true, fetchFieldEvents: async () => ({ items: [] }), createFieldEvent: async () => { writes++; if (fail) throw Error('现场保存失败'); return { id: 1 } } } })
+  const h = harness({ services: { ensureLogin: () => true, fetchFieldEvents: async () => ({ items: [] }), createFieldEvent: async () => { writes++; if (fail) throw Object.assign(Error('现场保存失败'), { status: 422 }); return { id: 1 } } } })
   const page = await h.page('src/pages/field-events/index.vue')
   page.form.title = 'retain title'
   await page.submitEvent()

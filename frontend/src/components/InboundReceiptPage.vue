@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, type CSSProperties } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, type CSSProperties } from 'vue'
 import {
   createInboundReceipt,
   deleteInboundReceipt,
@@ -14,6 +14,7 @@ import {
   type ProductInfo
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import { useDialogFocus } from '@/composables/useDialogFocus'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import { fetchAllPages } from '../utils/pagination'
@@ -22,6 +23,7 @@ import { missingRequiredCustomField } from '../utils/customFieldValidation'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
 import ColumnSettingsPanel, { type ColumnSetting } from '@/components/ColumnSettingsPanel.vue'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ notice: [message: string] }>()
@@ -115,6 +117,9 @@ const itemColumns = ref<ReceiptTableColumn[]>(detailColumns.map(c => ({ ...c }))
 const showItemColumnConfig = ref(false)
 
 const showPrintTemplateModal = ref(false)
+const printTemplateDialog = ref<HTMLElement | null>(null)
+const printTemplateTitleId = useId()
+const printTemplateError = ref('')
 const inboundPrintFields = [
   { key: 'code', label: '入库单号' },
   { key: 'inboundType', label: '入库类型' },
@@ -123,12 +128,14 @@ const inboundPrintFields = [
   { key: 'creator', label: '创建人' },
   { key: 'items', label: '入库明细' }
 ]
-const inboundPrintTemplate = reactive({
+const defaultInboundPrintTemplate = () => ({
   name: '默认入库单模板',
   title: '入库单',
   showFields: ['code', 'inboundType', 'inboundTime', 'items'] as string[],
   footerText: '请核对入库产品、数量与库存单位'
 })
+const inboundPrintTemplate = reactive(defaultInboundPrintTemplate())
+useDialogFocus(printTemplateDialog, () => showPrintTemplateModal.value, closePrintTemplateModal)
 
 // ===== Computed =====
 const visibleColumns = computed(() => columns.value.filter(c => c.visible))
@@ -495,16 +502,20 @@ function goPage(p: number) {
 }
 
 function loadInboundPrintTemplate() {
+  const defaults = defaultInboundPrintTemplate()
+  Object.assign(inboundPrintTemplate, defaults)
   try {
     const raw = localStorage.getItem('inbound_print_template')
     if (!raw) return
     const saved = JSON.parse(raw)
-    inboundPrintTemplate.name = saved.name || inboundPrintTemplate.name
-    inboundPrintTemplate.title = saved.title || inboundPrintTemplate.title
-    inboundPrintTemplate.showFields = Array.isArray(saved.showFields) && saved.showFields.length > 0
-      ? saved.showFields
-      : inboundPrintTemplate.showFields
-    inboundPrintTemplate.footerText = saved.footerText || inboundPrintTemplate.footerText
+    if (!saved || typeof saved !== 'object') return
+    if (typeof saved.name === 'string' && saved.name.trim()) inboundPrintTemplate.name = saved.name
+    if (typeof saved.title === 'string' && saved.title.trim()) inboundPrintTemplate.title = saved.title
+    if (Array.isArray(saved.showFields)) {
+      const fields = inboundPrintFields.filter(field => saved.showFields.includes(field.key)).map(field => field.key)
+      if (fields.length) inboundPrintTemplate.showFields = fields
+    }
+    if (typeof saved.footerText === 'string') inboundPrintTemplate.footerText = saved.footerText
   } catch (e) {
     console.error('读取入库打印模板失败:', e)
   }
@@ -512,24 +523,36 @@ function loadInboundPrintTemplate() {
 
 function openPrintTemplateModal() {
   loadInboundPrintTemplate()
+  printTemplateError.value = ''
   showPrintTemplateModal.value = true
 }
 
+function closePrintTemplateModal() {
+  showPrintTemplateModal.value = false
+  printTemplateError.value = ''
+}
+
 function saveInboundPrintTemplate() {
+  if (!showPrintTemplateModal.value) return
   if (!inboundPrintTemplate.name.trim()) {
-    emit('notice', '请输入模板名称')
+    printTemplateError.value = '请输入模板名称'
     return
   }
   if (!inboundPrintTemplate.title.trim()) {
-    emit('notice', '请输入打印标题')
+    printTemplateError.value = '请输入打印标题'
     return
   }
   if (inboundPrintTemplate.showFields.length === 0) {
-    emit('notice', '请至少选择一个打印字段')
+    printTemplateError.value = '请至少选择一个打印字段'
     return
   }
-  localStorage.setItem('inbound_print_template', JSON.stringify(inboundPrintTemplate))
-  showPrintTemplateModal.value = false
+  try {
+    localStorage.setItem('inbound_print_template', JSON.stringify(inboundPrintTemplate))
+  } catch {
+    printTemplateError.value = '入库打印模板保存失败，请重试。'
+    return
+  }
+  closePrintTemplateModal()
   emit('notice', '入库打印模板已保存')
 }
 
@@ -634,7 +657,6 @@ useRefreshOnActivated(() => {
 })
 
 onMounted(() => {
-  loadInboundPrintTemplate()
   loadCustomFieldConfigs()
   loadReceipts()
 })
@@ -770,11 +792,12 @@ onBeforeUnmount(() => {
         <span class="page-size-label">{{ pageSize }} 条/页</span>
       </div>
 
-      <div v-if="showPrintTemplateModal" class="modal-backdrop">
-        <div class="modal workorder-modal inbound-print-template-modal">
+      <Transition v-bind="workspaceDialogMotion">
+      <div v-if="showPrintTemplateModal" class="modal-backdrop workspace-dialog-motion-backdrop">
+        <form ref="printTemplateDialog" class="modal workorder-modal inbound-print-template-modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="printTemplateTitleId" tabindex="-1" @submit.prevent="saveInboundPrintTemplate">
           <div class="modal-header">
-            <h2>编辑打印模板</h2>
-            <button class="close-btn ui-icon-button" type="button" @click="showPrintTemplateModal = false" title="关闭打印窗口" aria-label="关闭打印窗口"><UiIcon name="close" /></button>
+            <h2 :id="printTemplateTitleId">编辑入库打印模板</h2>
+            <button class="close-btn ui-icon-button" type="button" @click="closePrintTemplateModal" title="关闭打印窗口" aria-label="关闭打印窗口"><UiIcon name="close" /></button>
           </div>
           <div class="modal-body">
             <div class="form-grid one-col">
@@ -800,13 +823,15 @@ onBeforeUnmount(() => {
                 </label>
               </div>
             </div>
+            <p v-if="printTemplateError" class="form-error" role="alert">{{ printTemplateError }}</p>
           </div>
           <div class="modal-footer">
-            <button class="ghost-btn wide" type="button" @click="showPrintTemplateModal = false">取消</button>
-            <button class="primary-btn wide" type="button" @click="saveInboundPrintTemplate">保存</button>
+            <button class="ghost-btn wide" type="button" @click="closePrintTemplateModal">取消</button>
+            <button class="primary-btn wide" type="submit">保存</button>
           </div>
-        </div>
+        </form>
       </div>
+      </Transition>
     </template>
 
     <!-- Create View -->

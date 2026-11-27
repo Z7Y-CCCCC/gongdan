@@ -5,6 +5,10 @@ type DialogEntry = { id: symbol; root: Ref<HTMLElement | null>; focus: () => voi
 const activeDialogs: DialogEntry[] = []
 const selector = 'button, [href], input, select, textarea, [tabindex]'
 
+export function hasActiveDialog() {
+  return activeDialogs.some(entry => entry.root.value?.isConnected)
+}
+
 function available(element: HTMLElement) {
   if (!element.isConnected || element.matches(':disabled, input[type="hidden"]') || element.closest('[hidden], [inert], [aria-hidden="true"]')) return false
   for (let current: HTMLElement | null = element; current; current = current.parentElement) {

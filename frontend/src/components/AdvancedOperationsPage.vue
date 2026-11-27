@@ -1,11 +1,12 @@
 <template>
   <section class="content advanced-page">
-    <div class="category-tabs advanced-tabs">
+    <div class="category-tabs advanced-tabs" role="group" aria-label="高级运营模块">
       <button
         v-for="tab in tabs"
         :key="tab.key"
         class="cat-tab"
         :class="{ active: activeTab === tab.key }"
+        :aria-pressed="activeTab === tab.key"
         type="button"
         :disabled="saving || pendingRecords.size > 0"
         @click="switchTab(tab.key)"
@@ -290,17 +291,18 @@
     </div>
 
 
-    <div v-if="showModal" class="modal-backdrop">
-      <section class="modal advanced-modal">
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="showModal" class="modal-backdrop workspace-dialog-motion-backdrop">
+      <section ref="formDialog" class="modal advanced-modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" aria-labelledby="advanced-editor-title" tabindex="-1">
         <header class="modal-header">
-          <h2>{{ editingRecord ? '编辑' : '新建' }}{{ currentTabLabel }}</h2>
-          <button class="close-btn ui-icon-button" type="button" :disabled="saving" @click="showModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+          <h2 id="advanced-editor-title">{{ editingRecord ? '编辑' : '新建' }}{{ currentTabLabel }}</h2>
+          <button class="close-btn ui-icon-button" type="button" :disabled="saving" @click="closeEditor" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </header>
         <form class="create-form two-column" @submit.prevent="saveRecord">
           <fieldset class="advanced-form-fields" :disabled="saving">
           <label class="full-row">
             <span><em>*</em> 名称</span>
-            <input v-model.trim="form.title" required placeholder="请输入名称" />
+            <input ref="titleInput" v-model.trim="form.title" required placeholder="请输入名称" />
           </label>
 
           <template v-if="activeTab === 'SOP'">
@@ -375,7 +377,7 @@
             </select>
           </label>
           <footer class="modal-footer full-row">
-            <button class="ghost-btn wide ui-icon-button" type="button" :disabled="saving" @click="showModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+            <button class="ghost-btn wide ui-icon-button" type="button" :disabled="saving" @click="closeEditor" title="取消" aria-label="取消"><UiIcon name="close" /></button>
             <button class="primary-btn wide" :disabled="saving" type="submit"><UiIcon name="save" />{{ saving ? '保存中...' : '保存' }}</button>
           </footer>
           <p v-if="saveError" class="full-row" role="alert">{{ saveError }}</p>
@@ -383,6 +385,7 @@
         </form>
       </section>
     </div>
+    </Transition>
 
     <DeleteConfirmDialog
       v-model:visible="confirmVisible"
@@ -416,11 +419,14 @@ import TableConfigButton from './TableConfigButton.vue'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
 import { useLatestRequest } from '../composables/useLatestRequest'
+import { useDialogFocus } from '../composables/useDialogFocus'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import { fetchAllPages } from '../utils/pagination'
+import { advancedWorkspaceSections, type AdvancedWorkspaceSection } from '../utils/advancedWorkspace'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 
-const props = defineProps<{ token: string }>()
-const emit = defineEmits<{ (e: 'notice', message: string): void }>()
+const props = defineProps<{ token: string; section?: AdvancedWorkspaceSection }>()
+const emit = defineEmits<{ (e: 'notice', message: string): void; (e: 'section-change', section: AdvancedWorkspaceSection): void }>()
 const {
   visible: confirmVisible,
   title: confirmTitle,
@@ -431,10 +437,10 @@ const {
   handleCancel
 } = useDeleteConfirm()
 
-type TabKey = Exclude<AdvancedRecordModule, 'PAYROLL_RULE'> | 'PAYROLL' | 'GANTT'
+type TabKey = AdvancedWorkspaceSection
 type StatusItem = { value: string; label: string }
 
-const activeTab = ref<TabKey>('SOP')
+const activeTab = ref<TabKey>(props.section ?? 'SOP')
 const records = ref<AdvancedRecordInfo[]>([])
 const workOrders = ref<WorkOrderInfo[]>([])
 const reports = ref<WorkOrderReportInfo[]>([])
@@ -449,6 +455,10 @@ const payrollMonth = ref(`${new Date().getFullYear()}-${String(new Date().getMon
 const statusFilter = ref('')
 const showModal = ref(false)
 const editingRecord = ref<AdvancedRecordInfo | null>(null)
+const formDialog = ref<HTMLElement | null>(null)
+const titleInput = ref<HTMLInputElement | null>(null)
+let initialForm = ''
+useDialogFocus(formDialog, () => showModal.value, closeEditor, () => titleInput.value)
 
 const form = reactive({
   title: '',
@@ -457,15 +467,7 @@ const form = reactive({
   payload: {} as Record<string, any>
 })
 
-const moduleTabs: Array<{ key: TabKey; label: string }> = [
-  { key: 'SOP', label: 'SOP 文档库' },
-  { key: 'MESSAGE', label: '微信/企微推送' },
-  { key: 'QUALITY', label: '质检返工' },
-  { key: 'EQUIPMENT', label: '设备/工位' },
-  { key: 'GANTT', label: '排产甘特图' },
-  { key: 'PAYROLL', label: '工资绩效' },
-  { key: 'FIELD_EVENT', label: '现场事件' }
-]
+const moduleTabs = advancedWorkspaceSections
 
 const statusMap: Record<string, StatusItem[]> = {
   SOP: [
@@ -579,6 +581,7 @@ watch(() => props.token, () => {
 onMounted(() => {
   loadActive()
 })
+watch(() => props.section, section => { if (section && section !== activeTab.value) void switchTab(section) })
 useRefreshOnActivated(loadActive)
 onBeforeUnmount(() => { sessionGeneration++; beginLoad(); handleCancel() })
 
@@ -587,14 +590,27 @@ function moduleNameFor(tab: TabKey): AdvancedRecordModule {
 }
 
 async function switchTab(tab: TabKey) {
-  if (saving.value || pendingRecords.value.size > 0) return
+  if (tab === activeTab.value) return
+  if (saving.value || pendingRecords.value.size > 0 || !closeEditor()) {
+    emit('section-change', activeTab.value)
+    return
+  }
   activeTab.value = tab
+  emit('section-change', tab)
   statusFilter.value = ''
   records.value = []
   workOrders.value = []
   reports.value = []
   showModal.value = false
   await loadActive()
+}
+
+function closeEditor() {
+  if (!showModal.value) return true
+  if (saving.value) return false
+  if (JSON.stringify(form) !== initialForm && !window.confirm(t('关闭后，本次修改不会保存。'))) return false
+  showModal.value = false
+  return true
 }
 
 async function loadActive() {
@@ -634,6 +650,7 @@ function openCreate() {
   form.businessKey = ''
   form.status = currentStatuses.value[0]?.value || 'ACTIVE'
   form.payload = defaultPayload(activeTab.value)
+  initialForm = JSON.stringify(form)
   showModal.value = true
 }
 
@@ -645,6 +662,7 @@ function openEdit(record: AdvancedRecordInfo) {
   form.businessKey = record.businessKey || ''
   form.status = record.status
   form.payload = { ...defaultPayload(activeTab.value), ...payloadOf(record) }
+  initialForm = JSON.stringify(form)
   showModal.value = true
 }
 

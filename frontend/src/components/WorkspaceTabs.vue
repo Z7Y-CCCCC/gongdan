@@ -27,12 +27,25 @@ watch(() => props.activeId, () => {
   else if (inner.right > outer.right) bar.scrollLeft += Math.ceil(inner.right - outer.right + 8)
 }, { flush: 'post' })
 
-function moveTab(event: KeyboardEvent, tab: WorkspaceTabItem) {
+function handleTabKey(event: KeyboardEvent, tab: WorkspaceTabItem) {
+  if (event.target !== event.currentTarget) return
+  if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+    event.preventDefault()
+    emit('contextmenu', event, tab)
+    return
+  }
+  if (event.key === 'Delete' && tab.closable && !tab.pinned) {
+    event.preventDefault()
+    emit('close', tab)
+    nextTick(() => tabBar.value?.querySelector<HTMLElement>('[aria-selected="true"]')?.focus())
+    return
+  }
   const direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
-  if (!direction || !props.tabs.length) return
+  if ((!direction && event.key !== 'Home' && event.key !== 'End') || !props.tabs.length) return
   event.preventDefault()
   const index = props.tabs.findIndex(item => item.id === tab.id)
-  const next = (index + direction + props.tabs.length) % props.tabs.length
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? props.tabs.length - 1
+    : (index + direction + props.tabs.length) % props.tabs.length
   const container = (event.currentTarget as HTMLElement).parentElement
   emit('select', props.tabs[next])
   nextTick(() => (container?.querySelectorAll<HTMLElement>('[role="tab"]')[next])?.focus())
@@ -42,7 +55,7 @@ const emit = defineEmits<{
   select: [tab: WorkspaceTabItem]
   close: [tab: WorkspaceTabItem]
   pin: [tab: WorkspaceTabItem]
-  contextmenu: [event: MouseEvent, tab: WorkspaceTabItem]
+  contextmenu: [event: MouseEvent | KeyboardEvent, tab: WorkspaceTabItem]
 }>()
 </script>
 
@@ -57,13 +70,13 @@ const emit = defineEmits<{
       role="tab"
       :aria-label="tab.label"
       :aria-selected="tab.id === activeId"
+      aria-haspopup="menu"
       aria-controls="workspace-page"
       :tabindex="tab.id === activeId ? 0 : -1"
       @click="emit('select', tab)"
       @keydown.enter.self.prevent="emit('select', tab)"
       @keydown.space.self.prevent="emit('select', tab)"
-      @keydown.left.self="moveTab($event, tab)"
-      @keydown.right.self="moveTab($event, tab)"
+      @keydown="handleTabKey($event, tab)"
       @contextmenu.prevent.stop="emit('contextmenu', $event, tab)"
     >
       <button
@@ -74,6 +87,7 @@ const emit = defineEmits<{
         :aria-label="tab.pinned ? '取消固定标签页' : '固定标签页'"
         :aria-pressed="tab.pinned"
         :disabled="tab.id === 'home'"
+        tabindex="-1"
         @click.stop="emit('pin', tab)"
       >
         <UiIcon name="pin" :size="13" />
@@ -86,6 +100,7 @@ const emit = defineEmits<{
         type="button"
         title="关闭标签页"
         :aria-label="`关闭 ${tab.label}`"
+        tabindex="-1"
         @click.stop="emit('close', tab)"
       >
         <UiIcon name="close" :size="13" />

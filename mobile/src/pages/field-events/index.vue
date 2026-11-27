@@ -7,7 +7,6 @@
     </view>
 
     <view class="form-card">
-      <view v-if="submitError" class="form-error" role="alert"><text>{{ submitError }}</text></view>
       <text class="label">事件类型</text>
       <view class="type-grid" role="group" aria-label="事件类型">
         <button
@@ -15,31 +14,44 @@
           :key="item"
           class="type-pill"
           :class="{ active: form.eventType === item }"
-          :aria-pressed="form.eventType === item" :disabled="saving"
-          @click="!saving && (form.eventType = item)"
+          :aria-pressed="form.eventType === item" :disabled="formLocked"
+          @click="!formLocked && (form.eventType = item)"
         >
           {{ item }}
         </button>
       </view>
 
       <view class="field">
-        <text class="label">事件标题</text>
-        <input v-model="form.title" aria-label="事件标题" aria-required="true" :aria-invalid="!!submitError && !form.title.trim()" :disabled="saving" placeholder="例如：A 线贴标机停机" />
+        <text class="label">事件标题（必填）</text>
+        <input v-model="form.title" maxlength="128" aria-label="事件标题" aria-required="true" :aria-invalid="!!submitError && !form.title.trim()" :disabled="formLocked" placeholder="例如：A 线贴标机停机" />
       </view>
       <view class="field">
         <text class="label">工单编号</text>
-        <input v-model="form.workOrderCode" aria-label="工单编号" :disabled="saving" placeholder="可选" />
+        <input v-model="form.workOrderCode" aria-label="工单编号" :disabled="formLocked" placeholder="可选" />
       </view>
       <view class="field">
         <text class="label">工位/设备</text>
-        <input v-model="form.station" aria-label="工位或设备" :disabled="saving" placeholder="例如：包装一工位" />
+        <input v-model="form.station" aria-label="工位或设备" :disabled="formLocked" placeholder="例如：包装一工位" />
       </view>
       <view class="field">
         <text class="label">详细描述</text>
-        <textarea v-model="form.description" aria-label="详细描述" :disabled="saving" placeholder="描述现场情况、影响数量、需要谁处理" />
+        <textarea v-model="form.description" aria-label="详细描述" :disabled="formLocked" placeholder="描述现场情况、影响数量、需要谁处理" />
       </view>
 
-      <button class="submit-btn" :loading="saving" :aria-busy="saving" :disabled="saving" @click="submitEvent">上报</button>
+      <view v-if="submitPhase !== 'idle' || submitError" :key="submitPhase" class="event-feedback" :class="'event-feedback-' + submitPhase">
+        <text class="event-feedback-title" :role="submitPhase === 'failed' || submitPhase === 'idle' ? 'alert' : 'status'">{{ feedbackTitle }}</text>
+        <text v-if="submitError && submitPhase !== 'idle'" class="event-feedback-detail">{{ submitError }}</text>
+        <template v-if="submitPhase === 'uncertain'">
+          <text class="event-feedback-detail">内容已保留。为避免重复，请先按上报编号核对记录。</text>
+          <text class="event-feedback-detail">编号：{{ pendingEventReference }}</text>
+          <text v-if="reviewMissed" class="event-feedback-detail">最近 50 条未找到相同记录，不代表未入库。请先确认，再解除限制。</text>
+        </template>
+      </view>
+      <template v-if="submitPhase === 'uncertain'">
+        <button class="submit-btn" :aria-busy="reviewing || waitingForPreviousWrite" :disabled="saving || reviewing || waitingForPreviousWrite" @click="reviewRecentEvents">{{ waitingForPreviousWrite ? '等待上报结果…' : reviewing ? '正在核对…' : '核对最近上报' }}</button>
+        <button v-if="reviewMissed" class="review-reset-btn" :disabled="reviewing" @click="acknowledgeMissingEvent">确认未上报，解除限制</button>
+      </template>
+      <button v-else class="submit-btn" :aria-busy="saving" :disabled="formLocked" @click="submitEvent">{{ submitPhase === 'submitting' ? '上报中…' : submitPhase === 'failed' ? '重新上报' : '上报' }}</button>
     </view>
 
     <view class="recent-head">
@@ -58,6 +70,7 @@
           <text v-if="payloadOf(event).workOrderCode">{{ payloadOf(event).workOrderCode }}</text>
           <text v-if="payloadOf(event).station">{{ payloadOf(event).station }}</text>
           <text v-if="event.createdAt">{{ formatEventDate(event.createdAt) }}</text>
+          <text v-if="reviewedEventReference && event.businessKey === reviewedEventReference" class="event-reference">已核对本次上报</text>
         </view>
       </view>
       <view v-if="errorMessage" class="empty" role="alert">
@@ -70,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { onHide, onShow } from '@dcloudio/uni-app'
 import { createFieldEvent, ensureLogin, fetchFieldEvents } from '../../services/api'
 import type { FieldEventRecord } from '../../types/api'
@@ -79,6 +92,7 @@ import IconButton from '../../components/IconButton.vue'
 import { navigatePage } from '../../utils/navigation'
 import { mobileSessionKey } from '../../utils/session-key'
 import { useMobilePageActivity } from '../../composables/useMobilePageActivity'
+import { fieldEventInFlight } from '../../utils/field-event-in-flight'
 
 const pageActivity = useMobilePageActivity()
 
@@ -88,7 +102,25 @@ const loading = ref(false)
 const saving = ref(false)
 const errorMessage = ref('')
 const submitError = ref('')
+type SubmitPhase = 'idle' | 'submitting' | 'success' | 'failed' | 'uncertain' | 'resolved'
+const submitPhase = ref<SubmitPhase>('idle')
+const pendingEventReference = ref('')
+const reviewedEventReference = ref('')
+const reviewing = ref(false)
+const reviewMissed = ref(false)
+let checkedReviewSession = ''
+const waitingForPreviousWrite = computed(() => !!pendingEventReference.value && fieldEventInFlight.has(pendingEventReference.value))
+const formLocked = computed(() => saving.value || !!pendingEventReference.value)
+const feedbackTitle = computed(() => ({
+  idle: submitError.value,
+  submitting: '正在上报现场事件…',
+  success: '现场事件已上报',
+  failed: '未能上报',
+  uncertain: '暂未确认上报结果',
+  resolved: '记录已核对，不必重复上报'
+})[submitPhase.value])
 let loadSequence = 0
+let reviewSequence = 0
 let pageAlive = true
 let activeSession = ''
 const form = reactive({
@@ -99,21 +131,31 @@ const form = reactive({
   description: ''
 })
 
-const { clearDraft: clearEventDraft } = usePageDraft({
+watch(() => ({ ...form }), () => {
+  if (!saving.value && (submitPhase.value === 'success' || submitPhase.value === 'resolved')) submitPhase.value = 'idle'
+}, { flush: 'sync' })
+
+const { clearDraft: clearEventDraft, saveNow: saveEventDraftNow } = usePageDraft({
   key: 'gongdan:draft:field-event',
-  source: () => ({ ...form }),
+  source: () => ({ ...form, pendingEventReference: pendingEventReference.value }),
   restore: draft => {
     for (const key of ['title', 'workOrderCode', 'station', 'description'] as const) {
       form[key] = typeof draft[key] === 'string' ? draft[key] : ''
     }
     form.eventType = eventTypes.includes(draft.eventType) ? draft.eventType : '异常'
+    pendingEventReference.value = typeof draft.pendingEventReference === 'string' && /^MFE-[a-z0-9-]+$/.test(draft.pendingEventReference) ? draft.pendingEventReference : ''
+    submitPhase.value = pendingEventReference.value ? 'uncertain' : 'idle'
+    submitError.value = ''
+    reviewMissed.value = false
+    checkedReviewSession = ''
+    reviewedEventReference.value = ''
   }
 })
 
 onMounted(() => loadEvents())
 onShow(() => loadEvents())
-onHide(() => { loadSequence++; loading.value = false })
-onBeforeUnmount(() => { pageAlive = false; loadSequence += 1 })
+onHide(() => { loadSequence++; loading.value = false; reviewSequence++; reviewing.value = false; reviewMissed.value = false })
+onBeforeUnmount(() => { pageAlive = false; loadSequence++; reviewSequence++ })
 
 async function loadEvents(force = false) {
   if (!pageAlive) return
@@ -141,6 +183,7 @@ async function loadEvents(force = false) {
     if (!current()) return
     if (!result || !Array.isArray(result.items)) throw new Error('现场事件返回格式异常，请重试')
     events.value = result.items
+    return result.items
   } catch (error) {
     if (!current()) return
     errorMessage.value = error instanceof Error ? error.message : '加载失败'
@@ -157,7 +200,7 @@ async function loadEvents(force = false) {
 }
 
 async function submitEvent() {
-  if (!pageAlive || saving.value || !ensureLogin()) return
+  if (!pageAlive || formLocked.value || !ensureLogin()) return
   submitError.value = ''
   if (!form.title.trim()) {
     submitError.value = '请填写事件标题'
@@ -168,8 +211,15 @@ async function submitEvent() {
   const session = mobileSessionKey()
   const isPageCurrent = pageActivity.capture()
   const current = () => pageAlive && isPageCurrent() && session === mobileSessionKey()
+  const reference = createSubmissionReference()
+  fieldEventInFlight.add(reference)
+  pendingEventReference.value = reference
+  reviewedEventReference.value = ''
+  submitPhase.value = 'submitting'
+  saveEventDraftNow()
   try {
-    await createFieldEvent({
+    const result = await createFieldEvent({
+      businessKey: reference,
       title: form.title.trim(),
       status: 'OPEN',
       payloadJson: JSON.stringify({
@@ -180,21 +230,81 @@ async function submitEvent() {
       })
     })
     if (!current()) return
-    uni.showToast({ title: '已上报', icon: 'success' })
-    clearEventDraft()
-    form.title = ''
-    form.workOrderCode = ''
-    form.station = ''
-    form.description = ''
+    if (!Number.isSafeInteger(result?.id) || result.id <= 0) throw new Error('未收到有效的上报回执')
+    completeSubmission('success')
     // A GET started before the POST must not hide the newly submitted event.
     await loadEvents(true)
   } catch (error) {
     if (!current()) return
-    submitError.value = error instanceof Error ? error.message : '提交失败，请重试'
-    uni.showToast({ title: error instanceof Error ? error.message : '提交失败', icon: 'none' })
+    const status = (error as { status?: number })?.status
+    if (status !== undefined && [400, 403, 404, 422, 429].includes(status)) {
+      pendingEventReference.value = ''
+      submitPhase.value = 'failed'
+      submitError.value = error instanceof Error ? error.message : '服务器未接受本次上报'
+      saveEventDraftNow()
+    } else {
+      submitPhase.value = 'uncertain'
+      submitError.value = error instanceof Error ? error.message : '未收到上报确认'
+    }
   } finally {
-    if (pageAlive) saving.value = false
+    fieldEventInFlight.delete(reference)
+    if (pageAlive) {
+      if (!current() && pendingEventReference.value === reference && submitPhase.value === 'submitting') submitPhase.value = 'uncertain'
+      saving.value = false
+    }
   }
+}
+
+function createSubmissionReference() {
+  const time = Date.now().toString(36)
+  try {
+    const random = globalThis.crypto?.getRandomValues?.(new Uint32Array(4))
+    if (random) return 'MFE-' + time + '-' + Array.from(random, value => value.toString(36)).join('-')
+  } catch { /* Mini Program JS engines may not expose Web Crypto. */ }
+  return `MFE-${time}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+}
+
+function completeSubmission(phase: 'success' | 'resolved') {
+  if (phase === 'resolved') reviewedEventReference.value = pendingEventReference.value
+  pendingEventReference.value = ''
+  submitError.value = ''
+  reviewMissed.value = false
+  form.title = ''
+  form.workOrderCode = ''
+  form.station = ''
+  form.description = ''
+  clearEventDraft()
+  submitPhase.value = phase
+}
+
+async function reviewRecentEvents() {
+  if (!pageAlive || !pendingEventReference.value || saving.value || reviewing.value || waitingForPreviousWrite.value || !ensureLogin()) return
+  const reference = pendingEventReference.value
+  const session = mobileSessionKey(), userId = uni.getStorageSync('user')?.id
+  const isPageCurrent = pageActivity.capture(), sequence = ++reviewSequence
+  reviewing.value = true
+  reviewMissed.value = false
+  try {
+    const recent = await loadEvents(true)
+    if (!isPageCurrent() || sequence !== reviewSequence || session !== mobileSessionKey() || reference !== pendingEventReference.value) return
+    if (!recent) { submitError.value = errorMessage.value || '未能加载记录，请再核对'; return }
+    submitError.value = ''
+    if (recent.some(item => item.businessKey === reference && item.createdById === userId)) completeSubmission('resolved')
+    else { checkedReviewSession = session; reviewMissed.value = true }
+  } finally {
+    if (sequence === reviewSequence) reviewing.value = false
+  }
+}
+
+function acknowledgeMissingEvent() {
+  if (!pageAlive || !reviewMissed.value || reviewing.value || saving.value || waitingForPreviousWrite.value || submitPhase.value !== 'uncertain'
+      || checkedReviewSession !== mobileSessionKey() || !ensureLogin()) return
+  pendingEventReference.value = ''
+  submitError.value = ''
+  reviewMissed.value = false
+  checkedReviewSession = ''
+  submitPhase.value = 'failed'
+  saveEventDraftNow()
 }
 
 function payloadOf(event: FieldEventRecord): Record<string, any> {
@@ -331,6 +441,24 @@ textarea {
   border: none;
 }
 
+.event-feedback {
+  margin-bottom: 12rpx;
+  padding: 18rpx 20rpx;
+  border-radius: 12rpx;
+  color: var(--mobile-info, #214d75);
+  background: var(--mobile-info-bg, #ebf4fc);
+  overflow-wrap: anywhere;
+  animation: event-feedback-in var(--motion-change, 180ms) var(--motion-ease, ease-out) both;
+}
+.event-feedback-title { display: block; font-weight: 700; font-size: 28rpx; }
+.event-feedback-detail { display: block; margin-top: 6rpx; font-size: 24rpx; line-height: 1.5; }
+.event-feedback-idle, .event-feedback-failed { color: var(--mobile-error, #a0332c); background: var(--mobile-error-bg, #fff1f0); }
+.event-feedback-uncertain { color: var(--mobile-warning, #8b5908); background: var(--mobile-warning-bg, #fff4dc); }
+.event-feedback-success, .event-feedback-resolved { color: var(--mobile-link, #007a60); background: var(--mobile-subtle, #e6f7f3); }
+.review-reset-btn { margin-top: 12rpx; width: 100%; padding: 0 12rpx; border: 1px solid var(--mobile-border, #ceded5); border-radius: 12rpx; background: var(--mobile-surface, #fff); color: var(--mobile-text, #202926); font-size: 26rpx; }
+@keyframes event-feedback-in { from { opacity: .5; transform: translateY(8rpx); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .event-feedback { animation: none !important; } }
+
 .recent-head {
   display: flex;
   justify-content: space-between;
@@ -414,7 +542,7 @@ textarea {
   padding: 40rpx 0;
   font-size: 26rpx;
 }
-.form-error { margin-bottom: 18rpx; padding: 20rpx; border-radius: 8rpx; color: var(--mobile-error, #a0332c); background: var(--mobile-error-bg, #fff1f0); font-size: 26rpx; line-height: 1.6; overflow-wrap: anywhere; }
+.event-meta .event-reference { color: var(--mobile-link, #007a60); font-weight: 700; }
 
 .retry-btn {
   margin-top: 20rpx;

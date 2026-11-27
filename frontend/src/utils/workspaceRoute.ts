@@ -1,3 +1,5 @@
+import { isAdvancedWorkspaceSection } from './advancedWorkspace'
+
 export type WorkspaceRoute = { main: string; sub?: string }
 const simple = new Set(['home', 'dashboard', 'advanced', 'report', 'analytics', 'notifications', 'super-admin'])
 const groups: Record<string, string[]> = {
@@ -12,6 +14,9 @@ const groups: Record<string, string[]> = {
 export function parseWorkspaceKey(key: string | null): WorkspaceRoute | null {
   if (!key || key.length > 128) return null
   if (simple.has(key)) return { main: key }
+  if (key.startsWith('advanced-') && isAdvancedWorkspaceSection(key.slice(9).toUpperCase())) {
+    return { main: 'advanced', sub: key.slice(9) }
+  }
   for (const [main, choices] of Object.entries(groups)) {
     const sub = key.startsWith(`${main}-`) ? key.slice(main.length + 1) : ''
     if (choices.includes(sub)) return { main, sub }

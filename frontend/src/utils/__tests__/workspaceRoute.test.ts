@@ -14,4 +14,9 @@ describe('workspace new-window routes', () => {
     expect(parseWorkspaceKey(key)).toBeNull()
     expect(() => buildWorkspaceUrl('https://example.invalid/', key)).toThrow()
   })
+  it('reopens an exact advanced section and rejects an unknown one', () => {
+    const url = buildWorkspaceUrl('https://example.invalid/', 'advanced-field_event')
+    expect(readWorkspaceRoute(url)).toEqual({ main: 'advanced', sub: 'field_event' })
+    expect(parseWorkspaceKey('advanced-unknown')).toBeNull()
+  })
 })

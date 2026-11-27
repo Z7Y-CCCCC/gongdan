@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch, type CSSProperties } from 'vue'
+import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, useId, watch, type CSSProperties } from 'vue'
 import QRCode from 'qrcode'
 import { t, formatUiDate } from '../i18n'
 import { downloadXlsx, prepareXlsxCell } from '../utils/spreadsheet'
@@ -48,6 +48,7 @@ import { fetchAllPages } from '../utils/pagination'
 import { bomMaterialQuantity } from '../utils/bomDecimal'
 import { normalizeWorkOrderStatus } from '../utils/workOrderStatus'
 import { missingRequiredCustomField } from '../utils/customFieldValidation'
+import { workspaceLeaveGuardsKey } from '../utils/workspaceLeaveGuards'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import SystemLogsDialog from './SystemLogsDialog.vue'
 import UiIcon from './UiIcon.vue'
@@ -55,7 +56,8 @@ import ColumnSettingsPanel, { type ColumnSetting } from './ColumnSettingsPanel.v
 import TableConfigButton from './TableConfigButton.vue'
 
 const props = defineProps<{ token: string; focusTarget?: { id: number } | null }>()
-const emit = defineEmits<{ notice: [message: string]; 'clear-focus': [] }>()
+const emit = defineEmits<{ notice: [message: string]; error: [message: string]; 'clear-focus': [] }>()
+const leaveGuards = inject(workspaceLeaveGuardsKey, null)
 
 const focusedOrder = ref<WorkOrderInfo | null>(null)
 const focusLoading = ref(false)
@@ -113,6 +115,15 @@ const selectedIds = ref<number[]>([])
 const saving = ref(false)
 const beginLoad = useLatestRequest()
 const showModal = ref(false)
+const orderDialog = ref<HTMLElement | null>(null)
+const orderTitleId = useId()
+const orderSaveError = ref('')
+const discardOrderDraft = ref(false)
+let orderDraftBaseline = ''
+let orderDraftGeneration = 0
+let orderFormOperationGeneration = 0
+let unregisterOrderLeaveGuard: (() => void) | undefined
+useDialogFocus(orderDialog, () => showModal.value, requestCloseOrder)
 const activeTab = ref<'basic' | 'custom' | 'task' | 'material'>('basic')
 const editing = ref<WorkOrderInfo | null>(null)
 const categoryFilter = ref('all')
@@ -515,6 +526,7 @@ function resetForm() {
     goodQuantity: 0,
     defectQuantity: 0,
     defectRate: '',
+    categoryId: '',
     customValues: [],
     tasks: [],
     materials: [],
@@ -641,14 +653,15 @@ async function handleSaveColumns(settings = workOrderColumns.value) {
 }
 
 function openCreate() {
+  if (showModal.value || saving.value) return
   editing.value = null
   resetForm()
   syncCustomValues()
-  activeTab.value = 'basic'
-  showModal.value = true
+  openOrderDraft()
 }
 
 function openEdit(item: WorkOrderInfo) {
+  if (showModal.value || saving.value) return
   editing.value = item
   Object.assign(form, {
     code: item.code,
@@ -670,8 +683,71 @@ function openEdit(item: WorkOrderInfo) {
     version: item.version
   })
   syncCustomValues()
+  openOrderDraft()
+}
+
+function openOrderDraft() {
+  const generation = ++orderDraftGeneration
+  unregisterOrderLeaveGuard?.()
+  unregisterOrderLeaveGuard = leaveGuards?.register('production-workorder', {
+    isDirty: () => showModal.value && (orderFormBusy() || orderFormDirty()),
+    confirmLeave(reason) {
+      if (orderFormBusy()) {
+        emit('error', t('工单仍在保存或上传，请稍候。'))
+        return false
+      }
+      if (reason === 'logout') return window.confirm(t('退出登录将丢弃未保存的修改，是否继续？'))
+      emit('error', t('工单有未保存的修改，请返回工单表单保存或放弃。'))
+      return false
+    }
+  })
   activeTab.value = 'basic'
+  selectedTaskIndexes.value = []
+  orderSaveError.value = ''
+  orderDraftBaseline = JSON.stringify(form)
   showModal.value = true
+  // Include any task defaults populated by the initial product/quantity watchers.
+  void nextTick(() => {
+    if (showModal.value && orderDraftGeneration === generation) orderDraftBaseline = JSON.stringify(form)
+  })
+}
+
+function closeOrderDraft() {
+  orderDraftGeneration++
+  unregisterOrderLeaveGuard?.()
+  unregisterOrderLeaveGuard = undefined
+  discardOrderDraft.value = false
+  showTaskSelector.value = false
+  showTaskEditModal.value = false
+  showModal.value = false
+}
+
+function orderFormBusy() { return saving.value || uploadingFieldId.value !== null }
+function orderFormDirty() { return JSON.stringify(form) !== orderDraftBaseline }
+
+// Form writes must settle even when their tab is in KeepAlive, otherwise returning
+// to the same draft could permit a second submission while the first still runs.
+function captureOrderFormOperation() {
+  const token = props.token
+  const generation = orderFormOperationGeneration
+  return { token, isCurrent: () => Boolean(token) && props.token === token && generation === orderFormOperationGeneration }
+}
+
+function requestCloseOrder() {
+  if (!showModal.value || orderFormBusy()) return
+  if (orderFormDirty()) {
+    discardOrderDraft.value = true
+    return
+  }
+  closeOrderDraft()
+}
+
+async function confirmDiscardOrder() {
+  const generation = orderDraftGeneration
+  // Release the confirmation first so focus returns to the form before it closes.
+  discardOrderDraft.value = false
+  await nextTick()
+  if (orderDraftGeneration === generation && showModal.value) closeOrderDraft()
 }
 
 function syncCustomValues() {
@@ -733,9 +809,15 @@ const failedCustomFieldPreviews = new Set<string>()
 async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
-  if (!file) return
+  const context = captureOrderFormOperation(), generation = orderDraftGeneration
+  if (!file || !showModal.value || saving.value || uploadingFieldId.value !== null || !context.isCurrent()) {
+    target.value = ''
+    return
+  }
+  const current = () => context.isCurrent() && orderDraftGeneration === generation && showModal.value
 
   uploadingFieldId.value = field.id
+  orderSaveError.value = ''
   try {
     const formData = new FormData()
     formData.append('file', file)
@@ -743,17 +825,18 @@ async function handleCustomFieldUpload(field: CustomFieldInfo, event: Event) {
     formData.append('fieldId', String(field.id))
     formData.append('fieldType', field.fieldType)
 
-    const data = await uploadCustomFieldAttachment(props.token, formData)
+    const data = await uploadCustomFieldAttachment(context.token, formData)
+    if (!current()) return
     const currentVal = String(getCustomValue(field) || '')
     const newPath = data.accessPath
     customFieldPreviewUrls.value[newPath] = URL.createObjectURL(file)
     const updatedVal = currentVal ? `${currentVal},${newPath}` : newPath
     setCustomValue(field, updatedVal)
     emit('notice', '文件上传成功')
-  } catch (err: any) {
-    emit('notice', err.message || '上传失败')
+  } catch (err) {
+    if (current()) orderSaveError.value = err instanceof Error ? err.message : t('上传失败')
   } finally {
-    uploadingFieldId.value = null
+    if (current()) uploadingFieldId.value = null
     target.value = ''
   }
 }
@@ -862,6 +945,10 @@ watch(() => form.plannedQuantity, () => {
 // --- 生产任务表单扩展逻辑 ---
 const selectedTaskIndexes = ref<number[]>([])
 const showTaskSelector = ref(false)
+const taskSelectorDialog = ref<HTMLElement | null>(null)
+const taskSelectorTitleId = useId()
+function closeTaskSelector() { showTaskSelector.value = false }
+useDialogFocus(taskSelectorDialog, () => showTaskSelector.value, closeTaskSelector)
 
 const taskSelectorActiveTab = ref<'process' | 'route'>('process')
 const taskSelectorKeyword = ref('')
@@ -953,6 +1040,10 @@ watch(showTaskSelector, (newVal) => {
 const taskDraggingIdx = ref(-1)
 const taskDragOverIdx = ref(-1)
 const showTaskEditModal = ref(false)
+const taskEditDialog = ref<HTMLElement | null>(null)
+const taskEditTitleId = useId()
+function closeTaskEdit() { showTaskEditModal.value = false }
+useDialogFocus(taskEditDialog, () => showTaskEditModal.value, closeTaskEdit)
 
 const taskEditForm = reactive({
   plannedQuantity: 0,
@@ -1140,22 +1231,23 @@ function normalizedMaterials() {
 }
 
 async function saveOrder() {
-  if (saving.value) return
-  const context = mutationScope.capture()
+  if (!showModal.value || saving.value || uploadingFieldId.value !== null || discardOrderDraft.value) return
+  const context = captureOrderFormOperation()
   if (!context.isCurrent()) return
+  orderSaveError.value = ''
   if (!form.productId) {
-    emit('notice', '请选择产品')
+    orderSaveError.value = t('请选择产品')
     activeTab.value = 'basic'
     return
   }
   if (!Number.isInteger(Number(form.plannedQuantity)) || Number(form.plannedQuantity) <= 0) {
-    emit('notice', '计划数必须为大于 0 的整数')
+    orderSaveError.value = t('计划数必须为大于 0 的整数')
     activeTab.value = 'basic'
     return
   }
   const missing = missingRequiredCustomField(customFields.value, form.customValues, editing.value?.customValues)
   if (missing) {
-    emit('notice', `请填写必填字段「${missing.name}」`)
+    orderSaveError.value = t('请填写必填字段「{0}」', [missing.name])
     activeTab.value = 'custom'
     return
   }
@@ -1179,6 +1271,7 @@ async function saveOrder() {
     version: editing.value ? form.version : undefined
   }
   const target = editing.value ? { id: editing.value.id, code: editing.value.code } : null
+  orderDialog.value?.focus({ preventScroll: true })
   saving.value = true
   try {
     if (target) {
@@ -1192,10 +1285,10 @@ async function saveOrder() {
       emit('notice', '工单已创建')
       void addOperationLog(`创建了新工单 ${payload.code || (res && res.code) || ''}，计划数 ${payload.plannedQuantity} 件`, context.token, context.isCurrent)
     }
-    showModal.value = false
+    closeOrderDraft()
     await loadData(context.token, context.isCurrent)
-  } catch (e: any) {
-    if (context.isCurrent()) emit('notice', e.message || '操作失败')
+  } catch (error) {
+    if (context.isCurrent()) orderSaveError.value = error instanceof Error ? error.message : t('操作失败')
   } finally {
     if (context.isCurrent()) saving.value = false
   }
@@ -1401,8 +1494,20 @@ let exportEpoch = 0, exportDisposed = false, exportActive = true, printGeneratio
 const mutationScope = usePageOperationScope(() => props.token, () => {
   deleteHandleCancel()
   deleteLoading.value = false
-  saving.value = false
+  // Bulk operations are cancelled on deactivation; the open form owns its
+  // separate in-flight request until that request settles.
+  if (!showModal.value) saving.value = false
 })
+watch(() => props.token, () => {
+  orderFormOperationGeneration++
+  saving.value = false
+  uploadingFieldId.value = null
+  closeOrderDraft()
+  orderSaveError.value = ''
+  editing.value = null
+  resetForm()
+}, { flush: 'sync' })
+onBeforeUnmount(() => { orderFormOperationGeneration++; unregisterOrderLeaveGuard?.() })
 let printTimer: ReturnType<typeof setTimeout> | undefined
 function invalidatePrint() {
   printGeneration++; qrGeneration++
@@ -2400,6 +2505,8 @@ onActivated(() => {
   }
 })
 
+onDeactivated(() => { discardOrderDraft.value = false })
+
 onUnmounted(() => {
   window.removeEventListener('click', closeDropdowns)
 })
@@ -2675,12 +2782,17 @@ onUnmounted(() => {
       </table>
     </div>
 
-    <div v-if="showModal" class="modal-backdrop">
-      <div class="modal workorder-modal">
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="showModal" class="modal-backdrop workspace-dialog-motion-backdrop">
+      <div ref="orderDialog" class="modal workorder-modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="orderTitleId" :aria-busy="saving || uploadingFieldId !== null" tabindex="-1">
         <div class="modal-header">
-          <h2>{{ editing ? '编辑工单' : '创建工单' }}</h2>
-          <button class="close-btn ui-icon-button" type="button" @click="showModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+          <h2 :id="orderTitleId">{{ editing ? '编辑工单' : '创建工单' }}</h2>
+          <button class="close-btn ui-icon-button" type="button" :disabled="saving || uploadingFieldId !== null" @click="requestCloseOrder" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
         </div>
+
+        <p v-if="orderSaveError" class="export-error order-form-feedback" role="alert">{{ orderSaveError }}</p>
+        <p v-if="saving || uploadingFieldId !== null" class="order-form-feedback" role="status">{{ saving ? '保存中...' : '上传中...' }}</p>
+        <fieldset class="order-form-fields" :disabled="saving">
         <div class="modal-tabs">
           <button :class="{ active: activeTab === 'basic' }" @click="activeTab = 'basic'">基本信息</button>
           <button :class="{ active: activeTab === 'custom' }" @click="activeTab = 'custom'">自定义信息</button>
@@ -2995,19 +3107,22 @@ onUnmounted(() => {
           </div>
         </div>
 
+        </fieldset>
         <div class="modal-footer">
-          <button class="ghost-btn wide" type="button" @click="showModal = false">取消</button>
-          <button class="primary-btn wide" type="button" @click="saveOrder" :disabled="saving" title="保存工单" aria-label="保存工单">{{ saving ? '保存中...' : '确定' }}</button>
+          <button class="ghost-btn wide" type="button" :disabled="saving || uploadingFieldId !== null" @click="requestCloseOrder">取消</button>
+          <button class="primary-btn wide" type="button" @click="saveOrder" :disabled="saving || uploadingFieldId !== null">{{ saving ? '保存中...' : '保存工单' }}</button>
         </div>
       </div>
     </div>
+    </Transition>
 
     <!-- 任务编辑微弹窗 -->
-    <div v-if="showTaskEditModal" class="modal-backdrop" style="z-index: 1010;">
-      <div class="modal workorder-modal" style="width: 400px;">
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="showTaskEditModal" class="modal-backdrop workspace-dialog-motion-backdrop" style="z-index: 1010;">
+      <div ref="taskEditDialog" class="modal workorder-modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="taskEditTitleId" tabindex="-1" style="width: 400px;">
         <div class="modal-header">
-          <h2>修改任务</h2>
-          <button class="close-btn ui-icon-button" type="button" @click="showTaskEditModal = false" title="关闭任务窗口" aria-label="关闭任务窗口"><UiIcon name="close" /></button>
+          <h2 :id="taskEditTitleId">修改任务</h2>
+          <button class="close-btn ui-icon-button" type="button" @click="closeTaskEdit" title="关闭任务窗口" aria-label="关闭任务窗口"><UiIcon name="close" /></button>
         </div>
         <div style="padding: 24px;">
           <div class="form-row">
@@ -3029,7 +3144,7 @@ onUnmounted(() => {
             </div>
           </div>
           <div style="text-align: right; margin-top: 24px;">
-            <button class="ghost-btn" style="margin-right: 12px;" @click="showTaskEditModal = false">取消</button>
+            <button class="ghost-btn" style="margin-right: 12px;" @click="closeTaskEdit">取消</button>
             <button class="primary-btn" @click="saveTaskEdit">保存</button>
           </div>
         </div>
@@ -3037,6 +3152,7 @@ onUnmounted(() => {
     </div>
 
     <!-- 打印模板选择弹窗 -->
+    </Transition>
     <!-- 添加分类弹窗 -->
     <div v-if="showCategoryModal" class="modal-backdrop">
       <div class="modal workorder-modal" style="width: 480px;">
@@ -3230,15 +3346,16 @@ onUnmounted(() => {
   />
 
   <!-- 生产任务高级选择器弹窗 (工序/工艺路线) -->
-  <div v-if="showTaskSelector" class="modal-backdrop" style="z-index: 1020;">
-    <div class="modal workorder-modal task-selector-modal" style="width: 680px; max-height: min(650px, calc(100vh - 40px)); display: flex; flex-direction: column; overflow: hidden; border-radius: 8px;">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showTaskSelector" class="modal-backdrop workspace-dialog-motion-backdrop" style="z-index: 1020;">
+    <div ref="taskSelectorDialog" class="modal workorder-modal task-selector-modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="taskSelectorTitleId" tabindex="-1" style="width: 680px; max-height: min(650px, calc(100vh - 40px)); display: flex; flex-direction: column; overflow: hidden; border-radius: 8px;">
       <!-- 弹窗头部 -->
       <div class="modal-header" style="flex-shrink: 0; background: #fafcfa; border-bottom: 1px solid #eef2f1;">
-        <h2 style="font-weight: 600; color: #1e2724; display: flex; align-items: center; gap: 8px;">
+        <h2 :id="taskSelectorTitleId" style="font-weight: 600; color: #1e2724; display: flex; align-items: center; gap: 8px;">
           <svg viewBox="0 0 24 24" width="18" height="18" stroke="#00b889" stroke-width="2.5" fill="none" style="vertical-align: middle;"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
           选择生产任务
         </h2>
-        <button class="close-btn ui-icon-button" type="button" @click="showTaskSelector = false" style="cursor: pointer;" title="关闭任务窗口" aria-label="关闭任务窗口"><UiIcon name="close" /></button>
+        <button class="close-btn ui-icon-button" type="button" @click="closeTaskSelector" style="cursor: pointer;" title="关闭任务窗口" aria-label="关闭任务窗口"><UiIcon name="close" /></button>
       </div>
 
       <!-- 弹窗主体 -->
@@ -3470,7 +3587,7 @@ onUnmounted(() => {
           </span>
         </div>
         <div style="display: flex; gap: 12px;">
-          <button class="ghost-btn" type="button" @click="showTaskSelector = false" style="padding: 8px 20px; font-size: 13px;"><UiIcon name="close" />取消</button>
+          <button class="ghost-btn" type="button" @click="closeTaskSelector" style="padding: 8px 20px; font-size: 13px;"><UiIcon name="close" />取消</button>
           <button
             class="primary-btn"
             type="button"
@@ -3492,6 +3609,15 @@ onUnmounted(() => {
       </div>
     </div>
   </div>
+
+  </Transition>
+  <DeleteConfirmDialog
+    v-model:visible="discardOrderDraft"
+    :title="t('放弃未保存的修改？')"
+    :message="t('关闭后，本次修改不会保存。')"
+    confirm-label="放弃修改"
+    @confirm="confirmDiscardOrder"
+  />
 
   <!-- 导入日志毛玻璃弹窗 -->
   <SystemLogsDialog
@@ -3522,6 +3648,8 @@ onUnmounted(() => {
 .work-order-focus dt { color: var(--text-muted, #64716d); font-size: 12px; }
 .work-order-focus dd { margin: 4px 0 0; overflow-wrap: anywhere; }
 .work-order-focus [role="alert"] { color: var(--danger, #c43224); }
+.order-form-fields { display: contents; }
+.order-form-feedback { margin: 8px 16px; }
 .work-order-search-icon { display: inline-flex; align-items: center; justify-content: center; padding: 0 10px; color: var(--accent, #00b889); }
 /* 精致超薄的进度条横向拖拉条样式 */
 .scroll-thin {

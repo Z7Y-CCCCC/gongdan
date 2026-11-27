@@ -32,6 +32,18 @@ describe('advanced operations real functional paths', () => {
   })
   afterEach(() => wrapper?.unmount())
 
+  it('lands on the requested section and announces genuine selection changes', async () => {
+    wrapper = shallowMount(AdvancedOperationsPage, { props: { token: 'token-one', section: 'GANTT' } })
+    await flushPromises()
+    expect(wrapper.vm.activeTab).toBe('GANTT')
+    expect(mocks.fetchAdvancedRecords).not.toHaveBeenCalled()
+    expect(wrapper.get('button[aria-pressed="true"]').text()).toContain('排产甘特图')
+    await wrapper.setProps({ section: 'FIELD_EVENT' })
+    await flushPromises()
+    expect(mocks.fetchAdvancedRecords).toHaveBeenLastCalledWith('token-one', expect.objectContaining({ moduleName: 'FIELD_EVENT' }))
+    expect(wrapper.emitted('section-change')).toEqual([['FIELD_EVENT']])
+  })
+
   it('does not overwrite the new module with a late previous-tab response', async () => {
     const old = deferred()
     mocks.fetchAdvancedRecords.mockReturnValueOnce(old.promise)

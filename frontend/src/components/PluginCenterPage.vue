@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useId, watch } from 'vue'
 import {
   activatePluginVersion,
   createPlugin,
@@ -19,8 +19,10 @@ import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
 import DeleteConfirmDialog from './DeleteConfirmDialog.vue'
 import { useDeleteConfirm } from '../composables/useDeleteConfirm'
+import { useDialogFocus } from '../composables/useDialogFocus'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 
 const props = defineProps<{ token: string; isSuperAdmin?: boolean }>()
 const emit = defineEmits<{
@@ -35,6 +37,13 @@ const plugins = ref<PluginCatalogInfo[]>([])
 const selectedKey = ref('')
 const showCreateForm = ref(false)
 const showVersionForm = ref(false)
+const createPluginDialog = ref<HTMLFormElement | null>(null)
+const versionPluginDialog = ref<HTMLFormElement | null>(null)
+const pluginModalTitleId = useId()
+function closeCreatePlugin() { if (!saving.value) showCreateForm.value = false }
+function closeVersionPlugin() { if (!saving.value) showVersionForm.value = false }
+useDialogFocus(createPluginDialog, () => showCreateForm.value, closeCreatePlugin)
+useDialogFocus(versionPluginDialog, () => showVersionForm.value, closeVersionPlugin)
 const loadError = ref('')
 const beginLoad = useLatestRequest()
 let sessionGeneration = 0
@@ -105,7 +114,7 @@ async function loadPlugins(keepSelection = true) {
 }
 
 async function submitCreate() {
-  if (saving.value || !props.token) return
+  if (!showCreateForm.value || saving.value || !props.token) return
   const context = actionContext()
   if (!createForm.pluginKey.trim() || !createForm.name.trim()) {
     emit('error', '请填写插件标识和插件名称')
@@ -135,7 +144,7 @@ async function submitCreate() {
 }
 
 async function submitVersion() {
-  if (saving.value || !props.token) return
+  if (!showVersionForm.value || saving.value || !props.token) return
   const context = actionContext()
   if (!selectedPlugin.value || !versionForm.version.trim()) {
     emit('error', '请填写插件版本')
@@ -365,35 +374,39 @@ onBeforeUnmount(() => { sessionGeneration++; beginLoad(); handleCancel() })
       <div v-else class="plugin-detail-panel plugin-empty-detail">选择一个插件查看版本和工厂配置</div>
     </div>
 
-    <div v-if="showCreateForm" class="plugin-modal-mask modal-backdrop" @click.self="showCreateForm = false">
-      <form class="plugin-modal modal" @submit.prevent="submitCreate">
-        <div class="plugin-modal-header modal-header"><h3>登记插件</h3><button type="button" class="icon-btn ui-icon-button" @click="showCreateForm = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button></div>
-        <div class="plugin-form-grid">
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="showCreateForm" class="plugin-modal-mask modal-backdrop workspace-dialog-motion-backdrop" @click.self="closeCreatePlugin">
+      <form ref="createPluginDialog" class="plugin-modal modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="`${pluginModalTitleId}-register`" :aria-busy="saving" tabindex="-1" @submit.prevent="submitCreate">
+        <div class="plugin-modal-header modal-header"><h3 :id="`${pluginModalTitleId}-register`">登记插件</h3><button type="button" class="icon-btn ui-icon-button" :disabled="saving" @click="closeCreatePlugin" title="关闭" aria-label="关闭"><UiIcon name="close" /></button></div>
+        <fieldset class="plugin-form-grid" :disabled="saving">
           <label><span>插件标识</span><input v-model="createForm.pluginKey" placeholder="例如 quality-management" maxlength="64" /></label>
           <label><span>插件名称</span><input v-model="createForm.name" placeholder="例如质量管理" maxlength="128" /></label>
           <label><span>插件类型</span><input v-model="createForm.pluginType" placeholder="CUSTOM" maxlength="32" /></label>
           <label><span>运行模式</span><select v-model="createForm.runtimeMode"><option value="IFRAME">IFRAME 隔离页面</option><option value="REMOTE_SERVICE">独立服务</option><option value="BUILT_IN">核心内置</option></select></label>
           <label class="full"><span>描述</span><input v-model="createForm.description" placeholder="说明插件解决的业务问题" maxlength="500" /></label>
           <label class="full"><span>插件清单 JSON</span><textarea v-model="createForm.manifestJson" class="plugin-json-editor" spellcheck="false"></textarea></label>
-        </div>
-        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn ui-icon-button" type="button" @click="showCreateForm = false" title="取消" aria-label="取消"><UiIcon name="close" /></button><button class="primary-btn" type="submit" :disabled="saving">登记</button></div>
+        </fieldset>
+        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn ui-icon-button" type="button" :disabled="saving" @click="closeCreatePlugin" title="取消" aria-label="取消"><UiIcon name="close" /></button><button class="primary-btn" type="submit" :disabled="saving">{{ saving ? '保存中...' : '登记' }}</button></div>
       </form>
     </div>
+    </Transition>
 
-    <div v-if="showVersionForm" class="plugin-modal-mask modal-backdrop" @click.self="showVersionForm = false">
-      <form class="plugin-modal modal" @submit.prevent="submitVersion">
-        <div class="plugin-modal-header modal-header"><h3>登记插件版本</h3><button type="button" class="icon-btn ui-icon-button" @click="showVersionForm = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button></div>
-        <div class="plugin-form-grid">
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="showVersionForm" class="plugin-modal-mask modal-backdrop workspace-dialog-motion-backdrop" @click.self="closeVersionPlugin">
+      <form ref="versionPluginDialog" class="plugin-modal modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="`${pluginModalTitleId}-version`" :aria-busy="saving" tabindex="-1" @submit.prevent="submitVersion">
+        <div class="plugin-modal-header modal-header"><h3 :id="`${pluginModalTitleId}-version`">登记插件版本</h3><button type="button" class="icon-btn ui-icon-button" :disabled="saving" @click="closeVersionPlugin" title="关闭" aria-label="关闭"><UiIcon name="close" /></button></div>
+        <fieldset class="plugin-form-grid" :disabled="saving">
           <label><span>版本号</span><input v-model="versionForm.version" placeholder="例如 1.0.0" maxlength="64" /></label>
           <label><span>镜像名称</span><input v-model="versionForm.imageName" placeholder="quality-management:1.0.0" /></label>
           <label class="full"><span>制品地址</span><input v-model="versionForm.artifactUrl" placeholder="可选，填写插件包或镜像仓库地址" /></label>
           <label class="full"><span>SHA-256 校验值</span><input v-model="versionForm.checksum" placeholder="可选，生产环境建议填写" /></label>
           <label class="full"><span>发布说明</span><textarea v-model="versionForm.releaseNotes" placeholder="本次版本变更内容"></textarea></label>
           <label class="full"><span>版本清单 JSON</span><textarea v-model="versionForm.manifestJson" class="plugin-json-editor" spellcheck="false" placeholder="留空则沿用插件目录清单"></textarea></label>
-        </div>
-        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn ui-icon-button" type="button" @click="showVersionForm = false" title="取消" aria-label="取消"><UiIcon name="close" /></button><button class="primary-btn" type="submit" :disabled="saving">登记并设为可上线</button></div>
+        </fieldset>
+        <div class="plugin-modal-footer modal-footer"><button class="ghost-btn ui-icon-button" type="button" :disabled="saving" @click="closeVersionPlugin" title="取消" aria-label="取消"><UiIcon name="close" /></button><button class="primary-btn" type="submit" :disabled="saving">{{ saving ? '保存中...' : '登记并设为可上线' }}</button></div>
       </form>
     </div>
+    </Transition>
 
     <DeleteConfirmDialog
       v-model:visible="confirmVisible"
@@ -450,7 +463,7 @@ onBeforeUnmount(() => { sessionGeneration++; beginLoad(); handleCancel() })
 .plugin-modal { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: auto; padding: 20px; border: 1px solid #dce7e2; border-radius: 8px; background: #fff; box-shadow: 0 20px 60px rgba(14, 35, 29, .25); }
 .plugin-modal-header, .plugin-modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; }.plugin-modal-header { padding-bottom: 14px; border-bottom: 1px solid #edf2f0; }.plugin-modal-header h3 { margin: 0; color: #24332f; font-size: 17px; }.plugin-modal-footer { justify-content: flex-end; margin-top: 16px; padding-top: 14px; border-top: 1px solid #edf2f0; }
 .icon-btn { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: #6e7c77; cursor: pointer; }.icon-btn:hover { background: #f0f5f2; }
-.plugin-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; padding-top: 16px; }.plugin-form-grid label { display: grid; gap: 7px; color: #53635d; font-size: 12px; }.plugin-form-grid label.full { grid-column: 1 / -1; }.plugin-form-grid input, .plugin-form-grid select, .plugin-form-grid textarea { width: 100%; box-sizing: border-box; min-height: 35px; padding: 7px 9px; border: 1px solid #d9e4df; border-radius: 5px; color: #2d3c37; background: #fff; font: inherit; }.plugin-form-grid textarea { min-height: 74px; resize: vertical; }
+.plugin-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; padding: 16px 0 0; margin: 0; border: 0; min-width: 0; }.plugin-form-grid label { display: grid; gap: 7px; color: #53635d; font-size: 12px; }.plugin-form-grid label.full { grid-column: 1 / -1; }.plugin-form-grid input, .plugin-form-grid select, .plugin-form-grid textarea { width: 100%; box-sizing: border-box; min-height: 35px; padding: 7px 9px; border: 1px solid #d9e4df; border-radius: 5px; color: #2d3c37; background: #fff; font: inherit; }.plugin-form-grid textarea { min-height: 74px; resize: vertical; }
 .danger-btn { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border: 1px solid #efcaca; border-radius: 5px; color: #c44950; background: #fff7f7; cursor: pointer; }.danger-btn:hover { background: #ffeded; }
 @media (max-width: 900px) { .plugin-layout { grid-template-columns: 1fr; }.plugin-list-panel { min-height: 0; }.plugin-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .plugin-page-header, .plugin-detail-header { align-items: flex-start; flex-direction: column; }.plugin-config-grid, .plugin-form-grid { grid-template-columns: 1fr; }.plugin-form-grid label.full { grid-column: auto; }.plugin-detail-panel { padding: 14px; } }

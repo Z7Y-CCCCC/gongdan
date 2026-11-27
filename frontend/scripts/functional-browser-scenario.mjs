@@ -29,7 +29,7 @@ async (page) => {
     let modal = page.locator('.modal-backdrop .modal').filter({ has: page.getByRole('heading', { name: 'Create unit', exact: true }) })
     await modal.getByRole('textbox', { name: '*Name', exact: true }).fill(name)
     await modal.getByRole('textbox', { name: 'Notes', exact: true }).fill('保存')
-    await modal.getByRole('button', { name: 'Confirm', exact: true }).click()
+    await modal.getByRole('button', { name: 'Save unit', exact: true }).click()
     await modal.waitFor({ state: 'hidden' })
     await page.getByRole('row').filter({ hasText: name }).waitFor()
     await page.reload({ waitUntil: 'networkidle' })
@@ -40,7 +40,7 @@ async (page) => {
     await row.getByRole('button', { name: 'Edit', exact: true }).click()
     modal = page.locator('.modal-backdrop .modal').filter({ has: page.getByRole('heading', { name: 'Edit unit', exact: true }) })
     await modal.getByRole('textbox', { name: '*Name', exact: true }).fill(`${name} edited`)
-    await modal.getByRole('button', { name: 'Confirm', exact: true }).click()
+    await modal.getByRole('button', { name: 'Save unit', exact: true }).click()
     await modal.waitFor({ state: 'hidden' })
     row = page.getByRole('row').filter({ hasText: `${name} edited` })
     await row.waitFor()
@@ -65,13 +65,19 @@ async (page) => {
       await ready()
       const content = await page.locator(route === 'dashboard' ? '.dashboard-fullscreen' : '.page-motion-stage').innerText()
       check(content.trim().length > 0, `${route}: rendered the actual workspace`)
-      const untranslatedControls = await page.locator('button, h1, h2, h3, th').evaluateAll(elements => elements.filter(el => el.getClientRects().length).map(el => `${el.textContent?.trim()} ${el.getAttribute('aria-label') || ''}`).filter(text => /\p{Script=Han}/u.test(text)))
+      const untranslatedControls = await page.locator('button, h1, h2, h3, th').evaluateAll(elements => elements.filter(el => el.getClientRects().length).map(el => {
+        const label = el.getAttribute('aria-label') || ''
+        // The top-bar user name is user data, not translatable interface copy.
+        return el.matches('.user-profile-trigger') ? label : `${el.textContent?.trim()} ${label}`
+      }).filter(text => /\p{Script=Han}/u.test(text)))
       pages.push({ route, untranslatedControls })
       if (['home', 'production-workorder', 'sysconfig-factory', 'monitor-cache'].includes(route)) {
         await page.screenshot({ path: `output/playwright/management-functional/${route}-en.png`, animations: 'disabled' })
       }
     }
-    check(pages.every(item => item.untranslatedControls.length === 0), 'Seeded page controls and system notification text are fully English')
+    const untranslated = pages.filter(item => item.untranslatedControls.length > 0)
+    if (untranslated.length) throw Error(`Untranslated controls: ${JSON.stringify(untranslated)}`)
+    checks.push('Seeded page controls and system notification text are fully English')
     await page.goto(`${origin}/?workspace=basedata-unit`, { waitUntil: 'networkidle' })
     await ready()
     await page.getByRole('button', { name: 'Home', exact: true }).click()
@@ -106,10 +112,10 @@ async (page) => {
     await page.screenshot({ path: 'output/playwright/management-functional/home-dark-en.png', animations: 'disabled' })
     await page.getByRole('button', { name: 'Switch to light theme', exact: true }).click()
     await page.getByRole('button', { name: 'Language', exact: true }).click()
-    await page.getByRole('menuitemradio', { name: 'Simplified Chinese', exact: true }).click()
+    await page.getByRole('button', { name: 'Simplified Chinese', exact: true }).click()
     check(await page.getByRole('button', { name: '主页', exact: true }).isVisible(), 'Switch back to Chinese without reload')
     await page.getByRole('button', { name: '语言', exact: true }).click()
-    await page.getByRole('menuitemradio', { name: 'English', exact: true }).click()
+    await page.getByRole('button', { name: 'English', exact: true }).click()
     check(await page.getByRole('button', { name: 'Home', exact: true }).isVisible(), 'Switch to English again without reload')
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.getByRole('button', { name: 'Time zone', exact: true }).click()

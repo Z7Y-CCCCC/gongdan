@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { fetchReports, fetchWorkOrders, type WorkOrderInfo, type WorkOrderReportInfo } from '../api'
 import UiIcon from './UiIcon.vue'
 import TableConfigButton from './TableConfigButton.vue'
+import PageLoadFeedback from './PageLoadFeedback.vue'
 import { useLatestRequest } from '../composables/useLatestRequest'
 import { useRefreshOnActivated } from '../composables/useRefreshOnActivated'
 import { fetchAllPages } from '../utils/pagination'
 
 const props = defineProps<{ token: string }>()
-const emit = defineEmits<{ notice: [message: string] }>()
-
-const loading = ref(false)
+defineEmits<{ notice: [message: string] }>()
+const loading = ref(true)
+const loadError = ref('')
+const hasData = ref(false)
 const beginLoad = useLatestRequest()
 const workOrders = ref<WorkOrderInfo[]>([])
 const reports = ref<WorkOrderReportInfo[]>([])
@@ -59,19 +61,24 @@ const recentReports = computed(() => reports.value.slice(0, 10))
 
 async function loadData() {
   const isCurrent = beginLoad()
+  const token = props.token
+  const current = () => isCurrent() && token === props.token
+  if (!token) { loading.value = false; return }
   loading.value = true
+  loadError.value = ''
   try {
     const [workOrderRes, reportRes] = await Promise.all([
-      fetchAllPages(params => fetchWorkOrders(props.token, params), 500, isCurrent),
-      fetchAllPages(params => fetchReports(props.token, params), 500, isCurrent)
+      fetchAllPages(params => fetchWorkOrders(token, params), 500, current),
+      fetchAllPages(params => fetchReports(token, params), 500, current)
     ])
-    if (!isCurrent()) return
-    workOrders.value = workOrderRes.items || []
-    reports.value = reportRes.items || []
-  } catch (e) {
-    if (isCurrent()) emit('notice', e instanceof Error ? e.message : '报表数据加载失败')
+    if (!current()) return
+    workOrders.value = workOrderRes.items
+    reports.value = reportRes.items
+    hasData.value = true
+  } catch (error) {
+    if (current()) loadError.value = error instanceof Error && error.message ? error.message : '报表数据加载失败'
   } finally {
-    if (isCurrent()) loading.value = false
+    if (current()) loading.value = false
   }
 }
 
@@ -88,6 +95,13 @@ function statusLabel(status: string) {
 
 useRefreshOnActivated(loadData)
 onMounted(loadData)
+watch(() => props.token, () => {
+  workOrders.value = []
+  reports.value = []
+  hasData.value = false
+  loadError.value = ''
+  void loadData()
+}, { flush: 'sync' })
 </script>
 
 <template>
@@ -99,7 +113,10 @@ onMounted(loadData)
       <button class="ghost-btn ui-icon-button" type="button" :disabled="loading" @click="loadData" title="刷新生产报表" aria-label="刷新生产报表"><UiIcon name="refresh" /></button>
     </div>
 
-    <div class="metric-grid">
+    <PageLoadFeedback :loading="loading" :error="loadError" :has-data="hasData" @retry="loadData" />
+
+    <template v-if="hasData">
+    <div class="metric-grid" :aria-busy="loading">
       <div class="metric-card">
         <span>工单数</span>
         <strong>{{ workOrders.length }}</strong>
@@ -126,9 +143,7 @@ onMounted(loadData)
       </div>
     </div>
 
-    <div v-if="loading" class="empty-cell">加载中...</div>
-
-    <div v-else class="report-grid">
+    <div class="report-grid" :aria-busy="loading">
       <div class="report-panel">
         <div class="panel-title report-panel-heading"><span>产品产出排行</span><TableConfigButton table-id="report-product-table" /></div>
         <table id="report-product-table" class="data-table compact-table">
@@ -180,7 +195,7 @@ onMounted(loadData)
       </div>
     </div>
 
-    <div class="report-panel">
+    <div class="report-panel" :aria-busy="loading">
       <div class="panel-title report-panel-heading"><span>最近报工</span><TableConfigButton table-id="report-latest-table" /></div>
       <table id="report-latest-table" class="data-table compact-table">
         <thead>
@@ -212,6 +227,7 @@ onMounted(loadData)
         </tbody>
       </table>
     </div>
+    </template>
   </section>
 </template>
 

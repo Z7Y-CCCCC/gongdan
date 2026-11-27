@@ -2,6 +2,9 @@
 import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
 import { externalSources, type ExternalSourceInfo, type ExternalSourceConfig, type ExternalSourceCheck, type ExternalSchemaResult, type ExternalSourceCapabilities } from '../api'
 import UiIcon from './UiIcon.vue'
+import { useDialogFocus } from '../composables/useDialogFocus'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
+import { t } from '../i18n'
 
 const props = defineProps<{ token: string }>()
 const emit = defineEmits<{ (e: 'error', message: string): void; (e: 'notice', message: string): void }>()
@@ -36,6 +39,16 @@ const schemaSource = ref<ExternalSourceInfo | null>(null)
 const schemaTable = ref('')
 const schemaPage = ref(0)
 const confirmArchive = ref<ExternalSourceInfo | null>(null)
+const editorDialog = ref<HTMLElement | null>(null)
+const editorName = ref<HTMLInputElement | null>(null)
+const historyDialog = ref<HTMLElement | null>(null)
+const schemaDialog = ref<HTMLElement | null>(null)
+const archiveDialog = ref<HTMLElement | null>(null)
+let editorBaseline = ''
+useDialogFocus(editorDialog, () => editing.value, closeEditor, () => editorName.value)
+useDialogFocus(historyDialog, () => Boolean(history.value), closeHistory)
+useDialogFocus(schemaDialog, () => Boolean(schemaResult.value), closeSchema)
+useDialogFocus(archiveDialog, () => Boolean(confirmArchive.value), closeArchive)
 let generation = 0
 let active = true
 let historyGeneration = 0
@@ -88,6 +101,14 @@ function clearSecrets() {
 }
 function closeHistory() { historyGeneration++; history.value = null; historySource.value = null; historyPage.value = 0; historyMore.value = false }
 function closeSchema() { schemaGeneration++; schemaResult.value = null; schemaSource.value = null; schemaTable.value = ''; schemaPage.value = 0 }
+function closeArchive() { if (!busy.value) confirmArchive.value = null }
+function closeEditor() {
+  if (busy.value) return
+  const hasChanges = JSON.stringify({ ...form, secretValue: '' }) !== editorBaseline || Boolean(form.secretValue)
+  if (hasChanges && !window.confirm(t('关闭后，本次修改不会保存。'))) return
+  clearSecrets()
+  editorBaseline = ''
+}
 function clearDialogs() { clearSecrets(); closeHistory(); closeSchema(); confirmArchive.value = null }
 function sourceHealth(source: ExternalSourceInfo) {
   const checked = source.lastCheck
@@ -137,6 +158,7 @@ function populate(source?: ExternalSourceInfo) {
 }
 function open(source?: ExternalSourceInfo) {
   populate(source)
+  editorBaseline = JSON.stringify({ ...form, secretValue: '' })
   invalidateResult(); editing.value = true; error.value = ''
 }
 function kindChanged() {
@@ -183,6 +205,7 @@ async function save(andTest = false) {
     const saved = await externalSources.save(request.token, payload(), selected.value?.id)
     if (!request.current()) return
     populate(saved)
+    editorBaseline = JSON.stringify({ ...form, secretValue: '' })
     message.value = '配置已保存'
     if (andTest) {
       try {
@@ -299,13 +322,14 @@ async function changeArchive(event: Event) {
     <footer class="pagination"><span>共 {{ total }} 个 · 第 {{ page + 1 }} 页</span><button :disabled="busy || page === 0" @click="changePage(-1)" title="上一页" aria-label="上一页" class="ui-icon-button" type="button"><UiIcon name="arrowLeft" /></button><button :disabled="busy || !more" @click="changePage(1)" title="下一页" aria-label="下一页" class="ui-icon-button" type="button"><UiIcon name="arrowRight" /></button></footer>
     <div v-if="result && !editing" class="test-result"><p>{{ resultContext }}<template v-if="result.configVersion != null"> · 版本 {{ result.configVersion }}</template></p><strong>{{ healthLabels[result.status] }} · {{ result.message }}</strong><small>HTTP {{ resultKind === 'DATABASE' ? '不适用' : result.httpStatus ?? '—' }} · {{ result.durationMs ?? '—' }} ms · 追踪编号 {{ result.traceId }}</small></div>
 
-    <div v-if="editing" class="overlay">
-      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="source-form-title">
-        <header><div><h3 id="source-form-title">{{ selected ? '编辑数据源' : '新增数据源' }}</h3><p>配置由当前工厂隔离保存，外部请求仅从后端发出。</p></div><button :disabled="busy" aria-label="关闭配置" @click="clearSecrets" title="关闭配置" class="ui-icon-button" type="button"><UiIcon name="close" /></button></header>
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="editing" class="overlay workspace-dialog-motion-backdrop">
+      <section ref="editorDialog" class="dialog workspace-dialog-motion-panel" role="dialog" aria-modal="true" aria-labelledby="source-form-title" tabindex="-1">
+        <header><div><h3 id="source-form-title">{{ selected ? '编辑数据源' : '新增数据源' }}</h3><p>配置由当前工厂隔离保存，外部请求仅从后端发出。</p></div><button :disabled="busy" aria-label="关闭配置" @click="closeEditor" title="关闭配置" class="ui-icon-button" type="button"><UiIcon name="close" /></button></header>
         <form ref="editorForm" @submit.prevent="save(false)" @input="invalidateResult" @change="invalidateResult">
           <fieldset :disabled="busy">
             <div class="form-grid">
-              <label>名称<input v-model="form.name" maxlength="128" required placeholder="例如：车间设备采集服务" /></label>
+              <label>名称<input ref="editorName" v-model="form.name" maxlength="128" required placeholder="例如：车间设备采集服务" /></label>
               <label>编码<input v-model="form.code" :disabled="!!selected" maxlength="64" pattern="[A-Za-z0-9_\-]+" required placeholder="例如：workshop_mes" /></label>
               <label>类型<select v-model="form.kind" :disabled="!!selected" @change="kindChanged"><option value="HTTP">HTTP API</option><option value="DATABASE">数据库</option></select></label>
               <label>请求总超时（秒）<input v-model.number="form.timeoutSeconds" type="number" min="1" max="30" required /></label>
@@ -352,7 +376,9 @@ async function changeArchive(event: Event) {
         </form>
       </section>
     </div>
-    <div v-if="history" class="overlay"><section class="dialog" role="dialog" aria-modal="true" aria-label="检查记录">
+    </Transition>
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="history" class="overlay workspace-dialog-motion-backdrop"><section ref="historyDialog" class="dialog workspace-dialog-motion-panel" role="dialog" aria-modal="true" aria-label="检查记录" tabindex="-1">
       <header><h3>{{ historySource?.config.name }} · 检查记录</h3><button @click="closeHistory" title="关闭" aria-label="关闭" class="ui-icon-button" type="button"><UiIcon name="close" /></button></header>
       <p>仅手动检查，健康结果 15 分钟后标记过期。检查记录保留 30 天。</p>
       <p v-if="error" role="alert" class="error">{{ error }}</p>
@@ -362,7 +388,9 @@ async function changeArchive(event: Event) {
       </tbody></table></div>
       <footer><button :disabled="busy || historyPage === 0" @click="historySource && showHistory(historySource, historyPage - 1)" title="上一页" aria-label="上一页" class="ui-icon-button" type="button"><UiIcon name="arrowLeft" /></button><span>第 {{ historyPage + 1 }} 页</span><button :disabled="busy || !historyMore" @click="historySource && showHistory(historySource, historyPage + 1)" title="下一页" aria-label="下一页" class="ui-icon-button" type="button"><UiIcon name="arrowRight" /></button></footer>
     </section></div>
-    <div v-if="schemaResult" class="overlay"><section class="dialog" role="dialog" aria-modal="true" aria-label="表与字段">
+    </Transition>
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="schemaResult" class="overlay workspace-dialog-motion-backdrop"><section ref="schemaDialog" class="dialog workspace-dialog-motion-panel" role="dialog" aria-modal="true" aria-label="表与字段" tabindex="-1">
       <header><h3>{{ schemaSource?.config.name }} · {{ schemaTable || '表与视图' }}</h3><button @click="closeSchema" title="关闭" aria-label="关闭" class="ui-icon-button" type="button"><UiIcon name="close" /></button></header>
       <p>{{ schemaResult.message }}</p><p v-if="error" role="alert" class="error">{{ error }}</p>
       <button v-if="schemaTable" :disabled="busy" @click="schemaSource && showSchema(schemaSource)">返回表列表</button>
@@ -372,7 +400,10 @@ async function changeArchive(event: Event) {
       </tbody></table></div>
       <footer><button :disabled="busy || schemaPage === 0" @click="schemaSource && showSchema(schemaSource, schemaTable, schemaPage - 1)" title="上一页" aria-label="上一页" class="ui-icon-button" type="button"><UiIcon name="arrowLeft" /></button><span>第 {{ schemaPage + 1 }} 页</span><button :disabled="busy || !schemaResult.hasMore" @click="schemaSource && showSchema(schemaSource, schemaTable, schemaPage + 1)" title="下一页" aria-label="下一页" class="ui-icon-button" type="button"><UiIcon name="arrowRight" /></button></footer>
     </section></div>
-    <div v-if="confirmArchive" class="overlay"><section class="dialog compact" role="dialog" aria-modal="true" aria-label="归档数据源"><h3>归档「{{ confirmArchive.config.name }}」？</h3><p>将停用连接并移入归档列表，保留配置和检查记录。可随时恢复为停用状态。</p><footer><button :disabled="busy" @click="confirmArchive = null" title="取消" aria-label="取消" class="ui-icon-button" type="button"><UiIcon name="close" /></button><button class="primary" :disabled="busy" @click="action(confirmArchive, 'archive')">确认归档</button></footer></section></div>
+    </Transition>
+    <Transition v-bind="workspaceDialogMotion">
+    <div v-if="confirmArchive" class="overlay workspace-dialog-motion-backdrop"><section ref="archiveDialog" class="dialog compact workspace-dialog-motion-panel" role="dialog" aria-modal="true" aria-label="归档数据源" tabindex="-1"><h3>归档「{{ confirmArchive.config.name }}」？</h3><p>将停用连接并移入归档列表，保留配置和检查记录。可随时恢复为停用状态。</p><footer><button :disabled="busy" @click="closeArchive" title="取消" aria-label="取消" class="ui-icon-button" type="button"><UiIcon name="close" /></button><button class="primary" :disabled="busy" @click="action(confirmArchive, 'archive')">确认归档</button></footer></section></div>
+    </Transition>
   </section>
 </template>
 

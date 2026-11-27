@@ -13,8 +13,12 @@
     <view class="coverage-notice">
       可报 {{ tasks.length }} 项 · 已查 {{ loadedOrders }} / {{ orderTotal }} 工单
     </view>
+    <text class="sr-only" role="status">{{ checkingTaskId ? '正在确认报工权限…' : '' }}</text>
     <scroll-view scroll-y class="task-list" role="region" aria-label="任务列表" tabindex="0" @scrolltolower="loadMore">
-      <button v-for="task in tasks" :key="task.id" class="task-card ui-card-button" :aria-label="task.processName + '，' + task.workOrderCode + '，报工'" @click="handleTask(task)">
+      <view v-for="task in tasks" :key="task.id" class="task-card-row">
+      <button class="task-card ui-card-button" :class="{ 'permission-checking': checkingTaskId === task.id }"
+              :aria-label="task.processName + '，' + task.workOrderCode + '，报工'" :aria-busy="checkingTaskId === task.id"
+              :disabled="!!checkingTaskId" @click="handleTask(task)">
         <view class="task-info">
           <text class="task-name">{{ task.processName }}</text>
           <text class="task-order">{{ task.workOrderCode }} | {{ task.productName }}</text>
@@ -25,8 +29,11 @@
             <text class="progress-text">{{ task.completedQuantity + task.defectQuantity }}/{{ task.plannedQuantity }}</text>
           </view>
         </view>
-        <uni-icons type="right" size="16" color="#ccc" aria-hidden="true"></uni-icons>
+        <text v-if="checkingTaskId === task.id" class="task-check-label" aria-hidden="true">确认权限中…</text>
+        <uni-icons v-else type="right" size="16" color="#ccc" aria-hidden="true"></uni-icons>
       </button>
+      <text v-if="permissionError?.taskId === task.id" class="task-permission-error" role="alert">{{ permissionError.message }}</text>
+      </view>
 
       <view v-if="tasks.length === 0 && !loading && !errorMessage" class="empty">
         <text class="empty-text">{{ hasMore ? '暂无可报工序，可继续加载' : '暂无可报工序' }}</text>
@@ -81,23 +88,31 @@ const loadedOrders = ref(0)
 const errorMessage = ref('')
 const keyword = ref('')
 const hasMore = ref(false)
+const checkingTaskId = ref('')
+const permissionError = ref<{ taskId: string; message: string } | null>(null)
 const pageSize = 20
 type TaskQuery = { keyword: string; session: string }
 let activeQuery: TaskQuery | undefined
 let nextPage = 1
 const seen = new Set<number>()
-let checkingPermission = false
 let permissionSequence = 0
 let pageAlive = true
 
 onShow(loadTasks)
 onMounted(loadTasks)
-onHide(() => { activeQuery = undefined; loading.value = false; permissionSequence++; checkingPermission = false })
+onHide(() => { activeQuery = undefined; loading.value = false; resetPermissionCheck() })
 onBeforeUnmount(() => { pageAlive = false; activeQuery = undefined; permissionSequence++ })
+
+function resetPermissionCheck() {
+  permissionSequence++
+  checkingTaskId.value = ''
+  permissionError.value = null
+}
 
 async function loadTasks() {
   const query = { keyword: keyword.value.trim(), session: mobileSessionKey() }
   if (loading.value && activeQuery?.keyword === query.keyword && activeQuery.session === query.session) return
+  resetPermissionCheck()
   activeQuery = query
   tasks.value = []
   loadedOrders.value = 0
@@ -204,13 +219,14 @@ function hasReportPermission(task: WorkOrderTask) {
 }
 
 async function handleTask(task: TaskCard) {
-  if (!pageAlive || checkingPermission || !ensureLogin()) return
+  if (!pageAlive || checkingTaskId.value || !ensureLogin()) return
   const session = mobileSessionKey()
   const sequence = ++permissionSequence
   const query = activeQuery
   const isPageCurrent = pageActivity.capture()
   const current = () => pageAlive && isPageCurrent() && sequence === permissionSequence && query === activeQuery
-  checkingPermission = true
+  checkingTaskId.value = task.id
+  permissionError.value = null
   try {
     const users = await fetchWorkOrderReporters(task.workOrderId, task.sequenceNo)
     if (!current()) return
@@ -218,10 +234,11 @@ async function handleTask(task: TaskCard) {
     if (!users.some(user => user.id === uni.getStorageSync('user')?.id)) throw new Error('您没有此工序的报工权限')
   } catch (e: any) {
     if (!current()) return
-    uni.showToast({ title: e.message || '报工权限确认失败，请重试', icon: 'none' })
+    if (mobileSessionKey() !== session) uni.showToast({ title: '登录状态已变更，请刷新', icon: 'none' })
+    else permissionError.value = { taskId: task.id, message: e?.message || '报工权限确认失败，请重试' }
     return
   } finally {
-    if (pageAlive && sequence === permissionSequence) checkingPermission = false
+    if (pageAlive && sequence === permissionSequence) checkingTaskId.value = ''
   }
   const url = `/pages/report-form/index?orderId=${task.workOrderId}&processNo=${task.sequenceNo}&processName=${encodeURIComponent(task.processName)}&plannedQty=${task.plannedQuantity}&completedQty=${task.completedQuantity}&defectQty=${task.defectQuantity}&reportPermission=${encodeURIComponent(task.reportPermission || '')}`
   navigatePage(url)
@@ -272,16 +289,22 @@ async function handleTask(task: TaskCard) {
 
 .task-list::-webkit-scrollbar { display: none; }
 
+.task-card-row { margin-bottom: 24rpx; }
 .task-card {
   background: var(--mobile-surface, white);
   padding: 30rpx;
   border-radius: 20rpx;
   display: flex;
   align-items: center;
-  margin-bottom: 24rpx;
+  gap: 14rpx;
   box-shadow: 0 4rpx 20rpx rgba(0, 0, 0, 0.03);
   width: 100%;
 }
+
+.task-card[disabled] { color: var(--mobile-text, #333); cursor: default; }
+.task-card.permission-checking { background: var(--mobile-subtle, #e6f7f3); }
+.task-check-label { flex-shrink: 0; font-size: 23rpx; color: var(--mobile-link, #007a60); }
+.task-permission-error { display: block; padding: 12rpx 18rpx; color: var(--mobile-error, #a0332c); font-size: 24rpx; overflow-wrap: anywhere; }
 
 .task-icon {
   width: 80rpx;

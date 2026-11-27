@@ -50,7 +50,7 @@ describe('business forms honor required custom fields before posting', () => {
     await vm.saveOrder()
     expect(mocks.createWorkOrder).not.toHaveBeenCalled()
     expect(vm.activeTab).toBe('custom')
-    expect(wrapper.emitted('notice')).toContainEqual(['请填写必填字段「批次」'])
+    expect(wrapper.get('[role="alert"]').text()).toContain('请填写必填字段「批次」')
   })
   it.each([
     { name: '入库', component: InboundReceiptPage, method: 'handleSave', type: 'inboundType', time: 'inboundTime', write: 'createInboundReceipt' },

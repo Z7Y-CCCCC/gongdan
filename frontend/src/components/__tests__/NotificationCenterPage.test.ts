@@ -39,6 +39,15 @@ describe('notification center regressions', () => {
     return wrapper.vm as any
   }
 
+  it('names the search field and announces which range is selected', async () => {
+    await mountPage()
+    expect(wrapper.get('input[type="search"]').attributes('aria-label')).toBe('搜索通知标题或内容')
+    const range = wrapper.get('[role="group"][aria-label="通知范围"]')
+    expect(range.get('[aria-pressed="true"]').text()).toBe('当前通知')
+    await range.findAll('button')[3].trigger('click')
+    expect(range.get('[aria-pressed="true"]').text()).toBe('已归档')
+  })
+
   it('does not claim zero records after a failed refresh, and recovers through retry', async () => {
     mocks.fetchNotifications.mockResolvedValueOnce(result([notification()], 21))
     const vm = await mountPage()

@@ -78,6 +78,9 @@ import { setUiLocale, uiLocale, t, uiTimezone, setUiTimezone, formatUiDate } fro
 import { buildWorkspaceUrl, readWorkspaceRoute } from './utils/workspaceRoute'
 import { notificationHeading, notificationBody } from './utils/notificationLocale'
 import { createWorkspaceLeaveGuards, workspaceLeaveGuardsKey } from './utils/workspaceLeaveGuards'
+import { advancedWorkspaceSections, isAdvancedWorkspaceSection, type AdvancedWorkspaceSection } from './utils/advancedWorkspace'
+import { hasActiveDialog, useDialogFocus } from './composables/useDialogFocus'
+import { workspaceDialogMotion } from './workspaceDialogMotion'
 
 const ProductDefinitionPage = defineAsyncComponent(() => import('./components/ProductDefinitionPage.vue'))
 const BomPage = defineAsyncComponent(() => import('./components/BomPage.vue'))
@@ -200,6 +203,7 @@ const activeCustomMenu = ref('workorder')
 const activeInventoryMenu = ref('inbound') // 'inbound' | 'outbound' | 'detail' | 'balance' | 'summary'
 const activeMonitorMenu = ref<'online' | 'cache' | 'cacheList'>('online')
 const activePluginKey = ref('')
+const activeAdvancedSection = ref<AdvancedWorkspaceSection>('SOP')
 const runtimePlugins = ref<PluginRuntimeManifestInfo[]>([])
 const selectedRuntimePlugin = computed(() => runtimePlugins.value.find(item => item.pluginKey === activePluginKey.value) || null)
 const activePageCacheKey = computed(() => {
@@ -265,10 +269,15 @@ const workspaceTabs = ref<WorkspaceTab[]>([
 ])
 const activeWorkspaceTabId = ref('home')
 const tabContextMenu = reactive({ show: false, x: 0, y: 0, tabId: '' })
+const tabContextMenuRef = ref<HTMLElement | null>(null)
+const contextMenuTab = computed(() => workspaceTabs.value.find(tab => tab.id === tabContextMenu.tabId))
 const showChromeQuickMenu = ref(false)
 const showQuickApps = ref(false)
 const showLanguageMenu = ref(false)
 const showTimezoneDialog = ref(false)
+const timezoneDialogRef = ref<HTMLElement | null>(null)
+const timezoneSaveError = ref('')
+useDialogFocus(timezoneDialogRef, () => showTimezoneDialog.value, closeTimezoneDialog)
 const showWorkspaceSearch = ref(false)
 const workspaceSearchInput = ref<HTMLInputElement | null>(null)
 const isWorkspaceMaximized = ref(false)
@@ -379,18 +388,43 @@ function activateWorkspaceTabFromEvent(tab: WorkspaceTabItem) {
   activateWorkspaceTab(tab as WorkspaceTab)
 }
 
-function openTabContextMenu(event: MouseEvent, tab: WorkspaceTabItem) {
+function openTabContextMenu(event: MouseEvent | KeyboardEvent, tab: WorkspaceTabItem) {
   const menuWidth = 220
   const menuHeight = 324
-  tabContextMenu.x = Math.min(event.clientX, window.innerWidth - menuWidth - 12)
-  tabContextMenu.y = Math.min(event.clientY, window.innerHeight - menuHeight - 12)
+  const opener = document.getElementById(`workspace-tab-${tab.id}`)?.getBoundingClientRect()
+  const left = event instanceof MouseEvent ? event.clientX : (opener?.left ?? 12)
+  const top = event instanceof MouseEvent ? event.clientY : (opener?.bottom ?? 12)
+  tabContextMenu.x = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 12))
+  tabContextMenu.y = Math.max(8, Math.min(top, window.innerHeight - menuHeight - 12))
   tabContextMenu.tabId = tab.id
   tabContextMenu.show = true
   showChromeQuickMenu.value = false
+  void nextTick(() => tabContextMenuRef.value?.querySelector<HTMLElement>('button:not(:disabled)')?.focus())
 }
 
-function closeTabContextMenu() {
+function closeTabContextMenu(restore = true) {
+  const restoreFocus = restore && tabContextMenuRef.value?.contains(document.activeElement)
+  const openerId = tabContextMenu.tabId
   tabContextMenu.show = false
+  if (restoreFocus) void nextTick(() => {
+    (document.getElementById(`workspace-tab-${openerId}`) ?? document.getElementById(`workspace-tab-${activeWorkspaceTabId.value}`))?.focus()
+  })
+}
+
+function handleTabMenuKey(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeTabContextMenu()
+    return
+  }
+  if (event.key === 'Tab') { closeTabContextMenu(); return }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const items = Array.from(tabContextMenuRef.value?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? [])
+  const current = items.findIndex(item => item === document.activeElement)
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+    : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+  items[next]?.focus()
 }
 
 function closeWorkspaceTab(id: string) {
@@ -466,7 +500,7 @@ function refreshWorkspace() {
 function openCurrentTabInNewWindow() {
   const target = workspaceTabs.value.find(tab => tab.id === tabContextMenu.tabId) || captureWorkspaceTab()
   let href = ''
-  try { href = buildWorkspaceUrl(window.location.href, target.id) }
+  try { href = buildWorkspaceUrl(window.location.href, target.id === 'advanced' ? `advanced-${activeAdvancedSection.value.toLowerCase()}` : target.id) }
   catch { showAction('当前页面不能在新窗口打开'); return }
   const opened = window.open('about:blank', '_blank')
   if (!opened) { showAction('浏览器阻止了窗口，请允许弹窗后重试'); return }
@@ -485,6 +519,11 @@ function jumpFromQuickApp(main: string, sub = '') {
   if (main === 'sysconfig' && sub) activeConfigMenu.value = sub
   if (main === 'monitor' && sub) activeMonitorMenu.value = sub as 'online' | 'cache' | 'cacheList'
   if (main === 'plugin' && sub) activePluginKey.value = sub
+  if (main === 'advanced') {
+    const section = sub.toUpperCase()
+    if (isAdvancedWorkspaceSection(section)) activeAdvancedSection.value = section
+    expandedMenus.advanced = true
+  }
   showQuickApps.value = false
 }
 
@@ -546,6 +585,7 @@ function openInternalChat() {
 
 function openTimezoneDialog() {
   timezoneDraft.value = selectedTimezone.value
+  timezoneSaveError.value = ''
   showTimezoneDialog.value = true
   showQuickApps.value = false
   showChromeQuickMenu.value = false
@@ -557,7 +597,12 @@ function closeTimezoneDialog() {
 }
 
 function confirmTimezone() {
-  if (!setUiTimezone(timezoneDraft.value)) return
+  try {
+    if (!setUiTimezone(timezoneDraft.value)) return
+  } catch {
+    timezoneSaveError.value = t('无法保存时区设置，请重试。')
+    return
+  }
   showTimezoneDialog.value = false
   const selected = timezoneOptions.find(option => option.value === selectedTimezone.value)
   showAction(`时区已切换为 ${selected?.label || selectedTimezone.value}`)
@@ -976,8 +1021,13 @@ const tableData = ref<Array<{ code: string; product: string; qty: number; custom
 const taskProgressData = ref<Array<{ process: string; taskCount: number; planned: number; good: number; defect: number; remaining: number }>>([])
 
 const showEditPrintTemplateModal = ref(false)
+const printTemplateDialogRef = ref<HTMLElement | null>(null)
+const printTemplateNameRef = ref<HTMLInputElement | null>(null)
+const printTemplateError = ref('')
+let printTemplateBaseline = ''
+useDialogFocus(printTemplateDialogRef, () => showEditPrintTemplateModal.value, closeEditPrintTemplate, () => printTemplateNameRef.value)
 
-const workOrderFields = ref([
+const workOrderFields = [
   '工单编号',
   '产品编号',
   '产品名称',
@@ -992,9 +1042,10 @@ const workOrderFields = ref([
   '创建时间',
   '更新人',
   '更新时间'
-])
+]
+const printQrSources = ['工单二维码', ...workOrderFields]
 
-const printTemplates = ref([
+const newPrintTemplates = () => [
   { id: 1, type: '30x40', name: '工单二维码(30*40mm)', qrSource: '工单二维码', row1: '产品名称', row2: '工单编号', titleField: '' },
   { 
     id: 2, 
@@ -1016,7 +1067,8 @@ const printTemplates = ref([
     row6Label: '备注',
     row6Field: ['工单备注']
   }
-])
+]
+const printTemplates = ref(newPrintTemplates())
 const activeTemplateId = ref(1)
 const activeTemplateIndex = computed(() => {
   const index = printTemplates.value.findIndex(t => t.id === activeTemplateId.value)
@@ -1027,29 +1079,53 @@ const activeTpl = computed(() => {
 })
 
 function openEditPrintTemplate() {
+  printTemplates.value = newPrintTemplates()
+  printTemplateError.value = ''
+  activeTemplateId.value = 1
   try {
     const saved = localStorage.getItem('print_templates_data')
     if (saved) {
       const parsed = JSON.parse(saved)
       // 合并旧数据和新增加的数据项以保证字段完整
-      parsed.forEach((savedTpl: any) => {
+      if (Array.isArray(parsed)) parsed.forEach((savedTpl: any) => {
+        if (!savedTpl || typeof savedTpl !== 'object') return
         const localTpl = printTemplates.value.find(t => t.id === savedTpl.id)
         if (localTpl) {
-          Object.assign(localTpl, savedTpl)
+          // Type and identity are fixed built-in formats, not editable fields.
+          for (const [key, value] of Object.entries(savedTpl)) {
+            if (key === 'id' || key === 'type' || !Object.prototype.hasOwnProperty.call(localTpl, key)) continue
+            if (typeof value === 'string' || (Array.isArray(value) && key.endsWith('Field') && value.every(entry => typeof entry === 'string'))) {
+              Object.assign(localTpl, { [key]: value })
+            }
+          }
         }
       })
     }
   } catch(e) {
-    console.error('读取打印模板失败:', e)
+    printTemplateError.value = t('无法读取已保存的打印模板。')
   }
+  printTemplateBaseline = JSON.stringify(printTemplates.value)
   showEditPrintTemplateModal.value = true
 }
 
+function closeEditPrintTemplate() {
+  if (JSON.stringify(printTemplates.value) !== printTemplateBaseline && !window.confirm(t('关闭后，本次修改不会保存。'))) return
+  showEditPrintTemplateModal.value = false
+}
+
 function savePrintTemplates() {
+  const missingName = printTemplates.value.find(template => !template.name.trim())
+  if (missingName) {
+    activeTemplateId.value = missingName.id
+    printTemplateError.value = t('请填写模板名称')
+    void nextTick(() => printTemplateNameRef.value?.focus())
+    return
+  }
   try {
     localStorage.setItem('print_templates_data', JSON.stringify(printTemplates.value))
-  } catch(e) {
-    console.error('保存打印模板失败:', e)
+  } catch {
+    printTemplateError.value = t('打印模板保存失败，请重试。')
+    return
   }
   showAction('保存成功')
   showEditPrintTemplateModal.value = false
@@ -1074,9 +1150,13 @@ function toggleRowField(rowIndex: number, fieldName: string) {
 }
 
 const qrPreviewUrl = ref('')
-watchEffect(() => {
+watchEffect((onCleanup) => {
+  if (!showEditPrintTemplateModal.value) return
   const tpl = printTemplates.value[activeTemplateIndex.value]
   if (!tpl) return
+  let current = true
+  onCleanup(() => { current = false })
+  qrPreviewUrl.value = ''
   let text = ''
   if (tpl.qrSource === '工单外链') {
     text = `${window.location.origin}/workorder/preview`
@@ -1088,7 +1168,7 @@ watchEffect(() => {
     text = tpl.qrSource || 'WORK_ORDER_PREVIEW'
   }
   QRCode.toDataURL(text, { width: 400, margin: 2, color: { dark: '#000000', light: '#ffffff' } }).then((url: string) => {
-    qrPreviewUrl.value = url
+    if (current) qrPreviewUrl.value = url
   }).catch((err: any) => console.error('QR Generate Error:', err))
 })
 
@@ -2207,15 +2287,10 @@ function handleSearch() {
     { label: '缓存列表', mainMenu: 'monitor', subMenu: 'cacheList', expandedMenu: 'monitor' },
     { label: '车间看板', mainMenu: 'dashboard', subMenu: '', expandedMenu: '' },
     ...(isSuperAdmin.value ? [{ label: '高级报表', mainMenu: 'analytics', subMenu: '', expandedMenu: 'report' }] : []),
-    { label: 'SOP', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
-    { label: '文档库', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
-    { label: '消息推送', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
-    { label: '企业微信', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
-    { label: '质检返工', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
-    { label: '设备工位', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
-    { label: '排产甘特', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
-    { label: '工资绩效', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
-    { label: '现场事件', mainMenu: 'advanced', subMenu: '', expandedMenu: 'advanced' },
+    ...advancedWorkspaceSections.map(section => ({ label: section.label, mainMenu: 'advanced', subMenu: section.key, expandedMenu: 'advanced' })),
+    { label: '消息推送', mainMenu: 'advanced', subMenu: 'MESSAGE', expandedMenu: 'advanced' },
+    { label: '企业微信', mainMenu: 'advanced', subMenu: 'MESSAGE', expandedMenu: 'advanced' },
+    { label: '设备工位', mainMenu: 'advanced', subMenu: 'EQUIPMENT', expandedMenu: 'advanced' },
     { label: '主页', mainMenu: 'home', subMenu: '', expandedMenu: '' }
   ]
 
@@ -2230,16 +2305,11 @@ function handleSearch() {
 
   const match = menuMap.find(m => m.label.toLowerCase().includes(query) || t(m.label).toLowerCase().includes(query))
   if (match) {
-    activeMainMenu.value = match.mainMenu
+    jumpFromQuickApp(match.mainMenu, match.subMenu)
     if (activeMainMenu.value !== match.mainMenu) return
     if (match.expandedMenu) {
       expandedMenus[match.expandedMenu as keyof typeof expandedMenus] = true
     }
-    if (match.mainMenu === 'production') activeProductionMenu.value = match.subMenu
-    else if (match.mainMenu === 'basedata') activeBasedataMenu.value = match.subMenu
-    else if (match.mainMenu === 'custom') activeCustomMenu.value = match.subMenu
-    else if (match.mainMenu === 'sysconfig') activeConfigMenu.value = match.subMenu
-    else if (match.mainMenu === 'monitor') activeMonitorMenu.value = match.subMenu as 'online' | 'cache' | 'cacheList'
     searchQuery.value = ''
   }
 }
@@ -2924,6 +2994,7 @@ function resetAuthenticatedWorkspace() {
   phoneError.value = ''
   runtimePlugins.value = []
   activePluginKey.value = ''
+  activeAdvancedSection.value = 'SOP'
   notificationItems.value = []
   notificationUnreadCount.value = 0
   beginNotificationLoad()
@@ -2997,11 +3068,32 @@ function handleShellClick(e: MouseEvent) {
   if (!target.closest('.route-step-select, .route-step-dropdown')) closeAllRouteStepDropdowns()
   if (!target.closest('.chrome-quick-wrap')) showChromeQuickMenu.value = false
   if (!target.closest('.chrome-dropdown-wrap')) { showQuickApps.value = false; showLanguageMenu.value = false }
-  if (!target.closest('.tab-context-menu, .workspace-tabs')) closeTabContextMenu()
+  if (!target.closest('.tab-context-menu, .workspace-tabs')) closeTabContextMenu(false)
 }
 
 function handleShellKeydown(event: KeyboardEvent) {
-  if (!isLoggedIn.value || workspaceLoadingVisible.value) return
+  if (event.defaultPrevented || !isLoggedIn.value || workspaceLoadingVisible.value || hasActiveDialog()) return
+  if (event.key === 'Escape') {
+    if (tabContextMenu.show) {
+      closeTabContextMenu()
+      event.preventDefault()
+      return
+    }
+    const disclosure = [
+      [showNotificationDropdown, 'workspace-notifications-toggle'],
+      [showLanguageMenu, 'workspace-language-toggle'],
+      [showChromeQuickMenu, 'workspace-settings-toggle'],
+      [showQuickApps, 'workspace-apps-toggle']
+    ] as const
+    const open = disclosure.filter(([visible]) => visible.value)
+    if (open.length) {
+      const parent = open.find(([, id]) => document.getElementById(id)?.parentElement?.contains(document.activeElement)) ?? open[0]
+      open.forEach(([visible]) => { visible.value = false })
+      document.getElementById(parent[1])?.focus()
+      event.preventDefault()
+    }
+    return
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault()
     focusWorkspaceSearch()
@@ -3324,8 +3416,10 @@ function activateSidebarItem(event: KeyboardEvent) {
           </a>
           <Transition name="sidebar-expand">
             <div id="workspace-nav-advanced" v-show="!isSidebarCollapsed && expandedMenus.advanced" :inert="isSidebarCollapsed || !expandedMenus.advanced" class="sub-items-container">
-              <a role="button" tabindex="0" class="sub-item" :class="{ selected: activeMainMenu === 'advanced' }" :aria-current="activeMainMenu === 'advanced' ? 'page' : undefined" @click="activeMainMenu = 'advanced'"><UiIcon name="settings" :size="15" />SOP / 推送 / 质检 / 设备</a>
-              <a role="button" tabindex="0" class="sub-item" @click="activeMainMenu = 'advanced'"><UiIcon name="activity" :size="15" />排产 / 绩效 / 现场</a>
+              <a v-for="section in advancedWorkspaceSections" :key="section.key" role="button" tabindex="0" class="sub-item"
+                :class="{ selected: activeMainMenu === 'advanced' && activeAdvancedSection === section.key }"
+                :aria-current="activeMainMenu === 'advanced' && activeAdvancedSection === section.key ? 'page' : undefined"
+                @click="jumpFromQuickApp('advanced', section.key)"><UiIcon :name="section.icon" :size="15" />{{ t(section.label) }}</a>
             </div>
           </Transition>
         </div>
@@ -3456,7 +3550,7 @@ function activateSidebarItem(event: KeyboardEvent) {
             车间看板
           </template>
           <template v-else-if="activeMainMenu === 'advanced'">
-            高级运营
+            高级运营 <span>></span> {{ t(advancedWorkspaceSections.find(section => section.key === activeAdvancedSection)?.label || '') }}
           </template>
           <template v-else-if="activeMainMenu === 'report'">
             报表 <span>></span> 生产报表
@@ -3478,13 +3572,13 @@ function activateSidebarItem(event: KeyboardEvent) {
         <div class="top-actions">
           <div class="chrome-actions" aria-label="工作台工具">
             <div class="chrome-dropdown-wrap">
-              <button aria-label="应用中心" class="topbar-icon-btn" type="button" title="应用中心" @click.stop="toggleQuickApps">
+              <button id="workspace-apps-toggle" aria-label="应用中心" class="topbar-icon-btn" type="button" title="应用中心" :aria-expanded="showQuickApps" @click.stop="toggleQuickApps">
                 <UiIcon name="grid" :size="17" />
               </button>
               <Transition name="dropdown-motion">
                 <div v-if="showQuickApps" class="chrome-quick-menu chrome-app-menu" @click.stop>
                   <div class="chrome-menu-title">应用中心</div>
-                  <button type="button" @click="jumpFromQuickApp('home')"><UiIcon name="grid" :size="15" /> 分析页</button>
+                  <button type="button" @click="jumpFromQuickApp('home')"><UiIcon name="grid" :size="15" /> 主页</button>
                   <button type="button" @click="jumpFromQuickApp('production', 'workorder')"><UiIcon name="file" :size="15" /> 工单</button>
                   <button type="button" @click="jumpFromQuickApp('production', 'workbench')"><UiIcon name="check" :size="15" /> 报工工作台</button>
                   <button type="button" @click="jumpFromQuickApp('inventory', 'balance')"><UiIcon name="layers" :size="15" /> 库存余额</button>
@@ -3513,7 +3607,7 @@ function activateSidebarItem(event: KeyboardEvent) {
               />
             </div>
             <div class="chrome-quick-wrap">
-              <button aria-label="工作台设置" class="topbar-icon-btn" type="button" title="工作台设置" @click.stop="toggleChromeQuickMenu">
+              <button id="workspace-settings-toggle" aria-label="工作台设置" class="topbar-icon-btn" type="button" title="工作台设置" :aria-expanded="showChromeQuickMenu" @click.stop="toggleChromeQuickMenu">
                 <UiIcon name="settings" :size="17" />
               </button>
               <Transition name="dropdown-motion">
@@ -3537,14 +3631,14 @@ function activateSidebarItem(event: KeyboardEvent) {
               <UiIcon :key="isDarkTheme ? 'moon' : 'sun'" :name="isDarkTheme ? 'moon' : 'sun'" :size="17" />
             </button>
             <div class="chrome-dropdown-wrap">
-              <button aria-label="语言" class="topbar-icon-btn" type="button" title="语言" @click.stop="toggleLanguageMenu">
+              <button id="workspace-language-toggle" aria-label="语言" class="topbar-icon-btn" type="button" title="语言" :aria-expanded="showLanguageMenu" @click.stop="toggleLanguageMenu">
                 <UiIcon name="languages" :size="17" />
               </button>
               <Transition name="dropdown-motion">
                 <div v-if="showLanguageMenu" class="chrome-quick-menu chrome-language-menu" @click.stop>
                   <div class="chrome-menu-title">界面语言</div>
-                  <button type="button" role="menuitemradio" :aria-checked="uiLocale === 'zh-CN'" @click="selectLanguage('zh-CN')">简体中文</button>
-                  <button type="button" role="menuitemradio" :aria-checked="uiLocale === 'en-US'" @click="selectLanguage('en-US')">English</button>
+                  <button type="button" :aria-pressed="uiLocale === 'zh-CN'" @click="selectLanguage('zh-CN')">简体中文</button>
+                  <button type="button" :aria-pressed="uiLocale === 'en-US'" @click="selectLanguage('en-US')">English</button>
                 </div>
               </Transition>
             </div>
@@ -3563,7 +3657,7 @@ function activateSidebarItem(event: KeyboardEvent) {
             </div>
           </div>
           <template v-if="activeMainMenu === 'production' && activeProductionMenu === 'workorder'">
-            <button class="text-btn" style="color:#586360;font-size:13px;display:flex;align-items:center;gap:4px" @click="openEditPrintTemplate">
+            <button class="ui-action-button work-order-print-template-trigger" type="button" aria-haspopup="dialog" @click="openEditPrintTemplate">
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
               打印模板
             </button>
@@ -3571,7 +3665,7 @@ function activateSidebarItem(event: KeyboardEvent) {
           </template>
 
           <div class="notification-wrap">
-            <button aria-label="通知" class="topbar-icon-btn notification-btn" type="button" title="通知" @click.stop="toggleNotifications">
+            <button id="workspace-notifications-toggle" aria-label="通知" class="topbar-icon-btn notification-btn" type="button" title="通知" :aria-expanded="showNotificationDropdown" @click.stop="toggleNotifications">
               <UiIcon name="bell" :size="18" />
               <span v-if="notificationCount" class="notification-badge">{{ notificationCount > 99 ? '99+' : notificationCount }}</span>
             </button>
@@ -3589,8 +3683,8 @@ function activateSidebarItem(event: KeyboardEvent) {
                     </button>
                   </div>
                 </div>
-                <div v-if="notificationsLoading" class="notification-state">加载中...</div>
-                <div v-else-if="notificationError" class="notification-state error">{{ notificationError }}</div>
+                <div v-if="notificationsLoading" class="notification-state" role="status">加载中...</div>
+                <div v-else-if="notificationError" class="notification-state error" role="alert">{{ notificationError }}</div>
                 <div v-else-if="notificationPreview.length === 0" class="notification-state">暂无通知</div>
                 <template v-else>
                   <button
@@ -3648,16 +3742,19 @@ function activateSidebarItem(event: KeyboardEvent) {
 
       <div
         v-if="tabContextMenu.show"
+        ref="tabContextMenuRef"
         class="tab-context-menu"
         :style="{ left: `${tabContextMenu.x}px`, top: `${tabContextMenu.y}px` }"
         role="menu"
+        aria-label="标签页操作"
+        @keydown="handleTabMenuKey"
         @click.stop
       >
-        <button type="button" role="menuitem" @click="closeWorkspaceTab(tabContextMenu.tabId)">
+        <button type="button" role="menuitem" :disabled="!contextMenuTab?.closable || contextMenuTab.pinned" @click="closeWorkspaceTab(tabContextMenu.tabId)">
           <UiIcon name="close" :size="15" /> 关闭
         </button>
-        <button type="button" role="menuitem" @click="toggleTabPinned">
-          <UiIcon name="pin" :size="15" /> {{ workspaceTabs.find(tab => tab.id === tabContextMenu.tabId)?.pinned ? '取消固定' : '固定' }}
+        <button type="button" role="menuitem" :disabled="!contextMenuTab || contextMenuTab.id === 'home'" @click="toggleTabPinned">
+          <UiIcon name="pin" :size="15" /> {{ contextMenuTab?.pinned ? '取消固定' : '固定' }}
         </button>
         <button type="button" role="menuitem" @click="isWorkspaceMaximized = !isWorkspaceMaximized; closeTabContextMenu()">
           <UiIcon name="maximize" :size="15" /> {{ isWorkspaceMaximized ? '恢复窗口' : '最大化' }}
@@ -3716,6 +3813,8 @@ function activateSidebarItem(event: KeyboardEvent) {
             v-else-if="activeMainMenu === 'advanced'"
             key="advanced"
             :token="token"
+            :section="activeAdvancedSection"
+            @section-change="activeAdvancedSection = $event"
             @notice="showAction"
           />
           <ReportCenterPage
@@ -3765,6 +3864,7 @@ function activateSidebarItem(event: KeyboardEvent) {
             key="production-workorder"
             :token="token"
             @notice="showAction"
+            @error="errorMessage = $event"
           />
           <SalesOrderPage
             v-else-if="activeMainMenu === 'production' && activeProductionMenu === 'sales'"
@@ -4993,8 +5093,9 @@ function activateSidebarItem(event: KeyboardEvent) {
     </section>
   </main>
 
-  <div v-if="showTimezoneDialog" class="timezone-overlay modal-backdrop" @click.self="closeTimezoneDialog">
-    <section class="timezone-dialog modal" role="dialog" aria-modal="true" aria-labelledby="timezone-dialog-title">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showTimezoneDialog" class="timezone-overlay modal-backdrop workspace-dialog-motion-backdrop" @click.self="closeTimezoneDialog">
+    <section ref="timezoneDialogRef" class="timezone-dialog modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" aria-labelledby="timezone-dialog-title" tabindex="-1">
       <header class="timezone-dialog-header modal-header">
         <h2 id="timezone-dialog-title">设置时区</h2>
         <button class="timezone-close" type="button" title="关闭" aria-label="关闭" @click="closeTimezoneDialog">
@@ -5007,12 +5108,14 @@ function activateSidebarItem(event: KeyboardEvent) {
           <span>{{ option.label }}</span>
         </label>
       </div>
+      <p v-if="timezoneSaveError" class="workspace-modal-error" role="alert">{{ timezoneSaveError }}</p>
       <footer class="timezone-dialog-footer modal-footer">
         <button class="ghost-btn" type="button" @click="closeTimezoneDialog">取消</button>
         <button class="primary-btn" type="button" @click="confirmTimezone">确认</button>
       </footer>
     </section>
   </div>
+  </Transition>
 
   <!-- 导入日志弹窗 -->
   <div v-if="(false as boolean)" class="modal-backdrop">
@@ -5221,13 +5324,13 @@ function activateSidebarItem(event: KeyboardEvent) {
   />
 
   <!-- 操作成功提示 -->
-  <div v-if="actionMessage" class="action-toast success-toast">
+  <div v-if="actionMessage" class="action-toast success-toast" role="status">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/></svg>
     <span>{{ actionMessage }}</span>
   </div>
 
   <!-- 错误提示 -->
-  <div v-if="errorMessage" class="action-toast error-toast" @click="errorMessage = ''">
+  <div v-if="errorMessage" class="action-toast error-toast" role="alert" @click="errorMessage = ''">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#fff" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
     <span>{{ errorMessage }}</span>
   </div>
@@ -5334,72 +5437,58 @@ function activateSidebarItem(event: KeyboardEvent) {
   >{{ tooltipState.text }}</div>
 
   <!-- 编辑打印模板弹窗 -->
-  <div v-if="showEditPrintTemplateModal" class="modal-backdrop" style="z-index: 10000">
-    <section class="modal" style="width: 900px; padding: 0;">
-      <header class="modal-header" style="padding: 16px 24px; border-bottom: 1px solid #eee;">
-        <h2 style="font-size: 16px; margin: 0;">编辑打印模板</h2>
-        <button title="关闭" aria-label="关闭" class="close-btn" type="button" @click="showEditPrintTemplateModal = false"><UiIcon name="close" :size="18" /></button>
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showEditPrintTemplateModal" class="modal-backdrop workspace-dialog-motion-backdrop work-order-template-overlay">
+    <section ref="printTemplateDialogRef" class="modal work-order-template-dialog workspace-dialog-motion-panel" role="dialog" aria-modal="true" aria-labelledby="work-order-template-title" tabindex="-1">
+      <header class="modal-header">
+        <h2 id="work-order-template-title">编辑打印模板</h2>
+        <button title="关闭" aria-label="关闭" class="close-btn ui-icon-button" type="button" @click="closeEditPrintTemplate"><UiIcon name="close" :size="18" /></button>
       </header>
-      <div style="display: flex; height: 500px;">
+      <div class="work-order-template-layout">
         <!-- 左侧模板列表 -->
-        <div style="width: 220px; border-right: 1px solid #eee; background: #fafafa; display: flex; flex-direction: column;">
-          <div style="padding: 12px; display: flex; gap: 16px; border-bottom: 1px solid #eee;">
-            <span style="color: #00b889; border-bottom: 2px solid #00b889; padding-bottom: 4px; font-size: 13px; cursor: pointer;">内置打印</span>
-            <span style="color: #8a9693; font-size: 13px; cursor: pointer;">Excel模板打印</span>
-          </div>
-          <div style="padding: 16px; overflow-y: auto; flex: 1;">
-            <button class="ghost-btn" style="width: 100%; border-style: dashed; margin-bottom: 16px; color: #00b889; border-color: #00b889;">
-              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" style="margin-right: 4px; vertical-align: middle;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              创建模板
-            </button>
-            <div style="display: flex; flex-direction: column; gap: 12px;">
-              <div v-for="tpl in printTemplates" :key="tpl.id" 
-                   @click="activeTemplateId = tpl.id"
-                   style="border: 1px solid #e5e6e6; border-radius: 4px; padding: 12px; cursor: pointer; position: relative; text-align: center;"
-                   :style="tpl.id === activeTemplateId ? 'background: #e8f7f3; border-color: #00b889;' : 'background: #fff;'">
-                <div style="font-size: 12px; color: #555; margin-bottom: 8px; white-space: pre-wrap;">{{ tpl.type === '30x40' ? '30mm\n*\n40mm' : '80mm\n*\n60mm' }}</div>
-                <div style="font-size: 12px; font-weight: bold; margin-bottom: 8px;">{{ tpl.name.split('(')[0] }}(...</div>
-                <div style="font-size: 12px; color: #3498db;">删除</div>
-              </div>
-            </div>
-          </div>
+        <div class="work-order-template-options" role="group" aria-label="内置打印">
+          <h3>内置打印</h3>
+          <button v-for="tpl in printTemplates" :key="tpl.id" type="button" class="ghost-btn" :aria-pressed="tpl.id === activeTemplateId"
+            @click="activeTemplateId = tpl.id">
+            <strong>{{ tpl.type === '30x40' ? '30 × 40 mm' : '80 × 60 mm' }}</strong>
+            <span>{{ t(tpl.name) }}</span>
+          </button>
         </div>
         
         <!-- 中间编辑区 -->
-        <div style="flex: 1; border-right: 1px solid #eee; padding: 24px; overflow-y: auto; background: #fdfdfd;">
-          <h3 style="font-size: 14px; margin-top: 0; margin-bottom: 8px; color: #333;">配置打印模板 {{ activeTpl.type.replace('x', '*') }}mm</h3>
-          <p style="font-size: 12px; color: #8a9693; margin-top: 0; margin-bottom: 24px;">通过页面配置模板需要打印的标题、字段及二维码内容</p>
+        <div class="work-order-template-fields">
+          <h3>配置打印模板 {{ activeTpl.type.replace('x', ' × ') }} mm</h3>
           
           <div class="process-field">
-            <label class="process-label required" style="font-weight: normal; margin-bottom: 8px; display: block;">模板名称</label>
+            <label for="work-order-template-name" class="process-label required">模板名称</label>
             <div class="process-input-wrap">
-              <input class="process-input" v-model="activeTpl.name" />
+              <input id="work-order-template-name" ref="printTemplateNameRef" class="process-input" v-model="activeTpl.name" @input="printTemplateError = ''" required />
             </div>
           </div>
 
           <!-- 30x40 模板配置项 -->
           <template v-if="activeTpl.type === '30x40'">
             <div class="process-field" style="margin-top: 16px;">
-              <label class="process-label required" style="font-weight: normal; margin-bottom: 8px; display: block;">二维码内容</label>
+              <label class="process-label" for="work-order-template-qr">二维码内容</label>
               <div class="process-input-wrap">
-                <select class="process-input" v-model="activeTpl.qrSource" style="cursor: pointer; background: #fff;">
-                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+                <select id="work-order-template-qr" class="process-input" v-model="activeTpl.qrSource">
+                  <option v-for="f in printQrSources" :key="f" :value="f">{{ t(f) }}</option>
                 </select>
               </div>
             </div>
             <div class="process-field" style="margin-top: 16px;">
-              <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">第一行取值</label>
+              <label class="process-label" for="work-order-template-first">第一行取值</label>
               <div class="process-input-wrap">
-                <select class="process-input" v-model="activeTpl.row1" style="cursor: pointer; background: #fff;">
-                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+                <select id="work-order-template-first" class="process-input" v-model="activeTpl.row1">
+                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ t(f) }}</option>
                 </select>
               </div>
             </div>
             <div class="process-field" style="margin-top: 16px;">
-              <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">第二行取值</label>
+              <label class="process-label" for="work-order-template-second">第二行取值</label>
               <div class="process-input-wrap">
-                <select class="process-input" v-model="activeTpl.row2" style="cursor: pointer; background: #fff;">
-                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+                <select id="work-order-template-second" class="process-input" v-model="activeTpl.row2">
+                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ t(f) }}</option>
                 </select>
               </div>
             </div>
@@ -5408,40 +5497,40 @@ function activateSidebarItem(event: KeyboardEvent) {
           <!-- 80x60 模板配置项 -->
           <template v-else>
             <div class="process-field" style="margin-top: 16px;">
-              <label class="process-label required" style="font-weight: normal; margin-bottom: 8px; display: block;">二维码内容</label>
+              <label class="process-label" for="work-order-template-qr-wide">二维码内容</label>
               <div class="process-input-wrap">
-                <select class="process-input" v-model="activeTpl.qrSource" style="cursor: pointer; background: #fff;">
-                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+                <select id="work-order-template-qr-wide" class="process-input" v-model="activeTpl.qrSource">
+                  <option v-for="f in printQrSources" :key="f" :value="f">{{ t(f) }}</option>
                 </select>
               </div>
             </div>
 
             <!-- 标题行配置 -->
-            <div style="display: flex; gap: 12px; align-items: center; margin-top: 16px;">
-              <div style="flex: 1;">
-                <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">标题行名称</label>
-                <input class="process-input" v-model="activeTpl.titleLabel" placeholder="如：工单编号" />
+            <div class="work-order-template-field-pair">
+              <div>
+                <label class="process-label" for="work-order-template-heading-name">标题行名称</label>
+                <input id="work-order-template-heading-name" class="process-input" v-model="activeTpl.titleLabel" placeholder="如：工单编号" />
               </div>
-              <div style="flex: 1;">
-                <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">标题行取值</label>
-                <select class="process-input" v-model="activeTpl.titleField" style="cursor: pointer; background: #fff;">
-                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ f }}</option>
+              <div>
+                <label class="process-label" for="work-order-template-heading-value">标题行取值</label>
+                <select id="work-order-template-heading-value" class="process-input" v-model="activeTpl.titleField">
+                  <option v-for="f in workOrderFields" :key="f" :value="f">{{ t(f) }}</option>
                 </select>
               </div>
             </div>
 
             <!-- 第1~6行配置 -->
-            <div v-for="i in 6" :key="`row-${i}`" style="display: flex; gap: 12px; align-items: flex-start; margin-top: 12px;">
-              <div style="flex: 1;">
-                <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">第{{ i }}行名称</label>
-                <input class="process-input" v-model="activeTpl[`row${i}Label`]" />
+            <div v-for="i in 6" :key="`row-${i}`" class="work-order-template-field-pair">
+              <div>
+                <label class="process-label" :for="`work-order-template-row-${i}`">{{ t('第{0}行名称', [i]) }}</label>
+                <input :id="`work-order-template-row-${i}`" class="process-input" v-model="activeTpl[`row${i}Label`]" />
               </div>
-              <div style="flex: 1;">
-                <label class="process-label" style="font-weight: normal; margin-bottom: 8px; display: block;">第{{ i }}行取值 <span style="font-size: 11px; color: #8a9693;">(可多选)</span></label>
-                <div style="border: 1px solid #dce3e0; border-radius: 4px; background: #fff; max-height: 140px; overflow-y: auto; padding: 4px 0;">
-                  <label v-for="f in workOrderFields" :key="`row${i}-${f}`" style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px; color: #333;" :style="ensureArray(activeTpl[`row${i}Field`]).includes(f) ? 'background: #e8f7f3;' : ''">
-                    <input type="checkbox" :value="f" :checked="ensureArray(activeTpl[`row${i}Field`]).includes(f)" @change="toggleRowField(i, f)" style="accent-color: #00b889; cursor: pointer;" />
-                    {{ f }}
+              <div>
+                <span class="process-label" :id="`work-order-template-group-${i}`">{{ t('第{0}行取值', [i]) }}</span>
+                <div class="work-order-template-checkboxes" role="group" :aria-labelledby="`work-order-template-group-${i}`">
+                  <label v-for="f in workOrderFields" :key="`row${i}-${f}`">
+                    <input type="checkbox" :value="f" :checked="ensureArray(activeTpl[`row${i}Field`]).includes(f)" @change="toggleRowField(i, f)" />
+                    {{ t(f) }}
                   </label>
                 </div>
               </div>
@@ -5450,12 +5539,12 @@ function activateSidebarItem(event: KeyboardEvent) {
         </div>
 
         <!-- 右侧预览区 -->
-        <div style="width: 320px; padding: 24px; display: flex; flex-direction: column; background: #fff;">
-          <h3 style="font-size: 14px; margin-top: 0; margin-bottom: 24px; color: #333;">模板效果预览</h3>
+        <div class="work-order-template-preview">
+          <h3>模板效果预览</h3>
           <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
             <!-- 30x40 预览 -->
-            <div v-if="activeTpl.type === '30x40'" style="width: 200px; border: 1px solid #ccc; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05); background: #fff;">
-              <img v-if="qrPreviewUrl" :src="qrPreviewUrl" width="120" height="120" style="margin-bottom: 16px; mix-blend-mode: multiply;" />
+            <div v-if="activeTpl.type === '30x40'" class="work-order-template-paper" style="width: 200px; border: 1px solid #ccc; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.05); background: #fff;">
+              <img v-if="qrPreviewUrl" :src="qrPreviewUrl" width="120" height="120" alt="" style="margin-bottom: 16px; mix-blend-mode: multiply;" />
               <svg v-else viewBox="0 0 100 100" width="120" height="120" style="margin-bottom: 16px;">
                 <rect width="100" height="100" fill="#000" />
                 <rect x="10" y="10" width="30" height="30" fill="#fff" />
@@ -5469,7 +5558,7 @@ function activateSidebarItem(event: KeyboardEvent) {
             </div>
             
             <!-- 80x60 预览 -->
-            <div v-else style="width: 280px; border: 2px solid #333; padding: 2px; background: #fff; display: flex; flex-direction: column; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
+            <div v-else class="work-order-template-paper" style="width: 280px; border: 2px solid #333; padding: 2px; background: #fff; display: flex; flex-direction: column; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
               <div style="text-align: center; font-size: 12px; font-weight: bold; border-bottom: 1px solid #333; padding: 6px 4px; word-break: break-all;">
                 {{ activeTpl.titleLabel }}: ${工单.{{ activeTpl.titleField }}}
               </div>
@@ -5493,7 +5582,7 @@ function activateSidebarItem(event: KeyboardEvent) {
                   </div>
                 </div>
                 <div style="width: 90px; display: flex; align-items: center; justify-content: center; padding: 6px;">
-                  <img v-if="qrPreviewUrl" :src="qrPreviewUrl" width="76" height="76" style="mix-blend-mode: multiply;" />
+                  <img v-if="qrPreviewUrl" :src="qrPreviewUrl" width="76" height="76" alt="" style="mix-blend-mode: multiply;" />
                   <svg v-else viewBox="0 0 100 100" width="76" height="76">
                     <rect width="100" height="100" fill="#000" />
                     <rect x="10" y="10" width="30" height="30" fill="#fff" />
@@ -5508,12 +5597,14 @@ function activateSidebarItem(event: KeyboardEvent) {
           </div>
         </div>
       </div>
-      <footer class="modal-footer" style="padding: 16px 24px; border-top: 1px solid #eee; background: #fff;">
-        <button class="ghost-btn" style="min-width: 80px;" type="button" @click="showEditPrintTemplateModal = false">取消</button>
-        <button aria-label="保存" title="保存" class="primary-btn ui-icon-button" style="min-width: 80px;" type="button" @click="savePrintTemplates"><UiIcon name="save" :size="17" /></button>
+      <p v-if="printTemplateError" class="workspace-modal-error" role="alert">{{ printTemplateError }}</p>
+      <footer class="modal-footer">
+        <button class="ghost-btn" type="button" @click="closeEditPrintTemplate">取消</button>
+        <button class="primary-btn ui-action-button" type="button" @click="savePrintTemplates"><UiIcon name="save" :size="17" />保存</button>
       </footer>
     </section>
   </div>
+  </Transition>
 
   <LoadingProgressOverlay
     :visible="workspaceLoadingVisible && !isInternalChatWindow"

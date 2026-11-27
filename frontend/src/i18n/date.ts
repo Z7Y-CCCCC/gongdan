@@ -5,8 +5,8 @@ function validZone(value: string) { try { new Intl.DateTimeFormat('en', { timeZo
 export const uiTimezone = ref(validZone(initial) ? initial : 'Asia/Shanghai')
 export function setUiTimezone(value: string) {
   if (!validZone(value)) return false
-  uiTimezone.value = value
   localStorage.setItem('heihu_timezone', value)
+  uiTimezone.value = value
   return true
 }
 

@@ -82,6 +82,7 @@ export interface FieldEventRecord {
   title: string
   status: string
   payloadJson?: string
+  createdById?: number
   createdByName?: string
   createdAt?: string
   updatedAt?: string

@@ -3,7 +3,7 @@ import { downloadXlsx } from '../utils/spreadsheet'
 import { parseCsvRows } from '../utils/csv'
 import { formatUiDate, t, uiLocale } from '../i18n'
 import { printLabel } from '../utils/printHtml'
-import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch, type Ref } from 'vue'
+import { computed, inject, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, useId, watch, type Ref } from 'vue'
 import {
   fetchUnits, createUnit, updateUnit, deleteUnit,
   fetchDefects, createDefect, updateDefect, deleteDefect,
@@ -19,7 +19,10 @@ import {
   createSystemImportLog
 } from '../api'
 import { useDeleteConfirm } from '@/composables/useDeleteConfirm'
+import { useDialogFocus } from '@/composables/useDialogFocus'
 import { usePageOperationScope } from '@/composables/usePageOperationScope'
+import { workspaceDialogMotion } from '@/workspaceDialogMotion'
+import { workspaceLeaveGuardsKey } from '@/utils/workspaceLeaveGuards'
 import DeleteConfirmDialog from '@/components/DeleteConfirmDialog.vue'
 import SystemLogsDialog from '@/components/SystemLogsDialog.vue'
 import UiIcon from '@/components/UiIcon.vue'
@@ -39,6 +42,7 @@ const emit = defineEmits<{
   (e: 'notice', msg: string): void
   (e: 'confirm', payload: { title: string; message: string; action: () => void }): void
 }>()
+const leaveGuards = inject(workspaceLeaveGuardsKey, null)
 
 const errorMessage = ref('')
 watch(errorMessage, (v) => { if (v) emit('error', v) })
@@ -247,6 +251,32 @@ const unitFilteredList = computed(() => {
 const showUnitModal = ref(false)
 const editingUnit = ref<UnitInfo | null>(null)
 const unitForm = reactive({ name: '', remark: '' })
+const unitDialog = ref<HTMLElement | null>(null)
+const unitNameInput = ref<HTMLInputElement | null>(null)
+const unitDialogTitleId = useId()
+const unitSaveError = ref('')
+const unitSaving = ref(false)
+const discardUnitDraft = ref(false)
+let unitDraftName = '', unitDraftRemark = ''
+let unitOperationGeneration = 0
+let unregisterUnitLeaveGuard: (() => void) | undefined
+useDialogFocus(unitDialog, () => showUnitModal.value && props.activeBasedataMenu === 'unit', requestCloseUnit, () => unitNameInput.value)
+
+watch([() => props.token, () => props.activeBasedataMenu], ([token], [previousToken]) => {
+  discardUnitDraft.value = false
+  // A cached draft may survive navigation, but never a different session.
+  if (token !== previousToken) {
+    unitOperationGeneration++
+    unitSaving.value = false
+    closeUnitDraft()
+    unitForm.name = unitDraftName = ''
+    unitForm.remark = unitDraftRemark = ''
+    editingUnit.value = null
+  }
+}, { flush: 'sync' })
+onDeactivated(() => { discardUnitDraft.value = false })
+onBeforeUnmount(() => { unitOperationGeneration++; unregisterUnitLeaveGuard?.() })
+
 const unitPage = ref(1)
 const unitPageSize = ref(10)
 const unitTotalPages = computed(() => Math.max(1, Math.ceil(unitFilteredList.value.length / unitPageSize.value)))
@@ -260,30 +290,82 @@ async function loadUnits(request = pageOperations.capture()) {
   } catch (e) { console.error('加载单位失败', e) }
 }
 function openCreateUnit() {
-  editingUnit.value = null
-  unitForm.name = ''
-  unitForm.remark = ''
-  showUnitModal.value = true
+  openUnitDraft(null)
 }
 function openEditUnit(unit: UnitInfo) {
+  openUnitDraft(unit)
+}
+function openUnitDraft(unit: UnitInfo | null) {
+  if (showUnitModal.value || unitSaving.value) return
+  unregisterUnitLeaveGuard?.()
+  unregisterUnitLeaveGuard = leaveGuards?.register('basedata-unit', {
+    isDirty: () => showUnitModal.value && (unitSaving.value || unitFormDirty()),
+    confirmLeave(reason) {
+      if (unitSaving.value) {
+        emit('error', t('单位仍在保存，请稍候。'))
+        return false
+      }
+      if (reason === 'logout') return window.confirm(t('退出登录将丢弃未保存的修改，是否继续？'))
+      emit('error', t('单位有未保存的修改，请返回单位表单保存或放弃。'))
+      return false
+    }
+  })
   editingUnit.value = unit
-  unitForm.name = unit.name
-  unitForm.remark = unit.remark || ''
+  unitForm.name = unitDraftName = unit?.name ?? ''
+  unitForm.remark = unitDraftRemark = unit?.remark ?? ''
+  unitSaveError.value = ''
   showUnitModal.value = true
 }
+function closeUnitDraft() {
+  unregisterUnitLeaveGuard?.()
+  unregisterUnitLeaveGuard = undefined
+  discardUnitDraft.value = false
+  showUnitModal.value = false
+  unitSaveError.value = ''
+}
+function unitFormDirty() { return unitForm.name !== unitDraftName || unitForm.remark !== unitDraftRemark }
+function requestCloseUnit() {
+  if (!showUnitModal.value || unitSaving.value) return
+  if (unitFormDirty()) {
+    discardUnitDraft.value = true
+    return
+  }
+  closeUnitDraft()
+}
+async function confirmDiscardUnit() {
+  const request = pageOperations.capture()
+  discardUnitDraft.value = false
+  await nextTick()
+  if (request.isCurrent() && showUnitModal.value) closeUnitDraft()
+}
 async function handleSaveUnit() {
-  if (!unitForm.name.trim()) return
+  if (!showUnitModal.value || unitSaving.value || discardUnitDraft.value || !unitForm.name.trim()) return
+  const token = props.token, generation = unitOperationGeneration
+  if (!token) return
+  // Keep the submission lock if the user switches to another cached tab.
+  const current = () => props.token === token && unitOperationGeneration === generation
+  const id = editingUnit.value?.id
+  const payload = { name: unitForm.name, remark: unitForm.remark }
+  unitSaveError.value = ''
+  unitDialog.value?.focus({ preventScroll: true })
+  unitSaving.value = true
   try {
-    if (editingUnit.value) {
-      const updated = await updateUnit(props.token, editingUnit.value.id, { name: unitForm.name, remark: unitForm.remark })
-      const idx = units.value.findIndex(u => u.id === editingUnit.value!.id)
+    if (id !== undefined) {
+      const updated = await updateUnit(token, id, payload)
+      if (!current()) return
+      const idx = units.value.findIndex(u => u.id === id)
       if (idx !== -1) units.value[idx] = updated
     } else {
-      const created = await createUnit(props.token, { name: unitForm.name, remark: unitForm.remark })
+      const created = await createUnit(token, payload)
+      if (!current()) return
       units.value.unshift(created)
     }
-    showUnitModal.value = false
-  } catch (e: any) { errorMessage.value = e.message || '保存单位失败' }
+    closeUnitDraft()
+  } catch (error) {
+    if (current()) unitSaveError.value = error instanceof Error ? error.message : t('保存单位失败')
+  } finally {
+    if (current()) unitSaving.value = false
+  }
 }
 async function handleDeleteUnit(unit: UnitInfo) {
   const id = unit.id
@@ -3076,28 +3158,32 @@ async function exportXlsx(kind: string) {
       </section>
 
   <!-- 单位弹窗 -->
-  <div v-if="showUnitModal" class="modal-backdrop">
-    <section class="modal">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showUnitModal && activeBasedataMenu === 'unit'" class="modal-backdrop workspace-dialog-motion-backdrop">
+    <section ref="unitDialog" class="modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="unitDialogTitleId" :aria-busy="unitSaving" tabindex="-1">
       <header class="modal-header">
-        <h2>{{ editingUnit ? '编辑单位' : '创建单位' }}</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="showUnitModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <h2 :id="unitDialogTitleId">{{ editingUnit ? '编辑单位' : '创建单位' }}</h2>
+        <button class="close-btn ui-icon-button" type="button" :disabled="unitSaving" @click="requestCloseUnit" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleSaveUnit">
         <label>
           <span><em>*</em> 名称</span>
-          <input v-model="unitForm.name" placeholder="请输入单位名称" required />
+          <input ref="unitNameInput" v-model="unitForm.name" placeholder="请输入单位名称" :disabled="unitSaving" required />
         </label>
         <label>
           <span>备注</span>
-          <input v-model="unitForm.remark" placeholder="请输入备注" />
+          <input v-model="unitForm.remark" placeholder="请输入备注" :disabled="unitSaving" />
         </label>
+        <p v-if="unitSaveError" class="export-error" role="alert">{{ unitSaveError }}</p>
+        <p v-if="unitSaving" class="unit-save-status" role="status">{{ t('保存中...') }}</p>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="showUnitModal = false" title="取消" aria-label="取消"><UiIcon name="close" /></button>
-          <button class="primary-btn wide" type="submit">确定</button>
+          <button class="ghost-btn wide" type="button" :disabled="unitSaving" @click="requestCloseUnit">取消</button>
+          <button class="primary-btn wide" type="submit" :disabled="unitSaving">{{ unitSaving ? t('保存中...') : t('保存单位') }}</button>
         </footer>
       </form>
     </section>
   </div>
+  </Transition>
 
   <!-- 不良品项弹窗 -->
   <div v-if="showDefectModal" class="modal-backdrop">
@@ -3166,4 +3252,15 @@ async function exportXlsx(kind: string) {
     @confirm="deleteHandleConfirm"
     @update:visible="val => { if (!val) deleteHandleCancel() }"
   />
+  <DeleteConfirmDialog
+    v-model:visible="discardUnitDraft"
+    :title="t('放弃未保存的修改？')"
+    :message="t('关闭后，本次修改不会保存。')"
+    confirm-label="放弃修改"
+    @confirm="confirmDiscardUnit"
+  />
 </template>
+
+<style scoped>
+.unit-save-status { margin: 0; }
+</style>

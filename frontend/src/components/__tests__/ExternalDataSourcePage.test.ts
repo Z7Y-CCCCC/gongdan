@@ -27,7 +27,7 @@ describe('外部数据源', () => {
     api.test.mockResolvedValue(successfulCheck())
     api.testDraft.mockResolvedValue(successfulCheck())
   })
-  afterEach(() => { wrapper?.unmount(); vi.useRealTimers() })
+  afterEach(() => { wrapper?.unmount(); vi.useRealTimers(); vi.restoreAllMocks() })
   async function page() {
     wrapper = mount(ExternalDataSourcePage, { props: { token: 'factory-a' } })
     await flushPromises(); return wrapper
@@ -70,8 +70,12 @@ describe('外部数据源', () => {
     expect(wrapper.text()).toContain('未保存配置')
   })
   it('closing editor clears in-memory secret', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true)
     await page(); await button('编辑').trigger('click')
     wrapper.vm.form.secretValue = 'sensitive-token'
+    await wrapper.find('[aria-label="关闭配置"]').trigger('click')
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(wrapper.vm.form.secretValue).toBe('sensitive-token')
     await wrapper.find('[aria-label="关闭配置"]').trigger('click')
     expect(wrapper.vm.form.secretValue).toBe('')
     expect(wrapper.find('[role=dialog]').exists()).toBe(false)
@@ -219,6 +223,7 @@ describe('外部数据源', () => {
     for (const code of ['', 'bad code', 'MES/test', 'bad@code', '工单', '[bad]', 'a|b', 'a+b']) expect(fullPattern.test(code)).toBe(false)
   })
   it('invalidates a draft success after the user edits the form or closes the editor', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
     await page(); await button('编辑').trigger('click')
     await button('测试当前配置').trigger('click'); await flushPromises()
     expect(wrapper.find('.test-result').text()).toContain('未保存配置')
@@ -231,6 +236,7 @@ describe('外部数据源', () => {
     expect(wrapper.find('.test-result').exists()).toBe(false)
   })
   it('does not keep a prior draft success after saving configuration without testing', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     api.save.mockResolvedValue({ ...source, version: 3 })
     await page(); await button('编辑').trigger('click')
     await button('测试当前配置').trigger('click'); await flushPromises()
@@ -238,6 +244,9 @@ describe('外部数据源', () => {
     expect(wrapper.text()).toContain('配置已保存')
     expect(wrapper.find('.test-result').exists()).toBe(false)
     expect(api.test).not.toHaveBeenCalled()
+    await wrapper.find('[aria-label="关闭配置"]').trigger('click')
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
   it('retains an explicit save-success message if the subsequent test request fails', async () => {
     api.save.mockResolvedValue({ ...source, version: 3 })

@@ -220,17 +220,17 @@ onMounted(() => void load())
       <button class="notification-center-refresh ui-icon-button" type="button" title="刷新通知" aria-label="刷新通知" :disabled="loading" @click="load"><UiIcon name="refresh" /></button>
     </header>
 
-    <div class="notification-center-tabs" role="tablist" aria-label="通知范围">
-      <button type="button" :class="{ active: scope === 'active' && !unreadOnly }" @click="unreadOnly = false; changeScope('active')">当前通知</button>
-      <button type="button" :class="{ active: unreadOnly }" @click="unreadOnly = true; changeScope('active')">未读 <b v-if="unreadCount">{{ unreadCount > 99 ? '99+' : unreadCount }}</b></button>
-      <button type="button" :class="{ active: scope === 'all' }" @click="unreadOnly = false; changeScope('all')">全部记录</button>
-      <button type="button" :class="{ active: scope === 'history' }" @click="unreadOnly = false; changeScope('history')">已归档</button>
+    <div class="notification-center-tabs" role="group" aria-label="通知范围">
+      <button type="button" :class="{ active: scope === 'active' && !unreadOnly }" :aria-pressed="scope === 'active' && !unreadOnly" @click="unreadOnly = false; changeScope('active')">当前通知</button>
+      <button type="button" :class="{ active: unreadOnly }" :aria-pressed="unreadOnly" @click="unreadOnly = true; changeScope('active')">未读 <b v-if="unreadCount">{{ unreadCount > 99 ? '99+' : unreadCount }}</b></button>
+      <button type="button" :class="{ active: scope === 'all' }" :aria-pressed="scope === 'all'" @click="unreadOnly = false; changeScope('all')">全部记录</button>
+      <button type="button" :class="{ active: scope === 'history' }" :aria-pressed="scope === 'history'" @click="unreadOnly = false; changeScope('history')">已归档</button>
     </div>
 
     <div class="notification-center-filter-bar">
       <div class="notification-center-search">
         <UiIcon name="search" :size="15" />
-        <input v-model="searchKeyword" type="search" placeholder="搜索通知标题或内容" @keydown.enter="search" />
+        <input v-model="searchKeyword" type="search" aria-label="搜索通知标题或内容" placeholder="搜索通知标题或内容" @keydown.enter="search" />
         <button v-if="searchKeyword" type="button" title="清除搜索" aria-label="清除搜索" @click="searchKeyword = ''; search()" class="ui-icon-button"><UiIcon name="close" :size="14" /></button>
       </div>
       <select v-model="eventType" aria-label="通知类型">
@@ -260,8 +260,8 @@ onMounted(() => void load())
       <span v-if="keyword">搜索：{{ keyword }}</span>
     </div>
 
-    <div v-if="loading" class="notification-center-state">正在加载通知...</div>
-    <div v-else-if="error" class="notification-center-state error">{{ error }} <button type="button" @click="load" title="重试" aria-label="重试" class="ui-icon-button"><UiIcon name="refresh" /></button></div>
+    <div v-if="loading" class="notification-center-state" role="status">正在加载通知...</div>
+    <div v-else-if="error" class="notification-center-state error"><span role="alert">{{ error }}</span> <button type="button" @click="load" title="重试" aria-label="重试" class="ui-icon-button"><UiIcon name="refresh" /></button></div>
     <div v-else-if="items.length === 0" class="notification-center-state">
       <UiIcon name="bell" :size="28" />
       <strong>暂无通知</strong>

@@ -61,6 +61,7 @@
     <!-- 工序列表 (生产进度 tab) -->
     <view v-if="loadError" class="empty-hint" role="alert"><text>{{ loadError }}</text><IconButton icon="refreshempty" label="重试工单详情" @click="loadData" /><IconButton icon="back" label="返回工单列表" @click="navigatePage('/pages/work-orders/index')" /></view>
     <scroll-view v-else-if="activeTab === 'progress' && order.id" scroll-y class="process-list">
+      <text class="sr-only" role="status">{{ checkingProcessNo !== null ? '正在确认报工权限…' : '' }}</text>
       <view v-if="!order.tasks || order.tasks.length === 0" class="empty-hint">
         <text>暂无工序数据</text>
       </view>
@@ -101,11 +102,14 @@
           <button class="btn ghost" :aria-label="(step.processName || '工序') + '详情'" @click="viewStepDetail(step)"><uni-icons type="info" size="18" aria-hidden="true" /><text>详情</text></button>
           <button
             class="btn"
-            :class="hasReportPermission(step) ? 'primary' : 'disabled'"
+            :class="[hasReportPermission(step) ? 'primary' : 'disabled', { 'permission-checking': checkingProcessNo === step.sequenceNo }]"
+            :disabled="checkingProcessNo !== null"
+            :aria-busy="checkingProcessNo === step.sequenceNo"
             @click="hasReportPermission(step) ? handleReport(step) : handleNoPermission()"
             :aria-label="hasReportPermission(step) ? (step.processName || '工序') + '报工' : '查看报工限制'"
-          >{{ hasReportPermission(step) ? '报工' : '无权限' }}</button>
+          >{{ checkingProcessNo === step.sequenceNo ? '确认权限中…' : hasReportPermission(step) ? '报工' : '无权限' }}</button>
         </view>
+        <text v-if="permissionError?.processNo === step.sequenceNo" class="process-permission-error" role="alert">{{ permissionError.message }}</text>
       </view>
     </scroll-view>
 
@@ -187,7 +191,7 @@ import { navigatePage, safeDecode } from '../../utils/navigation'
 const pageActivity = useMobilePageActivity()
 const pageMessage = usePageMessage()
 const pageActive = ref(true)
-onHide(() => { pageActive.value = false })
+onHide(() => { pageActive.value = false; resetPermissionCheck() })
 
 const order = ref<WorkOrderInfo>({
   id: 0,
@@ -210,7 +214,15 @@ const productUnit = computed(() => order.value.unitName || '')
 const reports = ref<WorkOrderReport[]>([])
 const reportTotal = ref(0)
 const loadedReports = ref(0)
-let checkingPermission = false
+const checkingProcessNo = ref<number | null>(null)
+const permissionError = ref<{ processNo: number; message: string } | null>(null)
+let permissionSequence = 0
+
+function resetPermissionCheck() {
+  permissionSequence++
+  checkingProcessNo.value = null
+  permissionError.value = null
+}
 const materialReports = computed(() => reports.value.filter(item => item.status === 'APPROVED' && item.materialName))
 
 // 从 URL 参数中获取 id 或 code
@@ -246,7 +258,7 @@ onMounted(async () => {
   await loadData()
 })
 onShow(() => { pageActive.value = true; if (mounted) void loadData() })
-onBeforeUnmount(() => { mounted = false; activeLoad = undefined; historySequence++ })
+onBeforeUnmount(() => { mounted = false; activeLoad = undefined; historySequence++; permissionSequence++ })
 
 const loadData = async () => {
   const session = mobileSessionKey()
@@ -406,12 +418,14 @@ const handleNoPermission = () => {
 }
 
 const handleReport = async (step: any) => {
-  if (!mounted || checkingPermission || !ensureLogin()) return
+  if (!mounted || checkingProcessNo.value !== null || !ensureLogin()) return
   const session = mobileSessionKey()
   const targetOrder = order.value
+  const sequence = ++permissionSequence
   const isPageCurrent = pageActivity.capture()
-  const current = () => mounted && isPageCurrent() && targetOrder === order.value
-  checkingPermission = true
+  const current = () => mounted && isPageCurrent() && targetOrder === order.value && sequence === permissionSequence
+  checkingProcessNo.value = step.sequenceNo
+  permissionError.value = null
   try {
     const users = await fetchWorkOrderReporters(targetOrder.id, step.sequenceNo)
     if (!current()) return
@@ -419,10 +433,11 @@ const handleReport = async (step: any) => {
     if (!users.some(user => user.id === uni.getStorageSync('user')?.id)) throw new Error('您没有此工序的报工权限')
   } catch (e: any) {
     if (!current()) return
-    uni.showToast({ title: e.message || '报工权限确认失败，请重试', icon: 'none' })
+    if (session !== mobileSessionKey()) uni.showToast({ title: '登录状态已变更，请刷新', icon: 'none' })
+    else permissionError.value = { processNo: step.sequenceNo, message: e?.message || '报工权限确认失败，请重试' }
     return
   } finally {
-    if (mounted) checkingPermission = false
+    if (mounted && sequence === permissionSequence) checkingProcessNo.value = null
   }
   const url = `/pages/report-form/index?orderId=${order.value.id}&processNo=${step.sequenceNo || 1}&processName=${encodeURIComponent(step.processName || '')}&plannedQty=${step.plannedQuantity || order.value.plannedQuantity || 0}&completedQty=${step.completedQuantity || 0}&defectQty=${step.defectQuantity || 0}&reportPermission=${encodeURIComponent(step.reportPermission || '')}`
   navigatePage(url)
@@ -712,6 +727,8 @@ function priorityLabel(priority?: string) {
 .btn.ghost { border: 1px solid var(--mobile-border, #ddd); color: var(--mobile-muted, #666); }
 .btn.primary { border: 1px solid #00856b; background: #00856b; color: #fff; }
 .btn.disabled { border: 1px solid var(--mobile-border, #eee); background: var(--mobile-bg, #fafafa); color: var(--mobile-muted, #64756d); cursor: not-allowed; }
+.btn.primary.permission-checking { padding: 0 18rpx; background: var(--mobile-subtle, #e6f7f3); color: var(--mobile-link, #007a60); }
+.process-permission-error { display: block; margin-top: 12rpx; color: var(--mobile-error, #a0332c); font-size: 24rpx; overflow-wrap: anywhere; }
 
 .history-card {
   background: var(--mobile-surface, white);

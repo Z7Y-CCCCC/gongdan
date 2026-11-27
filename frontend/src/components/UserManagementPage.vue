@@ -2,8 +2,9 @@
 import UiIcon from './UiIcon.vue'
 import { formatUiDate, t, uiLocale } from '../i18n'
 import { escapePrintHtml as escapeHtml, printLabel } from '../utils/printHtml'
-import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onDeactivated, reactive, ref, useId, watch } from 'vue'
 import { useLatestRequest } from '../composables/useLatestRequest'
+import { useDialogFocus } from '../composables/useDialogFocus'
 import { parseCsvRows } from '../utils/csv'
 import { downloadXlsx } from '../utils/spreadsheet'
 import {
@@ -13,6 +14,7 @@ import {
   fetchSystemImportLogs, createSystemImportLog
 } from '../api'
 import TableConfigButton from './TableConfigButton.vue'
+import { workspaceDialogMotion } from '../workspaceDialogMotion'
 
 const props = defineProps<{
   token: string
@@ -104,6 +106,40 @@ const exportError = ref('')
 onActivated(() => { exportActive = true })
 onDeactivated(() => { exportActive = false; exportGeneration++; exporting.value = false; exportError.value = '' })
 const writing = computed(() => loading.value || importing.value)
+const modalTitleId = useId()
+const importLogDialog = ref<HTMLElement | null>(null)
+// The new-account form and its confirmation are one logical dialog session.
+const userCreateFlowDialog = ref<HTMLElement | null>(null)
+const userEditDialog = ref<HTMLElement | null>(null)
+const passwordDialog = ref<HTMLElement | null>(null)
+const permissionDialog = ref<HTMLElement | null>(null)
+
+function closeImportLogDialog() { showImportLogModal.value = false }
+function closeUserCreateDialog() { if (!writing.value) showCreateModal.value = false }
+function closeUserEditDialog() { if (!writing.value) showEditModal.value = false }
+function closePasswordDialog() {
+  if (writing.value) return
+  showResetPasswordModal.value = false
+  resetPasswordForm.password = ''
+  resetPasswordForm.confirmPassword = ''
+}
+function closePermissionDialog() { if (!writing.value) showPermissionModal.value = false }
+function closeSuccessDialog() {
+  successUser.value = null
+  successUserPassword.value = ''
+}
+
+useDialogFocus(importLogDialog, () => showImportLogModal.value, closeImportLogDialog)
+useDialogFocus(userCreateFlowDialog, () => showCreateModal.value || Boolean(successUser.value), () => {
+  if (successUser.value) closeSuccessDialog()
+  else closeUserCreateDialog()
+})
+watch(userCreateFlowDialog, dialog => {
+  if (successUser.value && dialog?.isConnected) dialog.querySelector<HTMLElement>('.primary-btn')?.focus({ preventScroll: true })
+}, { flush: 'post' })
+useDialogFocus(userEditDialog, () => showEditModal.value, closeUserEditDialog)
+useDialogFocus(passwordDialog, () => showResetPasswordModal.value, closePasswordDialog)
+useDialogFocus(permissionDialog, () => showPermissionModal.value, closePermissionDialog)
 const errorMessage = ref('')
 watch(errorMessage, (v) => { if (v) emit('error', v) })
 
@@ -230,9 +266,9 @@ async function handleCreateUser() {
     departmentId: createForm.departmentId, virtualUser: Boolean(createForm.virtualUser) }
   await runUserMutation(token => createUser(token, payload), created => {
     emit('reload-users')
-    successUser.value = created
-    successUserPassword.value = payload.password
     showCreateModal.value = false
+    successUserPassword.value = payload.password
+    successUser.value = created
     resetCreateForm()
   }, '创建用户失败')
 }
@@ -712,11 +748,12 @@ function handlePrintTemplate() {
       </section>
 
   <!-- 导入日志弹窗 -->
-  <div v-if="showImportLogModal" class="modal-backdrop">
-    <section class="modal">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showImportLogModal" class="modal-backdrop workspace-dialog-motion-backdrop">
+    <section ref="importLogDialog" class="modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="`${modalTitleId}-import`" tabindex="-1">
       <header class="modal-header">
-        <h2>导入日志</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="showImportLogModal = false" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <h2 :id="`${modalTitleId}-import`">导入日志</h2>
+        <button class="close-btn ui-icon-button" type="button" @click="closeImportLogDialog" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <div class="modal-body" style="padding:22px;overflow:auto">
         <section v-if="importResult" class="import-result">
@@ -747,13 +784,15 @@ function handlePrintTemplate() {
       </div>
     </section>
   </div>
+  </Transition>
 
   <!-- 新增用户弹窗 -->
-  <div v-if="showCreateModal" class="modal-backdrop">
-    <section class="modal">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showCreateModal" class="modal-backdrop workspace-dialog-motion-backdrop">
+    <section ref="userCreateFlowDialog" class="modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="`${modalTitleId}-create`" tabindex="-1">
       <header class="modal-header">
-        <h2>新增用户</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="!writing && (showCreateModal = false)" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <h2 :id="`${modalTitleId}-create`">新增用户</h2>
+        <button class="close-btn ui-icon-button" type="button" @click="closeUserCreateDialog" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleCreateUser">
         <label>
@@ -791,19 +830,21 @@ function handlePrintTemplate() {
           <input type="checkbox" v-model="createForm.virtualUser" :disabled="writing" style="width:auto;justify-self:start" />
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="!writing && (showCreateModal = false)" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="closeUserCreateDialog" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" :disabled="writing" type="submit">{{ loading ? '保存中...' : '保存' }}</button>
         </footer>
       </form>
     </section>
   </div>
+  </Transition>
 
   <!-- 编辑用户弹窗 -->
-  <div v-if="showEditModal" class="modal-backdrop">
-    <section class="modal">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showEditModal" class="modal-backdrop workspace-dialog-motion-backdrop">
+    <section ref="userEditDialog" class="modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="`${modalTitleId}-edit`" tabindex="-1">
       <header class="modal-header">
-        <h2>编辑用户</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="!writing && (showEditModal = false)" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <h2 :id="`${modalTitleId}-edit`">编辑用户</h2>
+        <button class="close-btn ui-icon-button" type="button" @click="closeUserEditDialog" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleUpdateUser">
         <label>
@@ -837,19 +878,21 @@ function handlePrintTemplate() {
           <input type="checkbox" v-model="editForm.virtualUser" :disabled="writing" style="width:auto;justify-self:start" />
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="!writing && (showEditModal = false)" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="closeUserEditDialog" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" :disabled="writing" type="submit">{{ loading ? '保存中...' : '保存' }}</button>
         </footer>
       </form>
     </section>
   </div>
+  </Transition>
 
   <!-- 重置密码弹窗 -->
-  <div v-if="showResetPasswordModal" class="modal-backdrop">
-    <section class="modal">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showResetPasswordModal" class="modal-backdrop workspace-dialog-motion-backdrop">
+    <section ref="passwordDialog" class="modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="`${modalTitleId}-password`" tabindex="-1">
       <header class="modal-header">
-        <h2>重置密码</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="!writing && (showResetPasswordModal = false)" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <h2 :id="`${modalTitleId}-password`">重置密码</h2>
+        <button class="close-btn ui-icon-button" type="button" @click="closePasswordDialog" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleResetPassword">
         <label>
@@ -867,19 +910,21 @@ function handlePrintTemplate() {
           </div>
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="!writing && (showResetPasswordModal = false)" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="closePasswordDialog" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" :disabled="writing" type="submit">{{ loading ? '保存中...' : '保存' }}</button>
         </footer>
       </form>
     </section>
   </div>
+  </Transition>
 
   <!-- 权限配置弹窗 -->
-  <div v-if="showPermissionModal" class="modal-backdrop">
-    <section class="modal">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="showPermissionModal" class="modal-backdrop workspace-dialog-motion-backdrop">
+    <section ref="permissionDialog" class="modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="`${modalTitleId}-permission`" tabindex="-1">
       <header class="modal-header">
-        <h2>权限配置</h2>
-        <button class="close-btn ui-icon-button" type="button" @click="!writing && (showPermissionModal = false)" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <h2 :id="`${modalTitleId}-permission`">权限配置</h2>
+        <button class="close-btn ui-icon-button" type="button" @click="closePermissionDialog" :disabled="writing" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </header>
       <form class="create-form" @submit.prevent="handleUpdatePermission">
         <label>
@@ -890,20 +935,22 @@ function handlePrintTemplate() {
           </select>
         </label>
         <footer class="modal-footer">
-          <button class="ghost-btn wide ui-icon-button" type="button" @click="!writing && (showPermissionModal = false)" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
+          <button class="ghost-btn wide ui-icon-button" type="button" @click="closePermissionDialog" :disabled="writing" title="取消" aria-label="取消"><UiIcon name="close" /></button>
           <button class="primary-btn wide" :disabled="writing" type="submit">{{ loading ? '保存中...' : '保存' }}</button>
         </footer>
       </form>
     </section>
   </div>
+  </Transition>
 
   <!-- 新建用户成功弹窗 -->
-  <div v-if="successUser" class="modal-backdrop">
-    <section class="modal success-modal">
+  <Transition v-bind="workspaceDialogMotion">
+  <div v-if="successUser" class="modal-backdrop workspace-dialog-motion-backdrop">
+    <section ref="userCreateFlowDialog" class="modal success-modal workspace-dialog-motion-panel" role="dialog" aria-modal="true" :aria-labelledby="`${modalTitleId}-success`" tabindex="-1">
       <div class="success-icon">
         <svg viewBox="0 0 24 24" width="48" height="48" stroke="#0c9d82" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>
       </div>
-      <h2>新建用户成功</h2>
+      <h2 :id="`${modalTitleId}-success`">新建用户成功</h2>
       <div class="success-info">
         <p><span>账号：</span>{{ successUser?.username }}</p>
         <p><span>姓名：</span>{{ successUser?.name }}</p>
@@ -912,8 +959,9 @@ function handlePrintTemplate() {
       </div>
       <footer class="modal-footer">
         <button class="ghost-btn wide ui-icon-button" type="button" @click="copySuccessUser" title="复制信息" aria-label="复制信息"><UiIcon name="copy" /></button>
-        <button class="primary-btn wide ui-icon-button" type="button" @click="successUser = null" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
+        <button class="primary-btn wide ui-icon-button" type="button" @click="closeSuccessDialog" title="关闭" aria-label="关闭"><UiIcon name="close" /></button>
       </footer>
     </section>
   </div>
+  </Transition>
 </template>

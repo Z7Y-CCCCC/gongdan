@@ -171,7 +171,7 @@ const server = http.createServer(async (req, res) => {
       let raw = ''
       for await (const chunk of req) raw += chunk
       const input = JSON.parse(raw)
-      const event = { ...input, id: 1000 + ++fieldWriteCount, moduleName: 'FIELD_EVENT', createdAt: localTimestamp() }
+      const event = { ...input, id: 1000 + ++fieldWriteCount, moduleName: 'FIELD_EVENT', createdById: user.id, createdAt: localTimestamp() }
       fieldEvents.unshift(event)
       return send(res, 200, event)
     }
